@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 import type { UserRepositoryInterface } from '@/domain/repositories/user.repository.interface'
 
@@ -111,8 +110,5 @@ export class ListUsersWithRolesUseCase extends IUseCase<Params, Response> {
         }
       }
     }
-  }
-  log(): ActivityType {
-    return ActivityType.LIST_USERS
   }
 }

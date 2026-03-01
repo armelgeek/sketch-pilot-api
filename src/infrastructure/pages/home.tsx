@@ -22,9 +22,8 @@ export const Meteors = ({ number }: { number: number }) => {
 }
 
 Home.get('/', (c) => {
-  const title = 'API de Meko Academy'
-  const description =
-    "L'API de Meko Academy offre un accès complet aux fonctionnalités de la plateforme, permettant une intégration simple et efficace de nos services."
+  const title = 'API Server'
+  const description = 'API server documentation and reference.'
 
   return c.html(
     <html>
@@ -87,7 +86,7 @@ Home.get('/', (c) => {
               />
             </svg>
             <p class="text-2xl md:text-4xl text-transparent font-bold leading-none bg-clip-text bg-gradient-to-r from-[#7EDAFD] to-blue-600">
-              API de Meko Academy
+              API Server
             </p>
           </div>
 
@@ -99,11 +98,11 @@ Home.get('/', (c) => {
             >
               <div class="flex flex-col">
                 <span class="text-xs uppercase bg-opacity-15 rounded text-center max-w-fit px-2 py-1 font-bold tracking-wide bg-blue-500 text-blue-500">
-                  Meko Academy
+                  API
                 </span>
-                <span class="text-neutral-200 font-bold text-lg sm:text-xl md:text-2xl mt-2">API de Meko Academy</span>
+                <span class="text-neutral-200 font-bold text-lg sm:text-xl md:text-2xl mt-2">API Documentation</span>
                 <div class="text-neutral-500 mt-2">
-                  Découvrez la documentation pour apprendre à intégrer et tirer parti des services proposés.
+                  Explore the API documentation to integrate and use the available services.
                 </div>
               </div>
             </a>
@@ -114,14 +113,13 @@ Home.get('/', (c) => {
             >
               <div class="flex flex-col">
                 <span class="text-xs uppercase bg-opacity-15 rounded text-center max-w-fit px-2 py-1 font-bold tracking-wide bg-green-500 text-green-500">
-                  Authentification
+                  Authentication
                 </span>
                 <span class="text-neutral-200 font-bold text-lg sm:text-xl md:text-2xl mt-2">
-                  Gestion des utilisateurs
+                  User Management
                 </span>
                 <div class="text-neutral-500 mt-2">
-                  Découvrez notre système d'authentification avec des guides d'implémentation et une référence API
-                  complète.
+                  Explore the authentication system with implementation guides and a complete API reference.
                 </div>
               </div>
             </a>

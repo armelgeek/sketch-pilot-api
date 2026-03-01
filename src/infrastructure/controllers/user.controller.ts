@@ -3,7 +3,6 @@ import { eq } from 'drizzle-orm'
 import { PermissionService } from '@/application/services/permission.service'
 import { CreateAdminUserUseCase } from '@/application/use-cases/user/create-admin-user.use-case'
 import { DeleteUserUseCase } from '@/application/use-cases/user/delete-user.use-case'
-import { ListParentsUseCase } from '@/application/use-cases/user/list-parents.use-case'
 import { ListRolesWithDetailsUseCase } from '@/application/use-cases/user/list-roles-with-details.use-case'
 import { ListUsersWithRolesUseCase } from '@/application/use-cases/user/list-users-with-roles.use-case'
 import { UpdateUserUseCase } from '@/application/use-cases/user/update-user.use-case'
@@ -203,149 +202,6 @@ export class UserController implements Routes {
     this.controller.openapi(
       createRoute({
         method: 'get',
-        path: '/v1/parents',
-        tags: ['Parent'],
-        summary: 'List parents',
-        description:
-          'Get a list of parents with role filtering, search, and pagination support. Includes child count per user.',
-        operationId: 'listUsers',
-        request: {
-          query: z.object({
-            page: z
-              .string()
-              .transform(Number)
-              .optional()
-              .openapi({
-                param: {
-                  name: 'page',
-                  in: 'query',
-                  description: 'Page number for pagination',
-                  schema: {
-                    type: 'integer',
-                    default: 1,
-                    minimum: 1
-                  }
-                }
-              }),
-            limit: z
-              .string()
-              .transform(Number)
-              .optional()
-              .openapi({
-                param: {
-                  name: 'limit',
-                  in: 'query',
-                  description: 'Number of items per page',
-                  schema: {
-                    type: 'integer',
-                    default: 10,
-                    minimum: 1,
-                    maximum: 100
-                  }
-                }
-              }),
-            search: z
-              .string()
-              .optional()
-              .openapi({
-                param: {
-                  name: 'search',
-                  in: 'query',
-                  description: 'Search by name, firstname, or lastname',
-                  schema: {
-                    type: 'string'
-                  }
-                }
-              })
-          })
-        },
-        responses: {
-          200: {
-            description: 'List of users retrieved successfully',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  data: z.object({
-                    users: z.array(
-                      z.object({
-                        id: z.string(),
-                        name: z.string(),
-                        firstname: z.string().optional(),
-                        lastname: z.string().optional(),
-                        email: z.string(),
-                        emailVerified: z.boolean(),
-                        image: z.string().optional(),
-                        isAdmin: z.boolean(),
-                        childrenCount: z.number(),
-                        lastLoginAt: z.string().nullable(),
-                        createdAt: z.string(),
-                        updatedAt: z.string(),
-                        subscriptionPlan: z.string().openapi({
-                          description: 'Name of the subscription plan (e.g., Pro, Basic)',
-                          example: 'Pro'
-                        })
-                      })
-                    ),
-                    total: z.number(),
-                    page: z.number(),
-                    limit: z.number()
-                  })
-                })
-              }
-            }
-          },
-          401: {
-            description: 'Unauthorized - User must be authenticated',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  error: z.string()
-                })
-              }
-            }
-          }
-        }
-      }),
-      async (c: any) => {
-        try {
-          const query = c.req.valid('query')
-          const currentUser = c.get('user')
-          if (!currentUser) {
-            return c.json({ error: 'Unauthorized' }, 401)
-          }
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
-          const listParentsUseCase = new ListParentsUseCase(this.userRepository)
-          const { result } = await listParentsUseCase.run({
-            page: query.page ? Number(query.page) : undefined,
-            limit: query.limit ? Number(query.limit) : undefined,
-            search: query.search,
-            currentUserId: currentUser.id,
-            ipAddress
-          })
-          return c.json(result)
-        } catch (error: any) {
-          console.error('Error listing parents:', error)
-          return c.json(
-            {
-              success: false,
-              error: error.message || 'Internal server error'
-            },
-            500
-          )
-        }
-      }
-    )
-    this.controller.openapi(
-      createRoute({
-        method: 'get',
         path: '/v1/admin/users',
         tags: ['Admin'],
         summary: 'List users with roles (excluding regular users)',
@@ -470,9 +326,7 @@ export class UserController implements Routes {
           const { result } = await listUsersWithRolesUseCase.run({
             page: query.page,
             limit: query.limit,
-            search: query.search,
-            currentUserId: currentUser.id,
-            ipAddress
+            search: query.search
           })
           return c.json(result)
         } catch (error: any) {
@@ -574,9 +428,7 @@ export class UserController implements Routes {
             firstname,
             lastname,
             email,
-            roleIds,
-            currentUserId: currentUser.id,
-            ipAddress
+            roleIds
           })
           if (!result.success) {
             return c.json({ success: false, error: result.error }, 400)
@@ -666,10 +518,7 @@ export class UserController implements Routes {
             c.req.header('remote-addr') ||
             undefined
           const useCase = new ListRolesWithDetailsUseCase(this.permissionService)
-          const { result } = await useCase.run({
-            currentUserId: currentUser.id,
-            ipAddress
-          })
+          const { result } = await useCase.run({})
           return c.json(result)
         } catch (error: any) {
           console.error('Error listing roles:', error)
@@ -802,20 +651,17 @@ export class UserController implements Routes {
           const { firstname, lastname, email, roleIds } = c.req.valid('json')
 
           const updateUserUseCase = new UpdateUserUseCase(this.userRepository, this.permissionService)
-          const { result, activityLogId } = await updateUserUseCase.run({
+          const { result } = await updateUserUseCase.run({
             userId,
             currentUserId: currentUser.id,
             firstname,
             lastname,
             name: `${firstname} ${lastname}`,
             email,
-            roleIds,
-            resource: 'user',
-            ipAddress
+            roleIds
           })
 
           if (!result.success) {
-            if (activityLogId) await updateUserUseCase.updateActivityResource(activityLogId, userId, 'user', 'error')
             const statusCode = result.error?.includes('non trouvé') ? 404 : 400
             return c.json(
               {
@@ -825,7 +671,6 @@ export class UserController implements Routes {
               statusCode
             )
           }
-          if (activityLogId) await updateUserUseCase.updateActivityResource(activityLogId, userId, 'user', 'success')
           return c.json({
             success: true,
             data: result.data
@@ -927,15 +772,12 @@ export class UserController implements Routes {
             c.req.header('remote-addr') ||
             undefined
           const deleteUserUseCase = new DeleteUserUseCase(this.userRepository, this.permissionService)
-          const { result, activityLogId } = await deleteUserUseCase.run({
+          const { result } = await deleteUserUseCase.run({
             userId,
-            currentUserId: currentUser.id,
-            resource: 'user',
-            ipAddress
+            currentUserId: currentUser.id
           })
 
           if (!result.success) {
-            if (activityLogId) await deleteUserUseCase.updateActivityResource(activityLogId, userId, 'user', 'error')
             const statusCode = result.error?.includes('non trouvé') ? 404 : 400
             return c.json(
               {
@@ -945,7 +787,6 @@ export class UserController implements Routes {
               statusCode
             )
           }
-          if (activityLogId) await deleteUserUseCase.updateActivityResource(activityLogId, userId, 'user', 'success')
           return c.json({
             success: true,
             message: 'Utilisateur supprimé avec succès'

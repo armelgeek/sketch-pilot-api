@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { FileService } from '@/application/services/file.service'
 import type { Avatar } from '@/domain/models/avatar.model'
 import type { UserRepositoryInterface } from '@/domain/repositories/user.repository.interface'
@@ -42,9 +41,5 @@ export class UploadAvatarUseCase extends IUseCase<Params, Response> {
       success: true,
       data: avatar
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.CREATE_AVATAR
   }
 }

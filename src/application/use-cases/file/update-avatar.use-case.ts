@@ -1,6 +1,5 @@
 import { AvatarService } from '@/application/services/avatar.service'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { AvatarRepositoryInterface } from '@/domain/repositories/avatar.repository.interface'
 
 type Params = {
@@ -39,9 +38,5 @@ export class UpdateAvatarUseCase extends IUseCase<Params, Response> {
       success: true,
       data: updatedAvatar
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.UPDATE_AVATAR
   }
 }

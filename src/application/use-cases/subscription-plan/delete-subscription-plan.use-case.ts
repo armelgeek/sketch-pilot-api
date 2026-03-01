@@ -1,6 +1,5 @@
 import { StripePlanService } from '@/application/services/stripe-plan.service'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { SubscriptionPlanRepositoryInterface } from '@/domain/repositories/subscription-plan.repository.interface'
 
 type Params = { id: string }
@@ -30,9 +29,5 @@ export class DeleteSubscriptionPlanUseCase extends IUseCase<Params, Response> {
     } catch (error: any) {
       return { success: false, error: error.message }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.DELETE_PLAN
   }
 }

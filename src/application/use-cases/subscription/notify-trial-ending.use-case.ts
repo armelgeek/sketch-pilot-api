@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { validDateOrNull } from '@/application/utils/date.util'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { emailTemplates, sendEmail } from '@/infrastructure/config/mail.config'
 import { db } from '@/infrastructure/database/db'
 import { users } from '@/infrastructure/database/schema'
@@ -65,11 +64,6 @@ export class NotifyTrialEndingUseCase extends IUseCase<{}, void> {
         })
       }
 
-      await this.logActivity(user.id)
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.TRIAL_ENDING_NOTIFICATION
   }
 }

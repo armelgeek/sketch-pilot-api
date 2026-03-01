@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 
 interface AssignRoleToUserUseCaseParams {
@@ -14,9 +13,5 @@ export class AssignRoleToUserUseCase extends IUseCase<AssignRoleToUserUseCasePar
 
   async execute({ userId, roleId }: AssignRoleToUserUseCaseParams): Promise<void> {
     await this.permissionService.assignRoleToUser(userId, roleId)
-  }
-
-  log(): ActivityType {
-    return ActivityType.ASSIGN_ROLE
   }
 }

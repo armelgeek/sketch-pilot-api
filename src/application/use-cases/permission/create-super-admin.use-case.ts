@@ -1,6 +1,5 @@
 import { Actions, Roles, Subjects, type Subject } from '@/domain/types/permission.type'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 
 interface CreateSuperAdminResponse {
@@ -54,9 +53,5 @@ export class CreateSuperAdminUseCase extends IUseCase<
         id: roleId
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.CREATE_ROLE
   }
 }

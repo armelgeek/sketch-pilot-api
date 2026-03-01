@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { stripe } from '@/infrastructure/config/stripe.config'
 import { db } from '@/infrastructure/database/db'
 import { subscriptionHistory, users } from '@/infrastructure/database/schema'
@@ -138,9 +137,5 @@ export class ChangeSubscriptionPlanUseCase extends IUseCase<Params, Response> {
       console.error('[Change Plan Error]', error)
       return { success: false, error: 'Error changing plan' }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.CHANGE_SUBSCRIPTION_PLAN
   }
 }

@@ -9,8 +9,6 @@ import { GetSubscriptionStatusUseCase } from '@/application/use-cases/subscripti
 import { HandleStripeWebhookUseCase } from '@/application/use-cases/subscription/handle-stripe-webhook.use-case'
 import { GetTrialConfigUseCase } from '@/application/use-cases/trial/get-trial-config.use-case'
 import { UpdateTrialConfigUseCase } from '@/application/use-cases/trial/update-trial-config.use-case'
-import { GetParentDetailsUseCase } from '@/application/use-cases/user/get-parent-details.use-case'
-import { ChildRepository } from '@/infrastructure/repositories/child.repository'
 import type { Routes } from '@/domain/types'
 import { stripe } from '../config/stripe.config'
 import { db } from '../database/db'
@@ -20,14 +18,10 @@ import { TrialConfigRepository } from '../repositories/trial-config.repository'
 export class SubscriptionController implements Routes {
   public controller: OpenAPIHono
   private getParentSubscriptionWithHistoryUseCase: GetParentSubscriptionWithHistoryUseCase
-  private getParentDetailsUseCase: GetParentDetailsUseCase
-  private childrenRepository: any
 
   constructor() {
     this.controller = new OpenAPIHono()
     this.getParentSubscriptionWithHistoryUseCase = new GetParentSubscriptionWithHistoryUseCase()
-    this.getParentDetailsUseCase = new GetParentDetailsUseCase()
-    this.childrenRepository = new ChildRepository()
     this.initRoutes()
   }
 
@@ -744,20 +738,10 @@ export class SubscriptionController implements Routes {
 
         const { isEnabled, durationInDays } = await c.req.json()
         const updateTrialConfigUseCase = new UpdateTrialConfigUseCase(new TrialConfigRepository())
-        const ipAddress =
-          c.req.header('x-forwarded-for') ||
-          c.req.header('x-real-ip') ||
-          c.req.header('cf-connecting-ip') ||
-          c.req.header('x-client-ip') ||
-          c.req.header('x-remote-addr') ||
-          c.req.header('remote-addr') ||
-          undefined
         try {
           const { result } = await updateTrialConfigUseCase.run({
             isEnabled,
-            durationInDays,
-            currentUserId: currentUser.id,
-            ipAddress
+            durationInDays
           })
           return c.json(result)
         } catch (error: any) {
@@ -911,7 +895,6 @@ export class SubscriptionController implements Routes {
           } else {
             isExpired = true
           }
-          const currentChildrenCount = await this.childrenRepository.countByParentId(user.id)
           const hasNeverSubscribed =
             !sub?.plan && !sub?.isTrialActive && !sub?.accessEndsAt && !sub?.stripeCurrentPeriodEnd
 
@@ -933,7 +916,6 @@ export class SubscriptionController implements Routes {
               isExpired,
               isCanceled: sub.isCanceled,
               accessEndsAt: sub.accessEndsAt,
-              currentChildrenCount: currentChildrenCount || 0
             }
           })
         } catch (error: any) {
@@ -942,132 +924,5 @@ export class SubscriptionController implements Routes {
       }
     )
 
-    // GET /v1/admin/parent/:id/details
-    this.controller.openapi(
-      createRoute({
-        method: 'get',
-        path: '/v1/admin/parent/:id/details',
-        tags: ['Admin', 'Parent'],
-        summary: 'Get parent details for admin',
-        description:
-          'Get detailed information about a parent user including subscription status, children count, and payment history.',
-        security: [{ Bearer: [] }],
-        parameters: [
-          {
-            name: 'id',
-            in: 'path',
-            required: true,
-            schema: { type: 'string' },
-            description: 'Parent user ID'
-          }
-        ],
-        responses: {
-          200: {
-            description: 'Parent details retrieved successfully',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  data: z.object({
-                    id: z.string(),
-                    email: z.string(),
-                    firstname: z.string(),
-                    lastname: z.string(),
-                    createdAt: z.string(),
-                    subscription: z.object({
-                      planName: z.string().nullable(),
-                      interval: z.enum(['month', 'year']).nullable(),
-                      maxChildren: z.number(),
-                      activeUntil: z.string().nullable(),
-                      isTrial: z.boolean(),
-                      trialEndDate: z.string().nullable(),
-                      isExpired: z.boolean(),
-                      isCanceled: z.boolean(),
-                      currentChildrenCount: z.number()
-                    }),
-                    paymentHistory: z.array(
-                      z.object({
-                        id: z.string(),
-                        action: z.string(),
-                        oldPlan: z.string().nullable(),
-                        newPlan: z.string().nullable(),
-                        amount: z.string().nullable(),
-                        currency: z.string().nullable(),
-                        status: z.string(),
-                        date: z.string(),
-                        invoiceType: z.enum(['month', 'year']),
-                        metadata: z
-                          .object({
-                            invoiceUrl: z.string().nullable(),
-                            pdfUrl: z.string().nullable(),
-                            periodStart: z.string().nullable(),
-                            periodEnd: z.string().nullable()
-                          })
-                          .nullable()
-                      })
-                    )
-                  })
-                })
-              }
-            }
-          },
-          401: {
-            description: 'Unauthorized - Admin access required',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  error: z.string()
-                })
-              }
-            }
-          },
-          404: {
-            description: 'Parent not found',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  error: z.string()
-                })
-              }
-            }
-          }
-        }
-      }),
-      async (c: any) => {
-        const currentUser = c.get('user')
-
-        /**if (!currentUser || currentUser.role !== 'admin') {
-          return c.json({ success: false, error: 'Unauthorized' }, 401)
-        }**/
-
-        const parentId = c.req.param('id')
-        const ipAddress =
-          c.req.header('x-forwarded-for') ||
-          c.req.header('x-real-ip') ||
-          c.req.header('cf-connecting-ip') ||
-          c.req.header('x-client-ip') ||
-          c.req.header('x-remote-addr') ||
-          c.req.header('remote-addr') ||
-          undefined
-        try {
-          const { result } = await this.getParentDetailsUseCase.run({
-            parentId,
-            currentUserId: currentUser.id,
-            ipAddress
-          })
-
-          if (!result.success) {
-            return c.json({ success: false, error: result.error }, 404)
-          }
-
-          return c.json(result)
-        } catch (error: any) {
-          console.error('[Admin Get Parent Details Error]', error)
-          return c.json({ success: false, error: error.message }, 400)
-        }
-      }
-    )
   }
 }

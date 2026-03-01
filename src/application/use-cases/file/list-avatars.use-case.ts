@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { AvatarService } from '@/application/services/avatar.service'
 import type { FileService } from '@/application/services/file.service'
 import type { PaginationParams } from '@/infrastructure/middlewares/pagination.middleware'
@@ -29,7 +28,6 @@ export class ListAvatarsUseCase extends IUseCase<PaginationParams, ListAvatarsRe
   async execute(pagination: PaginationParams): Promise<ListAvatarsResponse> {
     const { items, total } = await this.fileService.listAvatars(pagination)
 
-    // Générer les URLs MinIO pour chaque avatar
     const itemsWithUrls = await Promise.all(
       items.map(async (avatar) => {
         const url = await this.avatarService.getAvatarUrl(avatar.id)
@@ -50,9 +48,5 @@ export class ListAvatarsUseCase extends IUseCase<PaginationParams, ListAvatarsRe
         totalPages: Math.ceil(total / pagination.limit)
       }
     }
-  }
-
-  log() {
-    return ActivityType.LIST_AVATARS
   }
 }

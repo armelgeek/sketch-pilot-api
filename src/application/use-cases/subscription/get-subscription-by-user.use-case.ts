@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { stripe } from '@/infrastructure/config/stripe.config'
 import { pricingData } from '@/infrastructure/config/subscription.config'
 import { db } from '@/infrastructure/database/db'
@@ -71,9 +70,5 @@ export class GetUserSubscriptionByUserUseCase extends IUseCase<GetUserSubscripti
       interval,
       isCanceled
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.GET_SUBSCRIPTION_BY_USER
   }
 }

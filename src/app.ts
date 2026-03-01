@@ -10,9 +10,6 @@ import { responseMiddleware } from './infrastructure/middlewares/response.middle
 import addSession from './infrastructure/middlewares/session.middleware'
 import sessionValidator from './infrastructure/middlewares/unauthorized-access.middleware'
 import { Home } from './infrastructure/pages/home'
-import { VerificationCodeRepository } from './infrastructure/repositories/verification-code.repository'
-import { CleanupVerificationCodesScheduler } from './infrastructure/schedulers/cleanup-verification-codes.scheduler'
-import { createActivityLogsIndexes } from './infrastructure/services/create-activity-logs-indexes.service'
 import { initSystemConfig } from './infrastructure/services/init-system-config.service'
 import { patchSuperAdminToAdmin } from './infrastructure/services/patch-super-admin-to-admin.service'
 import type { Routes } from './domain/types'
@@ -26,29 +23,19 @@ export class App {
   }>
 
   constructor(routes: Routes[]) {
-    // Patch automatique du rôle super_admin -> admin
     patchSuperAdminToAdmin().then((patchRes) => {
       if (patchRes.success) {
-        console.info('Patch super_admin -> admin appliqué')
+        console.info('Patch super_admin -> admin applied')
       } else {
-        console.error('Erreur patch super_admin -> admin:', patchRes.error)
+        console.error('Error patch super_admin -> admin:', patchRes.error)
       }
-      // Initialisation de la configuration système (une seule fois)
       initSystemConfig().then((res) => {
         if (res.success) {
           console.info('System config initialized')
         } else {
           console.error('System config init error:', res.error)
         }
-        createActivityLogsIndexes()
       })
-    })
-    // Log temporaire pour debug
-    console.info('Environment variables:', {
-      NODE_ENV: Bun.env.NODE_ENV,
-      SMTP_HOST: Bun.env.SMTP_HOST,
-      EMAIL_FROM: Bun.env.EMAIL_FROM,
-      SUBSCRIPTION_ACTION_URL: Bun.env.SUBSCRIPTION_ACTION_URL
     })
 
     this.app = new OpenAPIHono<{
@@ -74,34 +61,17 @@ export class App {
   }
 
   private initializeGlobalMiddlewares() {
-    // Servir les fichiers statiques du dossier uploads
     this.app.use('/uploads/*', serveStatic({ root: './' }))
 
     this.app.use(logger())
     this.app.use(prettyJSON())
-
-    // Timeout spécial pour les uploads de jeux (5 minutes)
-    this.app.use('/api/v1/admin/lessons/*/games', async (c, next) => {
-      const timeoutId = setTimeout(
-        () => {
-          console.error('[TIMEOUT] Upload de jeu timeout après 5 minutes')
-        },
-        5 * 60 * 1000
-      ) // 5 minutes
-
-      try {
-        await next()
-      } finally {
-        clearTimeout(timeoutId)
-      }
-    })
 
     this.app.use(
       '*',
       cors({
         origin:
           Bun.env.NODE_ENV === 'production'
-            ? ['https://dev-api.meko.ac', 'https://dev.meko.ac', 'https://dev.bo.meko.ac', 'http://localhost:5173']
+            ? [Bun.env.PRODUCTION_URL || 'http://localhost:3000', Bun.env.REACT_APP_URL || 'http://localhost:5173']
             : [Bun.env.BETTER_AUTH_URL || 'http://localhost:3000', Bun.env.REACT_APP_URL || 'http://localhost:5173'],
         credentials: true,
         maxAge: 86400
@@ -110,11 +80,11 @@ export class App {
     this.app.use('*', responseMiddleware())
     this.app.use(addSession)
     this.app.use('*', (c, next) => {
-      // Exclure /api/v1/subscription-plans (GET) du middleware d'authentification
+      // Allow public access to subscription plans listing
       if (c.req.method === 'GET' && c.req.path === '/api/v1/subscription-plans') {
         return next()
       }
-      // Ne jamais appliquer de check d'authentification sur /v1/auth/check-email (GET ou POST)
+      // Allow email check without authentication
       if ((c.req.method === 'GET' || c.req.method === 'POST') && c.req.path === '/api/v1/auth/check-email') {
         return next()
       }
@@ -126,19 +96,19 @@ export class App {
   }
 
   private initializeSwaggerUI() {
+    const apiTitle = 'API'
+
     this.app.doc31('/swagger', () => {
       const protocol = 'https:'
-      const hostname = Bun.env.NODE_ENV === 'production' ? 'dev-api.meko.ac' : 'localhost'
+      const hostname = Bun.env.NODE_ENV === 'production' ? (Bun.env.PRODUCTION_HOST || 'localhost') : 'localhost'
       const port = Bun.env.NODE_ENV === 'production' ? '' : ':3000'
 
       return {
         openapi: '3.1.0',
-
         info: {
           version: '1.0.0',
-          title: 'Meko Academy API',
-          description: `# Introduction 
-        \n Meko Academy API . \n`
+          title: apiTitle,
+          description: `# Introduction \n API Documentation.\n`
         },
         servers: [{ url: `${protocol}//${hostname}${port ? `:${port}` : ''}`, description: 'Current environment' }]
       }
@@ -147,20 +117,12 @@ export class App {
     this.app.get(
       '/docs',
       apiReference({
-        pageTitle: 'Meko Academy API Documentation',
+        pageTitle: `${apiTitle} Documentation`,
         theme: 'deepSpace',
         isEditable: false,
         layout: 'modern',
         darkMode: true,
-        metaData: {
-          applicationName: 'Meko Academy API',
-          author: 'Armel Wanes',
-          creator: 'Armel Wanes',
-          publisher: 'Armel Wanes',
-          robots: 'index, follow',
-          description: 'Meko Academy API is ....'
-        },
-        url: Bun.env.NODE_ENV === 'production' ? 'https://dev-api.meko.ac/swagger' : 'http://localhost:3000/swagger'
+        url: Bun.env.NODE_ENV === 'production' ? `https://${Bun.env.PRODUCTION_HOST || 'localhost'}/swagger` : 'http://localhost:3000/swagger'
       })
     )
   }
@@ -180,13 +142,3 @@ export class App {
     return this.app
   }
 }
-
-// Schedule cleanup of expired verification codes (every hour)
-const cleanupVerificationCodesScheduler = new CleanupVerificationCodesScheduler(new VerificationCodeRepository())
-
-setInterval(
-  () => {
-    cleanupVerificationCodesScheduler.run()
-  },
-  60 * 60 * 1000
-) // Run every hour
