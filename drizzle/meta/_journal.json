@@ -1,0 +1,125 @@
+{
+  "version": "5",
+  "dialect": "pg",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1747896583086,
+      "tag": "0000_parched_mandarin",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1747899475739,
+      "tag": "0001_first_colleen_wing",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1747900966713,
+      "tag": "0002_remarkable_toad",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1748418254575,
+      "tag": "0003_chief_lionheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1748929810421,
+      "tag": "0004_handy_micromacro",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1749581454590,
+      "tag": "0005_big_outlaw_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1749609608497,
+      "tag": "0006_goofy_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1749610795230,
+      "tag": "0007_closed_boomerang",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1750149138517,
+      "tag": "0008_certain_magma",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1751345727804,
+      "tag": "0009_tan_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1751346760488,
+      "tag": "0010_blue_rachel_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1753250375389,
+      "tag": "0011_plain_phantom_reporter",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1753698028143,
+      "tag": "0012_safe_strong_guy",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1754072312406,
+      "tag": "0013_amusing_carnage",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1754908725127,
+      "tag": "0014_keen_justin_hammer",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1755055443993,
+      "tag": "0015_cultured_cardiac",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1769522823419,
+      "tag": "0016_rare_vampiro",
+      "breakpoints": true
+    }
+  ]
+}

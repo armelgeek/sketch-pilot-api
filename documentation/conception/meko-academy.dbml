@@ -1,0 +1,174 @@
+Table users {
+  id text [pk]
+  name text
+  firstname text
+  lastname text
+  email text [unique, not null]
+  image text
+  language enum('en','fr') [not null]
+  currency text
+  created_at timestamp
+  updated_at timestamp
+}
+Table otp_codes {
+  id text [pk]
+  user_id text [ref: > users.id]
+  code text
+  purpose enum('login', 'reset')
+  expires_at timestamp
+  is_used boolean [default: false]
+  created_at timestamp
+}
+Table children {
+  id text [pk]
+  parent_id text [ref: > users.id]
+  firstname text
+  lastname text
+  birthday timestamp
+  avatar_url text
+  first_login boolean [default: true]
+}
+
+Table activity_logs {
+  id text [pk]
+  user_id text [ref: > users.id]
+  action text [not null]
+  timestamp timestamp [default: `now()`, not null]
+  ip_address varchar(45)
+  user_agent text
+}
+Table permissions {
+  id text [pk]
+  name text [not null]
+  description text
+  action text [not null]
+  resource text [not null]
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Table roles {
+  id text [pk]
+  name text [unique, not null]
+  description text
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Table role_permissions {
+  id text [pk]
+  role_id text [ref: > roles.id, not null]
+  permission_id text [ref: > permissions.id, not null]
+  created_at timestamp [default: `now()`, not null]
+}
+
+Table groups {
+  id text [pk]
+  name text [unique, not null]
+  description text
+  created_by text [ref: > users.id]
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Table group_roles {
+  id text [pk]
+  group_id text [ref: > groups.id, not null]
+  role_id text [ref: > roles.id, not null]
+  created_at timestamp [default: `now()`, not null]
+}
+
+Table user_groups {
+  id text [pk]
+  user_id text [ref: > users.id, not null]
+  group_id text [ref: > groups.id, not null]
+  role_id text [ref: > roles.id]
+  is_group_admin boolean [default: false]
+  joined_at timestamp [default: `now()`, not null]
+}
+
+Table modules {
+  id text [pk]
+  name text [unique, not null]
+  cover_url text
+  description text
+}
+Table lessons {
+  id text [pk]
+  name text [unique, not null]
+  description text
+  module_id text [ref: > modules.id]
+}
+
+Table games  {
+  id text [pk]
+  title text [unique, not null]
+  file text
+  lesson_id text [ref: > lessons.id]
+}
+Table game_prerequisites {
+  game_id text [ref: > games.id]
+  prerequisite_game_id text [ref: > games.id]
+  primary key (game_id, prerequisite_game_id)
+}
+
+Table game_sessions {
+  id text [pk]
+  child_id text [ref: > children.id, not null]
+  game_id text [ref: > games.id, not null]
+  started_at timestamp [default: `now()`, not null]
+  ended_at timestamp
+  success boolean
+  status enum('in_progress', 'completed', 'blocked') [default: 'in_progress']
+  session_date date
+
+}
+
+Table subscriptions {
+   id text [pk]
+  user_id text [ref: > users.id, not null]
+  plan_price_id text [ref: > plan_prices.id]
+  stripe_customer_id text [not null, unique]
+  stripe_subscription_id text [unique]
+  status text [not null]                  
+  is_trial_active boolean [default: false]
+  has_used_trial boolean [default: false]
+  trial_start_date timestamp
+  trial_end_date timestamp
+  current_period_end timestamp
+  cancel_at_period_end boolean [default: false]
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+Table subscription_history {
+  id text [pk]
+  user_id text [ref: > users.id, not null]
+  action text [not null]
+  old_plan text
+  new_plan text
+  amount text
+  currency text
+  status text [not null]
+  timestamp timestamp [default: `now()`, not null]
+}
+
+Table plans {
+  id text [pk]                      
+  name text [unique, not null] 
+  description text
+  child_limit int
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Table plan_prices {
+  id text [pk]
+  plan_id text [ref: > plans.id, not null]
+  billing_cycle enum('monthly', 'yearly') [not null]
+  stripe_price_id text [not null, unique]
+  price numeric(10, 2) [not null] 
+  currency text [default: 'eur']
+  trial_days int
+  is_active boolean [default: true]
+  created_at timestamp [default: `now()`, not null]
+}

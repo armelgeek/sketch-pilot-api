@@ -1,0 +1,86 @@
+# deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meko-back
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: meko-back
+  template:
+    metadata:
+      labels:
+        app: meko-back
+    spec:
+      containers:
+        - name: meko-back
+          image: registry.meko.ac/meko-academy-backend:29c4d281
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              value: 'postgresql://postgres:password@postgres:5432/default_db?search_path=public'
+          volumeMounts:
+            - name: avatars-volume
+              mountPath: /usr/src/app/uploads/avatars
+            - name: env-file
+              mountPath: /usr/src/app/.env
+              subPath: .env.local
+      volumes:
+        - name: avatars-volume
+          hostPath:
+            path: /home/project/meko-academy-backend/uploads/avatars
+            type: Directory
+        - name: env-file
+          secret:
+            secretName: meko-back-env
+            items:
+              - key: .env.local
+                path: .env.local
+
+      imagePullSecrets:
+        - name: nexus-registry-secret
+---
+# svc
+apiVersion: v1
+kind: Service
+metadata:
+  name: meko-back
+spec:
+  selector:
+    app: meko-back
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP
+---
+# ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dev-api.meko.ac
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    acme.cert-manager.io/http01-edit-in-place: 'true'
+    nginx.ingress.kubernetes.io/proxy-body-size: 10g
+spec:
+  tls:
+    - hosts:
+        - dev-api.meko.ac
+      secretName: dev-api.meko.ac-tls-acme
+  rules:
+    - host: dev-api.meko.ac
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: meko-back
+                port:
+                  number: 3000
