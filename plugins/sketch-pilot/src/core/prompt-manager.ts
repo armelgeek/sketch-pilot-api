@@ -20,6 +20,8 @@ import {
   AssetDefinition,
   computeSceneRange,
   MIN_SCENE_DURATION,
+  Storyboard,
+  StoryboardBeat,
 } from '../types/video-script.types';
 import { buildLayoutMenuForAI, LAYOUT_CATALOG, LayoutId, AspectRatio } from './layout-catalog';
 import { buildNarrativeArcPrompt } from './narrative-arc';
@@ -912,6 +914,8 @@ ONLY OUTPUT after ALL checks pass. Do NOT show calculations or reasoning.
     const wps = this.getWordsPerSecond(options);
     const wpsFixed = wps.toFixed(1);
 
+    const storyboardSection = this.buildStoryboardSection(options.storyboard);
+
     return `═══════════════════════════════════════════════════════════════════════════════
 USER PROMPT: SCRIPT GENERATION
 ═══════════════════════════════════════════════════════════════════════════════
@@ -957,12 +961,7 @@ STEP 4: Verify total ≤ ${effectiveDuration}s
 ═══════════════════════════════════════════════════════════════════════════════
 
 NARRATIVE STRUCTURE:
-→ Hook (scene 1): Grab attention immediately
-→ Exploration: Deepen curiosity
-→ Revelation: Key insight or turning point
-→ Resolution: Answer the hook's question
-→ Conclusion: Memorable final thought
-
+${storyboardSection}
 EMOTIONAL PROGRESSION:
 → Scene-by-scene emotional evolution
 → Show character's internal struggle + realization
@@ -1192,6 +1191,103 @@ DO NOT OUTPUT if ANY gate is uncertain.
 
 OUTPUT NOW: JSON only (no explanations, no preamble).
 ═════════════════════════════════════════════════════════════════════════════════`;
+  }
+
+  /**
+   * Async variant of {@link buildScriptUserPrompt}.
+   *
+   * Tries to load a dynamic `user_prompt` template from the external loader
+   * first (e.g. from the database), interpolating the standard variables into
+   * it.  Falls back transparently to the static {@link buildScriptUserPrompt}
+   * when no dynamic template is found.
+   */
+  async buildScriptUserPromptAsync(topic: string, options: VideoGenerationOptions): Promise<string> {
+    if (!this.promptLoader) {
+      return this.buildScriptUserPrompt(topic, options);
+    }
+
+    const context = {
+      videoType: options.videoType,
+      videoGenre: options.videoGenre,
+      language: options.language,
+    };
+
+    const effectiveDuration = options.duration ?? options.maxDuration ?? options.minDuration;
+    const wps = this.getWordsPerSecond(options);
+
+    const customUserPrompt = await this.promptLoader('user_prompt', context, {
+      topic,
+      language: options.language || 'en-US',
+      videoType: options.videoType || 'general',
+      videoGenre: options.videoGenre || 'general',
+      duration: String(effectiveDuration),
+      sceneCount: String(options.sceneCount),
+      aspectRatio: options.aspectRatio || '16:9',
+      wordsPerSecond: wps.toFixed(1),
+    });
+
+    if (customUserPrompt) {
+      return customUserPrompt;
+    }
+
+    return this.buildScriptUserPrompt(topic, options);
+  }
+
+  // ─── Storyboard helpers ───────────────────────────────────────────────────
+
+  /**
+   * Build the NARRATIVE STRUCTURE section of the user prompt.
+   *
+   * When a storyboard is provided, the beats are rendered as an ordered list
+   * that the LLM must follow scene-by-scene.  Without a storyboard the method
+   * returns the default generic narrative arc.
+   */
+  private buildStoryboardSection(storyboard?: Storyboard): string {
+    if (!storyboard || storyboard.beats.length === 0) {
+      return `→ Hook (scene 1): Grab attention immediately
+→ Exploration: Deepen curiosity
+→ Revelation: Key insight or turning point
+→ Resolution: Answer the hook's question
+→ Conclusion: Memorable final thought
+`;
+    }
+
+    const beatLines = storyboard.beats.map((beat, idx) => {
+      return this.formatStoryboardBeat(beat, idx + 1);
+    });
+
+    const header = storyboard.name
+      ? `🎬 STORYBOARD: "${storyboard.name}" (${storyboard.beats.length} beats — FOLLOW EXACTLY)`
+      : `🎬 STORYBOARD (${storyboard.beats.length} beats — FOLLOW EXACTLY)`;
+
+    return `${header}
+${beatLines.join('\n')}
+→ Each storyboard beat maps to ONE or more scenes depending on duration.
+→ Preserve beat order exactly. DO NOT skip or reorder beats.
+`;
+  }
+
+  /**
+   * Format a single storyboard beat as a numbered prompt line.
+   */
+  private formatStoryboardBeat(beat: StoryboardBeat, index: number): string {
+    const roleLabel = beat.role.toUpperCase();
+    const parts: string[] = [`Beat ${index} [${roleLabel}]`];
+
+    if (beat.description) {
+      parts.push(`→ ${beat.description}`);
+    }
+
+    const meta: string[] = [];
+    if (beat.durationHint) meta.push(`~${beat.durationHint}s`);
+    if (beat.emotionTarget) meta.push(`emotion: ${beat.emotionTarget}`);
+    if (beat.visualHint) meta.push(`visual: ${beat.visualHint}`);
+
+    if (meta.length > 0) {
+      parts.push(`   (${meta.join(' | ')})`);
+    }
+
+    return parts.join('\n');
   }
 
   // =========================================================================

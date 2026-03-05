@@ -4,6 +4,7 @@ import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
  * Prompt types that correspond to the different parts of the PromptManager.
  *
  * - system_prompt      : Global LLM system prompt for script generation
+ * - user_prompt        : Dynamic LLM user prompt template for script generation
  * - video_type_guideline  : Per video-type inline guideline injected in the system prompt
  * - video_genre_guideline : Per video-genre inline guideline injected in the system prompt
  * - style_suffix       : Image style suffix appended to every image generation prompt
@@ -13,6 +14,7 @@ import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
  */
 export const PROMPT_TYPES = [
   'system_prompt',
+  'user_prompt',
   'video_type_guideline',
   'video_genre_guideline',
   'style_suffix',

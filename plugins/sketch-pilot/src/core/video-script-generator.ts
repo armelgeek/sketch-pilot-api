@@ -211,7 +211,7 @@ export class VideoScriptGenerator {
         backgroundMusic?: string;
     }> {
         const systemPrompt = await this.promptManager.buildScriptSystemPromptAsync(options);
-        const userPrompt = this.promptManager.buildScriptUserPrompt(topic, options);
+        const userPrompt = await this.promptManager.buildScriptUserPromptAsync(topic, options);
 
         console.log(`[VideoScriptGen] Calling LLM for structure...`);
 
