@@ -19,7 +19,6 @@ export interface UserRepositoryInterface {
   findById: (id: string) => Promise<z.infer<typeof User> | null>
   findAll: () => Promise<z.infer<typeof User>[]>
   findPaginatedUsers: (filter: UserFilter) => Promise<PaginatedUsers>
-  countChildren: (userId: string) => Promise<number>
   findByEmail: (email: string) => Promise<z.infer<typeof User> | null>
   update: (id: string, data: Partial<z.infer<typeof User>>) => Promise<z.infer<typeof User>>
 }

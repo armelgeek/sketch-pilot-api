@@ -16,15 +16,6 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
         updatedAt: now
       },
       {
-        id: 'config_isTrialRequired',
-        key: 'isTrialRequired',
-        value: 'false',
-        description: 'Determines if a trial period is required',
-        isActive: true,
-        createdAt: now,
-        updatedAt: now
-      },
-      {
         id: 'config_maintenanceMode',
         key: 'maintenanceMode',
         value: 'false',

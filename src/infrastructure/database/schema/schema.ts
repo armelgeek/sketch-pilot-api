@@ -1,6 +1,4 @@
 import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
-import type { Action, Subject } from '../../../domain/types/permission.type'
-import { subscriptionPlans } from './subscription-plan.schema'
 
 export const systemConfig = pgTable('system_config', {
   id: text('id').primaryKey(),
@@ -26,17 +24,7 @@ export const users = pgTable('users', {
   banReason: text('ban_reason'),
   banExpires: timestamp('ban_expires'),
   isAdmin: boolean('is_admin').notNull().default(false),
-  isTrialActive: boolean('is_trial_active').notNull().default(false),
-  hasTrialUsed: boolean('has_trial_used').notNull().default(false),
-  trialCanceled: boolean('trial_canceled').notNull().default(false),
-  trialStartDate: timestamp('trial_start_date'),
-  trialEndDate: timestamp('trial_end_date'),
   stripeCustomerId: text('stripe_customer_id'),
-  stripeSubscriptionId: text('stripe_subscription_id'),
-  planId: text('plan_id').references(() => subscriptionPlans.id),
-  stripeCurrentPeriodEnd: timestamp('stripe_current_period_end'),
-  subscriptionInterval: text('subscription_interval'),
-  lastTrialReminderDate: timestamp('last_trial_reminder_date'),
   createdAt: timestamp('created_at').notNull(),
   updatedAt: timestamp('updated_at').notNull()
 })
@@ -80,57 +68,4 @@ export const verifications = pgTable('verifications', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at'),
   updatedAt: timestamp('updated_at')
-})
-
-export const avatars = pgTable('avatars', {
-  id: text('id').primaryKey(),
-  image: text('image').notNull()
-})
-
-export const roles = pgTable('roles', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  description: text('description'),
-  createdAt: timestamp('created_at').notNull(),
-  updatedAt: timestamp('updated_at').notNull()
-})
-
-export const roleResources = pgTable('role_resources', {
-  id: text('id').primaryKey(),
-  roleId: text('role_id')
-    .notNull()
-    .references(() => roles.id, { onDelete: 'cascade' }),
-  resourceType: text('resource_type').notNull().$type<Subject>(),
-  actions: jsonb('actions').notNull().$type<Action[]>(),
-  createdAt: timestamp('created_at').notNull(),
-  updatedAt: timestamp('updated_at').notNull()
-})
-
-export const userRoles = pgTable('user_roles', {
-  id: text('id').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  roleId: text('role_id')
-    .notNull()
-    .references(() => roles.id, { onDelete: 'cascade' }),
-  createdAt: timestamp('created_at').notNull(),
-  updatedAt: timestamp('updated_at').notNull()
-})
-
-export const subscriptionHistory = pgTable('subscription_history', {
-  id: text('id').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  action: text('action').notNull(),
-  oldPlan: text('old_plan'),
-  newPlan: text('new_plan'),
-  amount: text('amount'),
-  currency: text('currency'),
-  adjustmentType: text('adjustment_type'),
-  status: text('status').notNull(),
-  stripeInvoiceUrl: text('stripe_invoice_url'),
-  interval: text('interval'),
-  timestamp: timestamp('timestamp').notNull().defaultNow()
 })

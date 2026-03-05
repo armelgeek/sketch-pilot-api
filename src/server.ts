@@ -1,8 +1,6 @@
 import { App } from './app'
 import {
-  AvatarController,
   EmailCheckController,
-  PermissionController,
   SubscriptionController,
   SystemConfigController,
   UserController,
@@ -20,8 +18,6 @@ import { startVideoGenerationWorker } from '@/infrastructure/workers/video-gener
 const app = new App([
   new UserController(),
   new AuthController(),
-  new AvatarController(),
-  new PermissionController(),
   new EmailCheckController(),
   new SubscriptionController(),
   new SubscriptionPlanController(),
@@ -33,7 +29,6 @@ const app = new App([
   new VideoAdminController()
 ]).getApp()
 
-// Start the video generation worker (connects to Redis/BullMQ)
 if (process.env.ENABLE_VIDEO_WORKER !== 'false') {
   try {
     startVideoGenerationWorker()

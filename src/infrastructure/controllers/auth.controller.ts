@@ -66,8 +66,8 @@ export class AuthController implements Routes {
           const { email, otp, isSignUp, firstName, lastName } = await c.req.json()
           // Vérifier l'OTP via l'API Better Auth
           // Utiliser la bonne méthode de Better Auth pour vérifier l'OTP
-          const result = await auth.api.signInEmailOTP({ body: { email, otp } })
-          if (!result.user) {
+          const result = await (auth.api as any).signInEmailOTP({ body: { email, otp } })
+          if (!result?.user) {
             return c.json({ success: false, error: `OTP invalide ou expiré` }, 400)
           }
 
