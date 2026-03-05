@@ -3,10 +3,13 @@
  * Integrates the sketch-pilot VideoScriptGenerator into the backend DDD architecture.
  */
 import { VideoScriptGenerator } from '@sketch-pilot/core/video-script-generator'
+import { PromptManager } from '@sketch-pilot/core/prompt-manager'
 import { ScriptValidator } from '@sketch-pilot/core/script-validator'
 import { LLMServiceFactory, type LLMServiceConfig } from '@sketch-pilot/services/llm'
 import type { VideoGenerationOptions, CompleteVideoScript } from '@sketch-pilot/types/video-script.types'
 import type { ScriptValidationResult } from '@sketch-pilot/core/script-validator'
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { PromptService } from '@/application/services/prompt.service'
 
 export type { ScriptValidationResult }
 
@@ -23,6 +26,7 @@ export interface GenerateScriptOptions {
 
 export class ScriptGenerationService {
   private readonly validator = new ScriptValidator()
+  private readonly promptService = new PromptService(new PromptRepository())
 
   /**
    * Generate a complete video script using the LLM engine.
@@ -34,7 +38,22 @@ export class ScriptGenerationService {
       apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || ''
     }
     const llmService = LLMServiceFactory.create(llmConfig)
-    const generator = new VideoScriptGenerator(llmService)
+
+    // Build a PromptManager with a dynamic loader so prompts are resolved from the DB
+    const promptService = this.promptService
+    const promptManager = new PromptManager({
+      promptLoader: async (promptType, context, variables) => {
+        return promptService.resolve({
+          promptType: promptType as any,
+          videoType: context?.videoType,
+          videoGenre: context?.videoGenre,
+          language: context?.language,
+          variables: variables as any,
+        })
+      },
+    })
+
+    const generator = new VideoScriptGenerator(llmService, promptManager)
 
     const genOptions: Partial<VideoGenerationOptions> = {
       maxDuration: options.maxDuration || 60,

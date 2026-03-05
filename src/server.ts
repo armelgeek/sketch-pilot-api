@@ -7,7 +7,8 @@ import {
   VideosController,
   ScriptsController,
   ConfigController,
-  VideoAdminController
+  VideoAdminController,
+  PromptController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
 import { SubscriptionPlanController } from './infrastructure/controllers/subscription-plan.controller'
@@ -24,7 +25,8 @@ const app = new App([
   new VideosController(),
   new ScriptsController(),
   new ConfigController(),
-  new VideoAdminController()
+  new VideoAdminController(),
+  new PromptController()
 ]).getApp()
 
 if (process.env.ENABLE_VIDEO_WORKER !== 'false') {

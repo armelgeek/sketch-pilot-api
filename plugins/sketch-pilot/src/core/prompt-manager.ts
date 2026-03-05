@@ -28,6 +28,20 @@ import { buildNarrativeArcPrompt } from './narrative-arc';
 // Configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Async function that resolves a dynamic prompt from an external source (e.g. a database).
+ *
+ * @param promptType  - Category of prompt (e.g. 'video_type_guideline', 'style_suffix').
+ * @param context     - Optional scoping context (videoType, videoGenre, language).
+ * @param variables   - Key-value pairs for {{variable}} interpolation.
+ * @returns The resolved & interpolated string, or null when no prompt is found.
+ */
+export type PromptLoader = (
+  promptType: string,
+  context?: { videoType?: string; videoGenre?: string; language?: string },
+  variables?: Record<string, string | number | boolean>
+) => Promise<string | null>;
+
 export interface PromptManagerConfig {
   /**
    * Style suffix appended to every image generation prompt.
@@ -46,6 +60,15 @@ export interface PromptManagerConfig {
    * @default '#F5F5F5'
    */
   backgroundColor?: string;
+
+  /**
+   * Optional async loader used to resolve prompts dynamically from an external
+   * source (database, API, etc.).  When provided, async variants of the build
+   * methods (e.g. {@link PromptManager.buildScriptSystemPromptAsync}) will
+   * attempt to resolve prompts via this loader before falling back to the
+   * built-in static values.
+   */
+  promptLoader?: PromptLoader;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,6 +104,7 @@ export class PromptManager {
   private styleSuffix: string;
   private characterSystemInstruction: string;
   private backgroundColor: string;
+  private promptLoader?: PromptLoader;
 
   /** Character consistency prefix prepended to every image prompt */
   private readonly characterConsistencyPrefix =
@@ -90,12 +114,18 @@ export class PromptManager {
     this.styleSuffix = config.styleSuffix ?? DEFAULT_STYLE_SUFFIX;
     this.characterSystemInstruction = config.characterSystemInstruction ?? DEFAULT_CHARACTER_SYSTEM_INSTRUCTION;
     this.backgroundColor = config.backgroundColor ?? '#F5F5F5';
+    this.promptLoader = config.promptLoader;
   }
 
   // ─── Configuration setters ───────────────────────────────────────────────
 
   setStyleSuffix(suffix: string): void {
     this.styleSuffix = suffix;
+  }
+
+  /** Attach (or replace) the dynamic prompt loader at runtime. */
+  setPromptLoader(loader: PromptLoader): void {
+    this.promptLoader = loader;
   }
 
   setCharacterSystemInstruction(instruction: string): void {
@@ -781,6 +811,87 @@ METAPHOR DIVERSITY SAFETY CHECK (🔴 CRITICAL — OUTPUT BLOCKED IF VIOLATED):
 
 ONLY OUTPUT after ALL checks pass. Do NOT show calculations or reasoning.
 ═════════════════════════════════════════════════════════════════════════════════`;
+  }
+
+  /**
+   * Async version of {@link buildScriptSystemPrompt}.
+   *
+   * When a {@link PromptLoader} is configured, this method attempts to:
+   *  1. Resolve a full custom `system_prompt` template from the loader.
+   *  2. Resolve dynamic `video_type_guideline` and `video_genre_guideline`
+   *     overrides for use with the static template.
+   *  3. Resolve dynamic `style_suffix` and `character_instruction` overrides.
+   *
+   * All dynamic resolution happens before building the prompt string to avoid
+   * any mutation of shared instance state (safe for concurrent calls).
+   *
+   * Falls back to the synchronous static implementation when no dynamic prompts
+   * are found or when no loader is configured.
+   */
+  async buildScriptSystemPromptAsync(options: VideoGenerationOptions): Promise<string> {
+    if (!this.promptLoader) {
+      return this.buildScriptSystemPrompt(options);
+    }
+
+    const context = {
+      videoType: options.videoType,
+      videoGenre: options.videoGenre,
+      language: options.language,
+    };
+
+    // Attempt to load a fully custom system prompt first
+    const customSystemPrompt = await this.promptLoader('system_prompt', context, {
+      language: options.language || 'en-US',
+      videoType: options.videoType || 'general',
+      videoGenre: options.videoGenre || 'general',
+    });
+    if (customSystemPrompt) {
+      return customSystemPrompt;
+    }
+
+    // Resolve all dynamic overrides in parallel (no instance mutation)
+    const [dynamicTypeGuideline, dynamicGenreGuideline, dynamicStyleSuffix, dynamicCharInstruction] =
+      await Promise.all([
+        options.videoType
+          ? this.promptLoader('video_type_guideline', context, { videoType: options.videoType })
+          : Promise.resolve(null),
+        options.videoGenre
+          ? this.promptLoader('video_genre_guideline', context, { videoGenre: options.videoGenre })
+          : Promise.resolve(null),
+        this.promptLoader('style_suffix', context),
+        this.promptLoader('character_instruction', context),
+      ]);
+
+    // If no overrides were found, use the synchronous path directly
+    if (!dynamicTypeGuideline && !dynamicGenreGuideline && !dynamicStyleSuffix && !dynamicCharInstruction) {
+      return this.buildScriptSystemPrompt(options);
+    }
+
+    // Build an isolated PromptManager with overridden values to avoid mutating
+    // shared state (prevents race conditions under concurrent requests)
+    const isolated = new PromptManager({
+      styleSuffix: dynamicStyleSuffix ?? this.styleSuffix,
+      characterSystemInstruction: dynamicCharInstruction ?? this.characterSystemInstruction,
+      backgroundColor: this.backgroundColor,
+    });
+
+    // Override per-type/genre guideline lookups on the isolated instance
+    if (dynamicTypeGuideline && options.videoType) {
+      const capturedVideoType = options.videoType;
+      const capturedGuideline = dynamicTypeGuideline;
+      const originalGetType = isolated.getVideoTypeGuideline.bind(isolated);
+      isolated.getVideoTypeGuideline = (vt: string) =>
+        vt === capturedVideoType ? capturedGuideline : originalGetType(vt);
+    }
+    if (dynamicGenreGuideline && options.videoGenre) {
+      const capturedVideoGenre = options.videoGenre;
+      const capturedGuideline = dynamicGenreGuideline;
+      const originalGetGenre = isolated.getVideoGenreGuideline.bind(isolated);
+      isolated.getVideoGenreGuideline = (vg: string) =>
+        vg === capturedVideoGenre ? capturedGuideline : originalGetGenre(vg);
+    }
+
+    return isolated.buildScriptSystemPrompt(options);
   }
 
   /**
