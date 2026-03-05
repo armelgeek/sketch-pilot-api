@@ -5,7 +5,12 @@ import {
   PermissionController,
   SubscriptionController,
   SystemConfigController,
-  UserController
+  UserController,
+  CreditsController,
+  VideosController,
+  ScriptsController,
+  ConfigController,
+  VideoAdminController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
 import { SubscriptionPlanController } from './infrastructure/controllers/subscription-plan.controller'
@@ -19,7 +24,12 @@ const app = new App([
   new EmailCheckController(),
   new SubscriptionController(),
   new SubscriptionPlanController(),
-  new SystemConfigController()
+  new SystemConfigController(),
+  new CreditsController(),
+  new VideosController(),
+  new ScriptsController(),
+  new ConfigController(),
+  new VideoAdminController()
 ]).getApp()
 
 const PORT = Bun.env.PORT || 3000

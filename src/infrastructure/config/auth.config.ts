@@ -1,11 +1,13 @@
 import { betterAuth, type User } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin, customSession, emailOTP, openAPI } from 'better-auth/plugins'
+import { stripe as stripePlugin } from '@better-auth/stripe'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import Stripe from 'stripe'
 import { PermissionService } from '@/application/services/permission.service'
 import { db } from '../database/db'
-import { users } from '../database/schema'
+import { users, userCredits } from '../database/schema'
 import {
   emailTemplates,
   sendChangeEmailVerification,
@@ -13,6 +15,33 @@ import {
   sendResetPasswordEmail,
   sendVerificationEmail
 } from './mail.config'
+
+const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2025-03-31.basil' as any
+})
+
+async function addCreditsToUser(userId: string, credits: number): Promise<void> {
+  try {
+    const existing = await db.query.userCredits?.findFirst?.({ where: (t: any, { eq: eqFn }: any) => eqFn(t.userId, userId) })
+    if (existing) {
+      await db
+        .update(userCredits)
+        .set({ extraCredits: existing.extraCredits + credits, updatedAt: new Date() })
+        .where(eq(userCredits.userId, userId))
+    } else {
+      await db.insert(userCredits).values({
+        id: crypto.randomUUID(),
+        userId,
+        extraCredits: credits,
+        videosThisMonth: 0,
+        resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1),
+        updatedAt: new Date()
+      })
+    }
+  } catch (error) {
+    console.error('Error adding credits to user:', error)
+  }
+}
 
 export const auth = betterAuth({
   plugins: [
@@ -28,6 +57,49 @@ export const auth = betterAuth({
         })
       }
     }),
+    stripePlugin({
+      stripeClient,
+      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+      createCustomerOnSignUp: true,
+      onEvent: async (event: Stripe.Event) => {
+        if (event.type === 'checkout.session.completed') {
+          const session = event.data.object as Stripe.Checkout.Session
+          if (session.mode === 'payment' && session.metadata?.type === 'credit_topup') {
+            const userId = session.metadata.userId
+            const credits = parseInt(session.metadata.creditsAmount || '0', 10)
+            if (userId && credits > 0) {
+              await addCreditsToUser(userId, credits)
+              // Record the transaction
+              try {
+                const { creditTransactions } = await import('../database/schema')
+                await db.insert(creditTransactions).values({
+                  id: crypto.randomUUID(),
+                  userId,
+                  type: 'topup',
+                  amount: credits,
+                  price: session.amount_total ? String(session.amount_total / 100) : null,
+                  currency: session.currency || 'usd',
+                  stripeSessionId: session.id,
+                  packId: session.metadata.packId,
+                  createdAt: new Date()
+                })
+              } catch (err) {
+                console.error('Error recording credit transaction:', err)
+              }
+            }
+          }
+        }
+      },
+      subscription: {
+        enabled: true,
+        plans: [
+          { name: 'creator', priceId: process.env.STRIPE_PRICE_CREATOR || '', limits: { videosPerMonth: 30 } },
+          { name: 'professional', priceId: process.env.STRIPE_PRICE_PROFESSIONAL || '', limits: { videosPerMonth: 100 } },
+          { name: 'business', priceId: process.env.STRIPE_PRICE_BUSINESS || '', limits: { videosPerMonth: 300 } },
+          { name: 'enterprise', priceId: process.env.STRIPE_PRICE_ENTERPRISE || '', limits: { videosPerMonth: -1 } }
+        ]
+      }
+    }) as any,
     customSession(async ({ user, session }) => {
       if (!user?.id) {
         return {
