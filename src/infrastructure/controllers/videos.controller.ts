@@ -1,13 +1,14 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import type { Routes } from '@/domain/types'
-import { getVideoQueue, getVideoQueueEvents, type VideoJobData } from '../config/queue.config'
+import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
-import { CreditsRepository } from '../repositories/credits.repository'
 import { VideoRepository } from '../repositories/video.repository'
-import { PLAN_MONTHLY_LIMITS } from '../config/video.config'
+import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
+import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 
 const videoRepository = new VideoRepository()
-const creditsRepository = new CreditsRepository()
+const generateVideoUseCase = new GenerateVideoUseCase()
+const regenerateVideoUseCase = new RegenerateVideoUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -94,80 +95,28 @@ export class VideosController implements Routes {
 
         const { topic, options } = c.req.valid('json')
 
-        // Check quota
-        const credits = await creditsRepository.ensureUserCredits(user.id)
-        const plan: string = (user as any).planId || 'free'
-        const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
-        const videosThisMonth = credits?.videosThisMonth ?? 0
-        const extraCredits = credits?.extraCredits ?? 0
-
-        const hasMonthlyQuota = monthlyLimit === -1 || videosThisMonth < monthlyLimit
-        const hasExtraCredits = extraCredits > 0
-
-        if (!hasMonthlyQuota && !hasExtraCredits) {
-          return c.json({ error: 'Insufficient credits. Please upgrade your plan or purchase additional credits.' }, 402)
-        }
-
-        // Create video record
-        const videoId = crypto.randomUUID()
-        const jobId = crypto.randomUUID()
-
-        await videoRepository.create({
-          id: videoId,
+        const { result } = await generateVideoUseCase.run({
           userId: user.id,
+          planId: (user as any).planId,
           topic,
-          options,
-          genre: options?.videoGenre,
-          type: options?.videoType,
-          language: options?.language || 'en'
+          options
         })
 
-        await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
-
-        // Enqueue job
-        const jobData: VideoJobData = {
-          jobId,
-          userId: user.id,
-          videoId,
-          topic,
-          options: options || {}
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          return c.json({ error: result.error || 'Failed to enqueue video generation' }, 500)
         }
-
-        try {
-          const queue = getVideoQueue()
-          await queue.add('generate-video', jobData, {
-            jobId,
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5000 }
-          })
-        } catch (error) {
-          console.error('Failed to enqueue video job:', error)
-          // Continue without queue - job can be picked up later
-        }
-
-        // Deduct credit
-        if (hasMonthlyQuota) {
-          await creditsRepository.incrementVideosThisMonth(user.id)
-        } else {
-          await creditsRepository.deductExtraCredit(user.id)
-        }
-
-        // Record consumption
-        await creditsRepository.addTransaction({
-          userId: user.id,
-          type: 'consumption',
-          amount: -1,
-          videoId
-        })
 
         return c.json(
           {
-            jobId,
+            jobId: result.jobId,
             status: 'queued',
-            estimatedDuration: 180,
-            creditsRequired: 1,
+            estimatedDuration: result.estimatedDuration,
+            creditsRequired: result.creditsRequired,
             message: 'Generation in progress...',
-            streamUrl: `/api/v1/videos/jobs/${jobId}/stream`
+            streamUrl: result.streamUrl
           },
           202
         )
@@ -746,54 +695,29 @@ export class VideosController implements Routes {
         const video = await videoRepository.findByIdAndUserId(id, user.id)
         if (!video) return c.json({ error: 'Video not found' }, 404)
 
-        // Check quota
-        const credits = await creditsRepository.ensureUserCredits(user.id)
-        const plan: string = (user as any).planId || 'free'
-        const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
-        const videosThisMonth = credits?.videosThisMonth ?? 0
-        const extraCredits = credits?.extraCredits ?? 0
-
-        const hasMonthlyQuota = monthlyLimit === -1 || videosThisMonth < monthlyLimit
-        const hasExtraCredits = extraCredits > 0
-
-        if (!hasMonthlyQuota && !hasExtraCredits) {
-          return c.json({ error: 'Insufficient credits.' }, 402)
-        }
-
-        const jobId = crypto.randomUUID()
-        await videoRepository.updateStatus(id, { jobId, status: 'queued', progress: 0, errorMessage: null as any })
-
-        const jobData: VideoJobData = {
-          jobId,
-          userId: user.id,
+        const { result } = await regenerateVideoUseCase.run({
           videoId: id,
+          userId: user.id,
+          planId: (user as any).planId,
           topic: video.topic,
           options: (video.options as any) || {}
-        }
+        })
 
-        try {
-          const queue = getVideoQueue()
-          await queue.add('generate-video', jobData, { jobId, attempts: 3 })
-        } catch (error) {
-          console.error('Failed to enqueue regeneration job:', error)
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          return c.json({ error: result.error || 'Failed to enqueue regeneration' }, 500)
         }
-
-        if (hasMonthlyQuota) {
-          await creditsRepository.incrementVideosThisMonth(user.id)
-        } else {
-          await creditsRepository.deductExtraCredit(user.id)
-        }
-
-        await creditsRepository.addTransaction({ userId: user.id, type: 'consumption', amount: -1, videoId: id })
 
         return c.json(
           {
-            jobId,
+            jobId: result.jobId,
             status: 'queued',
-            estimatedDuration: 180,
-            creditsRequired: 1,
+            estimatedDuration: result.estimatedDuration,
+            creditsRequired: result.creditsRequired,
             message: 'Regeneration in progress...',
-            streamUrl: `/api/v1/videos/jobs/${jobId}/stream`
+            streamUrl: result.streamUrl
           },
           202
         )

@@ -52,7 +52,7 @@ export class ElevenLabsService implements AudioService {
 
             // Convert async iterable to readable stream and pipe to file
             await new Promise<void>((resolve, reject) => {
-                const readable = Readable.from(audioStream);
+                const readable = Readable.from(audioStream as any);
 
                 readable.pipe(fileStream);
 
