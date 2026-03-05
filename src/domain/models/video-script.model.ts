@@ -1,4 +1,7 @@
-// Re-exported from domain/models/video-script.model for backward compatibility
+/**
+ * Video script domain models.
+ * Exports the core types from the sketch-pilot generation engine.
+ */
 export type {
   VideoGenerationOptions,
   CompleteVideoScript,
@@ -25,6 +28,6 @@ export type {
   AnimationPrompt,
   ImagePrompt,
   ItemAnimation
-} from '../models/video-script.model'
+} from '@sketch-pilot/types/video-script.types'
 
-export { QualityMode, KokoroVoicePreset } from '../models/video-script.model'
+export { QualityMode, KokoroVoicePreset } from '@sketch-pilot/types/video-script.types'

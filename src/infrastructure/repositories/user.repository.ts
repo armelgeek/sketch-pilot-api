@@ -6,16 +6,13 @@ import type {
   UserRepositoryInterface
 } from '@/domain/repositories/user.repository.interface'
 import { db } from '../database/db'
-
-import { children, users } from '../database/schema'
+import { users } from '../database/schema'
 import type { z } from 'zod'
 
 export class UserRepository implements UserRepositoryInterface {
   async findById(id: string): Promise<z.infer<typeof User> | null> {
     const [user] = await db.select().from(users).where(eq(users.id, id))
-
     if (!user) return null
-
     return {
       id: user.id,
       name: user.name,
@@ -26,14 +23,7 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
-      isTrialActive: user.isTrialActive,
-      hasTrialUsed: user.hasTrialUsed,
-      trialStartDate: user.trialStartDate || undefined,
-      trialEndDate: user.trialEndDate || undefined,
       stripeCustomerId: user.stripeCustomerId || undefined,
-      stripeSubscriptionId: user.stripeSubscriptionId || undefined,
-      stripePriceId: user.planId || undefined,
-      stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -41,7 +31,6 @@ export class UserRepository implements UserRepositoryInterface {
 
   async findAll(): Promise<z.infer<typeof User>[]> {
     const dbUsers = await db.select().from(users)
-
     return dbUsers.map((user) => ({
       id: user.id,
       name: user.name,
@@ -52,28 +41,10 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
-      isTrialActive: user.isTrialActive,
-      hasTrialUsed: user.hasTrialUsed,
-      trialStartDate: user.trialStartDate || undefined,
-      trialEndDate: user.trialEndDate || undefined,
       stripeCustomerId: user.stripeCustomerId || undefined,
-      stripeSubscriptionId: user.stripeSubscriptionId || undefined,
-      stripePriceId: user.planId || undefined,
-      stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }))
-  }
-
-  async countChildren(userId: string): Promise<number> {
-    const result = await db
-      .select({
-        count: sql<number>`count(*)::int`
-      })
-      .from(children)
-      .where(eq(children.parentId, userId))
-
-    return result[0].count || 0
   }
 
   async findPaginatedUsers(filter: UserFilter): Promise<PaginatedUsers> {
@@ -82,7 +53,6 @@ export class UserRepository implements UserRepositoryInterface {
     const offset = (page - 1) * limit
 
     const conditions = []
-
     const baseQuery = db.select().from(users)
 
     if (filter.role) {
@@ -107,58 +77,33 @@ export class UserRepository implements UserRepositoryInterface {
     const query = whereClause ? baseQuery.where(whereClause) : baseQuery
 
     const [{ count }] = await db
-      .select({
-        count: sql<number>`count(${users.id})::int`
-      })
+      .select({ count: sql<number>`count(${users.id})::int` })
       .from(query.as('filtered_users'))
-
-    const total = count
 
     const results = await query.orderBy(users.createdAt).limit(limit).offset(offset)
 
-    const mappedUsers = await Promise.all(
-      results.map(async (user) => {
-        const childCount = await this.countChildren(user.id)
+    const mappedUsers = results.map((user) => ({
+      id: user.id,
+      name: user.name,
+      firstname: user.firstname || undefined,
+      lastname: user.lastname || undefined,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      image: user.image || undefined,
+      isAdmin: user.isAdmin,
+      stripeCustomerId: user.stripeCustomerId || undefined,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      lastLoginAt: user.lastLoginAt || null,
+      role: user.role
+    }))
 
-        return {
-          id: user.id,
-          name: user.name,
-          firstname: user.firstname || undefined,
-          lastname: user.lastname || undefined,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          image: user.image || undefined,
-          isAdmin: user.isAdmin,
-          isTrialActive: user.isTrialActive,
-          hasTrialUsed: user.hasTrialUsed,
-          trialStartDate: user.trialStartDate || undefined,
-          trialEndDate: user.trialEndDate || undefined,
-          stripeCustomerId: user.stripeCustomerId || undefined,
-          stripeSubscriptionId: user.stripeSubscriptionId || undefined,
-          stripePriceId: user.planId || undefined,
-          stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd || undefined,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-          lastLoginAt: user.lastLoginAt || null,
-          role: user.role,
-          childrenCount: childCount
-        }
-      })
-    )
-
-    return {
-      users: mappedUsers,
-      total,
-      page,
-      limit
-    }
+    return { users: mappedUsers, total: count, page, limit }
   }
 
   async findByEmail(email: string): Promise<z.infer<typeof User> | null> {
     const [user] = await db.select().from(users).where(eq(users.email, email))
-
     if (!user) return null
-
     return {
       id: user.id,
       name: user.name,
@@ -169,20 +114,13 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
-      isTrialActive: user.isTrialActive,
-      hasTrialUsed: user.hasTrialUsed,
-      trialStartDate: user.trialStartDate || undefined,
-      trialEndDate: user.trialEndDate || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
   }
 
   async update(id: string, data: Partial<z.infer<typeof User>>): Promise<z.infer<typeof User>> {
-    const updateData: any = {
-      updatedAt: new Date()
-    }
-
+    const updateData: any = { updatedAt: new Date() }
     if (data.name !== undefined) updateData.name = data.name
     if (data.email !== undefined) updateData.email = data.email
     if (data.firstname !== undefined) updateData.firstname = data.firstname
@@ -192,10 +130,7 @@ export class UserRepository implements UserRepositoryInterface {
     if (data.isAdmin !== undefined) updateData.isAdmin = data.isAdmin
 
     const [updatedUser] = await db.update(users).set(updateData).where(eq(users.id, id)).returning()
-
-    if (!updatedUser) {
-      throw new Error('User not found')
-    }
+    if (!updatedUser) throw new Error('User not found')
 
     return {
       id: updatedUser.id,
@@ -207,14 +142,7 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: updatedUser.lastLoginAt || null,
       image: updatedUser.image || undefined,
       isAdmin: updatedUser.isAdmin,
-      isTrialActive: updatedUser.isTrialActive,
-      hasTrialUsed: updatedUser.hasTrialUsed,
-      trialStartDate: updatedUser.trialStartDate || undefined,
-      trialEndDate: updatedUser.trialEndDate || undefined,
       stripeCustomerId: updatedUser.stripeCustomerId || undefined,
-      stripeSubscriptionId: updatedUser.stripeSubscriptionId || undefined,
-      stripePriceId: updatedUser.planId || undefined,
-      stripeCurrentPeriodEnd: updatedUser.stripeCurrentPeriodEnd || undefined,
       createdAt: updatedUser.createdAt,
       updatedAt: updatedUser.updatedAt
     }
@@ -223,11 +151,9 @@ export class UserRepository implements UserRepositoryInterface {
   async parentAccountsHistogram({ startDate, endDate }: { startDate?: Date; endDate?: Date } = {}): Promise<
     Array<{ date: string; count: number }>
   > {
-    // Histogramme du nombre de comptes parents créés par mois (ou jour si période courte)
     let where = sql`is_admin = false`
     if (startDate) where = sql`${where} AND created_at >= ${startDate}`
     if (endDate) where = sql`${where} AND created_at <= ${endDate}`
-    // Regroupement par mois (YYYY-MM)
     const result = await db
       .select({
         date: sql`to_char(created_at, 'YYYY-MM')`,
@@ -241,7 +167,6 @@ export class UserRepository implements UserRepositoryInterface {
   }
 
   async countParents(): Promise<number> {
-    // Compte tous les utilisateurs qui ne sont pas admin (parents)
     const result = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(users)

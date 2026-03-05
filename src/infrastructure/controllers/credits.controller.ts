@@ -1,9 +1,12 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { and, eq, or } from 'drizzle-orm'
 import Stripe from 'stripe'
 import type { Routes } from '@/domain/types'
 import { stripe as stripeClient } from '../config/stripe.config'
 import { CREDIT_PACKS, PLAN_MONTHLY_LIMITS } from '../config/video.config'
 import { CreditsRepository } from '../repositories/credits.repository'
+import { db } from '../database/db'
+import { subscription } from '../database/schema'
 
 const creditsRepository = new CreditsRepository()
 
@@ -51,7 +54,13 @@ export class CreditsController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const credits = await creditsRepository.ensureUserCredits(user.id)
-        const plan: string = (user as any).planId || 'free'
+        const activeSub = await db.query.subscription.findFirst({
+          where: and(
+            eq(subscription.referenceId, user.id),
+            or(eq(subscription.status, 'active'), eq(subscription.status, 'trialing'))
+          )
+        })
+        const plan: string = activeSub?.plan || 'free'
         const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
 
         const videosThisMonth = credits?.videosThisMonth ?? 0

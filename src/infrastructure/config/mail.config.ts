@@ -30,101 +30,6 @@ const transporter = nodemailer.createTransport({
 const SUBSCRIPTION_ACTION_URL = Bun.env.SUBSCRIPTION_ACTION_URL || 'https://dev.meko.ac/subscription'
 
 export const emailTemplates = {
-  trialStarted(name: string) {
-    return {
-      subject: '🎉 Bienvenue chez Meko Academy - Votre essai gratuit a commencé !',
-      text: `Bonjour ${name},
-
-Nous sommes ravis de vous accueillir chez Meko Academy ! 
-
-Votre période d'essai gratuit vient de débuter et vous avez maintenant accès à l'intégralité de notre plateforme éducative premium. C'est l'occasion parfaite pour découvrir comment nous pouvons transformer l'apprentissage de vos enfants.
-
-🔹 Explorez nos modules interactifs
-🔹 Testez nos fonctionnalités avancées
-🔹 Découvrez notre approche pédagogique innovante
-
-À la fin de votre période d'essai, votre abonnement se poursuivra automatiquement pour que vos enfants puissent continuer leur apprentissage sans interruption.
-
-Votre tableau de bord vous attend : ${SUBSCRIPTION_ACTION_URL}
-
-Notre équipe support reste disponible pour vous accompagner dans cette découverte. N'hésitez pas à nous faire part de vos impressions !
-
-Excellente exploration,
-L'équipe Meko Academy`
-    }
-  },
-
-  trialEnding(name: string, daysLeft: number) {
-    return {
-      subject: `⏰ Plus que ${daysLeft} jour${daysLeft > 1 ? 's' : ''} d'essai gratuit restant`,
-      text: `Bonjour ${name},
-
-Nous espérons que vous appréciez votre expérience avec Meko Academy ! 
-
-Votre période d'essai gratuit se termine dans ${daysLeft} jour${daysLeft > 1 ? 's' : ''}. Bonne nouvelle : votre abonnement se poursuivra automatiquement pour que vos enfants continuent leur parcours d'apprentissage sans interruption.
-
-✨ Ce qui vous attend après l'essai :
-• Accès continu à tous nos modules ludiques
-• Suivi personnalisé des progrès sans limite
-• Nouvelles fonctionnalités et contenus réguliers
-
-Vous pouvez à tout moment modifier vos préférences d'abonnement ou annuler si vous le souhaitez.
-
-👉 Gérer mon abonnement : ${SUBSCRIPTION_ACTION_URL}
-
-Questions ? Notre équipe est là pour vous accompagner et vous conseiller.
-
-À très bientôt,
-L'équipe Meko Academy`
-    }
-  },
-
-  trialLastDay(name: string) {
-    return {
-      subject: "✨ Dernier jour d'essai - Votre abonnement démarre demain !",
-      text: `Bonjour ${name},
-
-C'est votre dernier jour d'essai gratuit avec Meko Academy !
-
-Nous espérons sincèrement que cette période vous a permis de découvrir la valeur de notre plateforme pour l'éducation de vos enfants. 
-
-🎯 À partir de demain : Votre abonnement démarrera automatiquement pour assurer une continuité parfaite dans l'apprentissage de vos enfants. Toutes vos données et progrès seront bien sûr préservés.
-
-Si vous souhaitez annuler votre abonnement avant qu'il ne commence, vous pouvez le faire dès maintenant :
-
-👉 Gérer mon abonnement : ${SUBSCRIPTION_ACTION_URL}
-
-Notre équipe reste disponible pour répondre à toutes vos questions.
-
-Merci de nous faire confiance,
-L'équipe Meko Academy`
-    }
-  },
-
-  trialEnded(name: string) {
-    return {
-      subject: '🚀 Votre abonnement Meko Academy est maintenant actif !',
-      text: `Bonjour ${name},
-
-Votre période d'essai gratuit s'est achevée et votre abonnement Meko Academy est maintenant actif !
-
-🌟 Continuez l'aventure :
-• Tous vos progrès ont été préservés
-• Accès illimité à l'ensemble de nos contenus
-• Nouvelles fonctionnalités et modules à découvrir
-• Support dédié pour vous accompagner
-
-Votre premier paiement sera traité selon les conditions de votre abonnement. Vous conservez bien sûr la possibilité de modifier ou annuler votre abonnement à tout moment.
-
-👉 Mon espace abonnement : ${SUBSCRIPTION_ACTION_URL}
-
-Des questions ? Notre équipe est là pour vous accompagner dans cette nouvelle étape.
-
-Bienvenue dans la communauté Meko Academy !
-L'équipe Meko Academy`
-    }
-  },
-
   subscriptionCreated(name: string, planName: string) {
     return {
       subject: 'Bienvenue dans votre abonnement Meko Academy',
@@ -197,23 +102,6 @@ Pour éviter tout problème, veuillez vérifier vos informations de paiement.
 Pour mettre à jour vos informations de paiement: ${SUBSCRIPTION_ACTION_URL}/payment
 
 Nous restons à votre disposition pour toute question.
-
-Cordialement,
-L'équipe Meko Academy`
-    }
-  },
-
-  subscriptionExpired(name: string) {
-    return {
-      subject: 'Votre abonnement a expiré',
-      text: `Bonjour ${name},
-
-Votre abonnement Meko Academy a expiré et votre accès aux fonctionnalités premium a été suspendu.
-
-Pour reprendre votre abonnement et retrouver l'accès à nos services:
-${SUBSCRIPTION_ACTION_URL}
-
-Nous espérons vous revoir bientôt.
 
 Cordialement,
 L'équipe Meko Academy`
@@ -349,26 +237,17 @@ export const sendEmail = async ({ to, subject, text, html }: EmailParams): Promi
 
 export const sendVerificationEmail = ({ email, verificationUrl }: { email: string; verificationUrl: string }) => {
   const emailTemplate = emailTemplates.verification(verificationUrl)
-  return sendEmail({
-    to: email,
-    ...emailTemplate
-  })
+  return sendEmail({ to: email, ...emailTemplate })
 }
 
 export const sendResetPasswordEmail = ({ email, verificationUrl }: { email: string; verificationUrl: string }) => {
   const emailTemplate = emailTemplates.resetPassword(verificationUrl)
-  return sendEmail({
-    to: email,
-    ...emailTemplate
-  })
+  return sendEmail({ to: email, ...emailTemplate })
 }
 
 export const sendChangeEmailVerification = ({ email, verificationUrl }: { email: string; verificationUrl: string }) => {
   const emailTemplate = emailTemplates.changeEmail(verificationUrl)
-  return sendEmail({
-    to: email,
-    ...emailTemplate
-  })
+  return sendEmail({ to: email, ...emailTemplate })
 }
 
 export const sendDeleteAccountVerification = ({

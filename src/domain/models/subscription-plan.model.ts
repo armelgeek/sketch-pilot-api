@@ -4,7 +4,6 @@ export const SubscriptionPlanSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
   description: z.string().optional(),
-  childLimit: z.number().int().positive().optional(),
   priceMonthly: z.number().nonnegative(),
   priceYearly: z.number().nonnegative(),
   displayedYearly: z.number().nonnegative(),

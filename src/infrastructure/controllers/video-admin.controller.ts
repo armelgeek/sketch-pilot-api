@@ -1,10 +1,9 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { eq, sql } from 'drizzle-orm'
 import type { Routes } from '@/domain/types'
-import { Actions, Subjects } from '@/domain/types/permission.type'
 import { db } from '../database/db'
 import { users, userCredits, videos, creditTransactions } from '../database/schema'
-import { checkPermission } from '../middlewares/permission.middleware'
+import { requireAdmin } from '../middlewares/admin.middleware'
 import { CreditsRepository } from '../repositories/credits.repository'
 import { VideoRepository } from '../repositories/video.repository'
 
@@ -20,10 +19,7 @@ export class VideoAdminController implements Routes {
 
   public initRoutes() {
     // Apply admin permission check
-    this.controller.use('/v1/admin/stats', checkPermission(Subjects.ADMIN, Actions.READ))
-    this.controller.use('/v1/admin/jobs', checkPermission(Subjects.ADMIN, Actions.READ))
-    this.controller.use('/v1/admin/videos', checkPermission(Subjects.ADMIN, Actions.READ))
-    this.controller.use('/v1/admin/users/:id/credits', checkPermission(Subjects.ADMIN, Actions.UPDATE))
+    this.controller.use('/v1/admin/*', requireAdmin)
 
     // GET /v1/admin/stats
     this.controller.openapi(

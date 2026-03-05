@@ -1,7 +1,5 @@
-export * from './permission.controller'
 export * from './subscription.controller'
 export * from './user.controller'
-export * from './avatar.controller'
 export * from './email-check.controller'
 export * from './system-config.controller'
 export * from './credits.controller'
