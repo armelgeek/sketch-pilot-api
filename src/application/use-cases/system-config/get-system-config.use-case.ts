@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { SystemConfigRepositoryInterface } from '@/domain/repositories/system-config.repository.interface'
 
 type GetSystemConfigResponse = {
@@ -26,9 +25,5 @@ export class GetSystemConfigUseCase extends IUseCase<Record<string, never>, GetS
       success: true,
       data: { isSubscriptionEnabled: config.isSubscriptionEnabled }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.GET_SYSTEM_CONFIG
   }
 }

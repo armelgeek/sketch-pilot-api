@@ -1,6 +1,5 @@
 import { StripePlanService } from '@/application/services/stripe-plan.service'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { SubscriptionPlan } from '@/domain/models/subscription-plan.model'
 import type { SubscriptionPlanRepositoryInterface } from '@/domain/repositories/subscription-plan.repository.interface'
 
@@ -36,9 +35,5 @@ export class CreateSubscriptionPlanUseCase extends IUseCase<Params, Response> {
     } catch (error: any) {
       return { success: false, error: error.message, data: null as any }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.CREATE_PLAN
   }
 }

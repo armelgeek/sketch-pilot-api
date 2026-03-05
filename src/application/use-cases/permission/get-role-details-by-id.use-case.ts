@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 
 interface RoleDetailResponse {
@@ -58,9 +57,5 @@ export class GetRoleDetailsByIdUseCase extends IUseCase<{ roleId: string }, Role
         }
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.GET_ROLE
   }
 }

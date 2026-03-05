@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { TrialService } from '@/application/services/trial.service'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { emailTemplates, sendEmail } from '@/infrastructure/config/mail.config'
 import { stripe } from '@/infrastructure/config/stripe.config'
 import { db } from '@/infrastructure/database/db'
@@ -358,8 +357,4 @@ export class HandleStripeWebhookUseCase extends IUseCase<{ event: Stripe.Event }
       console.error(error)
       return { success: false }
     }
-  }
-  log(): ActivityType {
-    return ActivityType.CALL_WEBHOOK
-  }
-}
+  }}

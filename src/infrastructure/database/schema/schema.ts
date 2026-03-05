@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, primaryKey, real, text, timestamp, varchar } from 'drizzle-orm/pg-core'
+import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import type { Action, Subject } from '../../../domain/types/permission.type'
 import { subscriptionPlans } from './subscription-plan.schema'
 
@@ -82,51 +82,6 @@ export const verifications = pgTable('verifications', {
   updatedAt: timestamp('updated_at')
 })
 
-export const activityLogs = pgTable('activity_logs', {
-  id: text('id').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  action: text('action').notNull(),
-  activityType: text('activity_type'),
-  resource: text('resource'),
-  resourceId: text('resource_id'),
-  status: text('status').default('success'),
-  timestamp: timestamp('timestamp').notNull().defaultNow(),
-  ipAddress: varchar('ip_address', { length: 45 })
-})
-
-export const subscriptionHistory = pgTable('subscription_history', {
-  id: text('id').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  action: text('action').notNull(),
-  oldPlan: text('old_plan'),
-  newPlan: text('new_plan'),
-  amount: text('amount'),
-  currency: text('currency'),
-  adjustmentType: text('adjustment_type'),
-  status: text('status').notNull(),
-  stripeInvoiceUrl: text('stripe_invoice_url'),
-  interval: text('interval'),
-  timestamp: timestamp('timestamp').notNull().defaultNow()
-})
-
-export const children = pgTable('children', {
-  id: text('id').primaryKey(),
-  parentId: text('parent_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  firstname: text('firstname').notNull(),
-  lastname: text('lastname'),
-  birthday: timestamp('birthday'),
-  avatarUrl: text('avatar_url'),
-  firstLogin: boolean('first_login').notNull().default(true),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow()
-})
-
 export const avatars = pgTable('avatars', {
   id: text('id').primaryKey(),
   image: text('image').notNull()
@@ -163,88 +118,19 @@ export const userRoles = pgTable('user_roles', {
   updatedAt: timestamp('updated_at').notNull()
 })
 
-export const verificationCodes = pgTable('verification_codes', {
+export const subscriptionHistory = pgTable('subscription_history', {
   id: text('id').primaryKey(),
-  code: varchar('code', { length: 6 }).notNull(),
-  childId: text('child_id')
+  userId: text('user_id')
     .notNull()
-    .references(() => children.id, { onDelete: 'cascade' }),
-  expiresAt: timestamp('expires_at').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull()
-})
-
-export const modules = pgTable('modules', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  coverUrl: text('cover_url'),
-  description: text('description'),
-  isActive: boolean('is_active').notNull().default(true),
-  position: integer('position').notNull().default(0), // Ordre d'affichage
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow()
-})
-
-export const lessons = pgTable('lessons', {
-  id: text('id').primaryKey(),
-  title: text('title').notNull(),
-  content: text('content'),
-  order: integer('order').notNull(),
-  moduleId: text('module_id')
-    .notNull()
-    .references(() => modules.id, { onDelete: 'cascade' }),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow()
-})
-
-export const games = pgTable('games', {
-  id: text('id').primaryKey(),
-  title: text('title').notNull().unique(),
-  file: text('file'),
-  coverUrl: text('cover_url'),
-  lessonId: text('lesson_id')
-    .notNull()
-    .references(() => lessons.id, { onDelete: 'cascade' }),
-  position: integer('position').notNull().default(0), // Ordre d'affichage dans la leçon
-  extractionStatus: text('extraction_status').notNull().default('pending'), // Statut d'extraction
-  extractionError: text('extraction_error'), // Erreur d'extraction si échec
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow()
-})
-
-export const gamePrerequisites = pgTable(
-  'game_prerequisites',
-  {
-    gameId: text('game_id')
-      .notNull()
-      .references(() => games.id, { onDelete: 'cascade' }),
-    prerequisiteGameId: text('prerequisite_game_id')
-      .notNull()
-      .references(() => games.id, { onDelete: 'cascade' })
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.gameId, table.prerequisiteGameId] })
-  })
-)
-
-export const gameSessions = pgTable('game_sessions', {
-  id: text('id').primaryKey(),
-  childId: text('child_id')
-    .notNull()
-    .references(() => children.id, { onDelete: 'cascade' }),
-  gameId: text('game_id')
-    .notNull()
-    .references(() => games.id, { onDelete: 'cascade' }),
-  startedAt: timestamp('started_at').notNull().defaultNow(),
-  endedAt: timestamp('ended_at'),
-  success: boolean('success'),
-  status: text('status', {
-    enum: ['in_progress', 'completed', 'blocked', 'abandoned']
-  })
-    .notNull()
-    .default('in_progress'),
-  sessionDate: timestamp('session_date', { mode: 'date' }),
-  duration: real('duration'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(),
+  oldPlan: text('old_plan'),
+  newPlan: text('new_plan'),
+  amount: text('amount'),
+  currency: text('currency'),
+  adjustmentType: text('adjustment_type'),
+  status: text('status').notNull(),
+  stripeInvoiceUrl: text('stripe_invoice_url'),
+  interval: text('interval'),
+  timestamp: timestamp('timestamp').notNull().defaultNow()
 })

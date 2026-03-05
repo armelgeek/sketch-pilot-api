@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { SystemConfigInterface } from '@/application/services/system-config.service'
 import type { SystemConfigRepositoryInterface } from '@/domain/repositories/system-config.repository.interface'
 
@@ -27,9 +26,5 @@ export class UpdateSystemConfigUseCase extends IUseCase<UpdateSystemConfigParams
       success: true,
       data: updated
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.UPDATE_SYSTEM_CONFIG
   }
 }

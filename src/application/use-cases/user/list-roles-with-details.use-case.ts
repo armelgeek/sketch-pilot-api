@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 
 interface Params {
@@ -62,9 +61,5 @@ export class ListRolesWithDetailsUseCase extends IUseCase<Params, Response> {
         data: []
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.LIST_ROLES
   }
 }

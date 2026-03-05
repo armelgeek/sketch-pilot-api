@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { db } from '@/infrastructure/database/db'
 import { accounts, sessions, userRoles, users, verifications } from '@/infrastructure/database/schema'
 import type { PermissionService } from '@/application/services/permission.service'
@@ -68,9 +67,5 @@ export class DeleteUserUseCase extends IUseCase<Params, Response> {
         error: error.message || "Erreur lors de la suppression de l'utilisateur"
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.DELETE_ACCOUNT
   }
 }

@@ -94,20 +94,10 @@ export class PermissionController {
             resourceType: p.subject,
             actions: p.actions
           }))
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           const roleId = await this.createRoleUseCase.run({
-            currentUserId: c.get('user').id,
             name,
             description,
             resources,
-            ipAddress
           })
 
           return c.json(
@@ -170,19 +160,9 @@ export class PermissionController {
         try {
           const { userId, roleId } = c.req.param()
           const currentUser = c.get('user')
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           await this.assignRoleToUserUseCase.run({
             userId,
             roleId,
-            currentUserId: currentUser.id,
-            ipAddress
           })
 
           return c.json({ success: true })
@@ -264,27 +244,11 @@ export class PermissionController {
         try {
           const { roleId, recordActivity } = c.req.param()
           const currentUser = c.get('user')
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           let resultData
-          if (recordActivity === 'true' || recordActivity === true) {
-            const { result } = await this.getRoleDetailsByIdUseCase.run({
-              roleId,
-              currentUserId: currentUser?.id,
-              ipAddress
-            })
-            resultData = result
-          } else {
-            resultData = await this.getRoleDetailsByIdUseCase.execute({
-              roleId
-            })
-          }
+          const { result } = await this.getRoleDetailsByIdUseCase.run({
+            roleId
+          })
+          resultData = result
 
           if (!resultData.success) {
             return c.json({ success: false, error: resultData.error }, 404)
@@ -359,18 +323,8 @@ export class PermissionController {
           const { roleId } = c.req.param()
           const currentUser = c.get('user')
           const body = await c.req.json()
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           const { result } = await this.updateRoleUseCase.run({
             roleId,
-            currentUserId: currentUser.id,
-            ipAddress,
             ...body
           })
 
@@ -448,18 +402,9 @@ export class PermissionController {
         try {
           const { roleId } = c.req.param()
           const currentUser = c.get('user')
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           const { result } = await this.deleteRoleUseCase.run({
             roleId,
-            currentUserId: currentUser.id,
-            ipAddress
+            currentUserId: currentUser?.id
           })
 
           return c.json(result)

@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { UserRepositoryInterface } from '@/domain/repositories/user.repository.interface'
 
 type Params = {
@@ -43,9 +42,5 @@ export class CheckEmailExistsUseCase extends IUseCase<Params, Response> {
         error: error.message || 'Failed to check email'
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.SIGN_UP // Ou créer une nouvelle activité CHECK_EMAIL_EXISTS
   }
 }

@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { db } from '@/infrastructure/database/db'
 import { userRoles, users } from '@/infrastructure/database/schema'
 
@@ -59,13 +58,7 @@ export class CreateAdminUserUseCase extends IUseCase<Params, Response> {
           banReason: '',
           banExpires: null,
           isAdmin: true,
-          isTrialActive: false,
-          trialStartDate: null,
-          trialEndDate: null,
-          lastLoginAt: null,
-          stripeCustomerId: '',
-          stripeSubscriptionId: '',
-          stripeCurrentPeriodEnd: null
+          lastLoginAt: null
         }
       })
       if (!signUpResult.user) {
@@ -93,8 +86,8 @@ export class CreateAdminUserUseCase extends IUseCase<Params, Response> {
       try {
         await this.sendEmail({
           to: email,
-          subject: 'Bienvenue sur Meko Academy',
-          text: `Bonjour ${firstname ?? ''},\n\nVotre compte administrateur a été créé sur Meko Academy.\n\nVous pouvez désormais vous connecter avec votre adresse email (${email}).\n\nBienvenue dans l'équipe !\n\nL'équipe Meko Academy`
+          subject: 'Welcome',
+          text: `Hello ${firstname ?? ''},\n\nYour administrator account has been created.\n\nYou can now log in with your email address (${email}).\n\nWelcome to the team!`
         })
       } catch (mailError) {
         // Logging only, ne bloque pas la création
@@ -117,8 +110,5 @@ export class CreateAdminUserUseCase extends IUseCase<Params, Response> {
     } catch (error: any) {
       return { success: false, error: error.message || 'Internal server error' }
     }
-  }
-  log(): ActivityType {
-    return ActivityType.CREATE_USER
   }
 }

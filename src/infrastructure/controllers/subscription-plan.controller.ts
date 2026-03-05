@@ -64,26 +64,11 @@ export class SubscriptionPlanController implements Routes {
         const useCase = new CreateSubscriptionPlanUseCase(this.repository)
         const params = await c.req.json()
         const userId = c.get('user')?.id || ''
-        const ipAddress =
-          c.req.header('x-forwarded-for') ||
-          c.req.header('x-real-ip') ||
-          c.req.header('cf-connecting-ip') ||
-          c.req.header('x-client-ip') ||
-          c.req.header('x-remote-addr') ||
-          c.req.header('remote-addr') ||
-          undefined
-        const { result, activityLogId } = await useCase.run({
+        const { result } = await useCase.run({
           ...params,
-          currentUserId: userId,
-          resource: 'subscription-plan',
-          ipAddress
         })
         if (!result.success) {
-          if (activityLogId) await useCase.updateActivityResource(activityLogId, '', 'subscription-plan', 'error')
           return c.json({ success: false, data: null, error: result.error }, 200)
-        }
-        if (activityLogId) {
-          await useCase.updateActivityResource(activityLogId, result.data.id, 'subscription-plan', 'success')
         }
         const data = {
           ...result.data,
@@ -119,19 +104,9 @@ export class SubscriptionPlanController implements Routes {
         try {
           const { skip, limit } = c.req.query()
           const useCase = new ListSubscriptionPlansUseCase(this.repository)
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           const { result } = await useCase.run({
-            currentUserId: c.get('user')?.id || '',
             skip: skip ? Number(skip) : 0,
             limit: limit ? Number(limit) : 20,
-            ipAddress
           })
           if (!result.success) {
             return c.json({ success: false, data: [], error: result.error }, 200)
@@ -271,28 +246,13 @@ export class SubscriptionPlanController implements Routes {
         const { id } = c.req.param()
         const params = await c.req.json()
         const userId = c.get('user')?.id || ''
-        const ipAddress =
-          c.req.header('x-forwarded-for') ||
-          c.req.header('x-real-ip') ||
-          c.req.header('cf-connecting-ip') ||
-          c.req.header('x-client-ip') ||
-          c.req.header('x-remote-addr') ||
-          c.req.header('remote-addr') ||
-          undefined
         const useCase = new UpdateSubscriptionPlanUseCase(this.repository)
-        const { result, activityLogId } = await useCase.run({
+        const { result } = await useCase.run({
           id,
           ...params,
-          currentUserId: userId,
-          resource: 'subscription-plan',
-          ipAddress
         })
         if (!result.success) {
-          if (activityLogId) await useCase.updateActivityResource(activityLogId, id, 'subscription-plan', 'error')
           return c.json({ success: false, data: null, error: result.error }, 200)
-        }
-        if (activityLogId) {
-          await useCase.updateActivityResource(activityLogId, result.data.id, 'subscription-plan', 'success')
         }
         const data = {
           ...result.data,
@@ -327,26 +287,13 @@ export class SubscriptionPlanController implements Routes {
       async (c: any) => {
         const { id } = c.req.param()
         const userId = c.get('user')?.id || ''
-        const ipAddress =
-          c.req.header('x-forwarded-for') ||
-          c.req.header('x-real-ip') ||
-          c.req.header('cf-connecting-ip') ||
-          c.req.header('x-client-ip') ||
-          c.req.header('x-remote-addr') ||
-          c.req.header('remote-addr') ||
-          undefined
         const useCase = new DeleteSubscriptionPlanUseCase(this.repository)
-        const { result, activityLogId } = await useCase.run({
+        const { result } = await useCase.run({
           id,
-          currentUserId: userId,
-          resource: 'subscription-plan',
-          ipAddress
         })
         if (!result.success) {
-          if (activityLogId) await useCase.updateActivityResource(activityLogId, id, 'subscription-plan', 'error')
           return c.json({ success: false, data: null, error: result.error }, 200)
         }
-        if (activityLogId) await useCase.updateActivityResource(activityLogId, id, 'subscription-plan', 'success')
         return c.json({ success: true })
       }
     )

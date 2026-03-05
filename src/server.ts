@@ -1,20 +1,7 @@
 import { App } from './app'
 import {
-  AdminActivityLogController,
-  AdminBackupController,
-  AdminGameController,
-  AdminLessonController,
-  AdminLessonGameOrderController,
-  AdminModuleController,
-  AdminModuleOrderController,
-  AdminStatsController,
-  AssistantController,
   AvatarController,
-  ChildController,
-  ChildProgressController,
   EmailCheckController,
-  GameController,
-  GameSessionController,
   PermissionController,
   SubscriptionController,
   SystemConfigController,
@@ -27,32 +14,19 @@ import '@/infrastructure/schedulers'
 const app = new App([
   new UserController(),
   new AuthController(),
-  new ChildController(),
   new AvatarController(),
   new PermissionController(),
-  new AdminModuleOrderController(),
-  new AdminModuleController(),
-  new AdminLessonController(),
-  new AdminGameController(),
-  new GameController(),
-  new AdminActivityLogController(),
-  new ChildProgressController(),
-  new GameSessionController(),
   new EmailCheckController(),
-  new AdminStatsController(),
-  new AdminLessonGameOrderController(),
   new SubscriptionController(),
   new SubscriptionPlanController(),
-  new SystemConfigController(),
-  new AdminBackupController(),
-  new AssistantController()
+  new SystemConfigController()
 ]).getApp()
 
 const PORT = Bun.env.PORT || 3000
 
 console.info(`
 \u001B[34m╔══════════════════════════════════════════════════════╗
-║               \u001B[1mMEKO ACADEMY API\u001B[0m\u001B[34m                ║
+║                  \u001B[1mAPI SERVER\u001B[0m\u001B[34m                       ║
 ╠══════════════════════════════════════════════════════╣
 ║                                                      ║
 ║  \u001B[0m🚀 Server started successfully                   \u001B[34m║

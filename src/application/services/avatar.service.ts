@@ -1,20 +1,18 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
-import { MinIOService } from './minio.service'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const uploadsDir = join(__dirname, '..', '..', '..', 'uploads', 'avatars')
 
 export class AvatarService {
-  private minioService: MinIOService
   private allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
   private maxFileSize = 5 * 1024 * 1024 // 5MB
 
-  constructor() {
-    this.minioService = new MinIOService()
-  }
-
-  /**
-   * Valide un fichier avatar
-   */
   validateFile(file: File): void {
     if (!this.allowedMimeTypes.includes(file.type)) {
       throw new Error('Invalid file type. Only JPEG, PNG, GIF and WebP are allowed.')
@@ -25,68 +23,43 @@ export class AvatarService {
     }
   }
 
-  /**
-   * Upload un avatar avec redimensionnement
-   */
   async uploadAvatar(file: File): Promise<{ id: string; url: string }> {
     this.validateFile(file)
 
-    // Lire le fichier et le redimensionner
+    await mkdir(uploadsDir, { recursive: true })
+
+    const id = randomUUID()
+    const filename = `${id}.webp`
+    const filePath = join(uploadsDir, filename)
+
     const buffer = await file.arrayBuffer()
-    const processedBuffer = await sharp(Buffer.from(buffer))
-      .resize(300, 300, {
-        fit: 'cover',
-        position: 'center'
-      })
+    await sharp(Buffer.from(buffer))
+      .resize(300, 300, { fit: 'cover', position: 'center' })
       .webp({ quality: 80 })
-      .toBuffer()
+      .toFile(filePath)
 
-    // Upload directement avec le buffer traité vers MinIO
-    return await this.minioService.uploadFileFromBuffer(processedBuffer, 'avatar.webp', 'image/webp', 'avatars')
+    return { id, url: `/uploads/avatars/${filename}` }
   }
 
-  /**
-   * Supprime un avatar
-   */
   async deleteAvatar(id: string): Promise<boolean> {
-    return await this.minioService.deleteFile('avatars', id, 'webp')
-  }
-
-  /**
-   * Obtient l'URL signée d'un avatar
-   */
-  async getAvatarUrl(id: string): Promise<string | null> {
     try {
-      return await this.minioService.getAutoRenewedSignedUrl('avatars', id, 'webp')
+      const { unlink } = await import('node:fs/promises')
+      const filePath = join(uploadsDir, `${id}.webp`)
+      if (existsSync(filePath)) {
+        await unlink(filePath)
+      }
+      return true
     } catch (error) {
-      console.error('Error getting avatar URL:', error)
-      return null
+      console.error('Error deleting avatar:', error)
+      return false
     }
   }
 
-  /**
-   * Upload depuis un buffer (pour la migration)
-   */
-  async uploadAvatarFromBuffer(buffer: Buffer, originalFilename: string): Promise<{ id: string; url: string }> {
-    // Redimensionner l'image
-    const processedBuffer = await sharp(buffer)
-      .resize(300, 300, {
-        fit: 'cover',
-        position: 'center'
-      })
-      .webp({ quality: 80 })
-      .toBuffer()
-
-    // Utiliser la méthode MinIO pour buffer
-    const id = this.extractIdFromFilename(originalFilename) || randomUUID()
-    return await this.minioService.uploadFileFromBuffer(processedBuffer, `${id}.webp`, 'image/webp', 'avatars')
-  }
-
-  /**
-   * Extrait l'ID du nom de fichier
-   */
-  private extractIdFromFilename(filename: string): string | null {
-    const match = filename.match(/^([^.]+)/)
-    return match ? match[1] : null
+  async getAvatarUrl(id: string): Promise<string | null> {
+    const filePath = join(uploadsDir, `${id}.webp`)
+    if (existsSync(filePath)) {
+      return `/uploads/avatars/${id}.webp`
+    }
+    return null
   }
 }

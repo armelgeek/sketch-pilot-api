@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { FileService } from '@/application/services/file.service'
 import type { Avatar } from '@/domain/models/avatar.model'
 
@@ -28,9 +27,5 @@ export class GetAvatarUseCase extends IUseCase<Params, Response> {
       success: true,
       data: { id: params.id, ...avatarFile, type: avatarFile.type as 'webp' | 'jpeg' | 'png' }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.GET_AVATAR
   }
 }

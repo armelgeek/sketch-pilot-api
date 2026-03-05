@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { SubscriptionPlan } from '@/domain/models/subscription-plan.model'
 import type { SubscriptionPlanRepositoryInterface } from '@/domain/repositories/subscription-plan.repository.interface'
 
@@ -26,9 +25,5 @@ export class ListSubscriptionPlansUseCase extends IUseCase<Params, Response> {
     } catch (error: any) {
       return { success: false, error: error.message, data: [] }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.LIST_SUBSCRIPTION_PLAN
   }
 }

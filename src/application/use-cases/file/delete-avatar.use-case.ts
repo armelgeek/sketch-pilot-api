@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { FileService } from '@/application/services/file.service'
 import type { AvatarRepositoryInterface } from '@/domain/repositories/avatar.repository.interface'
 import type { UserRepositoryInterface } from '@/domain/repositories/user.repository.interface'
@@ -44,9 +43,5 @@ export class DeleteAvatarUseCase extends IUseCase<Params, Response> {
     return {
       success: true
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.DELETE_AVATAR
   }
 }

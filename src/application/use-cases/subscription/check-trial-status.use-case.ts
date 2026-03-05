@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { validDateOrNull } from '@/application/utils/date.util'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { db } from '@/infrastructure/database/db'
 import { users } from '@/infrastructure/database/schema'
 
@@ -40,9 +39,5 @@ export class CheckTrialStatusUseCase extends IUseCase<CheckTrialStatusArgs, void
         })
         .where(eq(users.id, userId))
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.GET_SUBSCRIPTION_BY_USER
   }
 }

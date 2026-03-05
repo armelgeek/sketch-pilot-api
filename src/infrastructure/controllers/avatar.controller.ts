@@ -1,9 +1,10 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { AvatarService } from '@/application/services/avatar.service'
 import { FileService } from '@/application/services/file.service'
-import { DeleteAvatarMinIOUseCase } from '@/application/use-cases/file/delete-avatar-minio.use-case'
+import { DeleteAvatarUseCase } from '@/application/use-cases/file/delete-avatar.use-case'
 import { ListAvatarsUseCase } from '@/application/use-cases/file/list-avatars.use-case'
-import { UploadAvatarMinIOUseCase } from '@/application/use-cases/file/upload-avatar-minio.use-case'
+import { UpdateAvatarUseCase } from '@/application/use-cases/file/update-avatar.use-case'
+import { UploadAvatarUseCase } from '@/application/use-cases/file/upload-avatar.use-case'
 import { paginationMiddleware, paginationSchema } from '@/infrastructure/middlewares/pagination.middleware'
 import { AvatarRepository } from '@/infrastructure/repositories/avatar.repository'
 import { UserRepository } from '@/infrastructure/repositories/user.repository'
@@ -26,15 +27,6 @@ export class AvatarController {
 
   public initRoutes() {
     this.controller.use('/v1/avatars', paginationMiddleware)
-
-    //this.controller.use('/v1/avatars', checkPermission(Subjects.AVATAR, Actions.READ))
-
-    //this.controller.use('/v1/avatars/upload', checkPermission(Subjects.AVATAR, Actions.CREATE))
-    //this.controller.use('/v1/avatars/:id', checkPermission(Subjects.AVATAR, Actions.READ))
-
-    //this.controller.use('/v1/avatars/:id', checkPermission(Subjects.AVATAR, Actions.DELETE))
-
-    //this.controller.use('/v1/avatars/:id', checkPermission(Subjects.AVATAR, Actions.UPDATE))
 
     this.controller.openapi(
       createRoute({
@@ -84,21 +76,9 @@ export class AvatarController {
       }),
       async (c: any) => {
         try {
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
           const pagination = c.get('pagination')
           const listAvatarsUseCase = new ListAvatarsUseCase(this.fileService, this.avatarService)
-          const { result } = await listAvatarsUseCase.run({
-            ...pagination,
-            currentUserId: c.get('user')?.id,
-            ipAddress
-          })
+          const { result } = await listAvatarsUseCase.run({ ...pagination })
           return c.json(result)
         } catch (error: any) {
           return c.json({ success: false, error: error.message }, 400)
@@ -153,7 +133,6 @@ export class AvatarController {
           }
         }
       }),
-
       async (c: any) => {
         try {
           const formData = await c.req.formData()
@@ -162,38 +141,22 @@ export class AvatarController {
           if (!file) {
             return c.json({ success: false, error: 'No file uploaded' }, 400)
           }
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
-          // Utiliser MinIO pour l'upload avec log d'activité
-          const uploadAvatarUseCase = new UploadAvatarMinIOUseCase(this.avatarService)
-          const { result, activityLogId } = await uploadAvatarUseCase.run({
+
+          const uploadAvatarUseCase = new UploadAvatarUseCase(this.fileService, this.userRepository)
+          const { result } = await uploadAvatarUseCase.run({
             file,
-            currentUserId: c.get('user')?.id,
-            ipAddress
+            currentUserId: c.get('user')?.id
           })
 
           if (!result.success) {
-            if (activityLogId) {
-              await uploadAvatarUseCase.updateActivityResource(activityLogId, undefined, 'avatar', 'error')
-            }
             return c.json({ success: false, error: result.error }, 400)
-          }
-
-          if (activityLogId && result.data) {
-            await uploadAvatarUseCase.updateActivityResource(activityLogId, result.data.id, 'avatar', 'success')
           }
 
           return c.json({
             success: true,
             data: {
               id: result.data?.id,
-              url: result.data?.url // Retourner l'URL MinIO directement
+              url: result.data?.path
             }
           })
         } catch (error: any) {
@@ -244,18 +207,13 @@ export class AvatarController {
       async (c: any) => {
         try {
           const { id } = c.req.param()
-
-          // Récupérer l'URL signée MinIO
           const url = await this.avatarService.getAvatarUrl(id)
 
           if (!url) {
             return c.json({ success: false, error: 'Avatar not found' }, 404)
           }
 
-          return c.json({
-            success: true,
-            data: { url }
-          })
+          return c.json({ success: true, data: { url } })
         } catch (error: any) {
           return c.json({ success: false, error: error.message }, 400)
         }
@@ -286,28 +244,6 @@ export class AvatarController {
               }
             }
           },
-          401: {
-            description: 'Unauthorized',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  error: z.string()
-                })
-              }
-            }
-          },
-          403: {
-            description: 'Forbidden - Admin access required',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  error: z.string()
-                })
-              }
-            }
-          },
           404: {
             description: 'Avatar not found',
             content: {
@@ -324,38 +260,22 @@ export class AvatarController {
       async (c: any) => {
         try {
           const { id } = c.req.param()
-          const ipAddress =
-            c.req.header('x-forwarded-for') ||
-            c.req.header('x-real-ip') ||
-            c.req.header('cf-connecting-ip') ||
-            c.req.header('x-client-ip') ||
-            c.req.header('x-remote-addr') ||
-            c.req.header('remote-addr') ||
-            undefined
-          // Utiliser MinIO pour la suppression avec log d'activité
-          const deleteAvatarUseCase = new DeleteAvatarMinIOUseCase(this.avatarService)
-          const { result, activityLogId } = await deleteAvatarUseCase.run({
+          const deleteAvatarUseCase = new DeleteAvatarUseCase(
+            this.fileService,
+            this.avatarRepository,
+            this.userRepository
+          )
+          const { result } = await deleteAvatarUseCase.run({
             id,
-            currentUserId: c.get('user')?.id,
-            ipAddress
+            currentUserId: c.get('user')?.id
           })
 
           if (!result.success) {
-            if (activityLogId) {
-              await deleteAvatarUseCase.updateActivityResource(activityLogId, id, 'avatar', 'error')
-            }
             return c.json({ success: false, error: result.error }, 404)
-          }
-
-          if (activityLogId) {
-            await deleteAvatarUseCase.updateActivityResource(activityLogId, id, 'avatar', 'success')
           }
 
           return c.json(result)
         } catch (error: any) {
-          if (error.message === 'Avatar not found') {
-            return c.json({ success: false, error: error.message }, 404)
-          }
           return c.json({ success: false, error: error.message }, 400)
         }
       }
@@ -367,7 +287,7 @@ export class AvatarController {
         path: '/v1/avatars/{id}',
         tags: ['Avatars'],
         summary: 'Update avatar',
-        description: 'Update an existing avatar. Admin only.',
+        description: 'Update an existing avatar.',
         request: {
           params: z.object({
             id: z.string().uuid()
@@ -397,28 +317,6 @@ export class AvatarController {
               }
             }
           },
-          401: {
-            description: 'Unauthorized',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  error: z.string()
-                })
-              }
-            }
-          },
-          403: {
-            description: 'Forbidden - Admin access required',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  error: z.string()
-                })
-              }
-            }
-          },
           404: {
             description: 'Avatar not found',
             content: {
@@ -434,14 +332,19 @@ export class AvatarController {
       }),
       async (c: any) => {
         try {
-          const file = await c.req.file('file')
+          const { id } = c.req.param()
+          const formData = await c.req.formData()
+          const file = formData.get('file') as File
           if (!file) {
             return c.json({ success: false, error: 'No file uploaded' }, 400)
           }
 
-          // Utiliser MinIO pour la mise à jour
-          const uploadAvatarUseCase = new UploadAvatarMinIOUseCase(this.avatarService)
-          const result = await uploadAvatarUseCase.execute({ file })
+          const updateAvatarUseCase = new UpdateAvatarUseCase(this.avatarRepository)
+          const { result } = await updateAvatarUseCase.run({
+            id,
+            file,
+            currentUserId: c.get('user')?.id
+          })
 
           if (!result.success) {
             return c.json({ success: false, error: result.error }, 400)
@@ -451,16 +354,10 @@ export class AvatarController {
             success: true,
             data: {
               id: result.data!.id,
-              url: result.data!.url // Utiliser l'URL MinIO
+              url: result.data!.path
             }
           })
         } catch (error: any) {
-          if (error.message === 'Avatar not found') {
-            return c.json({ success: false, error: error.message }, 404)
-          }
-          if (error.message.includes('Unauthorized')) {
-            return c.json({ success: false, error: error.message }, 403)
-          }
           return c.json({ success: false, error: error.message }, 400)
         }
       }

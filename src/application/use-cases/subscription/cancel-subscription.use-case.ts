@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { stripe } from '@/infrastructure/config/stripe.config'
 import { db } from '@/infrastructure/database/db'
 import { subscriptionHistory, users } from '@/infrastructure/database/schema'
@@ -79,9 +78,5 @@ export class CancelSubscriptionUseCase extends IUseCase<Params, Response> {
       console.error('[Cancel Subscription Error]', error)
       return { success: false, error: 'Error cancelling subscription' }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.CANCEL_SUBSCRIPTION
   }
 }

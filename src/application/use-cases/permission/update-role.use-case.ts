@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 import type { Action, Subject } from '@/domain/types/permission.type'
 
@@ -54,9 +53,5 @@ export class UpdateRoleUseCase extends IUseCase<
         id: result.id
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.UPDATE_ROLE
   }
 }

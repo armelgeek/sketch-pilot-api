@@ -1,6 +1,5 @@
 import { eq, lt } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { emailTemplates, sendEmail } from '@/infrastructure/config/mail.config'
 import { db } from '@/infrastructure/database/db'
 import { users } from '@/infrastructure/database/schema'
@@ -38,11 +37,6 @@ export class CheckSubscriptionExpirationUseCase extends IUseCase<{}, void> {
         ...emailTemplate
       })
 
-      await this.logActivity(user.id)
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.SUBSCRIPTION_EXPIRED
   }
 }

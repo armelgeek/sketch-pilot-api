@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 
 import { IUseCase } from '@/domain/types'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { stripe } from '@/infrastructure/config/stripe.config'
 import { db } from '@/infrastructure/database/db'
 import { users } from '@/infrastructure/database/schema'
@@ -223,9 +222,5 @@ export class CreateSubscriptionUseCase extends IUseCase<CreateSubscriptionParams
     // Sinon, utiliser la durée d'essai configurée
     console.info(`[CreateSubscription] Using configured trial duration: ${trialDuration} days`)
     return trialDuration
-  }
-
-  log(): ActivityType {
-    return ActivityType.SUBSCRIBING
   }
 }

@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { PermissionService } from '@/application/services/permission.service'
 
 interface DeleteRoleResponse {
@@ -28,9 +27,5 @@ export class DeleteRoleUseCase extends IUseCase<{ roleId: string; currentUserId:
     return {
       success: true
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.DELETE_ROLE
   }
 }

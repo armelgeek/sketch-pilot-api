@@ -1,6 +1,5 @@
 import { desc, eq } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import { db } from '@/infrastructure/database/db'
 import { subscriptionHistory, users } from '@/infrastructure/database/schema/schema'
 import { subscriptionPlans } from '@/infrastructure/database/schema/subscription-plan.schema'
@@ -129,9 +128,5 @@ export class GetParentSubscriptionWithHistoryUseCase extends IUseCase<Params, Re
     } catch (error: any) {
       return { success: false, error: error.message, data: { current: null, history: [] } }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.GET_SUBSCRIBE_STATUS
   }
 }

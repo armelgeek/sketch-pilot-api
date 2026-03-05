@@ -10,7 +10,7 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
         id: 'config_isSubscriptionEnabled',
         key: 'isSubscriptionEnabled',
         value: 'true',
-        description: "Active ou désactive le système d'abonnement complet",
+        description: 'Enable or disable the subscription system',
         isActive: true,
         createdAt: now,
         updatedAt: now
@@ -19,7 +19,7 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
         id: 'config_isTrialRequired',
         key: 'isTrialRequired',
         value: 'false',
-        description: "Détermine si une période d'essai est obligatoire",
+        description: 'Determines if a trial period is required',
         isActive: true,
         createdAt: now,
         updatedAt: now
@@ -28,7 +28,7 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
         id: 'config_maintenanceMode',
         key: 'maintenanceMode',
         value: 'false',
-        description: "Active le mode maintenance (bloque l'accès utilisateur)",
+        description: 'Enable maintenance mode (blocks user access)',
         isActive: true,
         createdAt: now,
         updatedAt: now
@@ -37,7 +37,7 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
         id: 'config_allowNewRegistrations',
         key: 'allowNewRegistrations',
         value: 'true',
-        description: 'Autorise ou bloque les nouvelles inscriptions',
+        description: 'Allow or block new registrations',
         isActive: true,
         createdAt: now,
         updatedAt: now
@@ -45,7 +45,6 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
     ]
 
     for (const config of configs) {
-      // Vérifier si la configuration existe déjà
       const existing = await db.select().from(systemConfig).where(eq(systemConfig.key, config.key)).limit(1)
       if (existing.length === 0) {
         await db.insert(systemConfig).values(config)
@@ -54,7 +53,6 @@ export async function initSystemConfig(): Promise<{ success: boolean; configs: a
 
     const allConfigs = await db.select().from(systemConfig).where(eq(systemConfig.isActive, true))
 
-    // Initialise le singleton SystemConfigService avec les valeurs de la DB
     const { SystemConfigService } = await import('@/application/services/system-config.service')
     await SystemConfigService.getInstance().initialize()
 

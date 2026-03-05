@@ -1,5 +1,4 @@
 import { IUseCase } from '@/domain/types/use-case.type'
-import { ActivityType } from '@/infrastructure/config/activity.config'
 import type { TrialConfig } from '@/domain/models/trial-config.model'
 import type { TrialConfigRepositoryInterface } from '@/domain/repositories/trial-config.repository.interface'
 
@@ -46,9 +45,5 @@ export class UpdateTrialConfigUseCase extends IUseCase<Params, Response> {
         error: error.message
       }
     }
-  }
-
-  log(): ActivityType {
-    return ActivityType.UPDATE_TRIAL_CONFIG
   }
 }
