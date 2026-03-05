@@ -539,6 +539,57 @@ export const proEncodingConfigSchema = z.object({
 
 export type ProEncodingConfig = z.infer<typeof proEncodingConfigSchema>;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Storyboard — pre-defined scene-by-scene structure for dynamic prompt building
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Narrative roles a storyboard beat can occupy.
+ */
+export const STORYBOARD_BEAT_ROLES = [
+    'hook',
+    'context',
+    'development',
+    'revelation',
+    'transition',
+    'resolution',
+    'conclusion',
+] as const;
+
+export type StoryboardBeatRole = (typeof STORYBOARD_BEAT_ROLES)[number];
+
+/**
+ * A single beat (scene slot) in a storyboard.
+ */
+export const storyboardBeatSchema = z.object({
+    /** Narrative role of this beat */
+    role: z.enum(STORYBOARD_BEAT_ROLES),
+    /** Brief description of what should happen in this beat (injected into the LLM prompt) */
+    description: z.string().optional(),
+    /** Suggested duration in seconds. The LLM may adapt it to stay within total budget. */
+    durationHint: z.number().min(1).optional(),
+    /** Target emotion the viewer should feel during this beat */
+    emotionTarget: z.string().optional(),
+    /** Visual direction hint (e.g. "close-up of hands", "wide establishing shot") */
+    visualHint: z.string().optional(),
+});
+
+export type StoryboardBeat = z.infer<typeof storyboardBeatSchema>;
+
+/**
+ * A full storyboard: ordered sequence of beats that structure the video.
+ * When provided in VideoGenerationOptions, the LLM maps each beat to one or
+ * more scenes instead of deciding the structure on its own.
+ */
+export const storyboardSchema = z.object({
+    /** Optional human-readable name for this storyboard template */
+    name: z.string().optional(),
+    /** Ordered list of narrative beats */
+    beats: z.array(storyboardBeatSchema).min(1),
+});
+
+export type Storyboard = z.infer<typeof storyboardSchema>;
+
 /**
  * Options for video generation
  */
@@ -575,6 +626,13 @@ export const videoGenerationOptionsSchema = z.object({
     qualityMode: z.nativeEnum(QualityMode).default(QualityMode.STANDARD).describe('Quality mode for generation'),
     enableContextualBackground: z.boolean().default(false).describe('If true, the LLM will generate descriptive backgrounds for each scene. If false, background remains plain/white.'),
     userId: z.string().optional().describe('User ID for credits management'),
+    /**
+     * Optional storyboard that defines the narrative structure beat-by-beat.
+     * When provided, `buildScriptUserPrompt` injects the beats into the LLM
+     * user prompt so the model follows this exact story arc instead of
+     * inventing its own structure.
+     */
+    storyboard: storyboardSchema.optional().describe('Pre-defined storyboard structure for the video'),
 }).transform(opts => {
     // Determine the effective range for the video duration
     const minDur = opts.minDuration ?? opts.maxDuration;
