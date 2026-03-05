@@ -2,7 +2,6 @@ import { App } from './app'
 import {
   EmailCheckController,
   SubscriptionController,
-  SystemConfigController,
   UserController,
   CreditsController,
   VideosController,
@@ -21,7 +20,6 @@ const app = new App([
   new EmailCheckController(),
   new SubscriptionController(),
   new SubscriptionPlanController(),
-  new SystemConfigController(),
   new CreditsController(),
   new VideosController(),
   new ScriptsController(),

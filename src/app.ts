@@ -10,7 +10,6 @@ import { responseMiddleware } from './infrastructure/middlewares/response.middle
 import addSession from './infrastructure/middlewares/session.middleware'
 import sessionValidator from './infrastructure/middlewares/unauthorized-access.middleware'
 import { Home } from './infrastructure/pages/home'
-import { initSystemConfig } from './infrastructure/services/init-system-config.service'
 import { patchSuperAdminToAdmin } from './infrastructure/services/patch-super-admin-to-admin.service'
 import type { Routes } from './domain/types'
 
@@ -29,13 +28,6 @@ export class App {
       } else {
         console.error('Error patch super_admin -> admin:', patchRes.error)
       }
-      initSystemConfig().then((res) => {
-        if (res.success) {
-          console.info('System config initialized')
-        } else {
-          console.error('System config init error:', res.error)
-        }
-      })
     })
 
     this.app = new OpenAPIHono<{

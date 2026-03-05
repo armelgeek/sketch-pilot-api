@@ -1,6 +1,6 @@
 import { betterAuth, type User } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { admin, customSession, emailOTP, openAPI } from 'better-auth/plugins'
+import { admin, emailOTP, openAPI } from 'better-auth/plugins'
 import { stripe as stripePlugin } from '@better-auth/stripe'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -98,9 +98,6 @@ export const auth = betterAuth({
         ]
       }
     }) as any,
-    customSession(async ({ user, session }) => {
-      return { user, session }
-    }),
     admin({
       adminRoles: ['admin'],
       ac,
