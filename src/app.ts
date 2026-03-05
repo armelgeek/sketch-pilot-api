@@ -84,6 +84,10 @@ export class App {
       if (c.req.method === 'GET' && c.req.path === '/api/v1/subscription-plans') {
         return next()
       }
+      // Allow public access to config endpoints
+      if (c.req.method === 'GET' && c.req.path.startsWith('/api/v1/config/')) {
+        return next()
+      }
       // Allow email check without authentication
       if ((c.req.method === 'GET' || c.req.method === 'POST') && c.req.path === '/api/v1/auth/check-email') {
         return next()

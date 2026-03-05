@@ -4,6 +4,7 @@ import { roles, userRoles } from './schema'
 export * from './schema'
 export * from './subscription-plan.schema'
 export * from './trial-config.schema'
+export * from './video.schema'
 
 export const userRolesRelations = relations(userRoles, ({ one }) => ({
   user: one(roles, {

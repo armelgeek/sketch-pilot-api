@@ -49,7 +49,7 @@ export class KokoroTTSService implements AudioService {
         const textToGenerate = chunks[i].trim() + " \n\n";
 
         const audio = await this.tts.generate(textToGenerate, {
-          voice: this.voicePreset,
+          voice: this.voicePreset as any,
           speed: 0.8 // Slow down for more natural, less "rushed" delivery
         });
         await audio.save(chunkPath);

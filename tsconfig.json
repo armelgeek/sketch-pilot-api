@@ -5,11 +5,11 @@
     "jsxImportSource": "hono/jsx",
     "lib": ["ESNext", "esnext.asynciterable", "DOM"],
     "baseUrl": ".",
-    "rootDir": "./src",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@sketch-pilot/*": ["plugins/sketch-pilot/src/*"]
     },
     "resolveJsonModule": true,
     "strict": true,
@@ -22,8 +22,8 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "plugins/sketch-pilot/src/**/*.ts"],
+  "exclude": ["node_modules", "plugins/sketch-pilot/examples", "plugins/sketch-pilot/tests"],
   "tsc-alias": { "resolveFullPaths": true },
   "declaration": true
 }
