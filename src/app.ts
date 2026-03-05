@@ -80,6 +80,10 @@ export class App {
       if (c.req.method === 'GET' && c.req.path.startsWith('/api/v1/config/')) {
         return next()
       }
+      // Allow public read access to active prompts
+      if (c.req.method === 'GET' && c.req.path === '/api/v1/prompts') {
+        return next()
+      }
       // Allow email check without authentication
       if ((c.req.method === 'GET' || c.req.method === 'POST') && c.req.path === '/api/v1/auth/check-email') {
         return next()

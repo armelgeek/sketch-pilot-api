@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { VideoScriptGenerator } from "./video-script-generator";
-import { PromptManager, DEFAULT_STYLE_SUFFIX, DEFAULT_CHARACTER_SYSTEM_INSTRUCTION } from "./prompt-manager";
+import { PromptManager, DEFAULT_STYLE_SUFFIX, DEFAULT_CHARACTER_SYSTEM_INSTRUCTION, type PromptLoader } from "./prompt-manager";
 import { TaskQueue } from "../utils/task-queue";
 import { getCharacterModelManager } from "../utils/character-models";
 import {
@@ -114,6 +114,7 @@ export class NanoBananaEngine {
     imageConfig?: ImageServiceConfig,
     llmConfig?: LLMServiceConfig,
     transcriptionConfig?: TranscriptionConfig,
+    promptLoader?: PromptLoader,
   ) {
     this.apiKey = apiKey;
     this.audioConfig = audioConfig;
@@ -130,6 +131,7 @@ export class NanoBananaEngine {
       styleSuffix: this.styleSuffix,
       characterSystemInstruction: this.systemPrompt,
       backgroundColor: "#F5F5F5",
+      promptLoader,
     });
 
     // Use factory pattern to create services

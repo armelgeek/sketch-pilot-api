@@ -210,7 +210,7 @@ export class VideoScriptGenerator {
         scenes: Array<Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'>>;
         backgroundMusic?: string;
     }> {
-        const systemPrompt = this.promptManager.buildScriptSystemPrompt(options);
+        const systemPrompt = await this.promptManager.buildScriptSystemPromptAsync(options);
         const userPrompt = this.promptManager.buildScriptUserPrompt(topic, options);
 
         console.log(`[VideoScriptGen] Calling LLM for structure...`);

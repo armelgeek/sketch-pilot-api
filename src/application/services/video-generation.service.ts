@@ -9,6 +9,8 @@ import type { LLMServiceConfig } from '@sketch-pilot/services/llm'
 import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
 import type { ImageServiceConfig } from '@sketch-pilot/services/image'
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { PromptService } from '@/application/services/prompt.service'
 
 export interface VideoGenerationInput {
   topic: string
@@ -17,6 +19,8 @@ export interface VideoGenerationInput {
 }
 
 export class VideoGenerationService {
+  private readonly promptService = new PromptService(new PromptRepository())
+
   private buildEngine(options: Partial<VideoGenerationOptions> = {}): NanoBananaEngine {
     const apiKey = process.env.GEMINI_API_KEY || ''
 
@@ -44,16 +48,34 @@ export class VideoGenerationService {
       cacheSystemPrompt: true
     }
 
-    // NanoBananaEngine constructor: (apiKey, styleSuffix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?)
+    // Build a dynamic prompt loader that resolves prompts from the DB
+    const promptService = this.promptService
+    const promptLoader = async (
+      promptType: string,
+      context?: { videoType?: string; videoGenre?: string; language?: string },
+      variables?: Record<string, string | number | boolean>
+    ) => {
+      return promptService.resolve({
+        promptType: promptType as any,
+        videoType: context?.videoType,
+        videoGenre: context?.videoGenre,
+        language: context?.language,
+        variables: variables as any,
+      })
+    }
+
+    // NanoBananaEngine constructor: (apiKey, styleSuffix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptLoader?)
     // styleSuffix and systemPrompt use their defaults (undefined → built-in defaults)
     return new NanoBananaEngine(
       apiKey,
-      undefined, // styleSuffix — use engine default
-      undefined, // systemPrompt — use engine default
+      undefined, // styleSuffix — use engine default (overridable via DB prompt)
+      undefined, // systemPrompt — use engine default (overridable via DB prompt)
       audioConfig,
       animationConfig,
       imageConfig,
-      llmConfig
+      llmConfig,
+      undefined, // transcriptionConfig
+      promptLoader
     )
   }
 
