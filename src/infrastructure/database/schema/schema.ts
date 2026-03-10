@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
@@ -58,4 +58,26 @@ export const verifications = pgTable('verifications', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at'),
   updatedAt: timestamp('updated_at')
+})
+
+export const subscriptions = pgTable('subscriptions', {
+  id: text('id').primaryKey(),
+  plan: text('plan').notNull(),
+  referenceId: text('reference_id').notNull(),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  status: text('status').notNull(),
+  periodStart: timestamp('period_start'),
+  periodEnd: timestamp('period_end'),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end'),
+  cancelAt: timestamp('cancel_at'),
+  canceledAt: timestamp('canceled_at'),
+  endedAt: timestamp('ended_at'),
+  seats: integer('seats'),
+  trialStart: timestamp('trial_start'),
+  trialEnd: timestamp('trial_end'),
+  billingInterval: text('billing_interval'),
+  stripeScheduleId: text('stripe_schedule_id'),
+  createdAt: timestamp('created_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull()
 })

@@ -3,23 +3,17 @@ import process from 'node:process'
 import { stripe as stripePlugin } from '@better-auth/stripe'
 import { betterAuth, type User } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { admin, emailOTP, openAPI } from 'better-auth/plugins'
+import { admin, openAPI } from 'better-auth/plugins'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import Stripe from 'stripe'
 import { db } from '../database/db'
 import { userCredits, users } from '../database/schema'
 import { ac, adminRole, userRole } from './access-control.config'
-import {
-  emailTemplates,
-  sendChangeEmailVerification,
-  sendEmail,
-  sendResetPasswordEmail,
-  sendVerificationEmail
-} from './mail.config'
+import { sendChangeEmailVerification, sendResetPasswordEmail, sendVerificationEmail } from './mail.config'
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-03-31.basil' as any
+  apiVersion: '2025-11-17.clover' as any
 })
 
 async function addCreditsToUser(userId: string, credits: number): Promise<void> {
@@ -37,7 +31,6 @@ async function addCreditsToUser(userId: string, credits: number): Promise<void> 
         id: crypto.randomUUID(),
         userId,
         extraCredits: credits,
-        videosThisMonth: 0,
         resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1),
         updatedAt: new Date()
       })
@@ -50,18 +43,24 @@ async function addCreditsToUser(userId: string, credits: number): Promise<void> 
 export const auth = betterAuth({
   plugins: [
     openAPI(),
-    emailOTP({
-      expiresIn: 600,
-      otpLength: 4,
-      async sendVerificationOTP({ email, otp }) {
-        const template = await emailTemplates.otpLogin(otp)
-        await sendEmail({ to: email, ...template })
-      }
-    }),
     stripePlugin({
       stripeClient,
       stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
       createCustomerOnSignUp: true,
+      subscription: {
+        enabled: true,
+        plans: [
+          {
+            name: 'starter',
+            priceId: process.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1234567890',
+            annualDiscountPriceId: process.env.STRIPE_PRICE_STARTER_YEARLY || 'price_1234567890',
+            limits: {
+              credits: 1000
+            }
+          }
+        ],
+        requireEmailVerification: false,
+      },
       onEvent: async (event: Stripe.Event) => {
         if (event.type === 'checkout.session.completed') {
           const session = event.data.object as Stripe.Checkout.Session
@@ -99,11 +98,11 @@ export const auth = betterAuth({
     })
   ],
   database: drizzleAdapter(db, { provider: 'pg' }),
-  baseURL: Bun.env.BETTER_AUTH_URL || 'http://localhost:3000',
+  baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:5000',
   trustedOrigins:
-    Bun.env.NODE_ENV === 'production'
-      ? [Bun.env.PRODUCTION_URL || 'http://localhost:3000', Bun.env.REACT_APP_URL || 'http://localhost:5173']
-      : [Bun.env.BETTER_AUTH_URL || 'http://localhost:3000', Bun.env.REACT_APP_URL || 'http://localhost:5173'],
+    process.env.NODE_ENV === 'production'
+      ? [process.env.PRODUCTION_URL || 'http://localhost:3000', process.env.REACT_APP_URL || 'http://localhost:5173']
+      : [process.env.BETTER_AUTH_URL || 'http://localhost:3000', process.env.REACT_APP_URL || 'http://localhost:5173'],
   user: {
     modelName: 'users',
     additionalFields: {

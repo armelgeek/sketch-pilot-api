@@ -78,7 +78,7 @@
     "openai": "^5.20.3",
     "postgres": "^3.4.5",
     "sharp": "^0.34.2",
-    "stripe": "^17.7.0",
+    "stripe": "^20.4.1",
     "vite-tsconfig-paths": "^5.1.4",
     "zod": "^3.24.2"
   },
