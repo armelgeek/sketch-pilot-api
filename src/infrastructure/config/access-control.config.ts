@@ -7,18 +7,15 @@ import { createAccessControl } from 'better-auth/plugins/access'
 export const ac = createAccessControl({
   user: ['create', 'read', 'update', 'delete'] as const,
   video: ['create', 'read', 'update', 'delete'] as const,
-  subscription: ['create', 'read', 'update', 'delete'] as const,
   stat: ['read'] as const
 })
 
 export const adminRole = ac.newRole({
   user: ['create', 'read', 'update', 'delete'],
   video: ['create', 'read', 'update', 'delete'],
-  subscription: ['create', 'read', 'update', 'delete'],
   stat: ['read']
 })
 
 export const userRole = ac.newRole({
-  video: ['create', 'read'],
-  subscription: ['read']
+  video: ['create', 'read']
 })

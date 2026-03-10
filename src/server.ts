@@ -8,21 +8,17 @@ import {
   EmailCheckController,
   PromptController,
   ScriptsController,
-  SubscriptionController,
   UserController,
   VideoAdminController,
   VideosController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
-import { SubscriptionPlanController } from './infrastructure/controllers/subscription-plan.controller'
 import '@/infrastructure/schedulers'
 
 const app = new App([
   new UserController(),
   new AuthController(),
   new EmailCheckController(),
-  new SubscriptionController(),
-  new SubscriptionPlanController(),
   new CreditsController(),
   new VideosController(),
   new ScriptsController(),
@@ -39,7 +35,7 @@ if (process.env.ENABLE_VIDEO_WORKER !== 'false') {
   }
 }
 
-const PORT = Bun.env.PORT || 3000
+const PORT = Bun.env.PORT || 5000
 
 console.info(`
 \u001B[34m╔══════════════════════════════════════════════════════╗

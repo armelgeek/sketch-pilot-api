@@ -18,15 +18,6 @@ async function initSystemConfig() {
   const now = new Date()
   const configs = [
     {
-      id: 'config_isSubscriptionEnabled',
-      key: 'isSubscriptionEnabled',
-      value: 'true',
-      description: "Active ou désactive le système d'abonnement complet",
-      isActive: true,
-      createdAt: now,
-      updatedAt: now
-    },
-    {
       id: 'config_isTrialRequired',
       key: 'isTrialRequired',
       value: 'false',

@@ -15,10 +15,10 @@ spec:
     spec:
       containers:
         - name: meko-back
-          image: registry.meko.ac/meko-academy-backend:29c4d281
+          image: registry.meko.ac/sketch-pilot-backend:29c4d281
           imagePullPolicy: Always
           ports:
-            - containerPort: 3000
+            - containerPort: 5000
           env:
             - name: NODE_ENV
               value: production
@@ -33,7 +33,7 @@ spec:
       volumes:
         - name: avatars-volume
           hostPath:
-            path: /home/project/meko-academy-backend/uploads/avatars
+            path: /home/project/sketch-pilot-backend/uploads/avatars
             type: Directory
         - name: env-file
           secret:
@@ -54,8 +54,8 @@ spec:
   selector:
     app: meko-back
   ports:
-    - port: 3000
-      targetPort: 3000
+    - port: 5000
+      targetPort: 5000
   type: ClusterIP
 ---
 # ingress
@@ -83,4 +83,4 @@ spec:
               service:
                 name: meko-back
                 port:
-                  number: 3000
+                  number: 5000

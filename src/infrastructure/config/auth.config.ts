@@ -89,19 +89,6 @@ export const auth = betterAuth({
             }
           }
         }
-      },
-      subscription: {
-        enabled: true,
-        plans: [
-          { name: 'creator', priceId: process.env.STRIPE_PRICE_CREATOR || '', limits: { videosPerMonth: 30 } },
-          {
-            name: 'professional',
-            priceId: process.env.STRIPE_PRICE_PROFESSIONAL || '',
-            limits: { videosPerMonth: 100 }
-          },
-          { name: 'business', priceId: process.env.STRIPE_PRICE_BUSINESS || '', limits: { videosPerMonth: 300 } },
-          { name: 'enterprise', priceId: process.env.STRIPE_PRICE_ENTERPRISE || '', limits: { videosPerMonth: -1 } }
-        ]
       }
     }) as any,
     admin({
@@ -132,7 +119,7 @@ export const auth = betterAuth({
     },
     changeEmail: {
       enabled: true,
-      sendChangeEmailVerification: async ({ newEmail, token }) => {
+      sendChangeEmailVerification: async ({ newEmail, token }: { newEmail: string; token: string }) => {
         await sendChangeEmailVerification({ email: newEmail, verificationUrl: token })
       }
     },

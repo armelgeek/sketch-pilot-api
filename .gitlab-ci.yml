@@ -6,7 +6,7 @@ stages:
 variables:
   DOCKER_TLS_CERTDIR: ''
   IMAGE_TAG: $CI_COMMIT_SHORT_SHA
-  REMOTE_DIR: /home/project/meko-academy-backend
+  REMOTE_DIR: /home/project/sketch-pilot-backend
   DOCKER_REGISTRY: $REGISTRY_HOST
   IMAGE_NAME: '$IMAGE_NAME:$IMAGE_TAG'
   REMOTE_TRIVY_DIR: /home/project/trivy
@@ -130,13 +130,13 @@ deploy-k8s:
         echo "Replacing image tag and deploying updated app..."
         echo "$IMAGE_TAG"
 
-        sed "s|image: .*|image: $IMAGE_NAME|" deploy.yml | tee /tmp/meko-academy-backend.yml | microk8s kubectl apply -f -
-        cat /tmp/meko-academy-backend.yml
+        sed "s|image: .*|image: $IMAGE_NAME|" deploy.yml | tee /tmp/sketch-pilot-backend.yml | microk8s kubectl apply -f -
+        cat /tmp/sketch-pilot-backend.yml
 
         echo "Deployment successful."
         
         # Nettoyage
-        docker images --format '{{.Repository}} {{.ID}}' |grep '^registry.meko.ac/meko-academy-backend' | awk '{print $2}' | xargs -r docker rmi -f
+        docker images --format '{{.Repository}} {{.ID}}' |grep '^registry.meko.ac/sketch-pilot-backend' | awk '{print $2}' | xargs -r docker rmi -f
         docker buildx prune -f
       EOF
   needs:

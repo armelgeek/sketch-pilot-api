@@ -1,8 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import type { Routes } from '@/domain/types'
 import { CREDIT_PACKS, VIDEO_GENRES, VIDEO_TYPES, VOICES } from '../config/video.config'
-import { db } from '../database/db'
-import { subscriptionPlans } from '../database/schema'
 
 export class ConfigController implements Routes {
   public controller: OpenAPIHono
@@ -137,9 +135,7 @@ export class ConfigController implements Routes {
           }
         }
       }),
-      async (c: any) => {
-        const plans = await db.select().from(subscriptionPlans)
-
+      (c: any) => {
         const creditPacks = Object.values(CREDIT_PACKS).map((pack) => ({
           id: pack.id,
           credits: pack.credits,
@@ -148,7 +144,7 @@ export class ConfigController implements Routes {
           stripePriceId: pack.priceId
         }))
 
-        return c.json({ plans, creditPacks })
+        return c.json({ creditPacks })
       }
     )
   }

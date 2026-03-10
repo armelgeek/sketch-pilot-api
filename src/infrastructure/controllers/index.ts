@@ -1,4 +1,3 @@
-export * from './subscription.controller'
 export * from './user.controller'
 export * from './email-check.controller'
 export * from './credits.controller'

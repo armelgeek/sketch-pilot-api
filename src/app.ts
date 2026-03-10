@@ -10,7 +10,6 @@ import { responseMiddleware } from './infrastructure/middlewares/response.middle
 import addSession from './infrastructure/middlewares/session.middleware'
 import sessionValidator from './infrastructure/middlewares/unauthorized-access.middleware'
 import { Home } from './infrastructure/pages/home'
-import { patchSuperAdminToAdmin } from './infrastructure/services/patch-super-admin-to-admin.service'
 import type { Routes } from './domain/types'
 
 export class App {
@@ -22,14 +21,6 @@ export class App {
   }>
 
   constructor(routes: Routes[]) {
-    patchSuperAdminToAdmin().then((patchRes) => {
-      if (patchRes.success) {
-        console.info('Patch super_admin -> admin applied')
-      } else {
-        console.error('Error patch super_admin -> admin:', patchRes.error)
-      }
-    })
-
     this.app = new OpenAPIHono<{
       Variables: {
         user: typeof auth.$Infer.Session.user | null
@@ -63,8 +54,8 @@ export class App {
       cors({
         origin:
           Bun.env.NODE_ENV === 'production'
-            ? [Bun.env.PRODUCTION_URL || 'http://localhost:3000', Bun.env.REACT_APP_URL || 'http://localhost:5173']
-            : [Bun.env.BETTER_AUTH_URL || 'http://localhost:3000', Bun.env.REACT_APP_URL || 'http://localhost:5173'],
+            ? [Bun.env.PRODUCTION_URL || 'http://localhost:5000', Bun.env.REACT_APP_URL || 'http://localhost:5173']
+            : [Bun.env.BETTER_AUTH_URL || 'http://localhost:5000', Bun.env.REACT_APP_URL || 'http://localhost:5173'],
         credentials: true,
         maxAge: 86400
       })
@@ -72,10 +63,6 @@ export class App {
     this.app.use('*', responseMiddleware())
     this.app.use(addSession)
     this.app.use('*', (c, next) => {
-      // Allow public access to subscription plans listing
-      if (c.req.method === 'GET' && c.req.path === '/api/v1/subscription-plans') {
-        return next()
-      }
       // Allow public access to config endpoints
       if (c.req.method === 'GET' && c.req.path.startsWith('/api/v1/config/')) {
         return next()
@@ -101,7 +88,7 @@ export class App {
     this.app.doc31('/swagger', () => {
       const protocol = 'https:'
       const hostname = Bun.env.NODE_ENV === 'production' ? Bun.env.PRODUCTION_HOST || 'localhost' : 'localhost'
-      const port = Bun.env.NODE_ENV === 'production' ? '' : ':3000'
+      const port = Bun.env.NODE_ENV === 'production' ? '' : ':5000'
 
       return {
         openapi: '3.1.0',
@@ -125,7 +112,7 @@ export class App {
         url:
           Bun.env.NODE_ENV === 'production'
             ? `https://${Bun.env.PRODUCTION_HOST || 'localhost'}/swagger`
-            : 'http://localhost:3000/swagger'
+            : 'http://localhost:5000/swagger'
       })
     )
   }

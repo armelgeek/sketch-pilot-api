@@ -1,89 +1,18 @@
-const crypto = require('node:crypto')
 const { eq } = require('drizzle-orm')
-const { Actions, Subjects } = require('../src/domain/types/permission.type')
 const { auth } = require('../src/infrastructure/config/auth.config')
 const { db } = require('../src/infrastructure/database/db/index')
-const { roleResources, roles, userRoles, users } = require('../src/infrastructure/database/schema')
+const { users } = require('../src/infrastructure/database/schema')
 
 const SUPER_ADMINS = [
-  {
-    name: 'Yves',
-    firstname: 'Perraudin',
-    lastname: 'Yves',
-    email: 'yves.perraudin@gmail.com'
-  },
-  {
-    name: 'Fety Faraniarijaona',
-    firstname: 'Fety',
-    lastname: 'Faraniarijaona',
-    email: 'fety.faraniarijaona@relia-consulting.com'
-  },
-  {
-    name: 'Harena Fifaliana',
-    firstname: 'Harena',
-    lastname: 'Fifaliana',
-    email: 'fifaliana.harena@relia-consulting.com'
-  },
   {
     name: 'Armel Wanes',
     firstname: 'Armel',
     lastname: 'Wanes',
     email: 'armelgeek5@gmail.com'
-  },
-  {
-    name: 'Andriniaina Ravaka RADIMY JEAN',
-    firstname: 'Andriniaina',
-    lastname: 'Ravaka RADIMY JEAN',
-    email: 'andriniaina.radimy@relia-consulting.com'
-  },
-  {
-    name: 'Nancia Rajerison',
-    firstname: 'Nancia',
-    lastname: 'Rajerison',
-    email: 'rajerisonnancia@gmail.com'
   }
 ]
 
-async function createSuperAdminRole() {
-  const now = new Date()
-
-  const existingRole = await db.query.roles.findFirst({
-    where: eq(roles.name, 'Super Administrator')
-  })
-
-  if (existingRole) {
-    console.log('✅ Rôle Super Administrator existe déjà:', existingRole.id)
-    return existingRole
-  }
-
-  const [superAdminRole] = await db
-    .insert(roles)
-    .values({
-      id: crypto.randomUUID(),
-      name: 'Super Administrator',
-      description: 'Full system access with all permissions',
-      createdAt: now,
-      updatedAt: now
-    })
-    .returning()
-
-  const resources = Object.values(Subjects).map((subject) => ({
-    id: crypto.randomUUID(),
-    roleId: superAdminRole.id,
-    resourceType: subject,
-    actions: Object.values(Actions),
-    conditions: {},
-    createdAt: now,
-    updatedAt: now
-  }))
-
-  await db.insert(roleResources).values(resources)
-
-  console.log('✅ Rôle Super Administrator créé:', superAdminRole.id)
-  return superAdminRole
-}
-
-async function createSuperAdmin(adminData, superAdminRole) {
+async function createSuperAdmin(adminData) {
   const now = new Date()
   const tempPassword = `password1234!`
 
@@ -95,42 +24,26 @@ async function createSuperAdmin(adminData, superAdminRole) {
     if (existingUser) {
       console.log(`📝 Utilisateur ${adminData.email} existe déjà`)
 
-      const existingUserRole = await db.query.userRoles.findFirst({
-        where: eq(userRoles.userId, existingUser.id)
-      })
-
-      if (!existingUserRole || existingUserRole.roleId !== superAdminRole.id) {
-        await db.insert(userRoles).values({
-          id: crypto.randomUUID(),
-          userId: existingUser.id,
-          roleId: superAdminRole.id,
-          createdAt: now,
+      // Ensure they have admin privileges
+      await db
+        .update(users)
+        .set({
+          role: 'admin',
+          isAdmin: true,
+          emailVerified: true,
           updatedAt: now
         })
-        console.log(`✅ Rôle super admin assigné à ${adminData.email}`)
-      }
+        .where(eq(users.id, existingUser.id))
 
       return { user: existingUser, password: null, isExisting: true }
     }
 
+    // Create user via better-auth
     const signUpResult = await auth.api.signUpEmail({
       body: {
         name: adminData.name,
-        firstname: adminData.firstname,
-        lastname: adminData.lastname,
         email: adminData.email,
-        password: tempPassword,
-        role: 'admin',
-        banned: false,
-        banReason: '',
-        banExpires: new Date(0),
-        isAdmin: true,
-        isTrialActive: false,
-        trialStartDate: new Date(0),
-        trialEndDate: new Date(0),
-        stripeCustomerId: ``,
-        stripeSubscriptionId: ``,
-        stripeCurrentPeriodEnd: new Date(0)
+        password: tempPassword
       }
     })
 
@@ -140,9 +53,12 @@ async function createSuperAdmin(adminData, superAdminRole) {
 
     const createdUser = signUpResult.user
 
+    // Update user with admin privileges and additional fields
     await db
       .update(users)
       .set({
+        firstname: adminData.firstname,
+        lastname: adminData.lastname,
         role: 'admin',
         isAdmin: true,
         emailVerified: true,
@@ -150,15 +66,7 @@ async function createSuperAdmin(adminData, superAdminRole) {
       })
       .where(eq(users.id, createdUser.id))
 
-    await db.insert(userRoles).values({
-      id: crypto.randomUUID(),
-      userId: createdUser.id,
-      roleId: superAdminRole.id,
-      createdAt: now,
-      updatedAt: now
-    })
-
-    console.log(`✅ Super admin créé: ${createdUser.email}`)
+    console.log(`✅ Admin créé: ${createdUser.email}`)
     return { user: createdUser, password: tempPassword, isExisting: false }
   } catch (error) {
     console.error(`❌ Erreur lors de la création de ${adminData.email}:`, error)
@@ -167,16 +75,15 @@ async function createSuperAdmin(adminData, superAdminRole) {
 }
 
 async function main() {
-  console.log(`🚀 Création de ${SUPER_ADMINS.length} super administrateur(s)...`)
+  console.log(`🚀 Création de ${SUPER_ADMINS.length} administrateur(s)...`)
+  console.log('='.repeat(50))
 
   try {
-    const superAdminRole = await createSuperAdminRole()
-
     const results = []
 
     for (const adminData of SUPER_ADMINS) {
       try {
-        const result = await createSuperAdmin(adminData, superAdminRole)
+        const result = await createSuperAdmin(adminData)
         results.push({
           email: adminData.email,
           success: true,
@@ -197,34 +104,40 @@ async function main() {
     const successful = results.filter((r) => r.success)
     const failed = results.filter((r) => !r.success)
 
-    console.log(`✅ Succès: ${successful.length}`)
-    console.log(`❌ Échecs: ${failed.length}`)
+    console.log(`✅ Succès: ${successful.length}/${results.length}`)
+    console.log(`❌ Échecs: ${failed.length}/${results.length}`)
 
     if (successful.length > 0) {
-      console.log('\n✅ SUPER ADMINS CRÉÉS/CONFIGURÉS:')
+      console.log('\n✅ ADMINS CRÉÉS/CONFIGURÉS:')
+      console.log('='.repeat(50))
       successful.forEach((result) => {
         console.log(`📧 ${result.email}`)
         console.log(`🆔 ID: ${result.user.id}`)
+        console.log(`👤 Nom: ${result.user.name}`)
         if (!result.isExisting && result.password) {
           console.log(`🔐 Mot de passe temporaire: ${result.password}`)
+        } else {
+          console.log(`✓ Admin existant, privileges assignés`)
         }
         console.log('---')
       })
 
       if (successful.some((r) => !r.isExisting)) {
-        console.log("⚠️ N'oubliez pas de changer les mots de passe lors de la première connexion!")
+        console.log("\n⚠️ N'oubliez pas de changer les mots de passe temporaires lors de la première connexion!")
       }
     }
 
     if (failed.length > 0) {
       console.log('\n❌ ÉCHECS:')
+      console.log('='.repeat(50))
       failed.forEach((result) => {
         console.log(`📧 ${result.email}: ${result.error}`)
       })
     }
+
+    console.log('\n✅ Création terminée avec succès!')
   } catch (error) {
     console.error('❌ Erreur générale:', error)
-    throw error
   }
 }
 

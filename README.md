@@ -4,7 +4,7 @@ Backend API pour la plateforme Meko Academy développée avec Hono.js et une arc
 
 ## Table des matières 📋
 
-- [Meko Academy Backend](#meko-academy-backend)
+- [Meko Academy Backend](#sketch-pilot-backend)
   - [Table des matières 📋](#table-des-matières-)
   - [Features 🛠️](#features-️)
   - [Installation 🚀](#installation-)
@@ -42,33 +42,62 @@ Backend API pour la plateforme Meko Academy développée avec Hono.js et une arc
 
 ## Installation 🚀
 
-```markdown
-1. Cloner le dépôt :
+### Prérequis
+- **Node.js/Bun** : Runtime JavaScript
+- **Docker & Docker Compose** : Pour PostgreSQL et Redis
+- **PostgreSQL 15+** (via Docker) ou installation locale
+- **Redis 6.2+** (via Docker) ou installation locale
+
+### Étapes d'installation
+
+1. **Cloner le dépôt** :
 ```sh
-git clone https://gitlab.relia-consulting.com/client-project/meko-academy/meko-academy-backend.git
-cd meko-academy-backend
+git clone https://gitlab.relia-consulting.com/client-project/sketch-pilot/sketch-pilot-backend.git
+cd sketch-pilot-backend
 ```
 
-2. Installer les dépendances :
+2. **Installer les dépendances** :
 ```sh
 bun install
 ```
 
-3. Copier le fichier d'environnement :
+3. **Démarrer PostgreSQL et Redis** (recommandé avec Docker Compose) :
+```sh
+docker-compose up -d
+```
+
+   Si vous n'avez pas Docker Compose, vous pouvez installer Redis et PostgreSQL localement. **Important**: Redis doit être à minimum en version **6.2.0** (pas 6.0.16).
+
+4. **Configurer les variables d'environnement** :
 ```sh
 cp .env.example .env
 ```
 
-4. Configurer les variables d'environnement dans le fichier .env
+   Les valeurs par défaut doivent fonctionner avec docker-compose :
+   ```env
+   DATABASE_URL=postgresql://postgres:password@localhost:5432/default_db
+   REDIS_URL=redis://localhost:6379
+   ```
 
+5. **Initialiser la base de données** :
+```sh
+bun run db:push   # Déploie le schéma
+bun run db:seed   # Initialise les données de base
+```
 
-5. Démarrer le serveur de développement :
+6. **Démarrer le serveur** :
 ```sh
 bun run dev
 ```
 
-Le serveur sera accessible sur http://localhost:3000
-```
+   Le serveur sera accessible sur **http://localhost:5000**
+
+### Notes de démarrage
+
+- **Premier démarrage** : Les migrations sont appliquées automatiquement au démarrage
+- **Port PostgreSQL** : `5432` (accessible depuis l'hôte)
+- **Port Redis** : `6379` (accessible depuis l'hôte)
+- **Utilisation locale** : Exécutez `docker-compose logs -f` pour voir les logs en temps réel
 
 ## Configuration de la base de données 🗄️
 
@@ -96,7 +125,7 @@ bun run db:migrate
 bun run db:seed
 ```
 Cela créera un utilisateur administrateur par défaut :
-- Email : admin@meko-academy.com
+- Email : admin@sketch-pilot.com
 - Mot de passe : Admin123! (en production, utilisez ADMIN_PASSWORD dans .env)
 
 Les commandes de base de données disponibles :
@@ -126,8 +155,8 @@ Les commandes de base de données disponibles :
 ## Schema de la base de données 🧩
 Ce schéma illustre les entités principales ainsi que leurs relations, et sert de référence pour la modélisation de la base de données.
 
-![Modèle Conceptuel de Données](./docs/conception/meko-academy.png)
-[Modèle Conceptuel de Données (MCD) - meko-academy.dbml](./docs/conception/meko-academy.dbml)
+![Modèle Conceptuel de Données](./docs/conception/sketch-pilot.png)
+[Modèle Conceptuel de Données (MCD) - sketch-pilot.dbml](./docs/conception/sketch-pilot.dbml)
 
 
 
