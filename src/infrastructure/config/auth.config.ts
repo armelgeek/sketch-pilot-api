@@ -59,7 +59,7 @@ export const auth = betterAuth({
             }
           }
         ],
-        requireEmailVerification: false,
+        requireEmailVerification: false
       },
       onEvent: async (event: Stripe.Event) => {
         if (event.type === 'checkout.session.completed') {
