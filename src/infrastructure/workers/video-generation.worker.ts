@@ -1,3 +1,6 @@
+import * as fs from 'node:fs'
+import process from 'node:process'
+
 /**
  * Video Generation Worker — BullMQ worker that executes video generation jobs.
  *
@@ -9,12 +12,12 @@
  * 5. Reports progress back via BullMQ job.updateProgress()
  */
 import * as path from 'node:path'
-import * as fs from 'node:fs'
-import { Worker, Job } from 'bullmq'
+import { Worker, type Job } from 'bullmq'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
-import { uploadVideoToMinio, uploadBuffer } from '@/infrastructure/config/storage.config'
+import { redisConnectionOptions, VIDEO_QUEUE_NAME, type VideoJobData } from '@/infrastructure/config/queue.config'
+import { uploadBuffer, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
-import { VIDEO_QUEUE_NAME, redisConnectionOptions, type VideoJobData } from '@/infrastructure/config/queue.config'
+import type { CompleteVideoPackage } from '@sketch-pilot/types/video-script.types'
 
 const DEFAULT_VIDEO_DURATION = 60 // seconds
 
@@ -42,8 +45,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
 
   try {
-    await videoRepository.updateStatus(videoId, { status: 'processing', progress: 5, currentStep: 'script_generation' })
-    await reportProgress(job, videoId, 'script_generation', 10, 'Generating script...')
+    let pkg: CompleteVideoPackage
 
     // Build generation options from job data
     const genOptions: Record<string, any> = {
@@ -66,14 +68,44 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       genOptions.kokoroVoicePreset = options.voiceId
     }
 
-    await reportProgress(job, videoId, 'script_generation', 25, 'Script generated, starting asset generation...')
+    if (options.generateFromScript) {
+      await videoRepository.updateStatus(videoId, {
+        status: 'processing',
+        progress: 10,
+        currentStep: 'asset_generation'
+      })
+      await reportProgress(job, videoId, 'asset_generation', 25, 'Starting asset generation from existing script...')
 
-    // Run the full generation pipeline
-    const pkg = await videoGenerationService.generateVideo({
-      topic,
-      userId,
-      options: genOptions
-    })
+      // Fetch the script from the DB
+      const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId)
+      if (!videoRecord || !videoRecord.script) {
+        throw new Error('Script not found for this video.')
+      }
+
+      // Run the partial generation pipeline without regenerating the script
+      pkg = await videoGenerationService.renderVideoFromScript({
+        topic,
+        userId,
+        script: videoRecord.script,
+        options: genOptions
+      })
+    } else {
+      await videoRepository.updateStatus(videoId, {
+        status: 'processing',
+        progress: 5,
+        currentStep: 'script_generation'
+      })
+      await reportProgress(job, videoId, 'script_generation', 10, 'Generating script...')
+
+      await reportProgress(job, videoId, 'script_generation', 25, 'Script generated, starting asset generation...')
+
+      // Run the full generation pipeline
+      pkg = await videoGenerationService.generateVideo({
+        topic,
+        userId,
+        options: genOptions
+      })
+    }
 
     await reportProgress(job, videoId, 'upload', 85, 'Uploading video to storage...')
 
@@ -85,11 +117,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const narrationMp3 = path.join(outputPath, 'narration.mp3')
     const captionsAss = path.join(outputPath, 'captions.ass')
 
-    const videoFilePath = fs.existsSync(finalMp4)
-      ? finalMp4
-      : fs.existsSync(assembledMp4)
-        ? assembledMp4
-        : null
+    const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
 
     let videoUrl: string | undefined
     let thumbnailUrl: string | undefined
@@ -116,7 +144,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     }
 
     // Derive duration from script
-    const duration = pkg.script?.totalDuration ?? (genOptions.maxDuration as number | undefined) ?? DEFAULT_VIDEO_DURATION
+    const duration =
+      pkg.script?.totalDuration ?? (genOptions.maxDuration as number | undefined) ?? DEFAULT_VIDEO_DURATION
 
     await videoRepository.updateStatus(videoId, {
       status: 'completed',
@@ -164,7 +193,7 @@ export function startVideoGenerationWorker(): Worker<VideoJobData> {
     },
     {
       connection: redisConnectionOptions,
-      concurrency: parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '2', 10)
+      concurrency: Number.parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '2', 10)
     }
   )
 

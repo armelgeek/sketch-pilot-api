@@ -1,5 +1,4 @@
 import { boolean, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
-import { users } from './schema'
 
 /**
  * Subscription table used by the @better-auth/stripe plugin.

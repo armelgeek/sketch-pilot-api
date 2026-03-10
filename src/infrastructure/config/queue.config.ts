@@ -1,3 +1,5 @@
+import process from 'node:process'
+
 import { Queue, QueueEvents } from 'bullmq'
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
@@ -7,7 +9,7 @@ function getRedisConnectionOptions() {
     const url = new URL(redisUrl)
     return {
       host: url.hostname || 'localhost',
-      port: parseInt(url.port) || 6379,
+      port: Number.parseInt(url.port) || 6379,
       password: url.password || undefined,
       maxRetriesPerRequest: null as null,
       enableReadyCheck: false,
@@ -70,5 +72,6 @@ export interface VideoJobData {
     textOverlay?: { enabled: boolean; position: string }
     characterConsistency?: boolean
     autoTransitions?: boolean
+    generateFromScript?: boolean
   }
 }

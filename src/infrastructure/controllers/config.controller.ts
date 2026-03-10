@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import type { Routes } from '@/domain/types'
-import { CREDIT_PACKS, VIDEO_TYPES, VIDEO_GENRES, VOICES } from '../config/video.config'
+import { CREDIT_PACKS, VIDEO_GENRES, VIDEO_TYPES, VOICES } from '../config/video.config'
 import { db } from '../database/db'
 import { subscriptionPlans } from '../database/schema'
 
@@ -38,7 +38,7 @@ export class ConfigController implements Routes {
           }
         }
       }),
-      async (c: any) => {
+      (c: any) => {
         return c.json({ videoTypes: VIDEO_TYPES })
       }
     )
@@ -69,7 +69,7 @@ export class ConfigController implements Routes {
           }
         }
       }),
-      async (c: any) => {
+      (c: any) => {
         return c.json({ genres: VIDEO_GENRES })
       }
     )
@@ -103,7 +103,7 @@ export class ConfigController implements Routes {
           }
         }
       }),
-      async (c: any) => {
+      (c: any) => {
         return c.json({ voices: VOICES })
       }
     )

@@ -1,13 +1,13 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import type { Routes } from '@/domain/types'
-import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { CreatePromptUseCase } from '@/application/use-cases/prompt/create-prompt.use-case'
+import { DeletePromptUseCase } from '@/application/use-cases/prompt/delete-prompt.use-case'
 import { GetPromptUseCase } from '@/application/use-cases/prompt/get-prompt.use-case'
 import { ListPromptsUseCase } from '@/application/use-cases/prompt/list-prompts.use-case'
-import { UpdatePromptUseCase } from '@/application/use-cases/prompt/update-prompt.use-case'
-import { DeletePromptUseCase } from '@/application/use-cases/prompt/delete-prompt.use-case'
 import { RenderPromptUseCase } from '@/application/use-cases/prompt/render-prompt.use-case'
+import { UpdatePromptUseCase } from '@/application/use-cases/prompt/update-prompt.use-case'
 import { PROMPT_TYPES } from '@/infrastructure/database/schema/prompt.schema'
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import type { Routes } from '@/domain/types'
 
 const PromptResponseSchema = z.object({
   id: z.string().uuid(),
@@ -21,7 +21,7 @@ const PromptResponseSchema = z.object({
   language: z.string().optional().nullable(),
   isActive: z.boolean(),
   createdAt: z.string(),
-  updatedAt: z.string(),
+  updatedAt: z.string()
 })
 
 const CreatePromptBodySchema = z.object({
@@ -33,7 +33,7 @@ const CreatePromptBodySchema = z.object({
   template: z.string().min(1).describe('Template string with {{variable}} placeholders'),
   variables: z.array(z.string()).optional().describe('Expected variable names in the template'),
   language: z.string().optional().describe('Target language (null = language-agnostic)'),
-  isActive: z.boolean().optional().default(true),
+  isActive: z.boolean().optional().default(true)
 })
 
 export class PromptController implements Routes {
@@ -55,14 +55,14 @@ export class PromptController implements Routes {
         summary: 'Create a dynamic prompt',
         security: [{ Bearer: [] }],
         request: {
-          body: { content: { 'application/json': { schema: CreatePromptBodySchema } } },
+          body: { content: { 'application/json': { schema: CreatePromptBodySchema } } }
         },
         responses: {
           201: {
             description: 'Created prompt',
-            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: PromptResponseSchema }) } },
-          },
-        },
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: PromptResponseSchema }) } }
+          }
+        }
       }),
       async (c: any) => {
         const user = c.get('user')
@@ -93,19 +93,19 @@ export class PromptController implements Routes {
             language: z.string().optional(),
             isActive: z.enum(['true', 'false']).optional(),
             page: z.string().optional(),
-            limit: z.string().optional(),
-          }),
+            limit: z.string().optional()
+          })
         },
         responses: {
           200: {
             description: 'Prompt list',
             content: {
               'application/json': {
-                schema: z.object({ success: z.boolean(), data: z.array(PromptResponseSchema), total: z.number() }),
-              },
-            },
-          },
-        },
+                schema: z.object({ success: z.boolean(), data: z.array(PromptResponseSchema), total: z.number() })
+              }
+            }
+          }
+        }
       }),
       async (c: any) => {
         const user = c.get('user')
@@ -120,7 +120,7 @@ export class PromptController implements Routes {
           language: q.language,
           isActive: q.isActive !== undefined ? q.isActive === 'true' : undefined,
           page: q.page ? Number(q.page) : 1,
-          limit: q.limit ? Number(q.limit) : 20,
+          limit: q.limit ? Number(q.limit) : 20
         })
 
         return c.json({ success: result.success, data: result.data.map(serializePrompt), total: result.total })
@@ -141,19 +141,19 @@ export class PromptController implements Routes {
             videoGenre: z.string().optional(),
             language: z.string().optional(),
             page: z.string().optional(),
-            limit: z.string().optional(),
-          }),
+            limit: z.string().optional()
+          })
         },
         responses: {
           200: {
             description: 'Active prompt list',
             content: {
               'application/json': {
-                schema: z.object({ success: z.boolean(), data: z.array(PromptResponseSchema), total: z.number() }),
-              },
-            },
-          },
-        },
+                schema: z.object({ success: z.boolean(), data: z.array(PromptResponseSchema), total: z.number() })
+              }
+            }
+          }
+        }
       }),
       async (c: any) => {
         const q = c.req.query()
@@ -165,7 +165,7 @@ export class PromptController implements Routes {
           language: q.language,
           isActive: true, // public route: active only
           page: q.page ? Number(q.page) : 1,
-          limit: q.limit ? Number(q.limit) : 20,
+          limit: q.limit ? Number(q.limit) : 20
         })
 
         return c.json({ success: result.success, data: result.data.map(serializePrompt), total: result.total })
@@ -186,11 +186,11 @@ export class PromptController implements Routes {
             description: 'Prompt',
             content: {
               'application/json': {
-                schema: z.object({ success: z.boolean(), data: PromptResponseSchema.nullable() }),
-              },
-            },
-          },
-        },
+                schema: z.object({ success: z.boolean(), data: PromptResponseSchema.nullable() })
+              }
+            }
+          }
+        }
       }),
       async (c: any) => {
         const user = c.get('user')
@@ -214,16 +214,16 @@ export class PromptController implements Routes {
         security: [{ Bearer: [] }],
         request: {
           params: z.object({ id: z.string().uuid() }),
-          body: { content: { 'application/json': { schema: CreatePromptBodySchema.partial() } } },
+          body: { content: { 'application/json': { schema: CreatePromptBodySchema.partial() } } }
         },
         responses: {
           200: {
             description: 'Updated prompt',
             content: {
-              'application/json': { schema: z.object({ success: z.boolean(), data: PromptResponseSchema.nullable() }) },
-            },
-          },
-        },
+              'application/json': { schema: z.object({ success: z.boolean(), data: PromptResponseSchema.nullable() }) }
+            }
+          }
+        }
       }),
       async (c: any) => {
         const user = c.get('user')
@@ -251,9 +251,9 @@ export class PromptController implements Routes {
         responses: {
           200: {
             description: 'Deleted',
-            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } },
-          },
-        },
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
       }),
       async (c: any) => {
         const user = c.get('user')
@@ -285,20 +285,20 @@ export class PromptController implements Routes {
                   videoGenre: z.string().optional(),
                   language: z.string().optional(),
                   variables: z.record(z.string()).optional().describe('Key-value pairs to inject into the template'),
-                  fallback: z.string().optional().describe('Fallback template if no DB prompt is found'),
-                }),
-              },
-            },
-          },
+                  fallback: z.string().optional().describe('Fallback template if no DB prompt is found')
+                })
+              }
+            }
+          }
         },
         responses: {
           200: {
             description: 'Rendered prompt',
             content: {
-              'application/json': { schema: z.object({ success: z.boolean(), rendered: z.string().nullable() }) },
-            },
-          },
-        },
+              'application/json': { schema: z.object({ success: z.boolean(), rendered: z.string().nullable() }) }
+            }
+          }
+        }
       }),
       async (c: any) => {
         const user = c.get('user')
@@ -318,6 +318,6 @@ function serializePrompt(prompt: any) {
   return {
     ...prompt,
     createdAt: prompt.createdAt instanceof Date ? prompt.createdAt.toISOString() : prompt.createdAt,
-    updatedAt: prompt.updatedAt instanceof Date ? prompt.updatedAt.toISOString() : prompt.updatedAt,
+    updatedAt: prompt.updatedAt instanceof Date ? prompt.updatedAt.toISOString() : prompt.updatedAt
   }
 }

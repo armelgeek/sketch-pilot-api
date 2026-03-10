@@ -1,3 +1,5 @@
+import process from 'node:process'
+
 export interface CreditPack {
   id: string
   credits: number

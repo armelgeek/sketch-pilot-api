@@ -63,7 +63,8 @@ export class CreateAdminUserUseCase extends IUseCase<Params, Response> {
       }
 
       const createdUser = signUpResult.user
-      await db.update(users)
+      await db
+        .update(users)
         .set({ role: 'admin', isAdmin: true, emailVerified: true, updatedAt: now })
         .where(eq(users.id, createdUser.id))
 

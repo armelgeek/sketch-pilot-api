@@ -1,19 +1,21 @@
+import process from 'node:process'
+
+import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
 import { App } from './app'
 import {
+  ConfigController,
+  CreditsController,
   EmailCheckController,
+  PromptController,
+  ScriptsController,
   SubscriptionController,
   UserController,
-  CreditsController,
-  VideosController,
-  ScriptsController,
-  ConfigController,
   VideoAdminController,
-  PromptController
+  VideosController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
 import { SubscriptionPlanController } from './infrastructure/controllers/subscription-plan.controller'
 import '@/infrastructure/schedulers'
-import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
 
 const app = new App([
   new UserController(),
@@ -32,8 +34,8 @@ const app = new App([
 if (process.env.ENABLE_VIDEO_WORKER !== 'false') {
   try {
     startVideoGenerationWorker()
-  } catch (err) {
-    console.warn('[Server] Video worker could not start (Redis may not be available):', err)
+  } catch (error) {
+    console.warn('[Server] Video worker could not start (Redis may not be available):', error)
   }
 }
 

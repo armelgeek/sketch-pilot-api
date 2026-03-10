@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import type { Routes } from '@/domain/types'
 import { GenerateScriptUseCase } from '@/application/use-cases/video/generate-script.use-case'
 import { ValidateScriptUseCase } from '@/application/use-cases/video/validate-script.use-case'
+import type { Routes } from '@/domain/types'
 
 const generateScriptUseCase = new GenerateScriptUseCase()
 const validateScriptUseCase = new ValidateScriptUseCase()
@@ -53,6 +53,7 @@ export class ScriptsController implements Routes {
               'application/json': {
                 schema: z.object({
                   topic: z.string(),
+                  videoId: z.string().optional(),
                   script: z.object({
                     title: z.string().optional(),
                     description: z.string().optional(),
@@ -85,7 +86,7 @@ export class ScriptsController implements Routes {
 
         const { topic, options } = c.req.valid('json')
 
-        const { result } = await generateScriptUseCase.run({ topic, options })
+        const { result } = await generateScriptUseCase.run({ userId: user.id, topic, options })
 
         if (!result.success || !result.script) {
           return c.json({ error: result.error || 'Failed to generate script' }, 500)
@@ -94,6 +95,7 @@ export class ScriptsController implements Routes {
         const script = result.script
         return c.json({
           topic,
+          videoId: result.videoId,
           script: {
             title: (script as any).titles?.main || (script as any).title || topic,
             description: (script as any).titles?.subtitle || (script as any).description || '',

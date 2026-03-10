@@ -3,10 +3,10 @@
  * Wraps the sketch-pilot audio service factory for use in the backend.
  */
 export type {
-  AudioService,
-  AudioProvider,
-  AudioServiceConfig,
-  WordTiming,
   AudioGenerationResult,
+  AudioProvider,
+  AudioService,
+  AudioServiceConfig,
+  WordTiming
 } from '@sketch-pilot/services/audio'
 export { AudioServiceFactory } from '@sketch-pilot/services/audio'

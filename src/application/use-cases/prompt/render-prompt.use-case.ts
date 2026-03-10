@@ -1,5 +1,5 @@
-import { IUseCase } from '@/domain/types'
 import { PromptService, type PromptVariables } from '@/application/services/prompt.service'
+import { IUseCase } from '@/domain/types'
 import type { PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
 import type { PromptType } from '@/infrastructure/database/schema/prompt.schema'
 

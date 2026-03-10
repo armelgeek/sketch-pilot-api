@@ -1,16 +1,18 @@
+import process from 'node:process'
+
 /**
  * Video Generation Service — application-layer service.
  * Integrates the sketch-pilot NanoBananaEngine into the backend DDD architecture.
  * Used by the BullMQ worker to execute video generation jobs.
  */
 import { NanoBananaEngine } from '@sketch-pilot/core/nano-banana-engine'
-import type { VideoGenerationOptions, CompleteVideoPackage } from '@sketch-pilot/types/video-script.types'
-import type { LLMServiceConfig } from '@sketch-pilot/services/llm'
-import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
-import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
-import type { ImageServiceConfig } from '@sketch-pilot/services/image'
-import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { PromptService } from '@/application/services/prompt.service'
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
+import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
+import type { ImageServiceConfig } from '@sketch-pilot/services/image'
+import type { LLMServiceConfig } from '@sketch-pilot/services/llm'
+import type { CompleteVideoPackage, VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
 export interface VideoGenerationInput {
   topic: string
@@ -39,29 +41,13 @@ export class VideoGenerationService {
 
     const imageConfig: ImageServiceConfig = {
       provider: (options.imageProvider as ImageServiceConfig['provider']) || 'gemini',
-      apiKey: options.imageProvider === 'grok' ? (process.env.XAI_API_KEY || apiKey) : apiKey
+      apiKey: options.imageProvider === 'grok' ? process.env.XAI_API_KEY || apiKey : apiKey
     }
 
     const llmConfig: LLMServiceConfig = {
       provider: (options.llmProvider as LLMServiceConfig['provider']) || 'gemini',
       apiKey,
       cacheSystemPrompt: true
-    }
-
-    // Build a dynamic prompt loader that resolves prompts from the DB
-    const promptService = this.promptService
-    const promptLoader = async (
-      promptType: string,
-      context?: { videoType?: string; videoGenre?: string; language?: string },
-      variables?: Record<string, string | number | boolean>
-    ) => {
-      return promptService.resolve({
-        promptType: promptType as any,
-        videoType: context?.videoType,
-        videoGenre: context?.videoGenre,
-        language: context?.language,
-        variables: variables as any,
-      })
     }
 
     // NanoBananaEngine constructor: (apiKey, styleSuffix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptLoader?)
@@ -74,8 +60,7 @@ export class VideoGenerationService {
       animationConfig,
       imageConfig,
       llmConfig,
-      undefined, // transcriptionConfig
-      promptLoader
+      undefined // transcriptionConfig
     )
   }
 
@@ -86,6 +71,16 @@ export class VideoGenerationService {
   async generateVideo(input: VideoGenerationInput): Promise<CompleteVideoPackage> {
     const { topic, options = {} } = input
     const engine = this.buildEngine(options)
-    return engine.generateVideoFromTopic(topic, options)
+    return await engine.generateVideoFromTopic(topic, options)
+  }
+
+  /**
+   * Render a video directly from an existing script.
+   * This bypasses the LLM generation phase and is used for manually validated scripts.
+   */
+  async renderVideoFromScript(input: VideoGenerationInput & { script: any }): Promise<CompleteVideoPackage> {
+    const { script, options = {} } = input
+    const engine = this.buildEngine(options)
+    return await engine.generateVideoFromScript(script, options)
   }
 }

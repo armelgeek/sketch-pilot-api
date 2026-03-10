@@ -71,9 +71,7 @@ export class SubscriptionController implements Routes {
                   const sub = await stripe.subscriptions.retrieve(inv.subscription)
                   planName = sub.items.data[0]?.price?.nickname || null
                   const productId =
-                    typeof sub.items.data[0]?.price?.product === 'string'
-                      ? sub.items.data[0].price.product
-                      : null
+                    typeof sub.items.data[0]?.price?.product === 'string' ? sub.items.data[0].price.product : null
                   if (!planName && productId) {
                     const product = await stripe.products.retrieve(productId)
                     planName = product.name
@@ -93,9 +91,7 @@ export class SubscriptionController implements Routes {
                 }
               }
 
-              const periodLine = inv.lines.data.find(
-                (line: any) => line.period && line.period.start && line.period.end
-              )
+              const periodLine = inv.lines.data.find((line: any) => line.period && line.period.start && line.period.end)
               const periodStart = periodLine ? new Date(periodLine.period.start * 1000).toISOString() : null
               const periodEnd = periodLine ? new Date(periodLine.period.end * 1000).toISOString() : null
 

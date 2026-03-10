@@ -1,12 +1,15 @@
+import process from 'node:process'
+
+import { stripe as stripePlugin } from '@better-auth/stripe'
 import { betterAuth, type User } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin, emailOTP, openAPI } from 'better-auth/plugins'
-import { stripe as stripePlugin } from '@better-auth/stripe'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import Stripe from 'stripe'
 import { db } from '../database/db'
-import { users, userCredits } from '../database/schema'
+import { userCredits, users } from '../database/schema'
+import { ac, adminRole, userRole } from './access-control.config'
 import {
   emailTemplates,
   sendChangeEmailVerification,
@@ -14,7 +17,6 @@ import {
   sendResetPasswordEmail,
   sendVerificationEmail
 } from './mail.config'
-import { ac, adminRole, userRole } from './access-control.config'
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2025-03-31.basil' as any
@@ -65,7 +67,7 @@ export const auth = betterAuth({
           const session = event.data.object as Stripe.Checkout.Session
           if (session.mode === 'payment' && session.metadata?.type === 'credit_topup') {
             const userId = session.metadata.userId
-            const credits = parseInt(session.metadata.creditsAmount || '0', 10)
+            const credits = Number.parseInt(session.metadata.creditsAmount || '0', 10)
             if (userId && credits > 0) {
               await addCreditsToUser(userId, credits)
               try {
@@ -81,8 +83,8 @@ export const auth = betterAuth({
                   packId: session.metadata.packId,
                   createdAt: new Date()
                 })
-              } catch (err) {
-                console.error('Error recording credit transaction:', err)
+              } catch (error) {
+                console.error('Error recording credit transaction:', error)
               }
             }
           }
@@ -92,7 +94,11 @@ export const auth = betterAuth({
         enabled: true,
         plans: [
           { name: 'creator', priceId: process.env.STRIPE_PRICE_CREATOR || '', limits: { videosPerMonth: 30 } },
-          { name: 'professional', priceId: process.env.STRIPE_PRICE_PROFESSIONAL || '', limits: { videosPerMonth: 100 } },
+          {
+            name: 'professional',
+            priceId: process.env.STRIPE_PRICE_PROFESSIONAL || '',
+            limits: { videosPerMonth: 100 }
+          },
           { name: 'business', priceId: process.env.STRIPE_PRICE_BUSINESS || '', limits: { videosPerMonth: 300 } },
           { name: 'enterprise', priceId: process.env.STRIPE_PRICE_ENTERPRISE || '', limits: { videosPerMonth: -1 } }
         ]

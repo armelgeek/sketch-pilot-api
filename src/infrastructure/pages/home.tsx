@@ -115,9 +115,7 @@ Home.get('/', (c) => {
                 <span class="text-xs uppercase bg-opacity-15 rounded text-center max-w-fit px-2 py-1 font-bold tracking-wide bg-green-500 text-green-500">
                   Authentication
                 </span>
-                <span class="text-neutral-200 font-bold text-lg sm:text-xl md:text-2xl mt-2">
-                  User Management
-                </span>
+                <span class="text-neutral-200 font-bold text-lg sm:text-xl md:text-2xl mt-2">User Management</span>
                 <div class="text-neutral-500 mt-2">
                   Explore the authentication system with implementation guides and a complete API reference.
                 </div>

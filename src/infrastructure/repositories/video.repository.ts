@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, sql } from 'drizzle-orm'
 import { db } from '../database/db'
 import { videos } from '../database/schema'
 
@@ -17,10 +17,14 @@ export class VideoRepository {
     id: string
     userId: string
     topic: string
+    status?: string
+    progress?: number
     options?: any
     genre?: string
     type?: string
     language?: string
+    script?: any
+    scenes?: any
   }) {
     const [video] = await db
       .insert(videos)
@@ -28,13 +32,15 @@ export class VideoRepository {
         id: data.id,
         userId: data.userId,
         topic: data.topic,
-        status: 'queued',
-        progress: 0,
+        status: data.status || 'queued',
+        progress: data.progress || 0,
         options: data.options,
         genre: data.genre,
         type: data.type,
         language: data.language || 'en',
-        creditsUsed: 1,
+        script: data.script,
+        scenes: data.scenes,
+        creditsUsed: data.status === 'draft' ? 0 : 1,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -42,7 +48,7 @@ export class VideoRepository {
     return video
   }
 
-  async findById(id: string) {
+  findById(id: string) {
     return db.query.videos?.findFirst?.({ where: (t: any, { eq: eqFn }: any) => eqFn(t.id, id) })
   }
 
@@ -108,7 +114,10 @@ export class VideoRepository {
 
     const [data, countResult] = await Promise.all([
       db.select().from(videos).where(whereClause).orderBy(orderBy).limit(limit).offset(offset),
-      db.select({ count: sql<number>`count(*)` }).from(videos).where(whereClause)
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(videos)
+        .where(whereClause)
     ])
 
     return {
@@ -140,7 +149,10 @@ export class VideoRepository {
 
     const [data, countResult] = await Promise.all([
       db.select().from(videos).where(whereClause).orderBy(desc(videos.createdAt)).limit(limit).offset(offset),
-      db.select({ count: sql<number>`count(*)` }).from(videos).where(whereClause)
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(videos)
+        .where(whereClause)
     ])
 
     return {
@@ -151,7 +163,10 @@ export class VideoRepository {
     }
   }
 
-  async countByStatus() {
-    return db.select({ status: videos.status, count: sql<number>`count(*)` }).from(videos).groupBy(videos.status)
+  countByStatus() {
+    return db
+      .select({ status: videos.status, count: sql<number>`count(*)` })
+      .from(videos)
+      .groupBy(videos.status)
   }
 }

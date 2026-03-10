@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+output
+demo_frame
+*.ass
+output/*.png
+*.mp4
+samples/

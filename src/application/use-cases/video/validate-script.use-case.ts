@@ -1,7 +1,6 @@
+import { ScriptGenerationService, type ScriptValidationResult } from '@/application/services/script-generation.service'
 import { IUseCase } from '@/domain/types'
-import { ScriptGenerationService } from '@/application/services/script-generation.service'
 import type { CompleteVideoScript } from '@sketch-pilot/types/video-script.types'
-import type { ScriptValidationResult } from '@/application/services/script-generation.service'
 
 type ValidateScriptParams = {
   script: CompleteVideoScript
@@ -16,7 +15,7 @@ type ValidateScriptResponse = {
 const scriptGenerationService = new ScriptGenerationService()
 
 export class ValidateScriptUseCase extends IUseCase<ValidateScriptParams, ValidateScriptResponse> {
-  async execute({ script }: ValidateScriptParams): Promise<ValidateScriptResponse> {
+  execute({ script }: ValidateScriptParams): ValidateScriptResponse {
     try {
       const validation = scriptGenerationService.validateScript(script)
       return { success: true, validation }

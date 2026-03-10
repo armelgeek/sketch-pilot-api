@@ -56,9 +56,8 @@ export class UpdateUserUseCase extends IUseCase<Params, Response> {
         updateData.name = `${firstname || ''} ${lastname || ''}`.trim()
       }
 
-      const updatedUser = Object.keys(updateData).length > 0
-        ? await this.userRepository.update(userId, updateData)
-        : userToUpdate
+      const updatedUser =
+        Object.keys(updateData).length > 0 ? await this.userRepository.update(userId, updateData) : userToUpdate
 
       return {
         success: true,

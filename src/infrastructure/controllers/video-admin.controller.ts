@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { eq, sql } from 'drizzle-orm'
 import type { Routes } from '@/domain/types'
 import { db } from '../database/db'
-import { users, userCredits, videos, creditTransactions } from '../database/schema'
+import { creditTransactions, userCredits, users, videos } from '../database/schema'
 import { requireAdmin } from '../middlewares/admin.middleware'
 import { CreditsRepository } from '../repositories/credits.repository'
 import { VideoRepository } from '../repositories/video.repository'
@@ -38,38 +38,34 @@ export class VideoAdminController implements Routes {
                 schema: z.object({
                   totalUsers: z.number(),
                   totalVideos: z.number(),
-                  videosByStatus: z.array(
-                    z.object({ status: z.string(), count: z.number() })
-                  ),
+                  videosByStatus: z.array(z.object({ status: z.string(), count: z.number() })),
                   totalCreditsUsed: z.number(),
                   totalExtraCredits: z.number()
                 })
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
         const user = c.get('user')
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
-        const [
-          userCountResult,
-          videoCountResult,
-          videosByStatus,
-          creditsUsedResult,
-          extraCreditsResult
-        ] = await Promise.all([
-          db.select({ count: sql<number>`count(*)` }).from(users),
-          db.select({ count: sql<number>`count(*)` }).from(videos),
-          videoRepository.countByStatus(),
-          db
-            .select({ total: sql<number>`sum(abs(amount))` })
-            .from(creditTransactions)
-            .where(eq(creditTransactions.type, 'consumption')),
-          db.select({ total: sql<number>`sum(extra_credits)` }).from(userCredits)
-        ])
+        const [userCountResult, videoCountResult, videosByStatus, creditsUsedResult, extraCreditsResult] =
+          await Promise.all([
+            db.select({ count: sql<number>`count(*)` }).from(users),
+            db.select({ count: sql<number>`count(*)` }).from(videos),
+            videoRepository.countByStatus(),
+            db
+              .select({ total: sql<number>`sum(abs(amount))` })
+              .from(creditTransactions)
+              .where(eq(creditTransactions.type, 'consumption')),
+            db.select({ total: sql<number>`sum(extra_credits)` }).from(userCredits)
+          ])
 
         return c.json({
           totalUsers: Number(userCountResult[0]?.count ?? 0),
@@ -123,7 +119,10 @@ export class VideoAdminController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -131,8 +130,8 @@ export class VideoAdminController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const query = c.req.valid('query')
-        const page = query.page ? parseInt(query.page, 10) : 1
-        const limit = Math.min(query.limit ? parseInt(query.limit, 10) : 20, 100)
+        const page = query.page ? Number.parseInt(query.page, 10) : 1
+        const limit = Math.min(query.limit ? Number.parseInt(query.limit, 10) : 20, 100)
         const status = query.status || undefined
 
         const result = await videoRepository.listAll({ page, limit, status })
@@ -191,8 +190,14 @@ export class VideoAdminController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'User not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'User not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {

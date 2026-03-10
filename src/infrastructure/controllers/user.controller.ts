@@ -4,7 +4,6 @@ import { DeleteUserUseCase } from '@/application/use-cases/user/delete-user.use-
 import { UpdateUserUseCase } from '@/application/use-cases/user/update-user.use-case'
 import { auth } from '../config/auth.config'
 import { sendEmail } from '../config/mail.config'
-import { db } from '../database/db'
 import { requireAdmin } from '../middlewares/admin.middleware'
 import { UserRepository } from '../repositories/user.repository'
 import type { Routes } from '../../domain/types'
@@ -105,10 +104,24 @@ export class UserController implements Routes {
         summary: 'List users (paginated)',
         request: {
           query: z.object({
-            page: z.string().transform(Number).optional().openapi({ param: { name: 'page', in: 'query' } }),
-            limit: z.string().transform(Number).optional().openapi({ param: { name: 'limit', in: 'query' } }),
-            search: z.string().optional().openapi({ param: { name: 'search', in: 'query' } }),
-            role: z.string().optional().openapi({ param: { name: 'role', in: 'query' } })
+            page: z
+              .string()
+              .transform(Number)
+              .optional()
+              .openapi({ param: { name: 'page', in: 'query' } }),
+            limit: z
+              .string()
+              .transform(Number)
+              .optional()
+              .openapi({ param: { name: 'limit', in: 'query' } }),
+            search: z
+              .string()
+              .optional()
+              .openapi({ param: { name: 'search', in: 'query' } }),
+            role: z
+              .string()
+              .optional()
+              .openapi({ param: { name: 'role', in: 'query' } })
           })
         },
         responses: {
@@ -239,7 +252,7 @@ export class UserController implements Routes {
         try {
           const currentUser = c.get('user')
           const { id: userId } = c.req.valid('param')
-          const { firstname, lastname, email, role } = c.req.valid('json')
+          const { firstname, lastname, email } = c.req.valid('json')
 
           const useCase = new UpdateUserUseCase(this.userRepository)
           const { result } = await useCase.run({

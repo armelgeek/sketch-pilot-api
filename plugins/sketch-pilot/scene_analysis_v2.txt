@@ -1,0 +1,89 @@
+# Whiteboard Animation Scene Analysis - Batch 2 (videoplayback-1_frames)
+
+## Overview
+- **Total Frames:** 125
+- **Estimated Duration:** ~12-15 seconds (assuming 8-10 fps)
+- **Style:** Educational/Motivational, whiteboard animation style.
+- **Background:** Consistent off-white (#F5F5F5 or similar).
+- **Visual Vocabulary:** Stickman, diverse props, text highlights, thought bubbles, diagrams.
+
+---
+
+## Scene Breakdown
+
+### Scene 1: Transitions & Global Theme
+- **Frames:** 001 - 010 (~10 frames)
+- **Visuals:** A stickman character where the head is a hand-drawn Globe (Earth). He is wearing a tie and carrying a briefcase, walking.
+- **Keywords:** Globe-head, walking, business, global.
+- **Implication:** Support for custom character parts (head replacement).
+
+### Scene 2: The "5 Reasons" Layout
+- **Frames:** 011 - 020 (~10 frames)
+- **Visuals:** Split screen. Left: A professor/teacher stickman with glasses pointing to a whiteboard that says "5 reasons". Right: A stickman building a pyramid of blocks with a question mark above his head.
+- **Keywords:** Education, comparison, building blocks, split-screen.
+
+### Scene 3: Overwhelming Time
+- **Frames:** 021 - 030 (~10 frames)
+- **Visuals:** Stickman in bed (bottom left). The wall behind him is covered in shelves filled with dozens of ringing alarm clocks.
+- **Keywords:** Sleep, stress, time management, props galore.
+- **Implication:** Capability to render complex, prop-heavy environments.
+
+### Scene 4: Emotional Close-up
+- **Frames:** 031 - 040 (~10 frames)
+- **Visuals:** Zoomed in on the stickman in bed. He looks sad/exhausted.
+- **Keywords:** Close-up, emotion, sad.
+
+### Scene 5: Pareto Principle (Doors)
+- **Frames:** 041 - 055 (~15 frames)
+- **Visuals:** Two doors side-by-side. Left door marked "20%" with a stickman walking towards it. Right door marked "80%" with a stickman opening it for the viewer.
+- **Keywords:** Decisions, efficiency, Pareto, metaphor.
+
+### Scene 6: Productivity Balance
+- **Frames:** 056 - 065 (~10 frames)
+- **Visuals:** Comparison. Left: Stickman holding a long "TO DO LIST". Right: Stickman sitting in a deck chair under a sun.
+- **Keywords:** Work-life balance, relaxation, checklist.
+
+### Scene 7: Study & Analysis
+- **Frames:** 066 - 073 (~8 frames)
+- **Visuals:** Stickman at a desk reading a large book titled "FUNDAMENTAL ANALYSIS". Desk has papers and a coffee cup.
+- **Keywords:** Learning, deep work, finance.
+
+### Scene 8: The Pareto Analogy (Peas)
+- **Frames:** 074 - 083 (~10 frames)
+- **Visuals:** Visual diagram. Left: 2 empty pots under "20%". Right: 8 pea pods under "80%".
+- **Keywords:** Diagram, analogy, growth.
+
+### Scene 9: Labor & Scaling
+- **Frames:** 084 - 092 (~9 frames)
+- **Visuals:** Four identical farmer stickmen in a row, each with a pitchfork and a straw in mouth. Below them are several bundles of wheat.
+- **Keywords:** Hard work, farming, scaling, repeating elements.
+- **Implication:** Support for "Grid" layouts with repeating characters.
+
+### Scene 10: Subtraction Bias
+- **Frames:** 093 - 102 (~10 frames)
+- **Visuals:** Stickman on the left holding a sign with a "3". In the middle, text says "Subtraction Bias". On the right, a stickman has a large thought bubble filled with complex gears.
+- **Keywords:** Psychology, cognitive bias, thought bubble, complex symbols.
+
+### Scene 11: Mixed-Media Dashboard
+- **Frames:** 103 - 112 (~10 frames)
+- **Visuals:** A very detailed technical dashboard/spreadsheet (looks like a real screenshot or a high-fidelity vector) taking up most of the screen. A stickman on the right points to it.
+- **Keywords:** Data visualization, technical, mixed-media.
+- **Implication:** High-fidelity graphic imports/overlays.
+
+### Scene 12: Tradition vs. Innovation
+- **Frames:** 113 - 120 (~8 frames)
+- **Visuals:** A stickman running against the wind, holding a kite. He has a thought bubble: "always done things in a certain way".
+- **Keywords:** Resistance to change, traditional ways, kite.
+
+### Scene 13: The Recap List
+- **Frames:** 121 - 125 (~5 frames)
+- **Visuals:** A vertical list of the principles discussed: 1) The Backwards Law, 2) Pareto Principle, 3) Subtraction Bias, 4) Loss Aversion Theory, 5) Law of Diminishing Returns. Bold bottom text: "Essentialism".
+- **Keywords:** Recap, list, summary, big ideas.
+
+---
+
+## Style Summary (v2)
+- **Animation Speed:** Very fast cuts (~1 second per scene).
+- **Compositional Variety:** High. Moves from single character to split-screen to complex diagrams to mixed-media.
+- **Visual Shorthand:** Heavy use of thought bubbles, labels, and percentage markers.
+- **Color Accent:** Subtle (mostly B&W with gray shades, but allows for potential red highlights like in Batch 1).

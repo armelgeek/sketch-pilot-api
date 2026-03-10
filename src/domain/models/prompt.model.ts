@@ -15,7 +15,7 @@ export const PromptSchema = z.object({
   language: z.string().optional(),
   isActive: z.boolean().default(true),
   createdAt: z.date(),
-  updatedAt: z.date(),
+  updatedAt: z.date()
 })
 
 export type Prompt = z.infer<typeof PromptSchema>

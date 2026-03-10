@@ -1,9 +1,8 @@
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from '@/infrastructure/database/db'
-import { prompts } from '@/infrastructure/database/schema/prompt.schema'
-import type { Prompt, CreatePromptInput, UpdatePromptInput } from '@/domain/models/prompt.model'
+import { prompts, type PromptType } from '@/infrastructure/database/schema/prompt.schema'
+import type { CreatePromptInput, Prompt, UpdatePromptInput } from '@/domain/models/prompt.model'
 import type { PromptFilters, PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
-import type { PromptType } from '@/infrastructure/database/schema/prompt.schema'
 
 function toPrompt(row: typeof prompts.$inferSelect): Prompt {
   return {
@@ -18,7 +17,7 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     language: row.language ?? undefined,
     isActive: row.isActive,
     createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    updatedAt: row.updatedAt
   }
 }
 
@@ -43,12 +42,15 @@ export class PromptRepository implements PromptRepositoryInterface {
 
     const [data, countResult] = await Promise.all([
       db.select().from(prompts).where(whereClause).orderBy(desc(prompts.updatedAt)).limit(limit).offset(offset),
-      db.select({ count: sql<number>`count(*)` }).from(prompts).where(whereClause),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(prompts)
+        .where(whereClause)
     ])
 
     return {
       data: data.map(toPrompt),
-      total: Number(countResult[0]?.count ?? 0),
+      total: Number(countResult[0]?.count ?? 0)
     }
   }
 
@@ -85,9 +87,7 @@ export class PromptRepository implements PromptRepositoryInterface {
       .filter((x: { row: typeof prompts.$inferSelect; score: number }) => x.score >= 0)
     if (scored.length === 0) return null
 
-    scored.sort(
-      (a: { score: number }, b: { score: number }) => b.score - a.score
-    )
+    scored.sort((a: { score: number }, b: { score: number }) => b.score - a.score)
     return toPrompt(scored[0].row)
   }
 
@@ -106,7 +106,7 @@ export class PromptRepository implements PromptRepositoryInterface {
       language: data.language,
       isActive: data.isActive ?? true,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: now
     })
     const created = await this.findById(id)
     if (!created) throw new Error(`Failed to retrieve prompt after creation (id: ${id})`)
@@ -127,7 +127,7 @@ export class PromptRepository implements PromptRepositoryInterface {
         ...(data.variables !== undefined && { variables: data.variables }),
         ...(data.language !== undefined && { language: data.language }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
-        updatedAt: now,
+        updatedAt: now
       })
       .where(eq(prompts.id, id))
     return this.findById(id)

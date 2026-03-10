@@ -1,7 +1,14 @@
-import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3'
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { S3Client } from '@aws-sdk/client-s3'
 import { createReadStream } from 'node:fs'
+import process from 'node:process'
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import type { Buffer } from 'node:buffer'
 
 export const storageClient = new S3Client({
   endpoint: process.env.MINIO_ENDPOINT || 'http://minio:9000',
@@ -25,13 +32,17 @@ export async function getSignedDownloadUrl(videoId: string, key?: string): Promi
     Bucket: BUCKET,
     Key: objectKey
   })
-  return getSignedUrl(storageClient, command, { expiresIn: 3600 })
+  return await getSignedUrl(storageClient, command, { expiresIn: 3600 })
 }
 
 /**
  * Upload a video file to MinIO
  */
-export async function uploadVideoToMinio(videoId: string, filePath: string, contentType = 'video/mp4'): Promise<string> {
+export async function uploadVideoToMinio(
+  videoId: string,
+  filePath: string,
+  contentType = 'video/mp4'
+): Promise<string> {
   const key = `videos/${videoId}/final.mp4`
   await storageClient.send(
     new PutObjectCommand({
@@ -63,7 +74,9 @@ export async function uploadBuffer(key: string, body: Buffer, contentType: strin
 /**
  * List all assets for a video
  */
-export async function listVideoAssets(videoId: string): Promise<Array<{ key: string; size?: number; lastModified?: Date }>> {
+export async function listVideoAssets(
+  videoId: string
+): Promise<Array<{ key: string; size?: number; lastModified?: Date }>> {
   const prefix = `videos/${videoId}/`
   const result = await storageClient.send(
     new ListObjectsV2Command({

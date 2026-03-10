@@ -100,7 +100,7 @@ export class App {
 
     this.app.doc31('/swagger', () => {
       const protocol = 'https:'
-      const hostname = Bun.env.NODE_ENV === 'production' ? (Bun.env.PRODUCTION_HOST || 'localhost') : 'localhost'
+      const hostname = Bun.env.NODE_ENV === 'production' ? Bun.env.PRODUCTION_HOST || 'localhost' : 'localhost'
       const port = Bun.env.NODE_ENV === 'production' ? '' : ':3000'
 
       return {
@@ -122,7 +122,10 @@ export class App {
         isEditable: false,
         layout: 'modern',
         darkMode: true,
-        url: Bun.env.NODE_ENV === 'production' ? `https://${Bun.env.PRODUCTION_HOST || 'localhost'}/swagger` : 'http://localhost:3000/swagger'
+        url:
+          Bun.env.NODE_ENV === 'production'
+            ? `https://${Bun.env.PRODUCTION_HOST || 'localhost'}/swagger`
+            : 'http://localhost:3000/swagger'
       })
     )
   }

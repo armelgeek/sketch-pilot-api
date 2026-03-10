@@ -18,7 +18,7 @@ export const PROMPT_TYPES = [
   'style_suffix',
   'character_instruction',
   'image_prompt',
-  'animation_prompt',
+  'animation_prompt'
 ] as const
 
 export type PromptType = (typeof PROMPT_TYPES)[number]
@@ -61,5 +61,5 @@ export const prompts = pgTable('prompts', {
   /** Whether this prompt is active and should be used at runtime */
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

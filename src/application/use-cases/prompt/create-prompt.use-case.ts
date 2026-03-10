@@ -1,5 +1,5 @@
 import { IUseCase } from '@/domain/types'
-import type { Prompt, CreatePromptInput } from '@/domain/models/prompt.model'
+import type { CreatePromptInput, Prompt } from '@/domain/models/prompt.model'
 import type { PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
 
 type Params = CreatePromptInput

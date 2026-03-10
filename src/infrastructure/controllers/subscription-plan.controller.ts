@@ -63,9 +63,8 @@ export class SubscriptionPlanController implements Routes {
       async (c: any) => {
         const useCase = new CreateSubscriptionPlanUseCase(this.repository)
         const params = await c.req.json()
-        const userId = c.get('user')?.id || ''
         const { result } = await useCase.run({
-          ...params,
+          ...params
         })
         if (!result.success) {
           return c.json({ success: false, data: null, error: result.error }, 200)
@@ -106,7 +105,7 @@ export class SubscriptionPlanController implements Routes {
           const useCase = new ListSubscriptionPlansUseCase(this.repository)
           const { result } = await useCase.run({
             skip: skip ? Number(skip) : 0,
-            limit: limit ? Number(limit) : 20,
+            limit: limit ? Number(limit) : 20
           })
           if (!result.success) {
             return c.json({ success: false, data: [], error: result.error }, 200)
@@ -245,11 +244,10 @@ export class SubscriptionPlanController implements Routes {
       async (c: any) => {
         const { id } = c.req.param()
         const params = await c.req.json()
-        const userId = c.get('user')?.id || ''
         const useCase = new UpdateSubscriptionPlanUseCase(this.repository)
         const { result } = await useCase.run({
           id,
-          ...params,
+          ...params
         })
         if (!result.success) {
           return c.json({ success: false, data: null, error: result.error }, 200)
@@ -286,10 +284,9 @@ export class SubscriptionPlanController implements Routes {
       }),
       async (c: any) => {
         const { id } = c.req.param()
-        const userId = c.get('user')?.id || ''
         const useCase = new DeleteSubscriptionPlanUseCase(this.repository)
         const { result } = await useCase.run({
-          id,
+          id
         })
         if (!result.success) {
           return c.json({ success: false, data: null, error: result.error }, 200)

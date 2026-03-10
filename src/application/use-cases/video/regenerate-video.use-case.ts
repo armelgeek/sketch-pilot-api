@@ -1,9 +1,9 @@
 import { IUseCase } from '@/domain/types'
-import type { VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
-import { VideoRepository } from '@/infrastructure/repositories/video.repository'
-import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
+import { VideoRepository } from '@/infrastructure/repositories/video.repository'
+import type { VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
 type RegenerateVideoParams = {
   videoId: string
@@ -46,7 +46,13 @@ const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 
 export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, RegenerateVideoResponse> {
-  async execute({ videoId, userId, planId, topic, options = {} }: RegenerateVideoParams): Promise<RegenerateVideoResponse> {
+  async execute({
+    videoId,
+    userId,
+    planId,
+    topic,
+    options = {}
+  }: RegenerateVideoParams): Promise<RegenerateVideoResponse> {
     try {
       // Check quota
       const credits = await creditsRepository.ensureUserCredits(userId)

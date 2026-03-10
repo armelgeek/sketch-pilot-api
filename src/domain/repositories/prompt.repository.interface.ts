@@ -1,4 +1,4 @@
-import type { Prompt, CreatePromptInput, UpdatePromptInput } from '@/domain/models/prompt.model'
+import type { CreatePromptInput, Prompt, UpdatePromptInput } from '@/domain/models/prompt.model'
 import type { PromptType } from '@/infrastructure/database/schema/prompt.schema'
 
 export interface PromptFilters {
@@ -12,8 +12,8 @@ export interface PromptFilters {
 }
 
 export interface PromptRepositoryInterface {
-  findById(id: string): Promise<Prompt | null>
-  findAll(filters?: PromptFilters): Promise<{ data: Prompt[]; total: number }>
+  findById: (id: string) => Promise<Prompt | null>
+  findAll: (filters?: PromptFilters) => Promise<{ data: Prompt[]; total: number }>
   /**
    * Find the best-matching active prompt for the given lookup criteria.
    * Resolution order (most specific wins):
@@ -23,13 +23,13 @@ export interface PromptRepositoryInterface {
    *   4. promptType + videoGenre
    *   5. promptType (fallback)
    */
-  findBestMatch(criteria: {
+  findBestMatch: (criteria: {
     promptType: PromptType
     videoType?: string
     videoGenre?: string
     language?: string
-  }): Promise<Prompt | null>
-  create(data: CreatePromptInput): Promise<Prompt>
-  update(id: string, data: UpdatePromptInput): Promise<Prompt | null>
-  delete(id: string): Promise<boolean>
+  }) => Promise<Prompt | null>
+  create: (data: CreatePromptInput) => Promise<Prompt>
+  update: (id: string, data: UpdatePromptInput) => Promise<Prompt | null>
+  delete: (id: string) => Promise<boolean>
 }

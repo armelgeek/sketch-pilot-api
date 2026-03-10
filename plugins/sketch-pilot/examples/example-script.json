@@ -1,136 +1,96 @@
 {
-    "title": "The Power of Starting Small",
-    "theme": "Motivational video about taking small steps to achieve big goals",
-    "totalDuration": 59,
-    "sceneCount": 6,
-    "scenes": [
-        {
-            "id": "scene_1",
-            "sceneNumber": 1,
-            "timeRange": {
-                "start": 0,
-                "end": 10
-            },
-            "narration": "The stickman sits at a desk, staring at a blank laptop screen. His shoulders are slumped, and he has a worried expression. A small thought bubble appears above his head showing a mountain, representing the big challenge ahead. He taps his fingers nervously on the desk.",
-            "actions": [
-                "sitting at desk with slumped shoulders",
-                "staring at blank laptop screen",
-                "tapping fingers nervously"
-            ],
-            "expression": "worried and concerned",
-            "props": [
-                "desk",
-                "laptop",
-                "thought bubble with mountain"
-            ],
-            "imagePrompt": "Use the same stickman character as before. He is sitting on a simple chair at a desk with a laptop in front of him. His body is slightly hunched forward with slumped shoulders showing worry. His head is tilted down slightly, looking at the blank laptop screen. His expression shows concern with downturned eyebrows and a small frown. One hand rests near the laptop trackpad, the other hand is touching his chin in a thinking pose. A small thought bubble floats above his head containing a simple mountain icon. The background is plain white with the desk and chair in minimal gray outlines.",
-            "animationPrompt": "Move stickman's hand slowly from trackpad to chin in thinking motion. Body stays static. Animate thought bubble fading in and gently bobbing. Head makes small subtle nod downward. Fingers tap nervously on desk twice. All movements slow and worried-looking."
-        },
-        {
-            "id": "scene_2",
-            "sceneNumber": 2,
-            "timeRange": {
-                "start": 10,
-                "end": 20
-            },
-            "narration": "The stickman suddenly has an idea! His eyes widen, and a lightbulb appears above his head. He sits up straight with an excited expression. His hand reaches toward the laptop keyboard with newfound confidence.",
-            "actions": [
-                "sitting upright with excitement",
-                "eyes widening with realization",
-                "reaching toward keyboard"
-            ],
-            "expression": "excited and inspired",
-            "props": [
-                "desk",
-                "laptop",
-                "lightbulb"
-            ],
-            "imagePrompt": "Use the same stickman character as before. He is sitting upright at the same desk with the laptop. His posture is now straight and alert. His head is slightly tilted back with eyes wide open in excitement. His expression shows surprise and joy with raised eyebrows and an open smile. A simple lightbulb icon floats above his head glowing brightly. One hand is raised slightly in a gesture of realization, the other hand is reaching toward the laptop keyboard. The background is plain white with the same minimal desk and chair.",
-            "animationPrompt": "Lightbulb pops in suddenly above head with quick scale-up. Stickman's torso straightens quickly showing excitement. One hand lifts up in realization gesture with smooth upward motion. Other hand reaches toward keyboard with eager movement. Head tilts back slightly. Body stays in seated position. Motion is energetic and quick."
-        },
-        {
-            "id": "scene_3",
-            "sceneNumber": 3,
-            "timeRange": {
-                "start": 20,
-                "end": 30
-            },
-            "narration": "The stickman is now typing on the laptop. His expression is focused and determined. Small checkmarks start appearing around him, floating in the air, representing small wins. His posture is engaged and energetic.",
-            "actions": [
-                "typing on keyboard",
-                "leaning forward with focus",
-                "making progress"
-            ],
-            "expression": "focused and determined",
-            "props": [
-                "desk",
-                "laptop",
-                "checkmarks floating"
-            ],
-            "imagePrompt": "Use the same stickman character as before. He is sitting at the desk actively typing on the laptop. His body leans slightly forward showing engagement. His head is level, facing the screen with focused eyes. His expression is concentrated and determined with slightly furrowed brows in a positive way and a subtle confident smile. Both hands are positioned on the laptop keyboard in typing position. Three to four small checkmark symbols float around him in the air. The background is plain white with the desk and laptop visible.",
-            "animationPrompt": "Both hands move in alternating typing rhythm on keyboard continuously. Checkmarks appear one by one, fading in and floating upward slowly. Head makes occasional small nods showing focus. Body leans slightly forward and holds. Shoulders stay level. Typing motion is steady and determined."
-        },
-        {
-            "id": "scene_4",
-            "sceneNumber": 4,
-            "timeRange": {
-                "start": 30,
-                "end": 40
-            },
-            "narration": "The stickman pauses and looks at the screen with a proud smile. He leans back in his chair, arms crossed, feeling accomplished. Stars or sparkles appear around the laptop screen, showing progress.",
-            "actions": [
-                "leaning back in chair",
-                "crossing arms with satisfaction",
-                "looking at screen proudly"
-            ],
-            "expression": "proud and satisfied",
-            "props": [
-                "desk",
-                "laptop",
-                "stars/sparkles"
-            ],
-            "imagePrompt": "Use the same stickman character as before. He is sitting at the desk leaning back in his chair in a relaxed pose. His arms are crossed over his chest in a satisfied manner. His head is upright, looking at the laptop screen. His expression shows pride and contentment with a warm smile and relaxed eyebrows. Small star or sparkle symbols appear near the laptop screen showing achievement. The background is plain white with the desk and laptop in view.",
-            "animationPrompt": "Stickman leans back smoothly in chair, body tilting backward. Arms cross over chest in satisfied motion. Stars/sparkles appear around screen one at a time with twinkle effect. Head stays level looking at screen. Subtle relaxed breathing motion in shoulders. Expression transitions to proud smile."
-        },
-        {
-            "id": "scene_5",
-            "sceneNumber": 5,
-            "timeRange": {
-                "start": 40,
-                "end": 50
-            },
-            "narration": "The stickman stands up from the desk and stretches his arms up high in celebration. His expression is joyful and triumphant. Confetti or small celebration marks appear around him.",
-            "actions": [
-                "standing up from chair",
-                "stretching arms upward",
-                "celebrating victory"
-            ],
-            "expression": "joyful and triumphant",
-            "props": [
-                "desk",
-                "chair",
-                "confetti"
-            ],
-            "imagePrompt": "Use the same stickman character as before. He is now standing up from the chair next to the desk. His body is fully upright and straight. Both arms are stretched high above his head in a victory pose. His head is tilted slightly upward. His expression is joyful and triumphant with a big open smile and happy eyes. Small confetti marks or celebration symbols are scattered around him in the air. The background is plain white with the desk and chair slightly visible to the side.",
-            "animationPrompt": "Stickman rises from chair with upward body movement. Both arms lift from sides up to overhead stretch position smoothly. Confetti pieces fall from top of frame with gentle floating motion. Head tilts up following arm movement. Body fully extends upward. Motion is celebratory and triumphant."
-        },
-        {
-            "id": "scene_6",
-            "sceneNumber": 6,
-            "timeRange": {
-                "start": 50,
-                "end": 59
-            },
-            "narration": "The stickman gives a thumbs-up to the viewer while standing confidently. He has a warm, encouraging smile. The message is clear: 'You can do it too!' His free hand rests on his hip in a confident pose.",
-            "actions": [
-                "giving thumbs-up to viewer",
-                "standing confidently",
-                "hand on hip"
-            ],
-            "expression": "warm and encouraging",
-            "props": [],
-            "imagePrompt": "Use the same stickman character as before. He is standing in a confident frontal pose facing the viewer. One arm is raised giving a clear thumbs-up gesture toward the viewer. His other hand rests on his hip in a self-assured stance. His body posture is straight and proud. His expression is warm and encouraging with a friendly smile and kind eyes making direct contact with the viewer. The background is completely plain white with no props or furniture visible.",
-            "animationPrompt": "Stickman's thumbs-up arm makes small upward pump motion twice for emphasis. Free hand settles on hip confidently. Head makes friendly welcoming nod toward viewer. Body stays standing and static. Slight subtle sway or breathing motion in torso. Expression holds warm encouraging smile throughout."
-        }
-    ]
+  "title": "The Power of Starting Small",
+  "theme": "Motivational video about taking small steps to achieve big goals",
+  "totalDuration": 59,
+  "sceneCount": 6,
+  "scenes": [
+    {
+      "id": "scene_1",
+      "sceneNumber": 1,
+      "timeRange": {
+        "start": 0,
+        "end": 10
+      },
+      "narration": "The stickman sits at a desk, staring at a blank laptop screen. His shoulders are slumped, and he has a worried expression. A small thought bubble appears above his head showing a mountain, representing the big challenge ahead. He taps his fingers nervously on the desk.",
+      "actions": [
+        "sitting at desk with slumped shoulders",
+        "staring at blank laptop screen",
+        "tapping fingers nervously"
+      ],
+      "expression": "worried and concerned",
+      "props": ["desk", "laptop", "thought bubble with mountain"],
+      "imagePrompt": "Use the same stickman character as before. He is sitting on a simple chair at a desk with a laptop in front of him. His body is slightly hunched forward with slumped shoulders showing worry. His head is tilted down slightly, looking at the blank laptop screen. His expression shows concern with downturned eyebrows and a small frown. One hand rests near the laptop trackpad, the other hand is touching his chin in a thinking pose. A small thought bubble floats above his head containing a simple mountain icon. The background is plain white with the desk and chair in minimal gray outlines.",
+      "animationPrompt": "Move stickman's hand slowly from trackpad to chin in thinking motion. Body stays static. Animate thought bubble fading in and gently bobbing. Head makes small subtle nod downward. Fingers tap nervously on desk twice. All movements slow and worried-looking."
+    },
+    {
+      "id": "scene_2",
+      "sceneNumber": 2,
+      "timeRange": {
+        "start": 10,
+        "end": 20
+      },
+      "narration": "The stickman suddenly has an idea! His eyes widen, and a lightbulb appears above his head. He sits up straight with an excited expression. His hand reaches toward the laptop keyboard with newfound confidence.",
+      "actions": ["sitting upright with excitement", "eyes widening with realization", "reaching toward keyboard"],
+      "expression": "excited and inspired",
+      "props": ["desk", "laptop", "lightbulb"],
+      "imagePrompt": "Use the same stickman character as before. He is sitting upright at the same desk with the laptop. His posture is now straight and alert. His head is slightly tilted back with eyes wide open in excitement. His expression shows surprise and joy with raised eyebrows and an open smile. A simple lightbulb icon floats above his head glowing brightly. One hand is raised slightly in a gesture of realization, the other hand is reaching toward the laptop keyboard. The background is plain white with the same minimal desk and chair.",
+      "animationPrompt": "Lightbulb pops in suddenly above head with quick scale-up. Stickman's torso straightens quickly showing excitement. One hand lifts up in realization gesture with smooth upward motion. Other hand reaches toward keyboard with eager movement. Head tilts back slightly. Body stays in seated position. Motion is energetic and quick."
+    },
+    {
+      "id": "scene_3",
+      "sceneNumber": 3,
+      "timeRange": {
+        "start": 20,
+        "end": 30
+      },
+      "narration": "The stickman is now typing on the laptop. His expression is focused and determined. Small checkmarks start appearing around him, floating in the air, representing small wins. His posture is engaged and energetic.",
+      "actions": ["typing on keyboard", "leaning forward with focus", "making progress"],
+      "expression": "focused and determined",
+      "props": ["desk", "laptop", "checkmarks floating"],
+      "imagePrompt": "Use the same stickman character as before. He is sitting at the desk actively typing on the laptop. His body leans slightly forward showing engagement. His head is level, facing the screen with focused eyes. His expression is concentrated and determined with slightly furrowed brows in a positive way and a subtle confident smile. Both hands are positioned on the laptop keyboard in typing position. Three to four small checkmark symbols float around him in the air. The background is plain white with the desk and laptop visible.",
+      "animationPrompt": "Both hands move in alternating typing rhythm on keyboard continuously. Checkmarks appear one by one, fading in and floating upward slowly. Head makes occasional small nods showing focus. Body leans slightly forward and holds. Shoulders stay level. Typing motion is steady and determined."
+    },
+    {
+      "id": "scene_4",
+      "sceneNumber": 4,
+      "timeRange": {
+        "start": 30,
+        "end": 40
+      },
+      "narration": "The stickman pauses and looks at the screen with a proud smile. He leans back in his chair, arms crossed, feeling accomplished. Stars or sparkles appear around the laptop screen, showing progress.",
+      "actions": ["leaning back in chair", "crossing arms with satisfaction", "looking at screen proudly"],
+      "expression": "proud and satisfied",
+      "props": ["desk", "laptop", "stars/sparkles"],
+      "imagePrompt": "Use the same stickman character as before. He is sitting at the desk leaning back in his chair in a relaxed pose. His arms are crossed over his chest in a satisfied manner. His head is upright, looking at the laptop screen. His expression shows pride and contentment with a warm smile and relaxed eyebrows. Small star or sparkle symbols appear near the laptop screen showing achievement. The background is plain white with the desk and laptop in view.",
+      "animationPrompt": "Stickman leans back smoothly in chair, body tilting backward. Arms cross over chest in satisfied motion. Stars/sparkles appear around screen one at a time with twinkle effect. Head stays level looking at screen. Subtle relaxed breathing motion in shoulders. Expression transitions to proud smile."
+    },
+    {
+      "id": "scene_5",
+      "sceneNumber": 5,
+      "timeRange": {
+        "start": 40,
+        "end": 50
+      },
+      "narration": "The stickman stands up from the desk and stretches his arms up high in celebration. His expression is joyful and triumphant. Confetti or small celebration marks appear around him.",
+      "actions": ["standing up from chair", "stretching arms upward", "celebrating victory"],
+      "expression": "joyful and triumphant",
+      "props": ["desk", "chair", "confetti"],
+      "imagePrompt": "Use the same stickman character as before. He is now standing up from the chair next to the desk. His body is fully upright and straight. Both arms are stretched high above his head in a victory pose. His head is tilted slightly upward. His expression is joyful and triumphant with a big open smile and happy eyes. Small confetti marks or celebration symbols are scattered around him in the air. The background is plain white with the desk and chair slightly visible to the side.",
+      "animationPrompt": "Stickman rises from chair with upward body movement. Both arms lift from sides up to overhead stretch position smoothly. Confetti pieces fall from top of frame with gentle floating motion. Head tilts up following arm movement. Body fully extends upward. Motion is celebratory and triumphant."
+    },
+    {
+      "id": "scene_6",
+      "sceneNumber": 6,
+      "timeRange": {
+        "start": 50,
+        "end": 59
+      },
+      "narration": "The stickman gives a thumbs-up to the viewer while standing confidently. He has a warm, encouraging smile. The message is clear: 'You can do it too!' His free hand rests on his hip in a confident pose.",
+      "actions": ["giving thumbs-up to viewer", "standing confidently", "hand on hip"],
+      "expression": "warm and encouraging",
+      "props": [],
+      "imagePrompt": "Use the same stickman character as before. He is standing in a confident frontal pose facing the viewer. One arm is raised giving a clear thumbs-up gesture toward the viewer. His other hand rests on his hip in a self-assured stance. His body posture is straight and proud. His expression is warm and encouraging with a friendly smile and kind eyes making direct contact with the viewer. The background is completely plain white with no props or furniture visible.",
+      "animationPrompt": "Stickman's thumbs-up arm makes small upward pump motion twice for emphasis. Free hand settles on hip confidently. Head makes friendly welcoming nod toward viewer. Body stays standing and static. Slight subtle sway or breathing motion in torso. Expression holds warm encouraging smile throughout."
+    }
+  ]
 }

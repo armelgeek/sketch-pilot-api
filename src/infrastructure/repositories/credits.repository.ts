@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from '../database/db'
-import { userCredits, creditTransactions } from '../database/schema'
+import { creditTransactions, userCredits } from '../database/schema'
 
 export class CreditsRepository {
   async getUserCredits(userId: string) {
@@ -74,7 +74,7 @@ export class CreditsRepository {
       .where(eq(userCredits.userId, userId))
   }
 
-  async getCreditTransactions(userId: string, limit = 50) {
+  getCreditTransactions(userId: string, limit = 50) {
     return db
       .select()
       .from(creditTransactions)

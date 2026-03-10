@@ -1,24 +1,20 @@
-import * as fs from 'node:fs';
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 //@ts-ignore
-import { KokoroTTS } from 'kokoro-js';
-import { AudioService, AudioGenerationResult, WordTiming } from './index';
-import { detectAndTrimSilence } from '../../utils/audio-trimmer';
-import * as path from 'node:path';
+import { KokoroTTS } from 'kokoro-js'
+import { detectAndTrimSilence } from '../../utils/audio-trimmer'
+import type { AudioGenerationResult, AudioService } from './index'
 
 export class KokoroTTSService implements AudioService {
-  private tts: KokoroTTS | null = null;
-  private readonly language: string;
-  private readonly voicePreset: string;
-  private readonly modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-  private initialized: boolean = false;
+  private tts: KokoroTTS | null = null
+  private readonly language: string
+  private readonly voicePreset: string
+  private readonly modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX'
+  private initialized: boolean = false
 
-  constructor(
-    _apiToken: string = '',
-    language: string = 'en-US',
-    voicePreset: string = 'af_jessica'
-  ) {
-    this.language = language;
-    this.voicePreset = voicePreset;
+  constructor(_apiToken: string = '', language: string = 'en-US', voicePreset: string = 'af_jessica') {
+    this.language = language
+    this.voicePreset = voicePreset
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -26,103 +22,105 @@ export class KokoroTTSService implements AudioService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async generateSpeech(text: string, outputPath: string): Promise<AudioGenerationResult> {
-    console.log(`[KokoroTTS] Generating speech (${this.voicePreset}): "${text.substring(0, 50)}..."`);
+    console.log(`[KokoroTTS] Generating speech (${this.voicePreset}): "${text.slice(0, 50)}..."`)
 
-    await this.ensureInitialized();
-    if (!this.tts) throw new Error('Kokoro TTS model failed to initialize');
+    await this.ensureInitialized()
+    if (!this.tts) throw new Error('Kokoro TTS model failed to initialize')
 
-    this.ensureOutputDir(outputPath);
+    this.ensureOutputDir(outputPath)
 
     // Kokoro-js / ONNX often has a limit (around 500-1000 chars or specific token count)
     // We split by sentences to ensure natural pauses and avoid truncation.
-    const chunks = this.splitTextIntoChunks(text, 500);
-    const tempFiles: string[] = [];
-    const baseDir = path.dirname(outputPath);
-    const baseName = path.basename(outputPath, path.extname(outputPath));
+    const chunks = this.splitTextIntoChunks(text, 500)
+    const tempFiles: string[] = []
+    const baseDir = path.dirname(outputPath)
+    const baseName = path.basename(outputPath, path.extname(outputPath))
 
     try {
       for (let i = 0; i < chunks.length; i++) {
-        const chunkPath = path.join(baseDir, `${baseName}_chunk_${i}.wav`);
-        console.log(`[KokoroTTS] Generating chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
+        const chunkPath = path.join(baseDir, `${baseName}_chunk_${i}.wav`)
+        console.log(`[KokoroTTS] Generating chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`)
 
         // Inject structural pause at the end of chunk to prevent rushed endings
-        const textToGenerate = chunks[i].trim() + " \n\n";
+        const textToGenerate = `${chunks[i].trim()} \n\n`
 
         const audio = await this.tts.generate(textToGenerate, {
-          voice: this.voicePreset as any,
+          voice: this.voicePreset,
           speed: 0.8 // Slow down for more natural, less "rushed" delivery
-        });
-        await audio.save(chunkPath);
-        tempFiles.push(chunkPath);
+        })
+        await audio.save(chunkPath)
+        tempFiles.push(chunkPath)
       }
 
       if (tempFiles.length === 1) {
-        fs.renameSync(tempFiles[0], outputPath);
+        fs.renameSync(tempFiles[0], outputPath)
       } else {
         // Concatenate chunks using ffmpeg
-        await this.concatenateAudioFiles(tempFiles, outputPath);
+        await this.concatenateAudioFiles(tempFiles, outputPath)
       }
     } finally {
       // Cleanup temp chunks
       for (const f of tempFiles) {
-        if (fs.existsSync(f) && f !== outputPath) fs.unlinkSync(f);
+        if (fs.existsSync(f) && f !== outputPath) fs.unlinkSync(f)
       }
     }
 
     // ✅ Trim silence au millimètre près
-    const trimmedPath = outputPath.replace('.mp3', '_trimmed.mp3').replace('.wav', '_trimmed.wav');
-    const trimResult = await detectAndTrimSilence(outputPath, trimmedPath);
+    const trimmedPath = outputPath.replace('.mp3', '_trimmed.mp3').replace('.wav', '_trimmed.wav')
+    const trimResult = await detectAndTrimSilence(outputPath, trimmedPath)
 
     if (fs.existsSync(trimmedPath)) {
-      fs.renameSync(trimmedPath, outputPath);
+      fs.renameSync(trimmedPath, outputPath)
     }
 
-    console.log(`[KokoroTTS] ✅ Speech generated & concatenated (${chunks.length} chunks): ${outputPath} (${trimResult.newDurationMs}ms)`);
+    console.log(
+      `[KokoroTTS] ✅ Speech generated & concatenated (${chunks.length} chunks): ${outputPath} (${trimResult.newDurationMs}ms)`
+    )
 
     // ✅ Utiliser la durée réelle du fichier trimmé
-    const duration = trimResult.newDurationMs / 1000 || this.estimateDuration(text);
+    const duration = trimResult.newDurationMs / 1000 || this.estimateDuration(text)
 
     // ✅ Pour le Global Audio, on laisse Whisper faire le timing précis.
     // L'estimation reste ici pour compatibilité descendante.
-    let wordTimings = this.estimateWordTimings(text, duration);
+    const wordTimings = this.estimateWordTimings(text, duration)
 
-    return { audioPath: outputPath, duration, wordTimings };
+    return { audioPath: outputPath, duration, wordTimings }
   }
 
   private splitTextIntoChunks(text: string, maxChars: number): string[] {
     // Split by sentence boundaries but keep sentences together
-    const sentences = text.match(/[^.!?]+[.!?]+|\s*[^.!?]+$/g) || [text];
-    const chunks: string[] = [];
-    let currentChunk = "";
+    const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text]
+    const chunks: string[] = []
+    let currentChunk = ''
 
     for (const sentence of sentences) {
       if ((currentChunk + sentence).length > maxChars && currentChunk.length > 0) {
-        chunks.push(currentChunk.trim());
-        currentChunk = sentence;
+        chunks.push(currentChunk.trim())
+        currentChunk = sentence
       } else {
-        currentChunk += sentence;
+        currentChunk += sentence
       }
     }
     if (currentChunk.trim().length > 0) {
-      chunks.push(currentChunk.trim());
+      chunks.push(currentChunk.trim())
     }
-    return chunks;
+    return chunks
   }
 
   private async concatenateAudioFiles(filePaths: string[], outputPath: string): Promise<void> {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
+    const { exec } = require('node:child_process')
+    const { promisify } = require('node:util')
+    const execAsync = promisify(exec)
 
-    const listFile = outputPath + '.list.txt';
-    const fileListContent = filePaths.map(p => `file '${path.resolve(p)}'`).join('\n');
-    fs.writeFileSync(listFile, fileListContent);
+    const listFile = `${outputPath}.list.txt`
+    const fileListContent = filePaths.map((p) => `file '${path.resolve(p)}'`).join('\n')
+    fs.writeFileSync(listFile, fileListContent)
 
     try {
       // Use ffmpeg concat demuxer with aresample to ensure clean timestamps
-      await execAsync(`ffmpeg -f concat -safe 0 -i "${listFile}" -af "aresample=async=1" -y "${outputPath}"`);
+      await execAsync(`ffmpeg -f concat -safe 0 -i "${listFile}" -af "aresample=async=1" -y "${outputPath}"`)
     } finally {
-      if (fs.existsSync(listFile)) fs.unlinkSync(listFile);
+      if (fs.existsSync(listFile)) fs.unlinkSync(listFile)
     }
   }
 
@@ -131,8 +129,8 @@ export class KokoroTTSService implements AudioService {
    * Exemple: acts = ['hook','mirror','revelation','solution','conclusion']
    */
   distributeDuration(totalDuration: number, proportions: number[]): number[] {
-    const sum = proportions.reduce((a, b) => a + b, 0);
-    return proportions.map(p => (p / sum) * totalDuration);
+    const sum = proportions.reduce((a, b) => a + b, 0)
+    return proportions.map((p) => (p / sum) * totalDuration)
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -140,70 +138,70 @@ export class KokoroTTSService implements AudioService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private async ensureInitialized(): Promise<void> {
-    if (this.initialized && this.tts) return;
+    if (this.initialized && this.tts) return
 
-    console.log(`[KokoroTTS] Loading model: ${this.modelId}...`);
-    console.log(`[KokoroTTS] dtype: q8 (quantized 8-bit), device: cpu`);
+    console.log(`[KokoroTTS] Loading model: ${this.modelId}...`)
+    console.log(`[KokoroTTS] dtype: q8 (quantized 8-bit), device: cpu`)
 
     try {
       this.tts = await KokoroTTS.from_pretrained(this.modelId, {
         dtype: 'q8',
-        device: 'cpu',
-      });
-      this.initialized = true;
-      console.log('[KokoroTTS] ✅ Model loaded successfully');
+        device: 'cpu'
+      })
+      this.initialized = true
+      console.log('[KokoroTTS] ✅ Model loaded successfully')
     } catch (error) {
-      throw new Error(`Failed to load Kokoro model: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to load Kokoro model: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
   private ensureOutputDir(outputPath: string): void {
-    const dir = outputPath.substring(0, outputPath.lastIndexOf('/'));
-    if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const dir = outputPath.slice(0, Math.max(0, outputPath.lastIndexOf('/')))
+    if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
 
   private getAudioDuration(audio: any): number | null {
     try {
-      if (typeof audio.duration === 'number') return audio.duration;
-      if (typeof (audio as any)._duration === 'number') return (audio as any)._duration;
+      if (typeof audio.duration === 'number') return audio.duration
+      if (typeof (audio as any)._duration === 'number') return (audio as any)._duration
       if (audio.sampling_rate && audio.audio?.length) {
-        return audio.audio.length / audio.sampling_rate;
+        return audio.audio.length / audio.sampling_rate
       }
-      return null;
+      return null
     } catch {
-      return null;
+      return null
     }
   }
 
   private estimateDuration(text: string, wordsPerSecond = 2.5): number {
-    const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-    return Math.max(wordCount / wordsPerSecond, 1);
+    const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length
+    return Math.max(wordCount / wordsPerSecond, 1)
   }
 
   private estimateWordTimings(text: string, totalDuration: number) {
     const words = text
       .split(/\s+/)
       .filter((w) => w.length > 0)
-      .filter((w) => !/^[.,!?;:\-—"'`""''«»„‟]+$/.test(w));
+      .filter((w) => !/^[.,!?;:\-—"'`«»„‟]+$/.test(w))
 
-    if (words.length === 0) return [];
+    if (words.length === 0) return []
 
-    const charCount = words.reduce((sum, w) => sum + w.length, 0);
-    let currentTime = 0;
+    const charCount = words.reduce((sum, w) => sum + w.length, 0)
+    let currentTime = 0
 
-    return words.map(word => {
-      const charRatio = word.length / charCount;
-      const wordDuration = totalDuration * charRatio;
-      const startTime = currentTime;
-      const endTime = currentTime + wordDuration;
-      currentTime = endTime;
+    return words.map((word) => {
+      const charRatio = word.length / charCount
+      const wordDuration = totalDuration * charRatio
+      const startTime = currentTime
+      const endTime = currentTime + wordDuration
+      currentTime = endTime
       return {
         word,
         start: startTime,
         end: endTime,
         startMs: Math.round(startTime * 1000),
-        durationMs: Math.round(wordDuration * 1000),
-      };
-    });
+        durationMs: Math.round(wordDuration * 1000)
+      }
+    })
   }
 }

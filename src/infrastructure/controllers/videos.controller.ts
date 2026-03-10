@@ -1,14 +1,16 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
+import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
+import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
 import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
 import { VideoRepository } from '../repositories/video.repository'
-import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
-import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 
 const videoRepository = new VideoRepository()
 const generateVideoUseCase = new GenerateVideoUseCase()
 const regenerateVideoUseCase = new RegenerateVideoUseCase()
+const renderVideoUseCase = new RenderVideoUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -47,9 +49,7 @@ export class VideosController implements Routes {
                       llmProvider: z.string().optional(),
                       imageProvider: z.string().optional(),
                       qualityMode: z.string().optional(),
-                      textOverlay: z
-                        .object({ enabled: z.boolean(), position: z.string() })
-                        .optional(),
+                      textOverlay: z.object({ enabled: z.boolean(), position: z.string() }).optional(),
                       characterConsistency: z.boolean().optional(),
                       autoTransitions: z.boolean().optional()
                     })
@@ -322,10 +322,13 @@ export class VideosController implements Routes {
               }
             }, 3000)
 
-            setTimeout(() => {
-              clearInterval(poll)
-              close()
-            }, 10 * 60 * 1000)
+            setTimeout(
+              () => {
+                clearInterval(poll)
+                close()
+              },
+              10 * 60 * 1000
+            )
           }
         }
       })
@@ -364,8 +367,14 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -385,9 +394,7 @@ export class VideosController implements Routes {
           queuePosition: video.status === 'queued' ? 1 : null,
           startedAt: video.createdAt.toISOString(),
           estimatedCompletion:
-            video.status === 'processing'
-              ? new Date(video.createdAt.getTime() + 3 * 60 * 1000).toISOString()
-              : null,
+            video.status === 'processing' ? new Date(video.createdAt.getTime() + 3 * 60 * 1000).toISOString() : null,
           videoId: video.status === 'completed' ? video.id : null
         })
       }
@@ -413,8 +420,14 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -449,7 +462,7 @@ export class VideosController implements Routes {
         path: '/v1/videos',
         tags: ['Videos'],
         summary: 'List user videos',
-        description: 'Returns a paginated list of the current user\'s videos.',
+        description: "Returns a paginated list of the current user's videos.",
         security: [{ Bearer: [] }],
         request: {
           query: z.object({
@@ -489,7 +502,10 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -498,8 +514,8 @@ export class VideosController implements Routes {
 
         const query = c.req.valid('query')
         const filters = {
-          page: query.page ? parseInt(query.page, 10) : 1,
-          limit: Math.min(query.limit ? parseInt(query.limit, 10) : 20, 100),
+          page: query.page ? Number.parseInt(query.page, 10) : 1,
+          limit: Math.min(query.limit ? Number.parseInt(query.limit, 10) : 20, 100),
           status: query.status,
           genre: query.genre,
           type: query.type,
@@ -573,8 +589,14 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -629,8 +651,14 @@ export class VideosController implements Routes {
             description: 'Video deleted',
             content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -682,9 +710,18 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          402: { description: 'Insufficient credits', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -724,6 +761,100 @@ export class VideosController implements Routes {
       }
     )
 
+    // POST /v1/videos/:id/render
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/render',
+        tags: ['Videos'],
+        summary: 'Render a video from a script',
+        description: 'Updates a manually modified script and starts the video rendering process.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  script: z.any()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          202: {
+            description: 'Rendering started',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  jobId: z.string(),
+                  status: z.string(),
+                  estimatedDuration: z.number(),
+                  creditsRequired: z.number(),
+                  message: z.string(),
+                  streamUrl: z.string()
+                })
+              }
+            }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { script } = c.req.valid('json')
+
+        // Using the new RenderVideoUseCase
+        const { result } = await renderVideoUseCase.run({
+          videoId: id,
+          userId: user.id,
+          planId: (user as any).planId,
+          script
+        })
+
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          if (result.error === 'Video not found') {
+            return c.json({ error: result.error }, 404)
+          }
+          return c.json({ error: result.error || 'Failed to enqueue rendering' }, 500)
+        }
+
+        return c.json(
+          {
+            jobId: result.jobId,
+            status: 'queued',
+            estimatedDuration: result.estimatedDuration,
+            creditsRequired: result.creditsRequired,
+            message: 'Rendering in progress...',
+            streamUrl: result.streamUrl
+          },
+          202
+        )
+      }
+    )
+
     // GET /v1/videos/:id/download
     this.controller.openapi(
       createRoute({
@@ -748,8 +879,14 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {
@@ -797,8 +934,14 @@ export class VideosController implements Routes {
               }
             }
           },
-          401: { description: 'Unauthorized', content: { 'application/json': { schema: z.object({ error: z.string() }) } } },
-          404: { description: 'Not found', content: { 'application/json': { schema: z.object({ error: z.string() }) } } }
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
         }
       }),
       async (c: any) => {

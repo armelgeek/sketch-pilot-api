@@ -1,39 +1,39 @@
-import { WordTiming } from './index';
+import type { WordTiming } from './index'
 
 export interface TranscriptionResult {
-    text: string;
-    wordTimings: WordTiming[];
+  text: string
+  wordTimings: WordTiming[]
 }
 
 export interface TranscriptionService {
-    transcribe(audioPath: string): Promise<TranscriptionResult>;
+  transcribe: (audioPath: string) => Promise<TranscriptionResult>
 }
 
-export type TranscriptionProvider = 'whisper-openai' | 'whisper-local' | 'assemblyai';
+export type TranscriptionProvider = 'whisper-openai' | 'whisper-local' | 'assemblyai'
 
 export interface TranscriptionServiceConfig {
-    provider: TranscriptionProvider;
-    apiKey?: string;
-    model?: string;
-    device?: string;
-    language?: string;
+  provider: TranscriptionProvider
+  apiKey?: string
+  model?: string
+  device?: string
+  language?: string
 }
 
-export class TranscriptionServiceFactory {
-    static create(config: TranscriptionServiceConfig): TranscriptionService {
-        switch (config.provider) {
-            case 'whisper-openai':
-                const { WhisperOpenAiService } = require('./whisper-openai.service');
-                return new WhisperOpenAiService(config.apiKey);
-            case 'whisper-local':
-                const { WhisperLocalService } = require('./whisper-local.service');
-                return new WhisperLocalService({
-                    model: config.model || 'base',
-                    device: config.device || 'cpu',
-                    language: config.language,
-                });
-            default:
-                throw new Error(`Unknown transcription provider: ${config.provider}`);
-        }
+export const TranscriptionServiceFactory = {
+  create(config: TranscriptionServiceConfig): TranscriptionService {
+    switch (config.provider) {
+      case 'whisper-openai':
+        const { WhisperOpenAiService } = require('./whisper-openai.service')
+        return new WhisperOpenAiService(config.apiKey)
+      case 'whisper-local':
+        const { WhisperLocalService } = require('./whisper-local.service')
+        return new WhisperLocalService({
+          model: config.model || 'base',
+          device: config.device || 'cpu',
+          language: config.language
+        })
+      default:
+        throw new Error(`Unknown transcription provider: ${config.provider}`)
     }
+  }
 }

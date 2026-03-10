@@ -46,7 +46,7 @@ export class PromptService {
    * Unknown variables are left as-is.
    */
   interpolate(template: string, variables: PromptVariables = {}): string {
-    return template.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match, key: string) => {
+    return template.replaceAll(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match, key: string) => {
       const trimmed = key.trim()
       const value = variables[trimmed]
       return value !== undefined ? String(value) : `{{${trimmed}}}`

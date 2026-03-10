@@ -81,7 +81,7 @@ export class SubscriptionPlanRepository implements SubscriptionPlanRepositoryInt
       .set({
         name: data.name,
         description: data.description,
-          priceMonthly: data.priceMonthly !== undefined ? String(data.priceMonthly) : undefined,
+        priceMonthly: data.priceMonthly !== undefined ? String(data.priceMonthly) : undefined,
         priceYearly: data.priceYearly !== undefined ? String(data.priceYearly) : undefined,
         displayedYearly: data.displayedYearly !== undefined ? String(data.displayedYearly) : undefined,
         displayedMonthly: data.displayedMonthly !== undefined ? String(data.displayedMonthly) : undefined,

@@ -3,50 +3,46 @@
  */
 
 export interface LLMService {
-    generateContent(
-        prompt: string,
-        systemInstruction?: string,
-        responseMimeType?: string
-    ): Promise<string>;
+  generateContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => Promise<string>
 }
 
-export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku';
+export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku'
 
 export interface LLMServiceConfig {
-    provider: LLMProvider;
-    apiKey: string;
-    modelId?: string;
-    cacheSystemPrompt?: boolean;  // Enable prompt caching (Claude only) for 25% cost reduction
+  provider: LLMProvider
+  apiKey: string
+  modelId?: string
+  cacheSystemPrompt?: boolean // Enable prompt caching (Claude only) for 25% cost reduction
 }
 
 /**
  * Factory for creating LLM service instances
  */
-export class LLMServiceFactory {
-    /**
-     * Create an LLM service based on the configuration
-     */
-    static create(config: LLMServiceConfig): LLMService {
-        switch (config.provider) {
-            case 'gemini':
-                const { GeminiLLMService } = require('./gemini-llm.service');
-                return new GeminiLLMService(config);
-            case 'grok':
-                const { GrokLLMService } = require('./grok-llm.service');
-                return new GrokLLMService(config);
-            case 'claude':
-            case 'haiku': // Haiku is the default Claude model for cost optimization
-                const { ClaudeLLMService } = require('./claude-llm.service');
-                return new ClaudeLLMService(config);
-            default:
-                throw new Error(`Unknown LLM provider: ${config.provider}`);
-        }
+export const LLMServiceFactory = {
+  /**
+   * Create an LLM service based on the configuration
+   */
+  create(config: LLMServiceConfig): LLMService {
+    switch (config.provider) {
+      case 'gemini':
+        const { GeminiLLMService } = require('./gemini-llm.service')
+        return new GeminiLLMService(config)
+      case 'grok':
+        const { GrokLLMService } = require('./grok-llm.service')
+        return new GrokLLMService(config)
+      case 'claude':
+      case 'haiku': // Haiku is the default Claude model for cost optimization
+        const { ClaudeLLMService } = require('./claude-llm.service')
+        return new ClaudeLLMService(config)
+      default:
+        throw new Error(`Unknown LLM provider: ${config.provider}`)
     }
+  },
 
-    /**
-     * Get available providers
-     */
-    static getAvailableProviders(): LLMProvider[] {
-        return ['gemini', 'grok', 'claude', 'haiku'];
-    }
+  /**
+   * Get available providers
+   */
+  getAvailableProviders(): LLMProvider[] {
+    return ['gemini', 'grok', 'claude', 'haiku']
+  }
 }
