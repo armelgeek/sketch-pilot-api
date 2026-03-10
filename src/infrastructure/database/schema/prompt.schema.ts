@@ -3,13 +3,14 @@ import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 /**
  * Prompt types that correspond to the different parts of the PromptManager.
  *
- * - system_prompt      : Global LLM system prompt for script generation
- * - video_type_guideline  : Per video-type inline guideline injected in the system prompt
- * - video_genre_guideline : Per video-genre inline guideline injected in the system prompt
- * - style_suffix       : Image style suffix appended to every image generation prompt
- * - character_instruction : Base system instruction for the image generation model
- * - image_prompt       : Template for building scene image prompts
- * - animation_prompt   : Template for building scene animation prompts
+ * - system_prompt           : Global LLM system prompt for script generation
+ * - video_type_guideline    : Per video-type inline guideline injected in the system prompt
+ * - video_genre_guideline   : Per video-genre inline guideline injected in the system prompt
+ * - style_suffix            : Image style suffix appended to every image generation prompt
+ * - character_instruction   : Base system instruction for the image generation model
+ * - image_prompt            : Template for building scene image prompts
+ * - animation_prompt        : Template for building scene animation prompts
+ * - video_type_specification: Full VideoTypeSpecification used to generate structured scripts
  */
 export const PROMPT_TYPES = [
   'system_prompt',
@@ -19,6 +20,7 @@ export const PROMPT_TYPES = [
   'character_instruction',
   'image_prompt',
   'animation_prompt',
+  'video_type_specification',
 ] as const
 
 export type PromptType = (typeof PROMPT_TYPES)[number]
@@ -60,6 +62,34 @@ export const prompts = pgTable('prompts', {
   language: text('language'),
   /** Whether this prompt is active and should be used at runtime */
   isActive: boolean('is_active').notNull().default(true),
+
+  // ── VideoTypeSpecification fields ─────────────────────────────────────────
+  /** Role / persona the LLM should adopt (e.g. "Psychological Storytelling Video Director") */
+  role: text('role'),
+  /** Cinematic / domain context that frames the LLM's expertise */
+  context: text('context'),
+  /** Default target audience description */
+  audienceDefault: text('audience_default'),
+  /** Visual character description used across all scenes */
+  character: text('character'),
+  /** High-level task the LLM must accomplish */
+  task: text('task'),
+  /** Ordered list of creative / narrative goals */
+  goals: jsonb('goals').$type<string[]>().default([]),
+  /** Narrative structure blueprint (e.g. "Hook -> Problem -> ... -> Conclusion") */
+  structure: text('structure'),
+  /** Visual style description (e.g. "Minimalist whiteboard animation") */
+  visualStyle: text('visual_style'),
+  /** Hard rules the LLM must follow during generation */
+  rules: jsonb('rules').$type<string[]>().default([]),
+  /** Output formatting notes */
+  formatting: text('formatting'),
+  /** JSON output format template string */
+  outputFormat: text('output_format'),
+  /** Step-by-step instructions for the generation process */
+  instructions: jsonb('instructions').$type<string[]>().default([]),
+  // ──────────────────────────────────────────────────────────────────────────
+
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
