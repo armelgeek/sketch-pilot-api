@@ -18,7 +18,6 @@ import { IMAGE_PROMPT_SPEC } from './specs/image-prompt.spec'
 import { PSYCHOLOGY_VIDEO_SPEC } from './specs/psychology.spec'
 import { CORE_SCRIPT_SYSTEM_SPEC } from './specs/script-system.spec'
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
-export { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
 
 export class PromptMaker {
   private role: string = ''

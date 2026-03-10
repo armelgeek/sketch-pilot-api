@@ -301,11 +301,9 @@ export const enrichedSceneSchema = z.object({
     .default('standard')
     .describe('Visual generation mode. Standard only (text-only is deprecated).'),
   visualSource: z
-    .enum(['local', 'ai'])
+    .enum(['local'])
     .default('local')
-    .describe(
-      'Where the main visual comes from. "local" = Stickman/Whiteboard composition. "ai" = Full AI scene generation (DALL-E).'
-    ),
+    .describe('Visual source: Stickman/Whiteboard composition (100% local, no AI generation)'),
   poseId: z
     .string()
     .optional()

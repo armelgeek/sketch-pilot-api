@@ -47,7 +47,7 @@ export const CORE_SCRIPT_SYSTEM_SPEC: VideoTypeSpecification = {
     'Narration length MUST match the scene duration accurately.',
     'Avoid clichés and generic motivational language.',
     'Prefer concrete situations from daily life.',
-    "70/30 EFFICIENCY RULE (STRATEGIC): Aim for 70% LOCAL (visualSource: 'local', characters/dialogue) and 30% AI (visualSource: 'ai', hero shots/metaphors). Use AI only for high-impact emotional peaks or complex visual metaphors where stickmen are insufficient.",
+    "100% LOCAL RULE (STRATEGIC): All scenes use visualSource: 'local' with Stickman/Whiteboard composition. No AI generation. Use onscreenText and keywordVisuals for high-impact visual enhancements.",
     "WHITEBOARD RULE: Background MUST ALWAYS BE SOLID WHITE (#FFFFFF). NO ENVIRONMENTS or background images allowed. For scenes without characters ('poseId: NONE'), rely on 'onscreenText' and 'keywordVisuals'.",
     "ASSET LIBRARY: Characters MUST use pre-rendered 'poseId' (STAND, WALK, RUN, THINK, POINT, SAD, JUMP, SIT, TYPE, EXHAUSTED, NOTEBOOK, PHONE, ANGRY, SHOCK, MEDITATE, LOOK-BACK, CARRY-BOX, FALL, NONE).",
     "PO SE STYLE: Use 'poseStyle' to position the character. Default is 'center'. Use 'left' or 'right' when 'onscreenText' is present to avoid overlap. 'scale' (0.5-1.5) adjusts character size. SMART FALLBACK: You can propose NEW descriptive pose names (e.g. 'FLYING', 'CLIMBING'). If the pose is not in the asset library, the system will automatically use AI to generate it.",
@@ -86,7 +86,7 @@ export const CORE_SCRIPT_SYSTEM_SPEC: VideoTypeSpecification = {
           tension: 5,
           characterVariant: 'Optional character skin name',
           continueFromPrevious: false,
-          visualSource: 'local | ai',
+          visualSource: 'local',
           poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
           poseStyle: {
             position: 'left | center | right | custom',
@@ -124,7 +124,7 @@ export const CORE_SCRIPT_SYSTEM_SPEC: VideoTypeSpecification = {
     'Think step-by-step.',
     "First, write the complete narration in 'fullNarration'.",
     'Then, break it down into scenes.',
-    'For each scene, select the appropriate visual type (local stickman vs AI generation) following the 70/30 Strategic rule.',
+    'For each scene, ensure all visuals use local Stickman composition (visualSource: local). Use poseId, onscreenText, and keywordVisuals for visual variety.',
     'Ensure narration flows perfectly across cuts.'
   ]
 }

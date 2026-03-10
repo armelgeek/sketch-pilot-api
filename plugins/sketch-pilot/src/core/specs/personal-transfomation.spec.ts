@@ -37,7 +37,7 @@ export const PERSONAL_TRANSFORMATION_SPEC: VideoTypeSpecification = {
     'The protagonist must fail at something AFTER the turning point — the rebuild is not linear.',
     'The viewer must recognize themselves before the protagonist succeeds.',
     "TYPOGRAPHIC RULE: Use 'visualMode: text-only' for high-impact philosophical quotes, key data points, or dramatic transitions. This creates a clean text-on-solid-background look.",
-    "70/30 EFFICIENCY RULE (STRATEGIC): Aim for 70% LOCAL (visualSource: 'local', character/dialogue) and 30% AI (visualSource: 'ai', metaphors). Use AI only for high-impact emotional peaks or complex visual metaphors where stickmen are insufficient.",
+    "100% LOCAL RULE (STRATEGIC): All scenes use visualSource: 'local' with Stickman/Whiteboard composition. No AI generation. Use onscreenText and keywordVisuals for high-impact visual enhancements.",
     "WHITEBOARD RULE: Background MUST ALWAYS BE SOLID WHITE (#FFFFFF). NO ENVIRONMENTS or background images allowed. For scenes without characters ('poseId: NONE'), rely on 'onscreenText' and 'keywordVisuals'.",
     "ASSET LIBRARY: Characters MUST use pre-rendered 'poseId' (STAND, WALK, RUN, THINK, POINT, SAD, JUMP, SIT, TYPE, EXHAUSTED, NOTEBOOK, PHONE, ANGRY, SHOCK, MEDITATE, LOOK-BACK, CARRY-BOX, FALL, NONE).",
     "POSE STYLE: Use 'poseStyle' to position the character. Default is 'center'. Use 'left' or 'right' when 'onscreenText' is present to avoid overlap. 'scale' (0.5-1.5) adjusts character size. SMART FALLBACK: Feel free to use custom `poseId` names for specific actions; if they aren't in our library, the system will seamlessly use AI to produce that specific visual.",
@@ -74,7 +74,7 @@ export const PERSONAL_TRANSFORMATION_SPEC: VideoTypeSpecification = {
           animationPrompt: '...',
           transitionToNext: 'fade',
           tension: 5,
-          visualSource: 'local | ai',
+          visualSource: 'local',
           poseId: 'NONE | STAND | ...',
           poseStyle: {
             position: 'left | center | right | custom',

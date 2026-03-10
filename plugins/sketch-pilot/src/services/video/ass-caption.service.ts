@@ -29,7 +29,8 @@
  */
 
 import type { WordTiming } from '../audio'
-export { WordTiming } from '../audio'
+
+export type { WordTiming }
 
 export type AssCaptionStyle =
   | 'colored'

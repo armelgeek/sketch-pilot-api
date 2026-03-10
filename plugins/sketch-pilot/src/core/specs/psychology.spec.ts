@@ -37,7 +37,7 @@ export const PSYCHOLOGY_VIDEO_SPEC: VideoTypeSpecification = {
     'Narration must be verbatim from fullNarration and consisting of complete sentences.',
     'No generic advice; find the unique angle of the topic.',
     'Maintain high emotional tension across the script.',
-    "70/30 EFFICIENCY RULE (STRATEGIC): Aim for 70% LOCAL (visualSource: 'local', characters/dialogue) and 30% AI (visualSource: 'ai', hero shots/metaphors). Use AI only for high-impact emotional peaks or complex visual metaphors where stickmen are insufficient.",
+    "100% LOCAL RULE (STRATEGIC): All scenes use visualSource: 'local' with Stickman/Whiteboard composition. No AI generation. Use onscreenText and keywordVisuals for high-impact visual enhancements.",
     "WHITEBOARD RULE: Background MUST ALWAYS BE SOLID WHITE (#FFFFFF). NO ENVIRONMENTS or background images allowed. For scenes without characters ('poseId: NONE'), rely on 'onscreenText' and 'keywordVisuals'.",
     "ASSET LIBRARY: Characters MUST use pre-rendered 'poseId' (STAND, WALK, RUN, THINK, POINT, SAD, JUMP, SIT, TYPE, EXHAUSTED, NOTEBOOK, PHONE, ANGRY, SHOCK, MEDITATE, LOOK-BACK, CARRY-BOX, FALL, NONE).",
     "POSE STYLE: Use 'poseStyle' to position the character. Default is 'center'. Use 'left' or 'right' when 'onscreenText' is present to avoid overlap. 'scale' (0.5-1.5) adjusts character size. SMART FALLBACK: You can propose NEW descriptive pose names (e.g., 'DROWNING', 'BREAKING-CHAINS'). If the pose is not in our library, AI will automatically generate the visual.",
@@ -70,7 +70,7 @@ export const PSYCHOLOGY_VIDEO_SPEC: VideoTypeSpecification = {
       "tension": 7,
       "characterVariant": "Optional character skin name",
       "continueFromPrevious": false,
-      "visualSource": "local | ai",
+      "visualSource": "local",
       "poseId": "NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...",
       "poseStyle": {
         "position": "left | center | right | custom",

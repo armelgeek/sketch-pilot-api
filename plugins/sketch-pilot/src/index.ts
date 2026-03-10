@@ -17,14 +17,10 @@ export {
   AnimationServiceConfig,
   AnimationServiceFactory
 } from './services/animation'
-export { AudioProvider, AudioService, AudioServiceConfig, AudioServiceFactory } from './services/audio'
+export { AudioProvider, AudioService, AudioServiceConfig, AudioServiceFactory, WordTiming } from './services/audio'
 export { VideoAssembler } from './services/video/video-assembler.service'
 export { AssCaptionService } from './services/video/ass-caption.service'
-export type {
-  AssCaptionConfig,
-  AssCaptionStyle,
-  WordTiming as AssWordTiming
-} from './services/video/ass-caption.service'
+export type { AssCaptionConfig, AssCaptionStyle } from './services/video/ass-caption.service'
 
 // Utils
 export { TaskQueue } from './utils/task-queue'

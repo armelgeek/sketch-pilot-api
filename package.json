@@ -62,7 +62,7 @@
     "@types/jszip": "^3.4.1",
     "axios": "^1.13.6",
     "bcrypt": "^6.0.0",
-    "better-auth": "1.2.7",
+    "better-auth": "^1.5.0",
     "bullmq": "^5.70.2",
     "dotenv": "^16.5.0",
     "drizzle-orm": "^0.43.1",

@@ -171,9 +171,10 @@ export class NanoBananaEngine {
       this.currentOptions?.imageStyle
     )
 
-    const visualSource = (scene as any).visualSource || 'local'
+    const visualSource = 'local' // Always local (100% local rule)
 
-    if (this.currentOptions?.localOnlyImages && visualSource !== 'ai') {
+    // With 100% local mode, create fallback composition instead of AI generation
+    if (this.currentOptions?.localOnlyImages !== false) {
       console.warn(
         `[NanoBanana] Local-only mode: Skipping AI image generation for scene ${scene.id}. Creating fallback image.`
       )
@@ -1231,32 +1232,20 @@ PLAIN WHITE BACKGROUND.`
         fs.mkdirSync(sceneDir, { recursive: true })
       }
 
-      // Check if the requested pose exists locally. If not, we should have generated it above.
-      // If it's STILL missing (generation failed), fallback to AI visual source.
-      let visualSource = (scene as any).visualSource || 'local'
+      // All visuals are now local (100% local rule)
+      const visualSource = 'local'
       const poseId = (scene as any).poseId || 'STAND'
       const posePath = path.join(process.cwd(), 'src/assets/stickmen', `${poseId}.png`)
 
-      if (visualSource === 'local' && poseId !== 'NONE' && !fs.existsSync(posePath)) {
+      // Validate that pose exists for non-NONE scenes
+      if (poseId !== 'NONE' && !fs.existsSync(posePath)) {
         console.warn(
-          `[NanoBanana] ⚠ Falling back to AI visual source for scene ${scene.id} (Pose '${poseId}' missing).`
+          `[NanoBanana] ⚠ Pose '${poseId}' missing for scene ${scene.id}. Ensure it exists in assets/stickmen/`
         )
-        visualSource = 'ai'
-        ;(scene as any).visualSource = 'ai'
-        // Ensure prompt is descriptive enough for AI
-        if (!scene.imagePrompt || scene.imagePrompt.includes('2D vector sketch')) {
-          const actionText = (scene.actions || []).join(', ') || scene.summary || scene.narration
-          scene.imagePrompt = `A clean 2D vector sketch of a character in ${poseId} pose: ${actionText}. Solid white background.`
-        }
       }
 
-      let aiPath: string | undefined
-      if (visualSource === 'ai') {
-        aiPath = path.join(sceneDir, `ai_base-${Date.now()}.webp`)
-        await this.generateImage(scene, allBaseImages, aiPath)
-      }
-
-      await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, aiPath)
+      // Only AI generation is skipped - all visuals are local composition
+      await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, undefined)
 
       // Keep track of the last generated image to allow for "Scene Continuation"
       const lastImagePath = path.join(sceneDir, 'scene.webp')

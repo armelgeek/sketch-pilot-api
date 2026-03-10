@@ -5,7 +5,7 @@ import { AmbientService } from '../audio/ambient.service'
 import { MusicService } from '../audio/music.service'
 import { SFXService } from '../audio/sfx.service'
 import type { CompleteVideoScript, TextPosition, VideoGenerationOptions } from '../../types/video-script.types'
-import type { WordTiming } from '../audio/index'
+import type { WordTiming } from '../audio'
 import { AssCaptionService } from './ass-caption.service'
 
 /** Number of words per caption chunk for the remotion style fallback (no word timings). */

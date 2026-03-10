@@ -4,7 +4,7 @@ import https from 'node:https'
 import path from 'node:path'
 import sharp from 'sharp'
 import type { TextOverlayConfig } from '../../types/video-script.types'
-import type { WordTiming } from '../audio/index'
+import type { WordTiming } from '../audio'
 
 /** Approximate average character width relative to font size for bold sans-serif. */
 const AVG_CHAR_WIDTH_RATIO = 0.6
