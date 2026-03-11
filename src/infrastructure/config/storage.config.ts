@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import process from 'node:process'
 import {
   CreateBucketCommand,
@@ -67,12 +67,14 @@ export async function uploadVideoToMinio(
 ): Promise<string> {
   const key = `videos/${videoId}/final.mp4`
   await ensureBucketExists()
+  const stats = statSync(filePath)
   await storageClient.send(
     new PutObjectCommand({
       Bucket: BUCKET,
       Key: key,
-      Body: createReadStream(filePath),
+      Body: readFileSync(filePath),
       ContentType: contentType,
+      ContentLength: stats.size,
       Metadata: { videoId }
     })
   )
@@ -89,12 +91,14 @@ export async function uploadFile(
   contentType = 'application/octet-stream'
 ): Promise<string> {
   await ensureBucketExists()
+  const stats = statSync(filePath)
   await storageClient.send(
     new PutObjectCommand({
       Bucket: BUCKET,
       Key: key,
-      Body: createReadStream(filePath),
+      Body: readFileSync(filePath),
       ContentType: contentType,
+      ContentLength: stats.size,
       Metadata: { videoId }
     })
   )
@@ -111,7 +115,8 @@ export async function uploadBuffer(key: string, body: Buffer, contentType: strin
       Bucket: BUCKET,
       Key: key,
       Body: body,
-      ContentType: contentType
+      ContentType: contentType,
+      ContentLength: body.length
     })
   )
   return `${CDN_URL}/${key}`

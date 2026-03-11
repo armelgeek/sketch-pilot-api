@@ -98,6 +98,9 @@ importers:
       nodemailer:
         specifier: ^7.0.2
         version: 7.0.13
+      onnxruntime-node:
+        specifier: 1.21.0
+        version: 1.21.0
       openai:
         specifier: ^5.20.3
         version: 5.23.2(ws@8.19.0)(zod@3.25.76)
