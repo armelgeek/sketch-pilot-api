@@ -464,9 +464,11 @@ Match character identity, clothing, and artistic style 100%.`
 
     // Compose scene description (replace "stickman" if it leaked in from the actions)
     const replaceStickman = (text: string) => text.replaceAll(/stickman/gi, characterPart || 'character')
-    const sceneDescription = [replaceStickman(posePart), replaceStickman(actionPart), progressivePart]
-      .filter(Boolean)
-      .join(', ')
+
+    // Priority: Explicit imagePrompt -> generated from actions
+    const sceneDescription = scene.imagePrompt
+      ? replaceStickman(scene.imagePrompt)
+      : [replaceStickman(posePart), replaceStickman(actionPart), progressivePart].filter(Boolean).join(', ')
 
     // Sanitize: strip text/bubble contradictions and character descriptions
     // When reference images exist, strip ALL parenthetical descriptions (the image is the truth)

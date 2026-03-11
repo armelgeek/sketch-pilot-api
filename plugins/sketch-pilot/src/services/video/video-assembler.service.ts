@@ -457,6 +457,12 @@ export class VideoAssembler {
       }
     }
 
+    const ultimatePath = path.join(projectDir, 'final_video.mp4')
+    if (finalVisualPath !== ultimatePath && fs.existsSync(finalVisualPath)) {
+      fs.renameSync(finalVisualPath, ultimatePath)
+      return ultimatePath
+    }
+
     return finalVisualPath
   }
 
@@ -1623,12 +1629,12 @@ export class VideoAssembler {
       const vLabel = `[v_in_${i}]`
       const aLabel = `[a_in_${i}]`
       if (hasAudio[i]) {
-        filterComplex += `[${inputCounter}:v]copy${vLabel};`
-        filterComplex += `[${inputCounter}:a]copy${aLabel};`
+        filterComplex += `[${inputCounter}:v]null${vLabel};`
+        filterComplex += `[${inputCounter}:a]anull${aLabel};`
         inputCounter++
       } else {
         // [inputCounter]:v is the video, [inputCounter+1]:a is the silence
-        filterComplex += `[${inputCounter}:v]copy${vLabel};`
+        filterComplex += `[${inputCounter}:v]null${vLabel};`
         filterComplex += `[${inputCounter + 1}:a]trim=duration=${durations[i]},setpts=PTS-STARTPTS${aLabel};`
         inputCounter += 2
       }
@@ -1652,7 +1658,8 @@ export class VideoAssembler {
       const transitionName = transition ? transition.name : 'fade'
 
       // We use audioOverlap as the actual overlap for the timeline if it's larger than the transition duration
-      const effectiveOverlap = Math.max(transitionDuration, audioOverlap)
+      const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.05
+      const effectiveOverlap = Math.min(Math.max(transitionDuration, audioOverlap), Math.max(0.01, maxPossibleOverlap))
       const offset = Number(Math.max(0.01, cumulativeOffset + durations[i - 1] - effectiveOverlap).toFixed(3))
 
       const outLabel = `[v_out_${i}]`
@@ -1677,7 +1684,11 @@ export class VideoAssembler {
       const transition = this.getXfadeTransition(incomingTransitionType, maxSafeOverlap)
       // Unified 0.04s (1 frame) fallback for 'none'/'cut'
       const transitionDuration = transition ? transition.duration : 0.04
-      const effectiveAudioOverlap = Math.max(transitionDuration, audioOverlap)
+      const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.05
+      const effectiveAudioOverlap = Math.min(
+        Math.max(transitionDuration, audioOverlap),
+        Math.max(0.01, maxPossibleOverlap)
+      )
 
       const offset =
         i === 1

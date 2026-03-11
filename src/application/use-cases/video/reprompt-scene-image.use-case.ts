@@ -1,5 +1,8 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { IUseCase } from '@/domain/types'
-import { getVideoQueue } from '@/infrastructure/config/queue.config'
+import { uploadBuffer } from '@/infrastructure/config/storage.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -21,6 +24,7 @@ type RepromptSceneImageResponse = {
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
+const videoGenerationService = new VideoGenerationService()
 
 export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams, RepromptSceneImageResponse> {
   async execute({
@@ -71,39 +75,67 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
       // 4. Update Scene Prompt (if provided)
       if (newPrompt) {
         scenes[sceneIndex].imagePrompt = newPrompt
-        await videoRepository.updateStatus(videoId, { scenes })
+        if (video.script && (video.script as any).scenes) {
+          ;(video.script as any).scenes[sceneIndex].imagePrompt = newPrompt
+        }
       }
 
-      // 5. Enqueue Specialized Job (Re-using Render pipeline for simplicity or specialized worker)
-      // For now, we'll trigger a full render but flagging it's just for one scene would be better.
-      // However, the current engine is optimized for full video.
-      // We'll mark the specific scene as "stale" or just re-run render which skips existing assets.
+      // 5. Run Generation Synchronously
+      const effectiveProjectId = (video.options as any)?.localProjectId
+      if (!effectiveProjectId) {
+        return { success: false, error: 'Project not initialized (no localProjectId)' }
+      }
 
-      const jobId = crypto.randomUUID()
-      await videoRepository.updateStatus(videoId, {
-        jobId,
-        status: 'queued',
-        currentStep: `Regenerating image for scene ${sceneIndex}`
+      const pkg = await videoGenerationService.renderVideoFromScript({
+        topic: video.topic,
+        userId,
+        script: { ...((video.script as any) || {}), scenes } as any,
+        options: {
+          ...((video.options as any) || {}),
+          generateFromScript: true,
+          repromptSceneIndex: sceneIndex,
+          localOnlyImages: false
+        },
+        projectId: effectiveProjectId
       })
 
-      const queue = getVideoQueue()
-      await queue.add(
-        'generate-video',
-        {
-          jobId,
-          userId,
-          videoId,
-          topic: video.topic,
-          options: {
-            ...((video.options as any) || {}),
-            generateFromScript: true,
-            repromptSceneIndex: sceneIndex // Backend worker hint
-          }
-        },
-        { jobId }
-      )
+      // 6. Upload Result to MinIO
+      const scene = pkg.script?.scenes[sceneIndex]
+      if (scene) {
+        const sceneDir = path.join(pkg.outputPath, 'scenes', scene.id)
+        const sceneWebp = path.join(sceneDir, 'scene.webp')
+        const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
 
-      return { success: true, jobId, creditsRequired: cost }
+        if (fs.existsSync(sceneWebp)) {
+          const buffer = fs.readFileSync(sceneWebp)
+          scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
+        }
+
+        if (fs.existsSync(thumbnailJpg)) {
+          const buffer = fs.readFileSync(thumbnailJpg)
+          scene.thumbnailUrl = await uploadBuffer(
+            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
+            buffer,
+            'image/jpeg'
+          )
+        }
+
+        // Sync back to the main scenes array
+        scenes[sceneIndex] = scene
+      }
+
+      // 7. Persist Updated Video Record
+      const updateData: any = {
+        script: pkg.script as any,
+        scenes: scenes as any
+      }
+      if (sceneIndex === 0 && scene.thumbnailUrl) {
+        updateData.thumbnailUrl = scene.thumbnailUrl
+      }
+
+      await videoRepository.updateStatus(videoId, updateData)
+
+      return { success: true, creditsRequired: cost }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to re-prompt' }
     }

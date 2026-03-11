@@ -754,6 +754,10 @@ export const videoGenerationOptionsSchema = z
       .boolean()
       .default(false)
       .describe('If true, skip narration/transcription and only perform final assembly'),
+    repromptSceneIndex: z
+      .number()
+      .optional()
+      .describe('If provided, only generate the visual assets for this specific scene index and skip others'),
     qualityMode: z.nativeEnum(QualityMode).default(QualityMode.STANDARD).describe('Quality mode for generation'),
     enableContextualBackground: z
       .boolean()

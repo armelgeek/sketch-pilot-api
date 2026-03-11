@@ -386,7 +386,7 @@ export class NanoBananaEngine {
       // Start with AI-generated background or pure white
       const composition =
         bgPath && fs.existsSync(bgPath)
-          ? sharp(bgPath)
+          ? sharp(bgPath).resize(width, height, { fit: 'cover' })
           : sharp({
               create: {
                 width,
@@ -399,7 +399,11 @@ export class NanoBananaEngine {
       const overlays: any[] = []
 
       // 1. Character pose overlay — ONLY in local mode (skip if AI already has the character)
-      if (poseId !== 'NONE' && fs.existsSync(posePath) && !bgPath) {
+      // PRIORITY TO AI: If we have an AI-generated background/scene, we skip the local stickman overlay.
+      const skipCharacterOverlay =
+        !!bgPath && (options.localOnlyImages === false || options.repromptSceneIndex !== undefined)
+
+      if (poseId !== 'NONE' && fs.existsSync(posePath) && !skipCharacterOverlay) {
         const style = (scene as any).onscreenTextStyle || {}
         const globalStyle = this.currentOptions?.globalTextStyle || {}
         const sceneOverride = (this.currentOptions?.sceneStyles || {})[scene.id] || {}
@@ -415,7 +419,7 @@ export class NanoBananaEngine {
         const baseCharHeight = Math.floor(height * 1)
         const charHeight = Math.floor(baseCharHeight * poseScale)
 
-        const poseBuffer = await sharp(posePath).resize({ height: charHeight, fit: 'inside' }).toBuffer()
+        const poseBuffer = await sharp(posePath).resize({ width, height: charHeight, fit: 'inside' }).toBuffer()
 
         // Get actual dimensions of resized pose for precise positioning
         const poseMeta = await sharp(poseBuffer).metadata()
@@ -551,7 +555,29 @@ export class NanoBananaEngine {
         }
       }
 
-      await composition.composite(overlays).webp().toFile(imagePath)
+      // Final composition
+      if (overlays.length > 0) {
+        await composition.composite(overlays).webp().toFile(imagePath)
+      } else if (bgPath && fs.existsSync(bgPath)) {
+        // Just use the background as the scene image
+        fs.copyFileSync(bgPath, imagePath)
+      } else {
+        // Fallback to white
+        await sharp({
+          create: { width, height, channels: 3, background: '#FFFFFF' }
+        })
+          .webp()
+          .toFile(imagePath)
+      }
+
+      // Clean up temporary background file if it exists
+      if (bgPath && fs.existsSync(bgPath) && bgPath.includes('background.webp')) {
+        try {
+          fs.unlinkSync(bgPath)
+        } catch {
+          // ignore cleanup errors
+        }
+      }
     } catch (error) {
       console.error(`[NanoBanana] Composition failed, creating solid white fallback:`, error)
       await sharp({
@@ -563,6 +589,7 @@ export class NanoBananaEngine {
 
     // Generate thumbnail from scene image
     const thumbnailPath = path.join(targetDir, 'thumbnail.jpg')
+    console.log(`[NanoBanana] Generating thumbnail for ${imagePath}...`)
     await this.generateThumbnail(imagePath, thumbnailPath)
 
     // ── Keyword Visual Generation ──────────────────────────────────────────────
@@ -1200,7 +1227,11 @@ PLAIN WHITE BACKGROUND.`
     let lastSceneImageBase64: string | undefined
 
     // --- GLOBAL AUDIO GENERATION ---
-    const skipAudio = validOptions.skipAudio || validOptions.generateOnlyAssembly || false
+    const skipAudio =
+      validOptions.skipAudio ||
+      validOptions.generateOnlyAssembly ||
+      validOptions.repromptSceneIndex !== undefined ||
+      false
     const globalAudioPath = path.join(projectDir, 'global_narration.mp3')
     let globalWordTimings: WordTiming[] = []
 
@@ -1265,7 +1296,24 @@ PLAIN WHITE BACKGROUND.`
     // Skip composition if we only want audio OR if visuals are already generated
     const skipComposition = validOptions.generateOnlyAudio
     if (!skipComposition) {
-      for (const scene of script.scenes) {
+      for (let i = 0; i < script.scenes.length; i++) {
+        const scene = script.scenes[i]
+
+        if (validOptions.repromptSceneIndex !== undefined && validOptions.repromptSceneIndex !== i) {
+          // If we are skipping, we still need to keep track of the last image if the NEXT scene might need it
+          // But actually, if we are ONLY doing one scene, we just need to load it ONCE for that scene.
+          continue
+        }
+
+        // Load previous scene image if this scene continues from it
+        if (scene.continueFromPrevious && i > 0 && !lastSceneImageBase64) {
+          const prevScene = script.scenes[i - 1]
+          const prevSceneDir = path.join(scenesDir, prevScene.id)
+          const prevImagePath = path.join(prevSceneDir, 'scene.webp')
+          if (fs.existsSync(prevImagePath)) {
+            lastSceneImageBase64 = fs.readFileSync(prevImagePath).toString('base64')
+          }
+        }
         const sceneDir = path.join(scenesDir, scene.id)
         if (!fs.existsSync(sceneDir)) {
           fs.mkdirSync(sceneDir, { recursive: true })
@@ -1282,8 +1330,16 @@ PLAIN WHITE BACKGROUND.`
           )
         }
 
+        // If localOnlyImages is false, generate an AI background first
+        let bgPath: string | undefined
+        if (validOptions.localOnlyImages === false) {
+          const backgroundPath = path.join(sceneDir, 'background.webp')
+          console.log(`[NanoBanana] Generating AI background for scene ${scene.id}...`)
+          bgPath = await this.generateImage(scene, allBaseImages, backgroundPath)
+        }
+
         // Only AI generation is skipped - all visuals are local composition
-        await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, undefined)
+        await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, bgPath)
 
         // Keep track of the last generated image to allow for "Scene Continuation"
         const lastImagePath = path.join(sceneDir, 'scene.webp')
@@ -1294,7 +1350,11 @@ PLAIN WHITE BACKGROUND.`
     }
 
     // --- ASSEMBLE FINAL VIDEO ---
-    const skipAssembly = validOptions.scriptOnly || validOptions.generateOnlyScenes || validOptions.generateOnlyAudio
+    const skipAssembly =
+      validOptions.scriptOnly ||
+      validOptions.generateOnlyScenes ||
+      validOptions.generateOnlyAudio ||
+      validOptions.repromptSceneIndex !== undefined
     if (!skipAssembly) {
       try {
         const videoAssembler = new VideoAssembler()

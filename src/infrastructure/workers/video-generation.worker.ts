@@ -84,6 +84,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       skipAudio: options.skipAudio || false,
       generateOnlyScenes: options.generateOnlyScenes || false,
       generateFromScript: options.generateFromScript || false,
+      repromptSceneIndex: options.repromptSceneIndex,
       customSpec: options.customSpec,
       characterModelId: options.characterModelId,
       userId
@@ -244,6 +245,53 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
 
       console.info(`[VideoWorker] Scene generation completed for videoId: ${videoId}`)
+      return
+    }
+
+    if (options.repromptSceneIndex !== undefined) {
+      const idx = options.repromptSceneIndex
+      await reportProgress(job, videoId, 'upload_scene_image', 90, `Uploading reprompted image for scene ${idx}...`)
+
+      const updatedScenes = [...(pkg.script?.scenes || [])]
+      const scene = updatedScenes[idx]
+
+      if (scene) {
+        const sceneDir = path.join(pkg.outputPath, 'scenes', scene.id)
+        const sceneWebp = path.join(sceneDir, 'scene.webp')
+        const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
+
+        if (fs.existsSync(sceneWebp)) {
+          const buffer = fs.readFileSync(sceneWebp)
+          scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
+        }
+
+        if (fs.existsSync(thumbnailJpg)) {
+          const buffer = fs.readFileSync(thumbnailJpg)
+          scene.thumbnailUrl = await uploadBuffer(
+            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
+            buffer,
+            'image/jpeg'
+          )
+        }
+      }
+
+      await videoRepository.updateStatus(videoId, {
+        status: 'scenes_generated', // Usually remains in this state before final assembly
+        progress: 100,
+        currentStep: 'done',
+        script: pkg.script as any,
+        scenes: updatedScenes as any,
+        completedAt: new Date()
+      })
+
+      await job.updateProgress({
+        step: 'completed',
+        progress: 100,
+        status: 'completed',
+        videoId
+      })
+
+      console.info(`[VideoWorker] Scene reprompt completed for videoId: ${videoId}, sceneIndex: ${idx}`)
       return
     }
 
