@@ -29,7 +29,7 @@ export class VideoGenerationService {
 
   /**
    * Configure the engine with database-backed character models
-   * If a specific characterModelId is provided for the video, 
+   * If a specific characterModelId is provided for the video,
    * we enforce using that specific reference image regardless of the character name.
    */
   private configureCharacterLoader(characterModelId?: string): void {

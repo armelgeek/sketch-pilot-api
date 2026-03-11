@@ -387,13 +387,13 @@ export class NanoBananaEngine {
         bgPath && fs.existsSync(bgPath)
           ? sharp(bgPath)
           : sharp({
-            create: {
-              width,
-              height,
-              channels: 3,
-              background: '#FFFFFF'
-            }
-          })
+              create: {
+                width,
+                height,
+                channels: 3,
+                background: '#FFFFFF'
+              }
+            })
 
       const overlays: any[] = []
 
@@ -678,10 +678,10 @@ export class NanoBananaEngine {
       panningEffect:
         animationMode === 'panning'
           ? {
-            type: scene.cameraAction?.type || 'zoom-in',
-            intensity: scene.cameraAction?.intensity || 'medium',
-            duration: totalDuration
-          }
+              type: scene.cameraAction?.type || 'zoom-in',
+              intensity: scene.cameraAction?.intensity || 'medium',
+              duration: totalDuration
+            }
           : undefined,
       aspectRatio,
       soundEffects: scene.soundEffects,
@@ -819,13 +819,13 @@ export class NanoBananaEngine {
           }
         })
 
-          // Update globalWordTimings (absolute for global subtitle sync)
-          ; (manifest as any).globalWordTimings = wordTimings.map((w) => ({
-            ...w,
-            start: Math.round(w.start * 100) / 100,
-            end: Math.round(w.end * 100) / 100,
-            startMs: Math.round(w.startMs)
-          }))
+        // Update globalWordTimings (absolute for global subtitle sync)
+        ;(manifest as any).globalWordTimings = wordTimings.map((w) => ({
+          ...w,
+          start: Math.round(w.start * 100) / 100,
+          end: Math.round(w.end * 100) / 100,
+          startMs: Math.round(w.startMs)
+        }))
 
         fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
       }
@@ -833,7 +833,7 @@ export class NanoBananaEngine {
 
     // Update script total duration
     if (mappedTimings.length > 0) {
-      script.totalDuration = mappedTimings[mappedTimings.length - 1].end
+      script.totalDuration = mappedTimings.at(-1).end
     }
 
     // Save updated script
@@ -871,7 +871,8 @@ export class NanoBananaEngine {
       JSON.stringify(validOptions.transcription) !== JSON.stringify(this.currentTranscriptionConfig)
     ) {
       console.log(
-        `[NanoBanana] Updating transcription provider: ${this.currentTranscriptionConfig?.provider || 'none'
+        `[NanoBanana] Updating transcription provider: ${
+          this.currentTranscriptionConfig?.provider || 'none'
         } -> ${validOptions.transcription.provider}`
       )
       this.currentTranscriptionConfig = validOptions.transcription
@@ -948,10 +949,11 @@ export class NanoBananaEngine {
           referenceImages: existingBaseImages,
           systemInstruction: `You are creating a CHARACTER REFERENCE SHEET. 
 Output a 2x2 grid. 
-${uniqueCharacters.length > 1
-              ? `Include all characters: ${uniqueCharacters.join(', ')}. Each should have at least one full-body and one clear face shot.`
-              : 'Include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
-            }
+${
+  uniqueCharacters.length > 1
+    ? `Include all characters: ${uniqueCharacters.join(', ')}. Each should have at least one full-body and one clear face shot.`
+    : 'Include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
+}
 PLAIN WHITE BACKGROUND.`
         }
       )
@@ -1234,13 +1236,13 @@ PLAIN WHITE BACKGROUND.`
           const scene = script.scenes[idx]
           scene.timeRange.start = timing.start
           scene.timeRange.end = timing.end
-            ; (scene as any).globalWordTimings = timing.wordTimings
+          ;(scene as any).globalWordTimings = timing.wordTimings
           console.log(`[NanoBanana] Scene ${scene.id}: ${timing.start.toFixed(2)}s -> ${timing.end.toFixed(2)}s`)
         })
 
         // Update total duration
         if (mappedTimings.length > 0) {
-          script.totalDuration = mappedTimings[mappedTimings.length - 1].end
+          script.totalDuration = mappedTimings.at(-1).end
         }
 
         script.globalAudio = 'global_narration.mp3'

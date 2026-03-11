@@ -4,6 +4,7 @@ import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { UserRepository } from '@/infrastructure/repositories/user.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
@@ -44,14 +45,13 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
     customSpec: customSpec || options.customSpec,
-    characterModelId: options.characterModelId,
+    characterModelId: options.characterModelId
   }
 }
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
-import { UserRepository } from '@/infrastructure/repositories/user.repository'
 const userRepository = new UserRepository()
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {

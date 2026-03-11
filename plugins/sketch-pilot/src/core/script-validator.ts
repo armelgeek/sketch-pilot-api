@@ -206,7 +206,7 @@ export class ScriptValidator {
 
     // Check for narrative arc (should have intro, middle, conclusion)
     const hasIntro = scenes.length > 0 && (scenes[0].narration || '').length > 10
-    const hasConclusion = scenes.length > 0 && (scenes[scenes.length - 1].narration || '').length > 10
+    const hasConclusion = scenes.length > 0 && (scenes.at(-1).narration || '').length > 10
 
     if (!hasIntro) score -= 1
     if (!hasConclusion && scenes.length > 2) score -= 0.5
