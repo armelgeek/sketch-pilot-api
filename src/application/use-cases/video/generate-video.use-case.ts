@@ -12,6 +12,7 @@ type GenerateVideoParams = {
   planId?: string
   topic: string
   options?: Partial<VideoGenerationOptions>
+  characterModelId?: string
 }
 
 type GenerateVideoResponse = {
@@ -42,13 +43,16 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     characterConsistency: options.characterConsistency,
     autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
-    customSpec: customSpec || options.customSpec
+    customSpec: customSpec || options.customSpec,
+    characterModelId: options.characterModelId,
   }
 }
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
+import { UserRepository } from '@/infrastructure/repositories/user.repository'
+const userRepository = new UserRepository()
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
   async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
@@ -121,6 +125,13 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         }
       })
 
+      // Resolve Character Model
+      let finalCharacterModelId = options.characterModelId
+      if (!finalCharacterModelId) {
+        const userRec = await userRepository.findById(userId)
+        finalCharacterModelId = userRec?.defaultCharacterModelId || undefined
+      }
+
       // Create the video record
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
@@ -132,7 +143,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         options,
         genre: options.videoGenre,
         type: options.videoType,
-        language: options.language || 'en'
+        language: options.language || 'en',
+        characterModelId: finalCharacterModelId
       })
 
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
@@ -143,7 +155,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         userId,
         videoId,
         topic,
-        options: toJobOptions(options, spec)
+        options: toJobOptions({ ...options, characterModelId: finalCharacterModelId }, spec)
       }
 
       const queue = getVideoQueue()

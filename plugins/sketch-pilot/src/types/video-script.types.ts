@@ -741,6 +741,7 @@ export const videoGenerationOptionsSchema = z
       .default(false)
       .describe('If true, only generate the script and production report, skip asset generation'),
     skipAudio: z.boolean().default(false).describe('If true, skip audio generation (TTS)'),
+    characterModelId: z.string().optional().describe('ID of the character model to use for the entire video'),
     generateOnlyScenes: z
       .boolean()
       .default(false)

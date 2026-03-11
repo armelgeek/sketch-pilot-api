@@ -46,7 +46,7 @@ export class TimingMapper {
       const targetWords = this.normalize(scene.narration).split(' ').filter(Boolean)
 
       if (targetWords.length === 0 || transcribedWords.length === 0) {
-        const previousEnd = results.length > 0 ? results.at(-1).end : 0
+        const previousEnd = results.length > 0 ? results[results.length - 1].end : 0
         results.push({ sceneId: scene.sceneId, start: previousEnd, end: previousEnd, wordTimings: [] })
         continue
       }
@@ -96,12 +96,12 @@ export class TimingMapper {
         results.push({
           sceneId: scene.sceneId,
           start: sceneWordTimings[0].start,
-          end: sceneWordTimings.at(-1).end,
+          end: sceneWordTimings[sceneWordTimings.length - 1].end,
           wordTimings: sceneWordTimings
         })
         searchFrom = bestEndIdx + 1
       } else {
-        const previousEnd = results.length > 0 ? results.at(-1).end : 0
+        const previousEnd = results.length > 0 ? results[results.length - 1].end : 0
         results.push({
           sceneId: scene.sceneId,
           start: previousEnd,
@@ -136,7 +136,7 @@ export class TimingMapper {
         nextAnchorStart = results[gapEndIdx].start
       } else {
         // End of script, use transcription end or a safe buffer
-        const lastTranscribedEnd = transcribedWords.length > 0 ? transcribedWords.at(-1).end : 0
+        const lastTranscribedEnd = transcribedWords.length > 0 ? transcribedWords[transcribedWords.length - 1].end : 0
         nextAnchorStart = Math.max(prevAnchorEnd + 5, lastTranscribedEnd)
       }
 
@@ -179,7 +179,7 @@ export class TimingMapper {
 
       // Calculate end for this scene
       if (results[j].wordTimings.length > 0) {
-        const lastWordEnd = results[j].wordTimings.at(-1).end
+        const lastWordEnd = results[j].wordTimings[results[j].wordTimings.length - 1].end
 
         // If there's a next scene, the current scene ends at the next scene's start
         if (j < results.length - 1) {

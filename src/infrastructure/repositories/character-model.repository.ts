@@ -12,6 +12,11 @@ export class CharacterModelRepository {
     return model || null
   }
 
+  async findById(id: string) {
+    const [model] = await db.select().from(characterModels).where(eq(characterModels.id, id))
+    return model || null
+  }
+
   async create(data: typeof characterModels.$inferInsert) {
     const [model] = await db.insert(characterModels).values(data).returning()
     return model

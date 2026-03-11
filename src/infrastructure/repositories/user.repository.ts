@@ -24,6 +24,7 @@ export class UserRepository implements UserRepositoryInterface {
       image: user.image || undefined,
       isAdmin: user.isAdmin,
       stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -42,6 +43,7 @@ export class UserRepository implements UserRepositoryInterface {
       image: user.image || undefined,
       isAdmin: user.isAdmin,
       stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }))
@@ -92,6 +94,7 @@ export class UserRepository implements UserRepositoryInterface {
       image: user.image || undefined,
       isAdmin: user.isAdmin,
       stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt || null,
@@ -114,6 +117,7 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
+      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -128,6 +132,7 @@ export class UserRepository implements UserRepositoryInterface {
     if (data.emailVerified !== undefined) updateData.emailVerified = data.emailVerified
     if (data.image !== undefined) updateData.image = data.image
     if (data.isAdmin !== undefined) updateData.isAdmin = data.isAdmin
+    if (data.defaultCharacterModelId !== undefined) updateData.defaultCharacterModelId = data.defaultCharacterModelId
 
     const [updatedUser] = await db.update(users).set(updateData).where(eq(users.id, id)).returning()
     if (!updatedUser) throw new Error('User not found')
@@ -143,6 +148,7 @@ export class UserRepository implements UserRepositoryInterface {
       image: updatedUser.image || undefined,
       isAdmin: updatedUser.isAdmin,
       stripeCustomerId: updatedUser.stripeCustomerId || undefined,
+      defaultCharacterModelId: updatedUser.defaultCharacterModelId || undefined,
       createdAt: updatedUser.createdAt,
       updatedAt: updatedUser.updatedAt
     }

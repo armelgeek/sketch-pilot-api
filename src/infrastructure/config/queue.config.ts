@@ -82,5 +82,6 @@ export interface VideoJobData {
     skipAudio?: boolean
     repromptSceneIndex?: number
     customSpec?: any
+    characterModelId?: string
   }
 }

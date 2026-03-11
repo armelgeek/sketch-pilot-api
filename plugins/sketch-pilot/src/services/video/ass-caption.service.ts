@@ -117,7 +117,7 @@ function springKeyframes(
     if (Math.abs(pos - to) < 0.3 && Math.abs(vel) < 0.3) break
   }
 
-  if (frames.at(-1).ms < durationMs) {
+  if (frames[frames.length - 1].ms < durationMs) {
     frames.push({ ms: durationMs, value: to })
   }
 
@@ -291,7 +291,7 @@ export class AssCaptionService {
           lines.push({
             words: currentChunk,
             lineStartMs: currentChunk[0].startMs,
-            lineEndMs: currentChunk.at(-1).startMs + currentChunk.at(-1).durationMs
+            lineEndMs: currentChunk[currentChunk.length - 1].startMs + currentChunk[currentChunk.length - 1].durationMs
           })
         }
         currentChunk = []
@@ -592,7 +592,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
       events.push(
         `Dialogue: 1,${t0},${t1},Words,,0,0,0,,` +
-          `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${glowText}`
+        `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${glowText}`
       )
 
       // Core layer — active word sharp white, inactive words dimmed
@@ -607,7 +607,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
       events.push(
         `Dialogue: 2,${t0},${t1},Words,,0,0,0,,` +
-          `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${coreText}`
+        `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${coreText}`
       )
     })
 
@@ -643,7 +643,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
       events.push(
         `Dialogue: 1,${t0},${t1},Words,,0,0,0,,` +
-          `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${text}`
+        `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${text}`
       )
     })
 
@@ -702,16 +702,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
         events.push(
           `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
-            `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
+          `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
         )
 
         // Layer 1: only the active word, positioned by layout estimate
         const layout = layouts[activeIdx]
         events.push(
           `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
-            `{\\an5\\pos(${layout.centerX},${layout.centerY})` +
-            `\\fs${this.fontSize}\\bord${this.borderSize}\\shad${this.shadowSize}` +
-            `\\c${this.highlightColor}\\fscx${sc}\\fscy${sc}}${layout.word}`
+          `{\\an5\\pos(${layout.centerX},${layout.centerY})` +
+          `\\fs${this.fontSize}\\bord${this.borderSize}\\shad${this.shadowSize}` +
+          `\\c${this.highlightColor}\\fscx${sc}\\fscy${sc}}${layout.word}`
         )
       }
     })
@@ -759,15 +759,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
         events.push(
           `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
-            `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
+          `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
         )
 
         // Layer 1: animated active word
         events.push(
           `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
-            `{\\an5\\pos(${layout.centerX},${activeY})` +
-            `\\fs${this.fontSize}\\bord${this.borderSize}\\shad${this.shadowSize}` +
-            `\\c${this.highlightColor}}${layout.word}`
+          `{\\an5\\pos(${layout.centerX},${activeY})` +
+          `\\fs${this.fontSize}\\bord${this.borderSize}\\shad${this.shadowSize}` +
+          `\\c${this.highlightColor}}${layout.word}`
         )
       }
     })
@@ -813,10 +813,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         const xFrames = springKeyframes(prevLeft, currLeft, SLIDE_MS, { stiffness: 180, damping: 22, mass: 1 })
         const wFrames = springKeyframes(prevW, currW, SLIDE_MS, { stiffness: 180, damping: 22, mass: 1 })
 
-        const maxMs = Math.max(xFrames.at(-1).ms, wFrames.at(-1).ms)
+        const maxMs = Math.max(xFrames[xFrames.length - 1].ms, wFrames[wFrames.length - 1].ms)
         const ticks: number[] = []
         for (let t = 0; t <= maxMs; t += FRAME_MS) ticks.push(t)
-        if (ticks.at(-1) < maxMs) ticks.push(maxMs)
+        if (ticks[ticks.length - 1] < maxMs) ticks.push(maxMs)
 
         const lerp = (frames: Array<{ ms: number; value: number }>, t: number) => {
           for (let i = frames.length - 1; i >= 0; i--) {
@@ -833,7 +833,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
           const w = Math.round(lerp(wFrames, ticks[i]))
           events.push(
             `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Pill,,0,0,0,,` +
-              `{\\an7\\pos(${left},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(w, pillH, RADIUS)}{\\p0}`
+            `{\\an7\\pos(${left},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(w, pillH, RADIUS)}{\\p0}`
           )
         }
 
@@ -841,13 +841,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         if (holdStart < wordEndMs) {
           events.push(
             `Dialogue: 0,${msToAss(holdStart)},${msToAss(wordEndMs)},Pill,,0,0,0,,` +
-              `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
+            `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
           )
         }
       } else {
         events.push(
           `Dialogue: 0,${msToAss(wordStartMs)},${msToAss(wordEndMs)},Pill,,0,0,0,,` +
-            `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
+          `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
         )
       }
 
@@ -858,8 +858,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         const bord = isActive ? 0 : this.borderSize
         events.push(
           `Dialogue: 1,${msToAss(wordStartMs)},${msToAss(wordEndMs)},Words,,0,0,0,,` +
-            `{\\an5\\pos(${wLayout.centerX},${this.lineY})` +
-            `\\fs${this.fontSize}\\bord${bord}\\shad${this.shadowSize}}${color}${this.cleanWord(wLayout.word)}`
+          `{\\an5\\pos(${wLayout.centerX},${this.lineY})` +
+          `\\fs${this.fontSize}\\bord${bord}\\shad${this.shadowSize}}${color}${this.cleanWord(wLayout.word)}`
         )
       })
     })

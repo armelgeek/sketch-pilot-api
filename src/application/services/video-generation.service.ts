@@ -29,11 +29,24 @@ export class VideoGenerationService {
 
   /**
    * Configure the engine with database-backed character models
+   * If a specific characterModelId is provided for the video, 
+   * we enforce using that specific reference image regardless of the character name.
    */
-  private configureCharacterLoader(): void {
+  private configureCharacterLoader(characterModelId?: string): void {
     const manager = getCharacterModelManager()
     manager.setExternalLoader(async (name: string) => {
-      const dbModel = await this.characterModelRepository.findByName(name)
+      let dbModel = null
+
+      // 1. If explicit ID is provided for the video, use it
+      if (characterModelId) {
+        dbModel = await this.characterModelRepository.findById(characterModelId)
+      }
+
+      // 2. Otherwise fall back to looking up by name
+      if (!dbModel) {
+        dbModel = await this.characterModelRepository.findByName(name)
+      }
+
       if (!dbModel) return null
 
       if (dbModel.imageUrl) {
@@ -56,8 +69,8 @@ export class VideoGenerationService {
   }
 
   private buildEngine(options: Partial<VideoGenerationOptions> = {}): NanoBananaEngine {
-    // Ensure loader is configured
-    this.configureCharacterLoader()
+    // Ensure loader is configured with the video's specific model if any
+    this.configureCharacterLoader((options as any).characterModelId)
 
     const apiKey = process.env.GEMINI_API_KEY || ''
 

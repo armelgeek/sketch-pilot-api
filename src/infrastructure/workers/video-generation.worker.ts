@@ -65,6 +65,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       generateOnlyScenes: options.generateOnlyScenes || false,
       generateFromScript: options.generateFromScript || false,
       customSpec: options.customSpec,
+      characterModelId: options.characterModelId,
       userId
     }
 

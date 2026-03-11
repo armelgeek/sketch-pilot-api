@@ -25,6 +25,7 @@ export class VideoRepository {
     language?: string
     script?: any
     scenes?: any
+    characterModelId?: string
   }) {
     const [video] = await db
       .insert(videos)

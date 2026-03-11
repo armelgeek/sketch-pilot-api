@@ -499,7 +499,7 @@ export class AnimatedCaptionRenderer {
     // Find which page we are on based on time
     const getPageForTime = (time: number) => {
       for (const [i, page] of pages.entries()) {
-        if (time <= page.at(-1).end + 0.5) return i // Give it a 0.5s linger
+        if (time <= page[page.length - 1].end + 0.5) return i // Give it a 0.5s linger
       }
       return pages.length - 1
     }
