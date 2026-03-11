@@ -8,7 +8,6 @@ import { TranscriptionServiceFactory, type TranscriptionService } from '../servi
 import { ImageServiceFactory, type ImageService, type ImageServiceConfig } from '../services/image'
 import { LLMServiceFactory, type LLMService, type LLMServiceConfig } from '../services/llm'
 import { SceneCacheService } from '../services/llm/scene-cache.service'
-import { CreditsService } from '../services/user/credits-service'
 import { VideoAssembler } from '../services/video/video-assembler.service'
 import {
   KokoroVoicePreset,
@@ -24,7 +23,6 @@ import {
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import { getCharacterModelManager } from '../utils/character-models'
-import { CostManager } from '../utils/cost-manager'
 import { TaskQueue } from '../utils/task-queue'
 
 import { TimingMapper } from '../utils/timing-mapper'
@@ -63,7 +61,6 @@ export class NanoBananaEngine {
   private currentAssCaptionConfig?: AssCaptionConfig
   private currentKokoroVoicePreset: KokoroVoicePreset = KokoroVoicePreset.AF_HEART
 
-  private readonly creditsService: CreditsService
   private readonly sceneCache: SceneCacheService
 
   // Store config for service re-initialization
@@ -110,7 +107,6 @@ export class NanoBananaEngine {
     this.currentImageProvider = imageConfig?.provider || 'gemini'
     this.currentLLMProvider = llmConfig?.provider || 'gemini'
 
-    this.creditsService = new CreditsService()
     this.sceneCache = new SceneCacheService()
 
     // Pass the shared PromptManager into VideoScriptGenerator via constructor injection
@@ -1064,16 +1060,6 @@ PLAIN WHITE BACKGROUND.`
     // Dynamic quality mode & provider configuration
     const qualityMode = validOptions.qualityMode || QualityMode.STANDARD
 
-    // Credit Check
-    const creditCost = CostManager.calculateVideoCost(validOptions, script.scenes.length)
-    if (validOptions.userId) {
-      const balance = this.creditsService.getCredits(validOptions.userId)
-      if (balance < creditCost) {
-        throw new Error(`Insufficient credits. Required: ${creditCost}, Balance: ${balance}`)
-      }
-      console.log(`[NanoBanana] User ${validOptions.userId} balance: ${balance}. Production cost: ${creditCost}`)
-    }
-
     // Configure Image Service based on Quality Mode
     let imageQuality: 'ultra-low' | 'low' | 'medium' | 'high' = 'medium'
     if (qualityMode === QualityMode.LOW_COST) imageQuality = 'ultra-low'
@@ -1182,27 +1168,10 @@ PLAIN WHITE BACKGROUND.`
     console.log(`[NanoBanana] Exporting production report to: ${projectDir}/script.md`)
     await this.exportVideoPackage(script, projectDir)
 
-    // Calculate Final Credit Cost
-    // creditCost is already calculated at the start of generateVideoFromScript
-    console.log(`\n💰 CREDIT COST: ${creditCost} credits (${qualityMode} mode)\n`)
-
-    // Actual Credit Deduction
-    if (validOptions.userId) {
-      const success = this.creditsService.deductCredits(validOptions.userId, creditCost)
-      if (!success) {
-        throw new Error(`Insufficient credits for final generation. Cost: ${creditCost}`)
-      }
-      console.log(
-        `[NanoBanana] Credits deducted: ${creditCost}. New balance: ${this.creditsService.getCredits(validOptions.userId)}`
-      )
-    }
-
     if (validOptions.scriptOnly) {
       console.log(`\n📄 SCRIPT-ONLY MODE: Stopping here. Report saved to: ${projectDir}/script.md`)
       const stats = {
         apiCalls: script.sceneCount * 2,
-        estimatedCost: creditCost,
-        actualCost: creditCost,
         generationTimeMs: Date.now() - startTime
       }
       fs.writeFileSync(path.join(projectDir, 'metadata.json'), JSON.stringify(stats, null, 2))
@@ -1338,8 +1307,6 @@ PLAIN WHITE BACKGROUND.`
 
     const stats = {
       apiCalls: script.sceneCount * 2,
-      estimatedCost: creditCost,
-      actualCost: creditCost,
       generationTimeMs: Date.now() - startTime
     }
 
@@ -1407,7 +1374,6 @@ PLAIN WHITE BACKGROUND.`
     return this.generateVideoFromTopic(
       topic,
       {
-        userId,
         qualityMode,
         enableContextualBackground,
         branding: {

@@ -753,7 +753,6 @@ export const videoGenerationOptionsSchema = z
       .boolean()
       .default(true)
       .describe('If true, strictly prohibit AI image generation and rely ONLY on local assets and text mode.'),
-    userId: z.string().optional().describe('User ID for credits management'),
     promptSections: promptSectionsSchema
       .optional()
       .describe(
