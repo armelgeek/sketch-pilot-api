@@ -51,11 +51,11 @@ export class NanoBananaEngine {
   private scriptGenerator: VideoScriptGenerator
   readonly promptManager: PromptManager
   private readonly generationQueue: TaskQueue
-  private audioService: AudioService
-  private transcriptionService?: TranscriptionService
-  private readonly animationService: AnimationService
-  private imageService: ImageService
-  private llmService: LLMService
+  private _audioService?: AudioService
+  private _transcriptionService?: TranscriptionService
+  private _animationService?: AnimationService
+  private _imageService?: ImageService
+  private _llmService?: LLMService
   private currentOptions: VideoGenerationOptions = videoGenerationOptionsSchema.parse({})
   private currentImageProvider: ImageProvider = 'gemini'
   private currentLLMProvider: LLMProvider = 'gemini'
@@ -71,6 +71,9 @@ export class NanoBananaEngine {
   private readonly audioConfig?: AudioServiceConfig
   private readonly animationConfig?: AnimationServiceConfig
   private readonly llmConfig?: LLMServiceConfig
+  private readonly imageConfig?: ImageServiceConfig
+  private readonly styleSuffix?: string
+  private readonly transcriptionConfig?: TranscriptionConfig
 
   constructor(
     apiKey: string,
@@ -86,6 +89,10 @@ export class NanoBananaEngine {
     this.audioConfig = audioConfig
     this.animationConfig = animationConfig
     this.llmConfig = llmConfig
+    this.imageConfig = imageConfig
+    this.styleSuffix = styleSuffix
+    this.transcriptionConfig = transcriptionConfig
+
     this.currentTranscriptionConfig = transcriptionConfig || {
       provider: 'whisper-local',
       model: 'base',
@@ -100,38 +107,8 @@ export class NanoBananaEngine {
     })
     this.systemPrompt = systemPrompt ?? this.promptManager.buildScriptCompletePrompt('', {} as any)
 
-    // Use factory pattern to create services
-    this.audioService = AudioServiceFactory.create(
-      this.audioConfig || {
-        provider: 'kokoro',
-        lang: 'en',
-        apiKey: process.env.HUGGING_FACE_TOKEN || apiKey,
-        kokoroVoicePreset: this.currentKokoroVoicePreset
-      }
-    )
-    this.animationService = AnimationServiceFactory.create(animationConfig || { provider: 'veo', apiKey })
-
-    if (transcriptionConfig) {
-      this.transcriptionService = TranscriptionServiceFactory.create(transcriptionConfig as any)
-    }
-
     this.currentImageProvider = imageConfig?.provider || 'gemini'
-    this.imageService = ImageServiceFactory.create(
-      imageConfig || {
-        provider: this.currentImageProvider,
-        apiKey,
-        styleSuffix,
-        systemPrompt
-      }
-    )
-
-    this.llmService = LLMServiceFactory.create(
-      llmConfig || {
-        provider: this.currentLLMProvider,
-        apiKey,
-        cacheSystemPrompt: true // ← Option B: Enable prompt caching
-      }
-    )
+    this.currentLLMProvider = llmConfig?.provider || 'gemini'
 
     this.creditsService = new CreditsService()
     this.sceneCache = new SceneCacheService()
@@ -160,6 +137,87 @@ export class NanoBananaEngine {
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true })
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Getters for Lazy Service Initialization
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  get audioService(): AudioService {
+    if (!this._audioService) {
+      this._audioService = AudioServiceFactory.create(
+        this.audioConfig || {
+          provider: 'kokoro',
+          lang: 'en',
+          apiKey: process.env.HUGGING_FACE_TOKEN || this.apiKey,
+          kokoroVoicePreset: this.currentKokoroVoicePreset
+        }
+      )
+    }
+    return this._audioService
+  }
+
+  set audioService(service: AudioService) {
+    this._audioService = service
+  }
+
+  get animationService(): AnimationService {
+    if (!this._animationService) {
+      this._animationService = AnimationServiceFactory.create(
+        this.animationConfig || { provider: 'veo', apiKey: this.apiKey }
+      )
+    }
+    return this._animationService
+  }
+
+  set animationService(service: AnimationService) {
+    this._animationService = service
+  }
+
+  get imageService(): ImageService {
+    if (!this._imageService) {
+      this._imageService = ImageServiceFactory.create(
+        this.imageConfig || {
+          provider: this.currentImageProvider,
+          apiKey: this.apiKey,
+          styleSuffix: this.styleSuffix,
+          systemPrompt: this.systemPrompt
+        }
+      )
+    }
+    return this._imageService
+  }
+
+  set imageService(service: ImageService) {
+    this._imageService = service
+  }
+
+  get llmService(): LLMService {
+    if (!this._llmService) {
+      this._llmService = LLMServiceFactory.create(
+        this.llmConfig || {
+          provider: this.currentLLMProvider,
+          apiKey: this.apiKey,
+          cacheSystemPrompt: true
+        }
+      )
+    }
+    return this._llmService
+  }
+
+  set llmService(service: LLMService) {
+    this._llmService = service
+  }
+
+  get transcriptionService(): TranscriptionService | undefined {
+    if (!this._transcriptionService && this.transcriptionConfig) {
+      this._transcriptionService = TranscriptionServiceFactory.create(this.transcriptionConfig as any)
+    }
+    return this._transcriptionService
+  }
+
+  set transcriptionService(service: TranscriptionService | undefined) {
+    this._transcriptionService = service
   }
 
   async generateImage(scene: EnrichedScene, baseImages: string[], filename: string): Promise<string> {
@@ -552,7 +610,7 @@ export class NanoBananaEngine {
       console.log(`[NanoBanana] Using global word timings for scene ${scene.id}`)
       // When using global audio, duration is exactly what Whisper measured
       totalDuration = scene.timeRange.end - scene.timeRange.start
-    } else if (scene.narration) {
+    } else if (scene.narration && !options.skipAudio) {
       try {
         const audioResult = await this.audioService.generateSpeech(scene.narration, audioPath)
         wordTimings = audioResult.wordTimings
@@ -1175,54 +1233,58 @@ PLAIN WHITE BACKGROUND.`
     let lastSceneImageBase64: string | undefined
 
     // --- GLOBAL AUDIO GENERATION ---
-    console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
-    const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
+    const skipAudio = validOptions.skipAudio || false
     const globalAudioPath = path.join(projectDir, 'global_narration.mp3')
     let globalWordTimings: WordTiming[] = []
 
-    try {
-      const audioResult = await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+    if (!skipAudio) {
+      console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
+      const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
 
-      // Auto-initialize Whisper local if not already done
-      if (!this.transcriptionService) {
-        console.log(`[NanoBanana] Initializing Whisper for global timing...`)
-        this.currentTranscriptionConfig = {
-          provider: 'whisper-local',
-          model: 'base',
-          device: 'cpu',
-          language: validOptions.language?.split('-')[0] || 'en'
+      try {
+        const audioResult = await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+
+        // Auto-initialize Whisper local if not already done
+        if (!this.transcriptionService) {
+          console.log(`[NanoBanana] Initializing Whisper for global timing...`)
+          this.currentTranscriptionConfig = {
+            provider: 'whisper-local',
+            model: 'base',
+            device: 'cpu',
+            language: validOptions.language?.split('-')[0] || 'en'
+          }
+          this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
         }
-        this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
+
+        console.log(`[NanoBanana] Transcribing global audio with Whisper...`)
+        const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
+        globalWordTimings = transcriptionResult.wordTimings
+
+        // Map timings back to scenes
+        console.log(`[NanoBanana] Mapping global timings to scenes...`)
+        const sceneNarrations = script.scenes.map((s) => ({ sceneId: s.id, narration: s.narration }))
+        const mappedTimings = TimingMapper.mapScenes(sceneNarrations, globalWordTimings)
+
+        // Update scene timeRanges and store timings
+        mappedTimings.forEach((timing, idx) => {
+          const scene = script.scenes[idx]
+          scene.timeRange.start = timing.start
+          scene.timeRange.end = timing.end
+          ;(scene as any).globalWordTimings = timing.wordTimings
+          console.log(`[NanoBanana] Scene ${scene.id}: ${timing.start.toFixed(2)}s -> ${timing.end.toFixed(2)}s`)
+        })
+
+        // Update total duration
+        if (mappedTimings.length > 0) {
+          script.totalDuration = mappedTimings.at(-1).end
+        }
+
+        script.globalAudio = 'global_narration.mp3'
+      } catch (audioError) {
+        console.error(`[NanoBanana] Global audio generation/transcription failed:`, audioError)
+        // Fallback: we might want to continue with per-scene audio if this fails,
+        // but the user specifically asked for this new flow.
       }
-
-      console.log(`[NanoBanana] Transcribing global audio with Whisper...`)
-      const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
-      globalWordTimings = transcriptionResult.wordTimings
-
-      // Map timings back to scenes
-      console.log(`[NanoBanana] Mapping global timings to scenes...`)
-      const sceneNarrations = script.scenes.map((s) => ({ sceneId: s.id, narration: s.narration }))
-      const mappedTimings = TimingMapper.mapScenes(sceneNarrations, globalWordTimings)
-
-      // Update scene timeRanges and store timings
-      mappedTimings.forEach((timing, idx) => {
-        const scene = script.scenes[idx]
-        scene.timeRange.start = timing.start
-        scene.timeRange.end = timing.end
-        ;(scene as any).globalWordTimings = timing.wordTimings
-        console.log(`[NanoBanana] Scene ${scene.id}: ${timing.start.toFixed(2)}s -> ${timing.end.toFixed(2)}s`)
-      })
-
-      // Update total duration
-      if (mappedTimings.length > 0) {
-        script.totalDuration = mappedTimings.at(-1).end
-      }
-
-      script.globalAudio = 'global_narration.mp3'
-    } catch (audioError) {
-      console.error(`[NanoBanana] Global audio generation/transcription failed:`, audioError)
-      // Fallback: we might want to continue with per-scene audio if this fails,
-      // but the user specifically asked for this new flow.
     }
     // --------------------------------
 
@@ -1255,7 +1317,7 @@ PLAIN WHITE BACKGROUND.`
     }
 
     // Assemble Final Video
-    if (!validOptions.scriptOnly) {
+    if (!validOptions.scriptOnly && !validOptions.generateOnlyScenes) {
       try {
         const videoAssembler = new VideoAssembler()
         const finalVideoPath = await videoAssembler.assembleVideo(

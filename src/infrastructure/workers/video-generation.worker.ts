@@ -61,6 +61,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       qualityMode: options.qualityMode || 'standard',
       characterConsistency: options.characterConsistency !== false,
       autoTransitions: options.autoTransitions !== false,
+      skipAudio: options.skipAudio || false,
       userId
     }
 
@@ -105,6 +106,51 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         userId,
         options: genOptions
       })
+    }
+
+    if (options.generateOnlyScenes) {
+      await reportProgress(job, videoId, 'upload_scenes', 90, 'Uploading scene images and updating database...')
+
+      const updatedScenes = [...(pkg.script?.scenes || [])]
+
+      for (const scene of updatedScenes as any[]) {
+        const sceneDir = path.join(pkg.outputPath, 'scenes', scene.id)
+        const sceneWebp = path.join(sceneDir, 'scene.webp')
+        const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
+
+        if (fs.existsSync(sceneWebp)) {
+          const buffer = fs.readFileSync(sceneWebp)
+          scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
+        }
+
+        if (fs.existsSync(thumbnailJpg)) {
+          const buffer = fs.readFileSync(thumbnailJpg)
+          scene.thumbnailUrl = await uploadBuffer(
+            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
+            buffer,
+            'image/jpeg'
+          )
+        }
+      }
+
+      await videoRepository.updateStatus(videoId, {
+        status: 'scenes_generated',
+        progress: 100,
+        currentStep: 'done',
+        script: pkg.script as any,
+        scenes: updatedScenes as any,
+        completedAt: new Date()
+      })
+
+      await job.updateProgress({
+        step: 'completed',
+        progress: 100,
+        status: 'completed',
+        videoId
+      })
+
+      console.info(`[VideoWorker] Scene generation completed for videoId: ${videoId}`)
+      return
     }
 
     await reportProgress(job, videoId, 'upload', 85, 'Uploading video to storage...')

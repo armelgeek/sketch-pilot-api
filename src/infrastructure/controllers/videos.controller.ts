@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { GenerateScenesUseCase } from '@/application/use-cases/video/generate-scenes.use-case'
 import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
@@ -7,12 +8,14 @@ import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
 import { VideoRepository } from '../repositories/video.repository'
+import { VideoOptionsSchema } from './video-options.schema'
 
 const videoRepository = new VideoRepository()
 const generateVideoUseCase = new GenerateVideoUseCase()
 const regenerateVideoUseCase = new RegenerateVideoUseCase()
 const renderVideoUseCase = new RenderVideoUseCase()
 const repromptSceneImageUseCase = new RepromptSceneImageUseCase()
+const generateScenesUseCase = new GenerateScenesUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -37,25 +40,7 @@ export class VideosController implements Routes {
               'application/json': {
                 schema: z.object({
                   topic: z.string().min(1).max(500),
-                  options: z
-                    .object({
-                      duration: z.number().optional(),
-                      sceneCount: z.number().optional(),
-                      style: z.string().optional(),
-                      videoType: z.string().optional(),
-                      videoGenre: z.string().optional(),
-                      language: z.string().optional(),
-                      voiceProvider: z.string().optional(),
-                      voiceId: z.string().optional(),
-                      animationProvider: z.string().optional(),
-                      llmProvider: z.string().optional(),
-                      imageProvider: z.string().optional(),
-                      qualityMode: z.string().optional(),
-                      textOverlay: z.object({ enabled: z.boolean(), position: z.string() }).optional(),
-                      characterConsistency: z.boolean().optional(),
-                      autoTransitions: z.boolean().optional()
-                    })
-                    .optional()
+                  options: VideoOptionsSchema.optional()
                 })
               }
             }
@@ -580,7 +565,7 @@ export class VideosController implements Routes {
                   genre: z.string().nullable().optional(),
                   type: z.string().nullable().optional(),
                   language: z.string().nullable().optional(),
-                  options: z.any().optional(),
+                  options: VideoOptionsSchema.optional(),
                   script: z.any().optional(),
                   scenes: z.any().optional(),
                   creditsUsed: z.number(),
@@ -694,7 +679,16 @@ export class VideosController implements Routes {
         description: 'Creates a new generation job with the same options.',
         security: [{ Bearer: [] }],
         request: {
-          params: z.object({ id: z.string() })
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  options: VideoOptionsSchema.optional()
+                })
+              }
+            }
+          }
         },
         responses: {
           202: {
@@ -731,6 +725,7 @@ export class VideosController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const { id } = c.req.valid('param')
+        const { options } = c.req.valid('json') || {}
         const video = await videoRepository.findByIdAndUserId(id, user.id)
         if (!video) return c.json({ error: 'Video not found' }, 404)
 
@@ -739,7 +734,10 @@ export class VideosController implements Routes {
           userId: user.id,
           planId: (user as any).planId,
           topic: video.topic,
-          options: (video.options as any) || {}
+          options: {
+            ...((video.options as any) || {}),
+            ...options
+          }
         })
 
         if (!result.success) {
@@ -1041,6 +1039,65 @@ export class VideosController implements Routes {
           },
           202
         )
+      }
+    )
+
+    // POST /v1/videos/:id/generate-scenes
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/generate-scenes',
+        tags: ['Videos'],
+        summary: 'Generate visual assets (scenes) for a video',
+        description: 'Enqueues a job to generate scene images without audio, allowing for script edits.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({
+            id: z.string().openapi({ example: 'vid-123' })
+          })
+        },
+        responses: {
+          202: {
+            description: 'Job enqueued',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  jobId: z.string(),
+                  creditsRequired: z.number()
+                })
+              }
+            }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { result } = await generateScenesUseCase.run({
+          videoId: id,
+          userId: user.id
+        })
+
+        if (!result.success) {
+          if (result.insufficientCredits) return c.json({ error: result.error }, 402)
+          return c.json({ error: result.error || 'Failed to start scene generation' }, 400)
+        }
+
+        return c.json(result, 202)
       }
     )
   }

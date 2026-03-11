@@ -6,7 +6,9 @@ const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
 function getRedisConnectionOptions() {
   try {
-    const url = new URL(redisUrl)
+    // Handle cases where REDIS_URL might be just 'localhost' or 'localhost:6379'
+    const normalizedUrl = redisUrl.includes('://') ? redisUrl : `redis://${redisUrl}`
+    const url = new URL(normalizedUrl)
     return {
       host: url.hostname || 'localhost',
       port: Number.parseInt(url.port) || 6379,
@@ -15,7 +17,10 @@ function getRedisConnectionOptions() {
       enableReadyCheck: false,
       lazyConnect: true
     }
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[QueueConfig] Failed to parse REDIS_URL "${redisUrl}": ${error instanceof Error ? error.message : String(error)}. Using default connection.`
+    )
     return {
       host: 'localhost',
       port: 6379,
@@ -73,6 +78,8 @@ export interface VideoJobData {
     characterConsistency?: boolean
     autoTransitions?: boolean
     generateFromScript?: boolean
+    generateOnlyScenes?: boolean
+    skipAudio?: boolean
     repromptSceneIndex?: number
     customSpec?: any
   }

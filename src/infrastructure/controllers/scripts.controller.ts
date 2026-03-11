@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { GenerateScriptUseCase } from '@/application/use-cases/video/generate-script.use-case'
 import { ValidateScriptUseCase } from '@/application/use-cases/video/validate-script.use-case'
 import type { Routes } from '@/domain/types'
+import { VideoOptionsSchema } from './video-options.schema'
 
 const generateScriptUseCase = new GenerateScriptUseCase()
 const validateScriptUseCase = new ValidateScriptUseCase()
@@ -29,18 +30,7 @@ export class ScriptsController implements Routes {
               'application/json': {
                 schema: z.object({
                   topic: z.string().min(1).max(500),
-                  options: z
-                    .object({
-                      duration: z.number().optional(),
-                      sceneCount: z.number().optional(),
-                      style: z.enum(['motivational', 'educational', 'storytelling', 'tutorial']).optional(),
-                      videoType: z.string().optional(),
-                      videoGenre: z.string().optional(),
-                      language: z.string().optional(),
-                      llmProvider: z.string().optional(),
-                      qualityMode: z.string().optional()
-                    })
-                    .optional()
+                  options: VideoOptionsSchema.optional()
                 })
               }
             }

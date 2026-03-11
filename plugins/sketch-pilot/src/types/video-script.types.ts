@@ -339,7 +339,9 @@ export const enrichedSceneSchema = z.object({
     .optional()
     .describe(
       'List of keyword-to-visual mappings. When the narrator says a keyword, the scene visual swaps to a new image for the duration of that word/phrase, then returns to default.'
-    )
+    ),
+  imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
+  thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
@@ -427,6 +429,7 @@ export type CompleteVideoScript = z.infer<typeof completeVideoScriptSchema>
  */
 export const videoTypeSchema = z.enum([
   'faceless', // Faceless videos with narration and visuals
+  'explainer', // Educational explainer videos
   'tutorial', // Step-by-step how-to guides
   'listicle', // Top 5/10 lists, facts, rankings
   'news', // News recaps, trending topics
@@ -736,6 +739,11 @@ export const videoGenerationOptionsSchema = z
       .boolean()
       .default(false)
       .describe('If true, only generate the script and production report, skip asset generation'),
+    skipAudio: z.boolean().default(false).describe('If true, skip audio generation (TTS)'),
+    generateOnlyScenes: z
+      .boolean()
+      .default(false)
+      .describe('If true, only generate visual assets (scenes) and skip final assembly'),
     qualityMode: z.nativeEnum(QualityMode).default(QualityMode.STANDARD).describe('Quality mode for generation'),
     enableContextualBackground: z
       .boolean()
