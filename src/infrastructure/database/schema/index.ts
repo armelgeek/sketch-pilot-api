@@ -1,3 +1,4 @@
 export * from './schema'
 export * from './video.schema'
 export * from './prompt.schema'
+export * from './character-model.schema'

@@ -665,6 +665,7 @@ export const videoGenerationOptionsSchema = z
   .object({
     minDuration: z.number().min(1).optional().describe('Minimum total duration in seconds'),
     maxDuration: z.number().min(1).default(30).describe('Maximum total duration in seconds'),
+    userId: z.string().optional().describe('The ID of the user generating the video'),
     sceneCount: z
       .number()
       .int()

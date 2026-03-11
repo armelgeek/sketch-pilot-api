@@ -1,6 +1,5 @@
 import { exec } from 'node:child_process'
 import * as fs from 'node:fs'
-import { Readable } from 'node:stream'
 import { promisify } from 'node:util'
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js'
 import { detectAndTrimSilence } from '../../utils/audio-trimmer'
@@ -47,29 +46,30 @@ export class ElevenLabsService implements AudioService {
         }
       })
 
-      // Create write stream
+      // Collect chunks from the Web Streams ReadableStream
       const fileStream = fs.createWriteStream(outputPath)
-
-      // Convert async iterable to readable stream and pipe to file
       await new Promise<void>((resolve, reject) => {
-        const readable = Readable.from(audioStream)
-
-        readable.pipe(fileStream)
-
-        fileStream.on('finish', () => {
-          console.log(`[ElevenLabs] Speech generated successfully: ${outputPath}`)
-          resolve()
-        })
-
-        fileStream.on('error', (error: Error) => {
-          console.error(`[ElevenLabs] File stream error:`, error)
-          reject(error)
-        })
-
-        readable.on('error', (error: Error) => {
-          console.error(`[ElevenLabs] Audio stream error:`, error)
-          reject(error)
-        })
+        const reader = (audioStream as ReadableStream<Uint8Array>).getReader()
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) {
+                fileStream.end()
+                break
+              }
+              fileStream.write(value)
+            }
+            fileStream.on('finish', () => {
+              console.log(`[ElevenLabs] Speech generated successfully: ${outputPath}`)
+              resolve()
+            })
+            fileStream.on('error', reject)
+          } catch (error) {
+            reject(error)
+          }
+        }
+        pump()
       })
 
       // For now, ElevenLabs implementation doesn't return word timings

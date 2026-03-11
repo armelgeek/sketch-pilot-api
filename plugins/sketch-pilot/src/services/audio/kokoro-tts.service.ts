@@ -8,7 +8,8 @@ import type { AudioGenerationResult, AudioService } from './index'
 export class KokoroTTSService implements AudioService {
   private tts: KokoroTTS | null = null
   private readonly language: string
-  private readonly voicePreset: string
+
+  private readonly voicePreset: any
   private readonly modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX'
   private initialized: boolean = false
 

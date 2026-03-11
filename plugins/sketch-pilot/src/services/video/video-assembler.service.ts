@@ -1589,23 +1589,57 @@ export class VideoAssembler {
     // ── xfade path (re-encodes but adds smooth transitions) ──
     console.log(`[VideoAssembler] Stitching ${clips.length} clips with xfade transitions...`)
 
-    // 1. Get durations of all clips
+    // 1. Get durations and audio presence of all clips
     const durations: number[] = []
+    const hasAudio: boolean[] = []
     for (const clip of clips) {
-      durations.push(await this.getClipDuration(clip))
+      const meta = await this.getClipMetadata(clip)
+      durations.push(meta.duration)
+      hasAudio.push(meta.hasAudio)
     }
 
     // 2. Build complex filter chain
     const command = ffmpeg()
-    clips.forEach((clip) => command.input(clip))
+    clips.forEach((clip, i) => {
+      if (hasAudio[i]) {
+        command.input(clip)
+      } else {
+        // Inject silent audio if stream is missing
+        command.input(clip)
+        command.input('anullsrc=r=44100:cl=stereo').inputOptions(['-f lavfi'])
+      }
+    })
 
     let filterComplex = ''
     const n = clips.length
 
+    // Label mapping for clips that might have injected silence
+    // If hasAudio[i] is false, we need to mix input clip with anullsrc
+    let inputCounter = 0
+    const clipLabels: string[] = []
+    const audioLabels: string[] = []
+
+    for (let i = 0; i < n; i++) {
+      const vLabel = `[v_in_${i}]`
+      const aLabel = `[a_in_${i}]`
+      if (hasAudio[i]) {
+        filterComplex += `[${inputCounter}:v]copy${vLabel};`
+        filterComplex += `[${inputCounter}:a]copy${aLabel};`
+        inputCounter++
+      } else {
+        // [inputCounter]:v is the video, [inputCounter+1]:a is the silence
+        filterComplex += `[${inputCounter}:v]copy${vLabel};`
+        filterComplex += `[${inputCounter + 1}:a]trim=duration=${durations[i]},setpts=PTS-STARTPTS${aLabel};`
+        inputCounter += 2
+      }
+      clipLabels.push(vLabel)
+      audioLabels.push(aLabel)
+    }
+
     // ── Video xfade chain ──
     // Running offset tracks the cumulative video timeline position
     let cumulativeOffset = 0
-    let lastVideoLabel = '[0:v]'
+    let lastVideoLabel = clipLabels[0]
 
     for (let i = 1; i < n; i++) {
       // Safe transition max is half of the shortest adjacent clip
@@ -1621,8 +1655,8 @@ export class VideoAssembler {
       const effectiveOverlap = Math.max(transitionDuration, audioOverlap)
       const offset = Number(Math.max(0.01, cumulativeOffset + durations[i - 1] - effectiveOverlap).toFixed(3))
 
-      const outLabel = `[v${i}]`
-      filterComplex += `${lastVideoLabel}[${i}:v]xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${outLabel};`
+      const outLabel = `[v_out_${i}]`
+      filterComplex += `${lastVideoLabel}${clipLabels[i]}xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${outLabel};`
       lastVideoLabel = outLabel
 
       // Update cumulative offset
@@ -1634,7 +1668,7 @@ export class VideoAssembler {
     }
 
     // ── Audio crossfade chain ──
-    let lastAudioLabel = '[0:a]'
+    let lastAudioLabel = audioLabels[0]
     let audioCumulativeOffset = 0
 
     for (let i = 1; i < n; i++) {
@@ -1651,9 +1685,9 @@ export class VideoAssembler {
           : audioCumulativeOffset + durations[i - 1] - effectiveAudioOverlap
 
       const safeOffset = Math.max(0.01, offset)
-      const outLabel = `[a${i}]`
+      const outLabel = `[a_out_${i}]`
       // Use effectiveAudioOverlap for acrossfade duration
-      filterComplex += `${lastAudioLabel}[${i}:a]acrossfade=d=${effectiveAudioOverlap.toFixed(3)}:c1=tri:c2=tri${outLabel};`
+      filterComplex += `${lastAudioLabel}${audioLabels[i]}acrossfade=d=${effectiveAudioOverlap.toFixed(3)}:c1=tri:c2=tri${outLabel};`
       lastAudioLabel = outLabel
 
       if (i === 1) {
@@ -1722,6 +1756,20 @@ export class VideoAssembler {
     })
   }
 
+  /**
+   * Gets metadata for a video clip including duration and audio presence.
+   */
+  private getClipMetadata(clipPath: string): Promise<{ duration: number; hasAudio: boolean }> {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(clipPath, (err, metadata) => {
+        if (err) return reject(err)
+        const duration = metadata.format.duration || 5
+        const hasAudio = metadata.streams.some((s) => s.codec_type === 'audio')
+        resolve({ duration, hasAudio })
+      })
+    })
+  }
+
   private async getAudioDuration(audioPath: string): Promise<number> {
     return new Promise((resolve, reject) => {
       if (!fs.existsSync(audioPath)) return resolve(5) // Default scene length
@@ -1735,8 +1783,6 @@ export class VideoAssembler {
 
   /**
    * Detects the duration of leading silence at the start of an audio file.
-   * Returns the duration of silence detected (in seconds), or 0 if no silence.
-   * Uses ffmpeg's silencedetect filter with a noise threshold.
    */
   private async detectLeadingSilence(audioPath: string): Promise<number> {
     return new Promise((resolve) => {
@@ -1749,8 +1795,6 @@ export class VideoAssembler {
         .format('null')
         .output('-')
         .on('stderr', (stderrLine) => {
-          // Parse silencedetect output to find leading silence
-          // Output format: [silencedetect @ ...] silence_end: X.XXXX | silence_duration: Y.YYYY
           if (stderrLine.includes('silence_end:') && !stderrLine.includes('silence_start:')) {
             const match = stderrLine.match(/silence_end:\s*([\d.]+)/)
             if (match && firstSilenceEnd === 0) {
@@ -1766,8 +1810,6 @@ export class VideoAssembler {
 
   /**
    * Detects the duration of trailing silence at the end of an audio file.
-   * Returns the duration of silence detected (in seconds), or 0 if no silence.
-   * Uses ffmpeg's silencedetect filter with a noise threshold.
    */
   private async detectTrailingSilence(audioPath: string): Promise<number> {
     return new Promise((resolve) => {
@@ -1780,8 +1822,6 @@ export class VideoAssembler {
         .format('null')
         .output('-')
         .on('stderr', (stderrLine) => {
-          // Parse silencedetect output to find trailing silence
-          // Track the LAST silence_start: for trailing silence at the end
           if (stderrLine.includes('silence_start:')) {
             const match = stderrLine.match(/silence_start:\s*([\d.]+)/)
             if (match) {
@@ -1827,7 +1867,7 @@ export class VideoAssembler {
     const positions: Record<TextPosition, { x: string; y: string }> = {
       top: { x: '(w-text_w)/2', y: '50' },
       center: { x: '(w-text_w)/2', y: '(h-text_h)/2' },
-      bottom: { x: '(w-text_w)/2', y: 'h-text_h-100' }, // More breathing room
+      bottom: { x: '(w-text_w)/2', y: 'h-text_h-100' },
       'top-left': { x: '50', y: '50' },
       'top-right': { x: 'w-text_w-50', y: '50' },
       'bottom-left': { x: '50', y: 'h-text_h-50' },
@@ -1840,7 +1880,6 @@ export class VideoAssembler {
 
   /**
    * Wraps text to fit within max characters per line
-   * Handles edge case where a single word is longer than maxCharsPerLine
    */
   private wrapText(text: string, maxCharsPerLine: number): string {
     const words = text.split(' ')
@@ -1848,14 +1887,11 @@ export class VideoAssembler {
     let currentLine = ''
 
     for (const word of words) {
-      // Handle words that are longer than maxCharsPerLine
       if (word.length > maxCharsPerLine) {
-        // Add current line if it exists
         if (currentLine) {
           lines.push(currentLine)
           currentLine = ''
         }
-        // Split the long word into chunks
         for (let i = 0; i < word.length; i += maxCharsPerLine) {
           lines.push(word.substring(i, i + maxCharsPerLine))
         }
@@ -1884,8 +1920,6 @@ export class VideoAssembler {
   ): Promise<void> {
     console.log(`[VideoAssembler] Generating global ASS subtitles...`)
     const allWordTimings: WordTiming[] = []
-
-    // Tracks cumulative offset in ms
     let cumulativeOffsetMs = 0
     const hasGlobalAudio = !!options.globalAudioPath
 
@@ -1894,7 +1928,6 @@ export class VideoAssembler {
       const sceneDuration = scene.timeRange.end - scene.timeRange.start || 5
       let wordTimings = (scene as any).globalWordTimings || (scene as any).wordTimings || []
 
-      // FALLBACK: If no word timings, use full narration as a single block
       if (wordTimings.length === 0 && scene.narration) {
         wordTimings = [
           {
@@ -1907,13 +1940,11 @@ export class VideoAssembler {
         ]
       }
 
-      // Ensure we have absolute timings for the global subtitle timeline
       if (hasGlobalAudio) {
         const absoluteTimingsFromScene = (scene as any).globalWordTimings
         if (absoluteTimingsFromScene && absoluteTimingsFromScene.length > 0) {
           allWordTimings.push(...absoluteTimingsFromScene)
         } else {
-          // Reconstruct absolute timings from relative wordTimings using scene start
           const sceneBaseTime = scene.timeRange.start
           const reconstructed = wordTimings.map((w: any) => ({
             ...w,
@@ -1925,15 +1956,12 @@ export class VideoAssembler {
           allWordTimings.push(...reconstructed)
         }
       } else {
-        // Fallback for non-global audio assembly via xfades
         const offsetTimings = wordTimings.map((w: any) => ({
           ...w,
           startMs: w.startMs + cumulativeOffsetMs,
           end: (w.end * 1000 + cumulativeOffsetMs) / 1000
         }))
         allWordTimings.push(...offsetTimings)
-
-        // Update cumulative offset for NEXT scene
         cumulativeOffsetMs += Math.round(sceneDuration * 1000)
       }
     }

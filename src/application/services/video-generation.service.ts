@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import process from 'node:process'
 
 /**
@@ -6,7 +7,9 @@ import process from 'node:process'
  * Used by the BullMQ worker to execute video generation jobs.
  */
 import { NanoBananaEngine } from '@sketch-pilot/core/nano-banana-engine'
+import { getCharacterModelManager } from '@sketch-pilot/utils/character-models'
 import { PromptService } from '@/application/services/prompt.service'
+import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
 import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
@@ -22,8 +25,40 @@ export interface VideoGenerationInput {
 
 export class VideoGenerationService {
   private readonly promptService = new PromptService(new PromptRepository())
+  private readonly characterModelRepository = new CharacterModelRepository()
+
+  /**
+   * Configure the engine with database-backed character models
+   */
+  private configureCharacterLoader(): void {
+    const manager = getCharacterModelManager()
+    manager.setExternalLoader(async (name: string) => {
+      const dbModel = await this.characterModelRepository.findByName(name)
+      if (!dbModel) return null
+
+      if (dbModel.imageUrl) {
+        try {
+          const response = await fetch(dbModel.imageUrl)
+          const buffer = await response.arrayBuffer()
+          return {
+            name: dbModel.name,
+            path: dbModel.imageUrl,
+            base64: Buffer.from(buffer).toString('base64'),
+            mimeType: dbModel.mimeType || 'image/jpeg'
+          }
+        } catch (error) {
+          console.error(`[VideoService] Failed to fetch model image from ${dbModel.imageUrl}:`, error)
+        }
+      }
+
+      return null
+    })
+  }
 
   private buildEngine(options: Partial<VideoGenerationOptions> = {}): NanoBananaEngine {
+    // Ensure loader is configured
+    this.configureCharacterLoader()
+
     const apiKey = process.env.GEMINI_API_KEY || ''
 
     const audioConfig: AudioServiceConfig = {
@@ -68,19 +103,21 @@ export class VideoGenerationService {
    * Generate a complete video from a topic.
    * This is the main entry point used by the BullMQ worker.
    */
-  async generateVideo(input: VideoGenerationInput): Promise<CompleteVideoPackage> {
-    const { topic, options = {} } = input
+  async generateVideo(input: VideoGenerationInput & { projectId?: string }): Promise<CompleteVideoPackage> {
+    const { topic, options = {}, projectId } = input
     const engine = this.buildEngine(options)
-    return await engine.generateVideoFromTopic(topic, options)
+    return await engine.generateVideoFromTopic(topic, options, [], projectId)
   }
 
   /**
    * Render a video directly from an existing script.
    * This bypasses the LLM generation phase and is used for manually validated scripts.
    */
-  async renderVideoFromScript(input: VideoGenerationInput & { script: any }): Promise<CompleteVideoPackage> {
-    const { script, options = {} } = input
+  async renderVideoFromScript(
+    input: VideoGenerationInput & { script: any; projectId?: string }
+  ): Promise<CompleteVideoPackage> {
+    const { script, options = {}, projectId } = input
     const engine = this.buildEngine(options)
-    return await engine.generateVideoFromScript(script, options)
+    return await engine.generateVideoFromScript(script, options, [], projectId)
   }
 }

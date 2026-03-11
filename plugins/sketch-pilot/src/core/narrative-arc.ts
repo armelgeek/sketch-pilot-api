@@ -641,6 +641,66 @@ export const NARRATIVE_ARCS: Record<VideoType, NarrativeArc> = {
         required: true
       }
     ]
+  },
+  explainer: {
+    videoType: 'explainer',
+    name: 'Problem-Solution Explainer Arc',
+    description:
+      'A classic explainer structure that starts with a relatable problem and builds toward a comprehensive solution.',
+    storytellingPrinciple:
+      'The viewer must feel the pain of the problem before the value of the solution. Every feature is a benefit.',
+    hookStrategy: 'Start with a question that highlights a common frustration or inefficiency.',
+    closingStrategy: 'Summary of the transformation from problem to solution, ending with a call to action.',
+    scenes: [
+      {
+        role: 'problem_hook',
+        label: 'Hook — The Relatable Problem',
+        purpose: 'Identify a common pain point that the viewer experiences to create immediate resonance.',
+        techniques: ['Ask a rhetorical question', 'Show the frustration of the status quo'],
+        visualGuidance: 'Character struggling with a task or looking frustrated by a complex system.',
+        required: true
+      },
+      {
+        role: 'agitation',
+        label: 'Agitation — Why It Matters',
+        purpose: 'Dig deeper into the consequences of NOT solving the problem. Increase the stakes.',
+        techniques: ['Highlight lost time, money, or energy', 'Compare current struggle to ideal state'],
+        visualGuidance: 'A "before" visualization showing chaos, cost, or complexity.',
+        required: true
+      },
+      {
+        role: 'the_solution_intro',
+        label: 'Introduction — The New Way',
+        purpose: 'Reveal the product, service, or concept as the answer to the previously defined problem.',
+        techniques: ['Dramatic reveal of the solution name/logo', 'Single sentence value proposition'],
+        visualGuidance: 'The solution appearing like a hero, clearing away the chaos.',
+        required: true
+      },
+      {
+        role: 'how_it_works_1',
+        label: 'Core Mechanism — Simplicity',
+        purpose: 'Explain the most important feature or aspect that makes the solution work.',
+        techniques: ['Break down complexity into one simple visual metaphor', 'Focus on ease of use'],
+        visualGuidance: 'Character using the solution effortlessly. Simplified diagram or flowchart.',
+        required: true
+      },
+      {
+        role: 'benefits_proof',
+        label: 'Benefits & Proof — Life After',
+        purpose: 'Show the tangible results. How life is better now that the problem is gone.',
+        techniques: ['Numbers or percentages of improvement', 'Show the character feeling relieved or empowered'],
+        visualGuidance: 'The "after" visualization — calm, efficient, and successful.',
+        required: false
+      },
+      {
+        role: 'final_call_to_action',
+        label: 'Conclusion — Take the Next Step',
+        purpose: 'Clearly state what the viewer should do next to start their transformation.',
+        techniques: ['Urgency: "Start today"', 'Clear visual signpost for the next action'],
+        visualGuidance: 'Character pointing at a button or website link. Confident and inviting.',
+        required: true
+      }
+    ]
   }
 }
 

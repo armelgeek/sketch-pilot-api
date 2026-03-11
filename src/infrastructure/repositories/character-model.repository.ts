@@ -1,0 +1,33 @@
+import { eq } from 'drizzle-orm'
+import { db } from '../database/db'
+import { characterModels } from '../database/schema'
+
+export class CharacterModelRepository {
+  async findAll() {
+    return await db.select().from(characterModels)
+  }
+
+  async findByName(name: string) {
+    const [model] = await db.select().from(characterModels).where(eq(characterModels.name, name))
+    return model || null
+  }
+
+  async create(data: typeof characterModels.$inferInsert) {
+    const [model] = await db.insert(characterModels).values(data).returning()
+    return model
+  }
+
+  async update(id: string, data: Partial<typeof characterModels.$inferInsert>) {
+    const [model] = await db
+      .update(characterModels)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(characterModels.id, id))
+      .returning()
+    return model
+  }
+
+  async delete(id: string) {
+    const [deleted] = await db.delete(characterModels).where(eq(characterModels.id, id)).returning()
+    return deleted || null
+  }
+}

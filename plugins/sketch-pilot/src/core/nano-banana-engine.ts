@@ -977,7 +977,8 @@ PLAIN WHITE BACKGROUND.`
   async generateVideoFromTopic(
     topic: string,
     options: Partial<VideoGenerationOptions> = {},
-    baseImages: string[] = []
+    baseImages: string[] = [],
+    projectId?: string
   ): Promise<CompleteVideoPackage> {
     const validOptions = videoGenerationOptionsSchema.parse(options)
     this.currentOptions = validOptions
@@ -985,7 +986,7 @@ PLAIN WHITE BACKGROUND.`
     console.log(`\n=== GENERATING SCRIPT: ${topic} ===`)
     const script = await this.generateStructuredScript(topic, validOptions)
 
-    return this.generateVideoFromScript(script, options, baseImages)
+    return this.generateVideoFromScript(script, options, baseImages, projectId)
   }
 
   /**
@@ -1051,7 +1052,8 @@ PLAIN WHITE BACKGROUND.`
   async generateVideoFromScript(
     script: CompleteVideoScript,
     options: Partial<VideoGenerationOptions> = {},
-    baseImages: string[] = []
+    baseImages: string[] = [],
+    projectId?: string
   ): Promise<CompleteVideoPackage> {
     const startTime = Date.now()
     const validOptions = videoGenerationOptionsSchema.parse(options)
@@ -1117,7 +1119,7 @@ PLAIN WHITE BACKGROUND.`
     if (usedCharacterVariants.size > 0) {
       console.log(`[NanoBanana] Loading character models for: ${Array.from(usedCharacterVariants).join(', ')}`)
       for (const variant of usedCharacterVariants) {
-        const referenceImages = characterModelManager.getReferenceImagesForCharacter(variant)
+        const referenceImages = await characterModelManager.getReferenceImagesForCharacter(variant)
         characterReferenceImages.push(...referenceImages)
       }
 
@@ -1131,13 +1133,8 @@ PLAIN WHITE BACKGROUND.`
     // ─────────────────────────────────────────────────────────────────────────
     // CHARACTER STUDIO (V2 Phase 2): Reference Images
     // ─────────────────────────────────────────────────────────────────────────
-    const projectDir = path.join(
-      __dirname,
-      '..',
-      '..',
-      'output',
-      `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
-    )
+    const projectName = projectId || `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
+    const projectDir = path.join(__dirname, '..', '..', 'output', projectName)
     if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true })
 
     // Use model reference images directly — no character bible generation
@@ -1374,6 +1371,7 @@ PLAIN WHITE BACKGROUND.`
     return this.generateVideoFromTopic(
       topic,
       {
+        userId,
         qualityMode,
         enableContextualBackground,
         branding: {

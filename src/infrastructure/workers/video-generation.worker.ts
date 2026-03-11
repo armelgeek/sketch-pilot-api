@@ -62,6 +62,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       characterConsistency: options.characterConsistency !== false,
       autoTransitions: options.autoTransitions !== false,
       skipAudio: options.skipAudio || false,
+      generateOnlyScenes: options.generateOnlyScenes || false,
+      generateFromScript: options.generateFromScript || false,
+      customSpec: options.customSpec,
       userId
     }
 
@@ -88,7 +91,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         topic,
         userId,
         script: videoRecord.script,
-        options: genOptions
+        options: genOptions,
+        projectId: videoId
       })
     } else {
       await videoRepository.updateStatus(videoId, {
@@ -104,7 +108,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       pkg = await videoGenerationService.generateVideo({
         topic,
         userId,
-        options: genOptions
+        options: genOptions,
+        projectId: videoId
       })
     }
 

@@ -1,8 +1,10 @@
 import { createReadStream } from 'node:fs'
 import process from 'node:process'
 import {
+  CreateBucketCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client
@@ -20,8 +22,28 @@ export const storageClient = new S3Client({
   forcePathStyle: true
 })
 
-export const BUCKET = process.env.MINIO_BUCKET || 'stickman-videos'
-export const CDN_URL = process.env.CDN_URL || 'http://localhost:9000/stickman-videos'
+export const BUCKET = process.env.MINIO_BUCKET || 'sketch-videos'
+export const CDN_URL = process.env.CDN_URL || 'http://localhost:9000/sketch-videos'
+
+/**
+ * Ensure the bucket exists, create it if it doesn't
+ */
+export async function ensureBucketExists(): Promise<void> {
+  try {
+    await storageClient.send(new HeadBucketCommand({ Bucket: BUCKET }))
+  } catch (error: any) {
+    if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+      console.info(`[Storage] Bucket '${BUCKET}' not found, creating...`)
+      try {
+        await storageClient.send(new CreateBucketCommand({ Bucket: BUCKET }))
+      } catch (createError: any) {
+        console.error(`[Storage] Failed to create bucket '${BUCKET}':`, createError.message)
+      }
+    } else {
+      console.error(`[Storage] Error checking bucket '${BUCKET}':`, error.message)
+    }
+  }
+}
 
 /**
  * Generate a signed download URL for a video (expires in 1 hour)
@@ -44,6 +66,7 @@ export async function uploadVideoToMinio(
   contentType = 'video/mp4'
 ): Promise<string> {
   const key = `videos/${videoId}/final.mp4`
+  await ensureBucketExists()
   await storageClient.send(
     new PutObjectCommand({
       Bucket: BUCKET,
@@ -60,6 +83,7 @@ export async function uploadVideoToMinio(
  * Upload a file buffer to MinIO
  */
 export async function uploadBuffer(key: string, body: Buffer, contentType: string): Promise<string> {
+  await ensureBucketExists()
   await storageClient.send(
     new PutObjectCommand({
       Bucket: BUCKET,
