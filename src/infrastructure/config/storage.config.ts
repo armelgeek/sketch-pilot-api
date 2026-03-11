@@ -80,6 +80,28 @@ export async function uploadVideoToMinio(
 }
 
 /**
+ * Upload any file to MinIO
+ */
+export async function uploadFile(
+  videoId: string,
+  filePath: string,
+  key: string,
+  contentType = 'application/octet-stream'
+): Promise<string> {
+  await ensureBucketExists()
+  await storageClient.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: createReadStream(filePath),
+      ContentType: contentType,
+      Metadata: { videoId }
+    })
+  )
+  return `${CDN_URL}/${key}`
+}
+
+/**
  * Upload a file buffer to MinIO
  */
 export async function uploadBuffer(key: string, body: Buffer, contentType: string): Promise<string> {

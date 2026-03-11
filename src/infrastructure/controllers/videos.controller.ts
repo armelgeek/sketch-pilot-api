@@ -1,4 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { GenerateFinalVideoUseCase } from '@/application/use-cases/video/generate-final-video.use-case'
+import { GenerateNarrationUseCase } from '@/application/use-cases/video/generate-narration.use-case'
 import { GenerateScenesUseCase } from '@/application/use-cases/video/generate-scenes.use-case'
 import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
@@ -14,6 +16,8 @@ const videoRepository = new VideoRepository()
 const generateVideoUseCase = new GenerateVideoUseCase()
 const regenerateVideoUseCase = new RegenerateVideoUseCase()
 const renderVideoUseCase = new RenderVideoUseCase()
+const generateFinalVideoUseCase = new GenerateFinalVideoUseCase()
+const generateNarrationUseCase = new GenerateNarrationUseCase()
 const repromptSceneImageUseCase = new RepromptSceneImageUseCase()
 const generateScenesUseCase = new GenerateScenesUseCase()
 
@@ -1036,6 +1040,154 @@ export class VideosController implements Routes {
           {
             jobId: result.jobId,
             creditsRequired: result.creditsRequired
+          },
+          202
+        )
+      }
+    )
+
+    // POST /v1/videos/:id/narrate (Step 2.5)
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/narrate',
+        tags: ['Videos'],
+        summary: 'Generate narration and transcription (Step 2.5)',
+        description: 'Generates global narration audio and transcribes it, synchronizing the script.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          202: {
+            description: 'Narration started',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  jobId: z.string(),
+                  status: z.string(),
+                  creditsRequired: z.number(),
+                  message: z.string()
+                })
+              }
+            }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+
+        const { result } = await generateNarrationUseCase.run({
+          videoId: id,
+          userId: user.id,
+          planId: (user as any).planId
+        })
+
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          if (result.error === 'Video not found') {
+            return c.json({ error: result.error }, 404)
+          }
+          return c.json({ error: result.error || 'Failed to enqueue narration' }, 500)
+        }
+
+        return c.json(
+          {
+            jobId: result.jobId,
+            status: 'queued',
+            creditsRequired: result.creditsRequired,
+            message: 'Narration generation in progress...'
+          },
+          202
+        )
+      }
+    )
+
+    // POST /v1/videos/:id/assemble (Step 3)
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/assemble',
+        tags: ['Videos'],
+        summary: 'Assemble final video (Step 3)',
+        description: 'Generates global narration audio, transcribes it, and assembles the final video package.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          202: {
+            description: 'Assembly started',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  jobId: z.string(),
+                  status: z.string(),
+                  creditsRequired: z.number(),
+                  message: z.string()
+                })
+              }
+            }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+
+        const { result } = await generateFinalVideoUseCase.run({
+          videoId: id,
+          userId: user.id,
+          planId: (user as any).planId
+        })
+
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          if (result.error === 'Video not found') {
+            return c.json({ error: result.error }, 404)
+          }
+          return c.json({ error: result.error || 'Failed to enqueue assembly' }, 500)
+        }
+
+        return c.json(
+          {
+            jobId: result.jobId,
+            status: 'queued',
+            creditsRequired: result.creditsRequired,
+            message: 'Final assembly in progress...'
           },
           202
         )

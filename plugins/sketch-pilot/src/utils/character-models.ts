@@ -22,7 +22,28 @@ export class CharacterModelManager {
   private externalLoader: CharacterModelLoader | null = null
 
   constructor(modelsDir?: string) {
-    this.modelsDir = modelsDir || path.join(process.cwd(), 'models')
+    if (modelsDir) {
+      this.modelsDir = modelsDir
+      return
+    }
+
+    // Search for models in multiple locations
+    const possiblePaths = [
+      path.join(process.cwd(), 'plugins/sketch-pilot/models'),
+      path.join(__dirname, '../../models'),
+      path.join(__dirname, '../../../../plugins/sketch-pilot/models'),
+      path.join(process.cwd(), 'models')
+    ]
+
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        console.log(`[CharacterModels] Autodetected models directory at: ${p}`)
+        this.modelsDir = p
+        return
+      }
+    }
+
+    this.modelsDir = path.join(process.cwd(), 'models')
   }
 
   /**
@@ -60,6 +81,8 @@ export class CharacterModelManager {
     // Map character names to model files
     const modelMap: { [key: string]: string } = {
       standard: 'model.jpg',
+      default: 'model.jpg',
+      Default: 'model.jpg',
       'model-1': 'model.jpg',
       'model-2': 'stick/model-2.webp',
       'model-3': 'stick/model-3.webp',

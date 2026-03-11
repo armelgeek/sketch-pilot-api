@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import process from 'node:process'
+import '@/utils/polyfills'
 
 /**
  * Video Generation Worker — BullMQ worker that executes video generation jobs.
@@ -15,7 +16,7 @@ import * as path from 'node:path'
 import { Worker, type Job } from 'bullmq'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { redisConnectionOptions, VIDEO_QUEUE_NAME, type VideoJobData } from '@/infrastructure/config/queue.config'
-import { uploadBuffer, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
+import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { CompleteVideoPackage } from '@sketch-pilot/types/video-script.types'
 
@@ -45,6 +46,25 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
 
   try {
+    // 0. Fetch the video record early to access options (like localProjectId)
+    const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId)
+    if (!videoRecord) {
+      throw new Error('Video not found.')
+    }
+
+    // Determine the fixed folder name for this video
+    let effectiveProjectId = (videoRecord.options as any)?.localProjectId
+    if (!effectiveProjectId) {
+      effectiveProjectId = `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
+      // LOCK IT IN DB IMMEDIATELY
+      await videoRepository.updateStatus(videoId, {
+        options: {
+          ...((videoRecord.options as any) || {}),
+          localProjectId: effectiveProjectId
+        }
+      })
+    }
+
     let pkg: CompleteVideoPackage
 
     // Build generation options from job data
@@ -73,28 +93,36 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       genOptions.kokoroVoicePreset = options.voiceId
     }
 
-    if (options.generateFromScript) {
+    if (options.generateFromScript && videoRecord.script) {
       await videoRepository.updateStatus(videoId, {
         status: 'processing',
         progress: 10,
-        currentStep: 'asset_generation'
+        currentStep: options.generateOnlyAudio ? 'narration_generation' : 'rendering'
       })
-      await reportProgress(job, videoId, 'asset_generation', 25, 'Starting asset generation from existing script...')
 
-      // Fetch the script from the DB
-      const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId)
-      if (!videoRecord || !videoRecord.script) {
-        throw new Error('Script not found for this video.')
-      }
+      const stepLabel = options.generateOnlyAudio ? 'Generating narration...' : 'Rendering video...'
+      await reportProgress(job, videoId, options.generateOnlyAudio ? 'narration' : 'rendering', 15, stepLabel)
 
-      // Run the partial generation pipeline without regenerating the script
+      // Run the specialized rendering pipeline
       pkg = await videoGenerationService.renderVideoFromScript({
-        topic,
+        topic: videoRecord.topic,
         userId,
-        script: videoRecord.script,
-        options: genOptions,
-        projectId: videoId
+        script: videoRecord.script as any,
+        options: {
+          ...genOptions,
+          generateOnlyAudio: options.generateOnlyAudio,
+          generateOnlyAssembly: options.generateOnlyAssembly
+        },
+        projectId: effectiveProjectId
       })
+
+      // Persist synced script to DB immediately
+      if (pkg.script) {
+        await videoRepository.updateStatus(videoId, {
+          script: pkg.script as any,
+          scenes: pkg.script.scenes as any
+        })
+      }
     } else {
       await videoRepository.updateStatus(videoId, {
         status: 'processing',
@@ -110,8 +138,64 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         topic,
         userId,
         options: genOptions,
-        projectId: videoId
+        projectId: effectiveProjectId
       })
+
+      // Persist script to DB
+      if (pkg.script) {
+        await videoRepository.updateStatus(videoId, {
+          script: pkg.script as any,
+          scenes: pkg.script.scenes as any
+        })
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // NEW: Handle Narration-Only Phase (Step 2.5)
+    // ─────────────────────────────────────────────────────────────────────────────
+    if (options.generateOnlyAudio) {
+      await reportProgress(job, videoId, 'upload_audio', 90, 'Uploading narration and transcription...')
+
+      const narrationMp3 = path.join(pkg.outputPath, 'global_narration.mp3')
+      const transcriptionJson = path.join(pkg.outputPath, 'transcription.json')
+
+      let narrationUrl: string | undefined
+      if (fs.existsSync(narrationMp3)) {
+        narrationUrl = await uploadFile(videoId, narrationMp3, `videos/${videoId}/narration.mp3`, 'audio/mpeg')
+      }
+
+      let captionsUrl: string | undefined
+      if (fs.existsSync(transcriptionJson)) {
+        const buffer = fs.readFileSync(transcriptionJson)
+        captionsUrl = await uploadBuffer(`videos/${videoId}/transcription.json`, buffer, 'application/json')
+      }
+
+      // Update script with public URL
+      if (pkg.script && narrationUrl) {
+        ;(pkg.script as any).globalAudio = narrationUrl
+      }
+
+      await videoRepository.updateStatus(videoId, {
+        status: 'narration_generated',
+        progress: 100,
+        currentStep: 'done',
+        narrationUrl,
+        captionsUrl,
+        script: pkg.script as any,
+        scenes: pkg.script?.scenes as any,
+        completedAt: new Date()
+      })
+
+      await job.updateProgress({
+        step: 'completed',
+        progress: 100,
+        status: 'completed',
+        videoId,
+        narrationUrl
+      })
+
+      console.info(`[VideoWorker] Narration generated & persisted for videoId: ${videoId}`)
+      return
     }
 
     if (options.generateOnlyScenes) {
@@ -145,7 +229,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         currentStep: 'done',
         script: pkg.script as any,
         scenes: updatedScenes as any,
-        completedAt: new Date()
+        completedAt: new Date(),
+        options: {
+          ...((videoRecord.options as any) || {}),
+          localProjectId: pkg.projectId
+        }
       })
 
       await job.updateProgress({
@@ -196,8 +284,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     }
 
     // Derive duration from script
-    const duration =
+    const duration = Math.round(
       pkg.script?.totalDuration ?? (genOptions.maxDuration as number | undefined) ?? DEFAULT_VIDEO_DURATION
+    )
 
     await videoRepository.updateStatus(videoId, {
       status: 'completed',
@@ -210,7 +299,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       duration,
       script: pkg.script as any,
       scenes: pkg.script?.scenes as any,
-      completedAt: new Date()
+      completedAt: new Date(),
+      options: {
+        ...((videoRecord.options as any) || {}),
+        localProjectId: pkg.projectId
+      }
     })
 
     await job.updateProgress({

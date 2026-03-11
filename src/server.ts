@@ -1,6 +1,6 @@
 import process from 'node:process'
-
 import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
+
 import { App } from './app'
 import {
   ConfigController,
@@ -13,6 +13,8 @@ import {
   VideosController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
+import { CharacterModelController } from './infrastructure/controllers/character-model.controller'
+import './utils/polyfills'
 import '@/infrastructure/schedulers'
 
 const app = new App([
@@ -24,7 +26,8 @@ const app = new App([
   new ScriptsController(),
   new ConfigController(),
   new VideoAdminController(),
-  new PromptController()
+  new PromptController(),
+  new CharacterModelController()
 ]).getApp()
 
 if (process.env.ENABLE_VIDEO_WORKER !== 'false') {

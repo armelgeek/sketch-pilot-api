@@ -1,9 +1,17 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { env } from '@huggingface/transformers'
+import '../../utils/polyfills'
 //@ts-ignore
 import { KokoroTTS } from 'kokoro-js'
 import { detectAndTrimSilence } from '../../utils/audio-trimmer'
 import type { AudioGenerationResult, AudioService } from './index'
+
+// Disable native ONNX runtime as it's buggy in Bun/N-API
+// @ts-ignore
+env.backends.onnx.native.enabled = false
+// @ts-ignore
+env.backends.onnx.wasm.numThreads = 1
 
 export class KokoroTTSService implements AudioService {
   private tts: KokoroTTS | null = null

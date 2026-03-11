@@ -24,11 +24,12 @@ import {
 } from '../types/video-script.types'
 import { getCharacterModelManager } from '../utils/character-models'
 import { TaskQueue } from '../utils/task-queue'
-
 import { TimingMapper } from '../utils/timing-mapper'
+
 import type { AssCaptionConfig } from '../services/video/ass-caption.service'
 import { PromptManager } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
+import '../utils/polyfills'
 
 // Types and Schemas
 export interface SceneDescription {
@@ -833,7 +834,7 @@ export class NanoBananaEngine {
 
     // Update script total duration
     if (mappedTimings.length > 0) {
-      script.totalDuration = mappedTimings.at(-1).end
+      script.totalDuration = mappedTimings.at(-1)!.end
     }
 
     // Save updated script
@@ -1199,7 +1200,7 @@ PLAIN WHITE BACKGROUND.`
     let lastSceneImageBase64: string | undefined
 
     // --- GLOBAL AUDIO GENERATION ---
-    const skipAudio = validOptions.skipAudio || false
+    const skipAudio = validOptions.skipAudio || validOptions.generateOnlyAssembly || false
     const globalAudioPath = path.join(projectDir, 'global_narration.mp3')
     let globalWordTimings: WordTiming[] = []
 
@@ -1242,48 +1243,59 @@ PLAIN WHITE BACKGROUND.`
 
         // Update total duration
         if (mappedTimings.length > 0) {
-          script.totalDuration = mappedTimings.at(-1).end
+          script.totalDuration = mappedTimings.at(-1)!.end
         }
 
         script.globalAudio = 'global_narration.mp3'
+
+        // Persist the synchronized script so future renders use these exact timings
+        fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
+        console.log(`[NanoBanana] Synchronized script saved to script.json`)
       } catch (audioError) {
         console.error(`[NanoBanana] Global audio generation/transcription failed:`, audioError)
-        // Fallback: we might want to continue with per-scene audio if this fails,
-        // but the user specifically asked for this new flow.
       }
-    }
-    // --------------------------------
-
-    for (const scene of script.scenes) {
-      const sceneDir = path.join(scenesDir, scene.id)
-      if (!fs.existsSync(sceneDir)) {
-        fs.mkdirSync(sceneDir, { recursive: true })
-      }
-
-      // All visuals are now local (100% local rule)
-      const visualSource = 'local'
-      const poseId = (scene as any).poseId || 'STAND'
-      const posePath = path.join(process.cwd(), 'src/assets/stickmen', `${poseId}.png`)
-
-      // Validate that pose exists for non-NONE scenes
-      if (poseId !== 'NONE' && !fs.existsSync(posePath)) {
-        console.warn(
-          `[NanoBanana] ⚠ Pose '${poseId}' missing for scene ${scene.id}. Ensure it exists in assets/stickmen/`
-        )
-      }
-
-      // Only AI generation is skipped - all visuals are local composition
-      await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, undefined)
-
-      // Keep track of the last generated image to allow for "Scene Continuation"
-      const lastImagePath = path.join(sceneDir, 'scene.webp')
-      if (fs.existsSync(lastImagePath)) {
-        lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
+    } else if (validOptions.generateOnlyAssembly) {
+      console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
+      if (fs.existsSync(globalAudioPath)) {
+        script.globalAudio = 'global_narration.mp3'
       }
     }
 
-    // Assemble Final Video
-    if (!validOptions.scriptOnly && !validOptions.generateOnlyScenes) {
+    // --- SCENE COMPOSITION ---
+    // Skip composition if we only want audio OR if visuals are already generated
+    const skipComposition = validOptions.generateOnlyAudio
+    if (!skipComposition) {
+      for (const scene of script.scenes) {
+        const sceneDir = path.join(scenesDir, scene.id)
+        if (!fs.existsSync(sceneDir)) {
+          fs.mkdirSync(sceneDir, { recursive: true })
+        }
+
+        // All visuals are now local (100% local rule)
+        const poseId = (scene as any).poseId || 'STAND'
+        const posePath = path.join(process.cwd(), 'src/assets/stickmen', `${poseId}.png`)
+
+        // Validate that pose exists for non-NONE scenes
+        if (poseId !== 'NONE' && !fs.existsSync(posePath)) {
+          console.warn(
+            `[NanoBanana] ⚠ Pose '${poseId}' missing for scene ${scene.id}. Ensure it exists in assets/stickmen/`
+          )
+        }
+
+        // Only AI generation is skipped - all visuals are local composition
+        await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, undefined)
+
+        // Keep track of the last generated image to allow for "Scene Continuation"
+        const lastImagePath = path.join(sceneDir, 'scene.webp')
+        if (fs.existsSync(lastImagePath)) {
+          lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
+        }
+      }
+    }
+
+    // --- ASSEMBLE FINAL VIDEO ---
+    const skipAssembly = validOptions.scriptOnly || validOptions.generateOnlyScenes || validOptions.generateOnlyAudio
+    if (!skipAssembly) {
       try {
         const videoAssembler = new VideoAssembler()
         const finalVideoPath = await videoAssembler.assembleVideo(
@@ -1300,6 +1312,10 @@ PLAIN WHITE BACKGROUND.`
       } catch (assemblyError) {
         console.error(`\n❌ VIDEO ASSEMBLY FAILED:`, assemblyError)
       }
+    } else {
+      console.log(
+        `[NanoBanana] Skipping final assembly (Mode: ${validOptions.generateOnlyAudio ? 'Audio Only' : 'Scenes Only'})`
+      )
     }
 
     const stats = {

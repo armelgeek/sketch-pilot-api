@@ -81,12 +81,23 @@ export class VideoRepository {
       duration?: number
       script?: any
       scenes?: any
+      options?: any
       completedAt?: Date
     }
   ) {
+    const updateData: any = { ...data }
+
+    // Safety rounding for integer columns in database
+    if (updateData.duration !== undefined && updateData.duration !== null) {
+      updateData.duration = Math.round(updateData.duration)
+    }
+    if (updateData.progress !== undefined && updateData.progress !== null) {
+      updateData.progress = Math.round(updateData.progress)
+    }
+
     const [video] = await db
       .update(videos)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...updateData, updatedAt: new Date() })
       .where(eq(videos.id, id))
       .returning()
     return video

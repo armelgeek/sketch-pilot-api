@@ -79,6 +79,8 @@ export interface VideoJobData {
     autoTransitions?: boolean
     generateFromScript?: boolean
     generateOnlyScenes?: boolean
+    generateOnlyAudio?: boolean
+    generateOnlyAssembly?: boolean
     skipAudio?: boolean
     repromptSceneIndex?: number
     customSpec?: any

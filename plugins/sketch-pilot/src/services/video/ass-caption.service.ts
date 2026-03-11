@@ -117,7 +117,7 @@ function springKeyframes(
     if (Math.abs(pos - to) < 0.3 && Math.abs(vel) < 0.3) break
   }
 
-  if (frames.at(-1).ms < durationMs) {
+  if (frames.length > 0 && frames.at(-1)!.ms < durationMs) {
     frames.push({ ms: durationMs, value: to })
   }
 
@@ -290,8 +290,8 @@ export class AssCaptionService {
         if (currentChunk.length > 0) {
           lines.push({
             words: currentChunk,
-            lineStartMs: currentChunk[0].startMs,
-            lineEndMs: currentChunk.at(-1).startMs + currentChunk.at(-1).durationMs
+            lineStartMs: currentChunk[0]!.startMs,
+            lineEndMs: currentChunk.at(-1)!.startMs + currentChunk.at(-1)!.durationMs
           })
         }
         currentChunk = []
@@ -813,10 +813,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         const xFrames = springKeyframes(prevLeft, currLeft, SLIDE_MS, { stiffness: 180, damping: 22, mass: 1 })
         const wFrames = springKeyframes(prevW, currW, SLIDE_MS, { stiffness: 180, damping: 22, mass: 1 })
 
-        const maxMs = Math.max(xFrames.at(-1).ms, wFrames.at(-1).ms)
+        const maxMs = Math.max(xFrames.length > 0 ? xFrames.at(-1)!.ms : 0, wFrames.length > 0 ? wFrames.at(-1)!.ms : 0)
         const ticks: number[] = []
         for (let t = 0; t <= maxMs; t += FRAME_MS) ticks.push(t)
-        if (ticks.at(-1) < maxMs) ticks.push(maxMs)
+        if (ticks.length > 0 && ticks.at(-1)! < maxMs) ticks.push(maxMs)
 
         const lerp = (frames: Array<{ ms: number; value: number }>, t: number) => {
           for (let i = frames.length - 1; i >= 0; i--) {
