@@ -37,7 +37,7 @@
     "db:seed": "bun run ./drizzle/seed.js",
     "db:reset": "tsx ./drizzle/reset.ts",
     "db:update": "bun run db:generate && bun run db:migrate",
-    "stripe:listen": "bun run stripe listen --forward-to http://localhost:5000/api/stripe/webhook",
+    "stripe:listen": "bun run stripe listen --forward-to http://localhost:5000/api/auth/stripe/webhook",
     "minio:migrate": "NODE_TLS_REJECT_UNAUTHORIZED=0 bun run migrate-to-minio.ts --dry-run"
   },
   "simple-git-hooks": {

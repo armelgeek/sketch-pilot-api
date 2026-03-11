@@ -58,8 +58,14 @@ export const prompts = pgTable('prompts', {
   variables: jsonb('variables').$type<string[]>().default([]),
   /** Language this prompt targets (e.g. "en", "fr"). NULL = language-agnostic. */
   language: text('language'),
+  /**
+   * Full VideoTypeSpecification configuration.
+   * Stores role, context, goals, rules, etc.
+   */
+  config: jsonb('config').$type<any>(),
   /** Whether this prompt is active and should be used at runtime */
   isActive: boolean('is_active').notNull().default(true),
+
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

@@ -40,20 +40,29 @@ export class ScriptGenerationService {
     }
     const llmService = LLMServiceFactory.create(llmConfig)
 
-    // Build a PromptManager for generating prompts
-    const promptManager = new PromptManager()
+    // 1. Resolve Spec (Prompt Config) from DB
+    const spec = await this.promptService.resolveSpec({
+      promptType: 'system_prompt',
+      videoType: options.videoType,
+      videoGenre: options.videoGenre,
+      language: options.language
+    })
 
-    const generator = new VideoScriptGenerator(llmService, promptManager)
-
+    // 2. Build options, prioritizing explicit options over spec defaults
     const genOptions: Partial<VideoGenerationOptions> = {
       maxDuration: options.maxDuration || 60,
-      sceneCount: options.sceneCount || 6,
-      style: (options.style as any) || 'educational',
+      sceneCount: options.sceneCount || spec?.defaultSceneCount || 6,
+      style: (options.style as any) || spec?.style || 'educational',
       videoType: options.videoType as any,
       videoGenre: options.videoGenre as any,
       language: options.language || 'en',
-      qualityMode: options.qualityMode as any
+      qualityMode: options.qualityMode as any,
+      customSpec: spec
     }
+
+    // 3. Initialize generator and run
+    const promptManager = new PromptManager()
+    const generator = new VideoScriptGenerator(llmService, promptManager)
 
     return await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)
   }

@@ -669,6 +669,7 @@ export const videoGenerationOptionsSchema = z
       .max(25)
       .optional()
       .describe('Number of scenes (auto-derived from duration when omitted: ~1 scene per 6-8 seconds)'),
+
     maxSceneDuration: z
       .number()
       .int()
@@ -676,13 +677,14 @@ export const videoGenerationOptionsSchema = z
       .max(60)
       .default(15)
       .describe('Maximum duration of a single scene in seconds'),
-    style: z.enum(['motivational', 'educational', 'storytelling', 'tutorial']).default('educational'),
+    style: z.enum(['motivational', 'educational', 'storytelling', 'tutorial']).optional(),
     videoType: videoTypeSchema.optional().describe('Type of video content to generate'),
     videoGenre: videoGenreSchema.optional().describe('Genre/niche for the video'),
     theme: z
       .enum(['script-system', 'psychology'])
-      .default('script-system')
+      .optional()
       .describe('The thematic specification to use for prompt generation'),
+
     customSpec: z
       .any()
       .optional()

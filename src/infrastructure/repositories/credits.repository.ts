@@ -1,4 +1,5 @@
 import { desc, eq } from 'drizzle-orm'
+import { WELCOME_CREDITS } from '../config/video.config'
 import { db } from '../database/db'
 import { creditTransactions, userCredits } from '../database/schema'
 
@@ -10,51 +11,100 @@ export class CreditsRepository {
     return credits || null
   }
 
+  async getActiveSubscription(userId: string) {
+    const sub = await db.query.subscriptions?.findFirst?.({
+      where: (t: any, { and: andFn, eq: eqFn }: any) => andFn(eqFn(t.referenceId, userId), eqFn(t.status, 'active'))
+    })
+    return sub || null
+  }
+
   async ensureUserCredits(userId: string) {
     let credits = await this.getUserCredits(userId)
+    const now = new Date()
+
     if (!credits) {
-      const now = new Date()
       const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1)
       await db.insert(userCredits).values({
         id: crypto.randomUUID(),
         userId,
-        extraCredits: 0,
+        extraCredits: WELCOME_CREDITS,
         videosThisMonth: 0,
         resetDate,
         updatedAt: now
       })
+
+      // Record welcome transaction
+      await this.addTransaction({
+        userId,
+        type: 'welcome_bonus',
+        amount: WELCOME_CREDITS
+      })
+
+      credits = await this.getUserCredits(userId)
+    } else if (credits.resetDate && credits.resetDate <= now) {
+      // Monthly reset
+      const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+      await db
+        .update(userCredits)
+        .set({ videosThisMonth: 0, resetDate: nextReset, updatedAt: now })
+        .where(eq(userCredits.userId, userId))
+
       credits = await this.getUserCredits(userId)
     }
     return credits
   }
 
-  async incrementVideosThisMonth(userId: string): Promise<void> {
+  /**
+   * Consumes credits from the user's account with priority:
+   * 1. Monthly plan credits (videosThisMonth field now tracks credits)
+   * 2. Extra credits (purchased/topup)
+   *
+   * @param userId The unique user ID
+   * @param totalAmount Total credits to deduct
+   * @param planLimit The monthly credit limit for the user's current plan (-1 for unlimited)
+   * @returns An object containing the amount of plan credits and extra credits consumed.
+   */
+  async consumeCredits(
+    userId: string,
+    totalAmount: number,
+    planLimit: number
+  ): Promise<{ planConsumed: number; extraConsumed: number }> {
     const credits = await this.ensureUserCredits(userId)
-    if (!credits) return
-    // Check if month has reset
+    if (!credits) throw new Error('User credits record not found')
+
     const now = new Date()
-    if (credits.resetDate && credits.resetDate <= now) {
-      // Reset monthly counter
-      const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-      await db
-        .update(userCredits)
-        .set({ videosThisMonth: 1, resetDate: nextReset, updatedAt: now })
-        .where(eq(userCredits.userId, userId))
+    const consumedThisMonth = credits.videosThisMonth
+
+    let planConsumed = 0
+    let extraConsumed = 0
+
+    if (planLimit === -1) {
+      // Unlimited plan: use plan quota (tracked but never blocked)
+      planConsumed = totalAmount
     } else {
+      const remainingPlan = Math.max(0, planLimit - consumedThisMonth)
+
+      if (remainingPlan >= totalAmount) {
+        planConsumed = totalAmount
+      } else {
+        planConsumed = remainingPlan
+        extraConsumed = totalAmount - remainingPlan
+      }
+    }
+
+    // Update database
+    if (planConsumed > 0 || extraConsumed > 0) {
       await db
         .update(userCredits)
-        .set({ videosThisMonth: credits.videosThisMonth + 1, updatedAt: now })
+        .set({
+          videosThisMonth: consumedThisMonth + planConsumed,
+          extraCredits: credits.extraCredits - extraConsumed,
+          updatedAt: now
+        })
         .where(eq(userCredits.userId, userId))
     }
-  }
 
-  async deductExtraCredit(userId: string): Promise<void> {
-    const credits = await this.ensureUserCredits(userId)
-    if (!credits || credits.extraCredits <= 0) return
-    await db
-      .update(userCredits)
-      .set({ extraCredits: credits.extraCredits - 1, updatedAt: new Date() })
-      .where(eq(userCredits.userId, userId))
+    return { planConsumed, extraConsumed }
   }
 
   async addExtraCredits(userId: string, amount: number): Promise<void> {
@@ -92,6 +142,7 @@ export class CreditsRepository {
     stripeSessionId?: string
     packId?: string
     videoId?: string
+    metadata?: any
   }) {
     await db.insert(creditTransactions).values({
       id: crypto.randomUUID(),
@@ -103,6 +154,7 @@ export class CreditsRepository {
       stripeSessionId: data.stripeSessionId ?? null,
       packId: data.packId ?? null,
       videoId: data.videoId ?? null,
+      metadata: data.metadata ?? null,
       createdAt: new Date()
     })
   }

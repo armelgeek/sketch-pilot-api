@@ -1,7 +1,9 @@
+import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
-import { PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 
 type RenderVideoParams = {
@@ -23,6 +25,7 @@ type RenderVideoResponse = {
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
+const promptService = new PromptService(new PromptRepository())
 
 export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoResponse> {
   async execute({ videoId, userId, planId, script }: RenderVideoParams): Promise<RenderVideoResponse> {
@@ -33,22 +36,63 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
         return { success: false, error: 'Video not found' }
       }
 
-      // 2. Check quota
-      const credits = await creditsRepository.ensureUserCredits(userId)
-      const plan = planId || 'free'
-      const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
-      const videosThisMonth = credits?.videosThisMonth ?? 0
-      const extraCredits = credits?.extraCredits ?? 0
-      const hasMonthlyQuota = monthlyLimit === -1 || videosThisMonth < monthlyLimit
-      const hasExtraCredits = extraCredits > 0
+      // 2. Resolve Spec (Prompt Config) from DB
+      const videoOptions = (video.options as any) || {}
+      const spec = await promptService.resolveSpec({
+        promptType: 'system_prompt',
+        videoType: videoOptions.videoType,
+        videoGenre: videoOptions.videoGenre,
+        language: videoOptions.language
+      })
 
-      if (!hasMonthlyQuota && !hasExtraCredits) {
+      // 2. Calculate & Check Credits
+      const plan = planId || 'free'
+      const numScenes = script.scenes?.length || 0
+
+      const imageCostPerScene =
+        videoOptions.imageProvider === 'gemini' ? CREDIT_COSTS.IMAGE_CREATOR : CREDIT_COSTS.IMAGE_FREE
+
+      const exportCost =
+        videoOptions.resolution === '1080p' || plan !== 'free' ? CREDIT_COSTS.EXPORT_1080P : CREDIT_COSTS.EXPORT_720P
+
+      const totalCost = imageCostPerScene * numScenes + CREDIT_COSTS.TTS_VOICE + CREDIT_COSTS.SUBTITLES + exportCost
+
+      const credits = await creditsRepository.ensureUserCredits(userId)
+      const sub = await creditsRepository.getActiveSubscription(userId)
+      const actualPlan = sub?.plan || 'free'
+      const planLimit = PLAN_MONTHLY_LIMITS[actualPlan] ?? PLAN_MONTHLY_LIMITS.free
+
+      const consumedThisMonth = credits?.videosThisMonth ?? 0
+      const extraCredits = credits?.extraCredits ?? 0
+
+      const availablePlanCredits = planLimit === -1 ? Infinity : Math.max(0, planLimit - consumedThisMonth)
+      const totalAvailable = availablePlanCredits + extraCredits
+
+      if (totalAvailable < totalCost) {
         return {
           success: false,
           insufficientCredits: true,
-          error: 'Insufficient credits. Please upgrade your plan or purchase additional credits.'
+          error: `Insufficient credits. Rendering requires ${totalCost} credits. You have ${totalAvailable}.`
         }
       }
+
+      // Deduct with priority
+      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, totalCost, planLimit)
+
+      await creditsRepository.addTransaction({
+        userId,
+        type: 'consumption_render',
+        amount: -totalCost,
+        videoId,
+        metadata: {
+          scenes: numScenes,
+          imageProvider: videoOptions.imageProvider,
+          resolution: videoOptions.resolution,
+          planConsumed,
+          extraConsumed,
+          plan
+        }
+      })
 
       // 3. Update the video record with the new script and status
       const jobId = crypto.randomUUID()
@@ -62,27 +106,27 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
       })
 
       // 4. Enqueue the BullMQ job with generateFromScript flag
-      const options = (video.options as any) || {}
       const jobData: VideoJobData = {
         jobId,
         userId,
         videoId,
         topic: video.topic,
         options: {
-          duration: options.maxDuration,
-          sceneCount: options.sceneCount,
-          style: options.style,
-          videoType: options.videoType,
-          videoGenre: options.videoGenre,
-          language: options.language,
-          voiceProvider: options.audioProvider,
-          voiceId: options.kokoroVoicePreset?.toString(),
-          llmProvider: options.llmProvider,
-          imageProvider: options.imageProvider,
-          qualityMode: options.qualityMode,
-          characterConsistency: options.characterConsistency,
-          autoTransitions: options.autoTransitions,
-          generateFromScript: true // FLAG indicating to skip LLM
+          duration: videoOptions.maxDuration,
+          sceneCount: videoOptions.sceneCount,
+          style: videoOptions.style,
+          videoType: videoOptions.videoType,
+          videoGenre: videoOptions.videoGenre,
+          language: videoOptions.language,
+          voiceProvider: videoOptions.audioProvider,
+          voiceId: videoOptions.kokoroVoicePreset?.toString(),
+          llmProvider: videoOptions.llmProvider,
+          imageProvider: videoOptions.imageProvider,
+          qualityMode: videoOptions.qualityMode,
+          characterConsistency: videoOptions.characterConsistency,
+          autoTransitions: videoOptions.autoTransitions,
+          generateFromScript: true, // FLAG indicating to skip LLM
+          customSpec: spec || videoOptions.customSpec
         }
       }
 
@@ -93,26 +137,14 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
         backoff: { type: 'exponential', delay: 5000 }
       })
 
-      // 5. Deduct credit
-      if (hasMonthlyQuota) {
-        await creditsRepository.incrementVideosThisMonth(userId)
-      } else {
-        await creditsRepository.deductExtraCredit(userId)
-      }
-
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'consumption',
-        amount: -1,
-        videoId
-      })
+      // Credits already deducted upfront
 
       return {
         success: true,
         jobId,
         streamUrl: `/api/v1/videos/jobs/${jobId}/stream`,
         estimatedDuration: 180,
-        creditsRequired: 1
+        creditsRequired: totalCost
       }
     } catch (error) {
       return {

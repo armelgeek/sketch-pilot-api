@@ -31,13 +31,19 @@ export class PromptService {
    */
   async resolve(options: ResolvePromptOptions): Promise<string | null> {
     const { promptType, videoType, videoGenre, language, variables = {}, fallback } = options
-
     const prompt = await this.repository.findBestMatch({ promptType, videoType, videoGenre, language })
-
     const template = prompt?.template ?? fallback ?? null
     if (!template) return null
-
     return this.interpolate(template, variables)
+  }
+
+  /**
+   * Resolve the full VideoTypeSpecification (config) from a prompt.
+   */
+  async resolveSpec(options: Omit<ResolvePromptOptions, 'variables' | 'fallback'>): Promise<any | null> {
+    const { promptType, videoType, videoGenre, language } = options
+    const prompt = await this.repository.findBestMatch({ promptType, videoType, videoGenre, language })
+    return prompt?.config ?? null
   }
 
   /**

@@ -51,14 +51,22 @@ export const auth = betterAuth({
         enabled: true,
         plans: [
           {
-            name: 'starter',
-            priceId: process.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1234567890',
-            annualDiscountPriceId: process.env.STRIPE_PRICE_STARTER_YEARLY || 'price_1234567890',
-            limits: {
-              credits: 1000
-            }
+            name: 'creator',
+            priceId: process.env.STRIPE_PRICE_CREATOR_MONTHLY || 'price_creator_monthly',
+            annualDiscountPriceId: process.env.STRIPE_PRICE_CREATOR_YEARLY || 'price_creator_yearly'
+          },
+          {
+            name: 'professional',
+            priceId: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || 'price_professional_monthly',
+            annualDiscountPriceId: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || 'price_professional_yearly'
+          },
+          {
+            name: 'business',
+            priceId: process.env.STRIPE_PRICE_BUSINESS_MONTHLY || 'price_business_monthly',
+            annualDiscountPriceId: process.env.STRIPE_PRICE_BUSINESS_YEARLY || 'price_business_yearly'
           }
         ],
+
         requireEmailVerification: false
       },
       onEvent: async (event: Stripe.Event) => {

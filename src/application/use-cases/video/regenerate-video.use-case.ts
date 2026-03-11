@@ -1,7 +1,9 @@
+import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
-import { PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
@@ -24,7 +26,7 @@ type RegenerateVideoResponse = {
 }
 
 /** Map VideoGenerationOptions to the flat VideoJobData.options shape. */
-function toJobOptions(options: Partial<VideoGenerationOptions>): VideoJobData['options'] {
+function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any): VideoJobData['options'] {
   return {
     duration: options.maxDuration,
     sceneCount: options.sceneCount,
@@ -38,12 +40,15 @@ function toJobOptions(options: Partial<VideoGenerationOptions>): VideoJobData['o
     imageProvider: options.imageProvider,
     qualityMode: options.qualityMode,
     characterConsistency: options.characterConsistency,
-    autoTransitions: options.autoTransitions
+    autoTransitions: options.autoTransitions,
+    repromptSceneIndex: (options as any).repromptSceneIndex,
+    customSpec: customSpec || options.customSpec
   }
 }
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
+const promptService = new PromptService(new PromptRepository())
 
 export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, RegenerateVideoResponse> {
   async execute({
@@ -54,22 +59,86 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
     options = {}
   }: RegenerateVideoParams): Promise<RegenerateVideoResponse> {
     try {
-      // Check quota
-      const credits = await creditsRepository.ensureUserCredits(userId)
-      const plan = planId || 'free'
-      const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
-      const videosThisMonth = credits?.videosThisMonth ?? 0
-      const extraCredits = credits?.extraCredits ?? 0
-      const hasMonthlyQuota = monthlyLimit === -1 || videosThisMonth < monthlyLimit
-      const hasExtraCredits = extraCredits > 0
+      // 1. Resolve Spec (Prompt Config) from DB
+      const spec = await promptService.resolveSpec({
+        promptType: 'system_prompt',
+        videoType: options.videoType,
+        videoGenre: options.videoGenre,
+        language: options.language
+      })
 
-      if (!hasMonthlyQuota && !hasExtraCredits) {
+      // 2. Calculate & Check Credits
+      const video = await videoRepository.findByIdAndUserId(videoId, userId)
+
+      if (!video) {
+        return { success: false, error: 'Video not found' }
+      }
+
+      const videoOptions: Partial<VideoGenerationOptions> = {
+        ...(video.options || {}),
+        ...options,
+        sceneCount:
+          options.sceneCount ||
+          (video.options as any)?.sceneCount ||
+          (video as any).scenes?.length ||
+          spec?.defaultSceneCount,
+        style: options.style || (video.options as any)?.style || spec?.style
+      }
+      const plan = planId || 'free'
+
+      // If we are regenerating a whole video, we need to know the scene count.
+      // We look for it in the video record or options.
+      const sceneCount =
+        videoOptions.sceneCount ||
+        (video.options as any)?.sceneCount ||
+        (video as any).scenes?.length ||
+        spec?.defaultSceneCount ||
+        5
+
+      const isAIImage = videoOptions.localOnlyImages === false && videoOptions.imageProvider === 'gemini'
+      const imageCostPerScene = isAIImage ? CREDIT_COSTS.IMAGE_CREATOR : CREDIT_COSTS.IMAGE_FREE
+
+      const exportCost =
+        videoOptions.resolution === '1080p' || plan !== 'free' ? CREDIT_COSTS.EXPORT_1080P : CREDIT_COSTS.EXPORT_720P
+
+      const totalCost = imageCostPerScene * sceneCount + CREDIT_COSTS.TTS_VOICE + CREDIT_COSTS.SUBTITLES + exportCost
+
+      const credits = await creditsRepository.ensureUserCredits(userId)
+      const sub = await creditsRepository.getActiveSubscription(userId)
+      const actualPlan = sub?.plan || 'free'
+      const planLimit = PLAN_MONTHLY_LIMITS[actualPlan] ?? PLAN_MONTHLY_LIMITS.free
+
+      const consumedThisMonth = credits?.videosThisMonth ?? 0
+      const extraCredits = credits?.extraCredits ?? 0
+
+      const availablePlanCredits = planLimit === -1 ? Infinity : Math.max(0, planLimit - consumedThisMonth)
+      const totalAvailable = availablePlanCredits + extraCredits
+
+      if (totalAvailable < totalCost) {
         return {
           success: false,
           insufficientCredits: true,
-          error: 'Insufficient credits. Please upgrade your plan or purchase additional credits.'
+          error: `Insufficient credits. Regeneration requires ${totalCost} credits. You have ${totalAvailable}.`
         }
       }
+
+      // Deduct with priority
+      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, totalCost, planLimit)
+
+      await creditsRepository.addTransaction({
+        userId,
+        type: 'consumption_regenerate',
+        amount: -totalCost,
+        videoId,
+        metadata: {
+          sceneCount,
+          imageProvider: videoOptions.imageProvider,
+          resolution: videoOptions.resolution,
+          planConsumed,
+          extraConsumed,
+          plan
+        }
+      })
 
       const jobId = crypto.randomUUID()
 
@@ -93,7 +162,7 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
         userId,
         videoId,
         topic,
-        options: toJobOptions(options)
+        options: toJobOptions(options, spec)
       }
 
       const queue = getVideoQueue()
@@ -103,26 +172,14 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
         backoff: { type: 'exponential', delay: 5000 }
       })
 
-      // Deduct credit
-      if (hasMonthlyQuota) {
-        await creditsRepository.incrementVideosThisMonth(userId)
-      } else {
-        await creditsRepository.deductExtraCredit(userId)
-      }
-
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'consumption',
-        amount: -1,
-        videoId
-      })
+      // Credits already deducted upfront
 
       return {
         success: true,
         jobId,
         streamUrl: `/api/v1/videos/jobs/${jobId}/stream`,
         estimatedDuration: 180,
-        creditsRequired: 1
+        creditsRequired: totalCost
       }
     } catch (error) {
       return {

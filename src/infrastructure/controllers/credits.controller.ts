@@ -51,7 +51,9 @@ export class CreditsController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const credits = await creditsRepository.ensureUserCredits(user.id)
-        const monthlyLimit = PLAN_MONTHLY_LIMITS.free
+        const sub = await creditsRepository.getActiveSubscription(user.id)
+        const plan = sub?.plan || 'free'
+        const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
 
         const videosThisMonth = credits?.videosThisMonth ?? 0
         const extraCredits = credits?.extraCredits ?? 0
@@ -61,6 +63,7 @@ export class CreditsController implements Routes {
           : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString().split('T')[0]
 
         return c.json({
+          plan,
           videosThisMonth,
           videosMonthlyLimit: monthlyLimit,
           extraCredits,
@@ -84,7 +87,7 @@ export class CreditsController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  packId: z.enum(['pack_10', 'pack_30', 'pack_100']),
+                  packId: z.enum(['pack_100', 'pack_300', 'pack_600']),
                   successUrl: z.string().url(),
                   cancelUrl: z.string().url()
                 })

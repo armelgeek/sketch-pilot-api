@@ -15,9 +15,9 @@ type ValidateScriptResponse = {
 const scriptGenerationService = new ScriptGenerationService()
 
 export class ValidateScriptUseCase extends IUseCase<ValidateScriptParams, ValidateScriptResponse> {
-  execute({ script }: ValidateScriptParams): ValidateScriptResponse {
+  async execute({ script }: ValidateScriptParams): Promise<ValidateScriptResponse> {
     try {
-      const validation = scriptGenerationService.validateScript(script)
+      const validation = await scriptGenerationService.validateScript(script)
       return { success: true, validation }
     } catch (error) {
       return {

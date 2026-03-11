@@ -13,22 +13,8 @@ export const PromptSchema = z.object({
   template: z.string().min(1),
   variables: z.array(z.string()).default([]),
   language: z.string().optional(),
+  config: z.any().optional(), // This will hold the VideoTypeSpecification
   isActive: z.boolean().default(true),
-
-  // ── VideoTypeSpecification fields ────────────────────────────────────────
-  role: z.string().optional(),
-  context: z.string().optional(),
-  audienceDefault: z.string().optional(),
-  character: z.string().optional(),
-  task: z.string().optional(),
-  goals: z.array(z.string()).default([]),
-  structure: z.string().optional(),
-  visualStyle: z.string().optional(),
-  rules: z.array(z.string()).default([]),
-  formatting: z.string().optional(),
-  outputFormat: z.string().optional(),
-  instructions: z.array(z.string()).default([]),
-  // ─────────────────────────────────────────────────────────────────────────
 
   createdAt: z.date(),
   updatedAt: z.date()

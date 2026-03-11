@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
+import { RepromptSceneImageUseCase } from '@/application/use-cases/video/reprompt-scene-image.use-case'
 import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
@@ -11,6 +12,7 @@ const videoRepository = new VideoRepository()
 const generateVideoUseCase = new GenerateVideoUseCase()
 const regenerateVideoUseCase = new RegenerateVideoUseCase()
 const renderVideoUseCase = new RenderVideoUseCase()
+const repromptSceneImageUseCase = new RepromptSceneImageUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -961,6 +963,84 @@ export class VideosController implements Routes {
             lastModified: a.lastModified?.toISOString()
           }))
         })
+      }
+    )
+
+    // POST /v1/videos/:id/scenes/:index/reprompt
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/scenes/{index}/reprompt',
+        tags: ['Videos'],
+        summary: 'Reprompt a specific scene image',
+        description: 'Deducts partial credits and regenerates a single scene image with an optional new prompt.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string(), index: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  newPrompt: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          202: {
+            description: 'Reprompting started',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  jobId: z.string(),
+                  creditsRequired: z.number()
+                })
+              }
+            }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id, index } = c.req.valid('param')
+        const { newPrompt } = c.req.valid('json')
+
+        const { result } = await repromptSceneImageUseCase.run({
+          videoId: id,
+          sceneIndex: Number.parseInt(index, 10),
+          userId: user.id,
+          newPrompt
+        })
+
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          return c.json({ error: result.error || 'Failed to reprompt scene' }, 500)
+        }
+
+        return c.json(
+          {
+            jobId: result.jobId,
+            creditsRequired: result.creditsRequired
+          },
+          202
+        )
       }
     )
   }

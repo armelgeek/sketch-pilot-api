@@ -15,7 +15,9 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     template: row.template,
     variables: (row.variables as string[]) ?? [],
     language: row.language ?? undefined,
+    config: row.config ?? undefined,
     isActive: row.isActive,
+
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -104,7 +106,9 @@ export class PromptRepository implements PromptRepositoryInterface {
       template: data.template,
       variables: data.variables ?? [],
       language: data.language,
+      config: data.config,
       isActive: data.isActive ?? true,
+
       createdAt: now,
       updatedAt: now
     })
@@ -126,7 +130,9 @@ export class PromptRepository implements PromptRepositoryInterface {
         ...(data.template !== undefined && { template: data.template }),
         ...(data.variables !== undefined && { variables: data.variables }),
         ...(data.language !== undefined && { language: data.language }),
+        ...(data.config !== undefined && { config: data.config }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
+
         updatedAt: now
       })
       .where(eq(prompts.id, id))

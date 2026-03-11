@@ -15,7 +15,6 @@
 import type { AnimationPrompt, EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../types/video-script.types'
 import { IMAGE_PROMPT_SPEC } from './specs/image-prompt.spec'
 
-import { PSYCHOLOGY_VIDEO_SPEC } from './specs/psychology.spec'
 import { CORE_SCRIPT_SYSTEM_SPEC } from './specs/script-system.spec'
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
 
@@ -239,14 +238,7 @@ export class PromptManager {
     if (options?.customSpec) {
       return options.customSpec
     }
-
-    const theme = (options?.theme || '').toLowerCase()
-    const style = (options?.style || '').toLowerCase()
-
-    if (theme === 'psychology' || style === 'storytelling') {
-      return PSYCHOLOGY_VIDEO_SPEC
-    }
-
+    // Fallback to core system if no customSpec is provided
     return CORE_SCRIPT_SYSTEM_SPEC
   }
 

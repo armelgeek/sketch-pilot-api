@@ -9,34 +9,48 @@ export interface CreditPack {
 }
 
 export const CREDIT_PACKS: Record<string, CreditPack> = {
-  pack_10: {
-    id: 'pack_10',
-    credits: 10,
-    price: 9,
-    currency: 'usd',
-    priceId: process.env.STRIPE_PRICE_PACK_10 || ''
-  },
-  pack_30: {
-    id: 'pack_30',
-    credits: 30,
-    price: 24,
-    currency: 'usd',
-    priceId: process.env.STRIPE_PRICE_PACK_30 || ''
-  },
   pack_100: {
     id: 'pack_100',
     credits: 100,
-    price: 69,
+    price: 3,
     currency: 'usd',
     priceId: process.env.STRIPE_PRICE_PACK_100 || ''
+  },
+  pack_300: {
+    id: 'pack_300',
+    credits: 300,
+    price: 7,
+    currency: 'usd',
+    priceId: process.env.STRIPE_PRICE_PACK_300 || ''
+  },
+  pack_600: {
+    id: 'pack_600',
+    credits: 600,
+    price: 12,
+    currency: 'usd',
+    priceId: process.env.STRIPE_PRICE_PACK_600 || ''
   }
 }
 
+export const WELCOME_CREDITS = 100
+
+export const CREDIT_COSTS = {
+  SCRIPT_GENERATION: 10,
+  IMAGE_FREE: 2,
+  IMAGE_CREATOR: 10,
+  IMAGE_REPROMPT: 5,
+  TTS_VOICE: 3,
+  SUBTITLES: 2,
+  EXPORT_720P: 5,
+  EXPORT_1080P: 10
+}
+
 export const PLAN_MONTHLY_LIMITS: Record<string, number> = {
-  free: 3,
-  creator: 30,
-  professional: 100,
-  business: 300,
+  free: 0,
+
+  creator: 500,
+  professional: 2000,
+  business: 5000,
   enterprise: -1
 }
 

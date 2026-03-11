@@ -56,5 +56,6 @@ export const creditTransactions = pgTable('credit_transactions', {
   stripeSessionId: text('stripe_session_id'),
   packId: text('pack_id'),
   videoId: text('video_id'),
+  metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').notNull().defaultNow()
 })

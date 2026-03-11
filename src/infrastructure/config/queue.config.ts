@@ -73,5 +73,7 @@ export interface VideoJobData {
     characterConsistency?: boolean
     autoTransitions?: boolean
     generateFromScript?: boolean
+    repromptSceneIndex?: number
+    customSpec?: any
   }
 }
