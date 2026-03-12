@@ -99,3 +99,15 @@ export const VOICES = {
     { id: 'bm_george', name: 'George', language: 'en-GB', gender: 'male' }
   ]
 }
+
+export const MUSIC_TRACKS = [
+  { id: 'lofi-1', name: 'Chill Lo-Fi', path: 'lofi-beat.mp3', tags: ['chill', 'lo-fi', 'educational', 'tutorial'] },
+  {
+    id: 'upbeat-1',
+    name: 'Upbeat Corporate',
+    path: 'upbeat-corporate.mp3',
+    tags: ['upbeat', 'business', 'motivational', 'promo']
+  },
+  { id: 'ambient-1', name: 'Soft Ambient', path: 'soft-ambient.mp3', tags: ['sad', 'emotional', 'story', 'quiet'] },
+  { id: 'fun-1', name: 'Funky Groove', path: 'funky-groove.mp3', tags: ['fun', 'entertainment', 'kids'] }
+]

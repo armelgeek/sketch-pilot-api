@@ -47,5 +47,5 @@ class CustomDecompressionStream extends TransformStream<Uint8Array, Uint8Array> 
 if (typeof globalThis.DecompressionStream === 'undefined') {
   // @ts-ignore
   globalThis.DecompressionStream = CustomDecompressionStream
-  console.log('[Polyfill] Custom DecompressionStream added to globalThis')
+  console.info('[Polyfill] Custom DecompressionStream added to globalThis')
 }

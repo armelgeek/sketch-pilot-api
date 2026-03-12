@@ -1,4 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { ChooseBackgroundMusicUseCase } from '@/application/use-cases/video/choose-background-music.use-case'
+import { ChooseVoiceoverUseCase } from '@/application/use-cases/video/choose-voiceover.use-case'
+import { ConfigureCaptionsUseCase } from '@/application/use-cases/video/configure-captions.use-case'
 import { GenerateFinalVideoUseCase } from '@/application/use-cases/video/generate-final-video.use-case'
 import { GenerateNarrationUseCase } from '@/application/use-cases/video/generate-narration.use-case'
 import { GenerateScenesUseCase } from '@/application/use-cases/video/generate-scenes.use-case'
@@ -20,6 +23,9 @@ const generateFinalVideoUseCase = new GenerateFinalVideoUseCase()
 const generateNarrationUseCase = new GenerateNarrationUseCase()
 const repromptSceneImageUseCase = new RepromptSceneImageUseCase()
 const generateScenesUseCase = new GenerateScenesUseCase()
+const chooseVoiceoverUseCase = new ChooseVoiceoverUseCase()
+const chooseBackgroundMusicUseCase = new ChooseBackgroundMusicUseCase()
+const configureCaptionsUseCase = new ConfigureCaptionsUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -1043,6 +1049,192 @@ export class VideosController implements Routes {
           },
           202
         )
+      }
+    )
+
+    // PATCH /v1/videos/:id/voiceover
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}/voiceover',
+        tags: ['Videos'],
+        summary: 'Choose voiceover preset',
+        description: 'Updates the video generation options to use a specific voice preset.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  voicePreset: z.string()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Voiceover updated successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { voicePreset } = c.req.valid('json')
+
+        const result = await chooseVoiceoverUseCase.run({
+          videoId: id,
+          userId: user.id,
+          voicePreset
+        })
+
+        if (!result.success) {
+          if (result.error === 'Video not found') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error || 'Failed to update voiceover' }, 400)
+        }
+
+        return c.json({ success: true, video: result.video }, 200)
+      }
+    )
+
+    // PATCH /v1/videos/:id/music
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}/music',
+        tags: ['Videos'],
+        summary: 'Choose background music',
+        description: 'Updates the video generation options to use specific background music.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  musicId: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Music updated successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { musicId } = c.req.valid('json')
+
+        const result = await chooseBackgroundMusicUseCase.run({
+          videoId: id,
+          userId: user.id,
+          musicId
+        })
+
+        if (!result.success) {
+          if (result.error === 'Video not found') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error || 'Failed to update music' }, 400)
+        }
+
+        return c.json({ success: true, video: result.video }, 200)
+      }
+    )
+
+    // PATCH /v1/videos/:id/captions
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}/captions',
+        tags: ['Videos'],
+        summary: 'Configure captions',
+        description: 'Updates the ASS captions configuration for the video.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  captionsConfig: z.any() // Using any here for flexibility as it maps to AssCaptionConfigSchema partially
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Captions updated successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { captionsConfig } = c.req.valid('json')
+
+        const result = await configureCaptionsUseCase.run({
+          videoId: id,
+          userId: user.id,
+          captionsConfig
+        })
+
+        if (!result.success) {
+          if (result.error === 'Video not found') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error || 'Failed to update captions configuration' }, 400)
+        }
+
+        return c.json({ success: true, video: result.video }, 200)
       }
     )
 

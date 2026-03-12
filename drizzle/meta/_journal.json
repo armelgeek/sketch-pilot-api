@@ -120,6 +120,41 @@
       "when": 1769522823419,
       "tag": "0016_rare_vampiro",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1742073600000,
+      "tag": "0017_add_videos_and_credits",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1742160000000,
+      "tag": "0018_add_prompts",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1742246400000,
+      "tag": "0019_add_prompt_spec_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1742332800000,
+      "tag": "0020_add_subscription_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1742419200000,
+      "tag": "0021_add_voice_music_config",
+      "breakpoints": true
     }
   ]
 }

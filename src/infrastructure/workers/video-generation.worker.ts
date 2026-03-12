@@ -68,6 +68,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     let pkg: CompleteVideoPackage
 
     // Build generation options from job data
+    // Pull persisted customization options from the stored video record
+    const storedOptions = (videoRecord.options as any) || {}
+
     const genOptions: Record<string, any> = {
       maxDuration: options.duration || DEFAULT_VIDEO_DURATION,
       sceneCount: options.sceneCount || 6,
@@ -77,20 +80,25 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       language: options.language || 'en',
       llmProvider: options.llmProvider || 'gemini',
       imageProvider: options.imageProvider || 'gemini',
-      audioProvider: options.voiceProvider || 'kokoro',
+      audioProvider: options.voiceProvider || storedOptions.audioProvider || 'kokoro',
       qualityMode: options.qualityMode || 'standard',
       characterConsistency: options.characterConsistency !== false,
       autoTransitions: options.autoTransitions !== false,
       skipAudio: options.skipAudio || false,
       generateOnlyScenes: options.generateOnlyScenes || false,
+      generateOnlyAssembly: options.generateOnlyAssembly || false,
       generateFromScript: options.generateFromScript || false,
       repromptSceneIndex: options.repromptSceneIndex,
       customSpec: options.customSpec,
       characterModelId: options.characterModelId,
-      userId
+      userId,
+      // Carry persisted customization options: voiceover, music, captions
+      kokoroVoicePreset: options.kokoroVoicePreset || storedOptions.kokoroVoicePreset,
+      backgroundMusic: options.backgroundMusic || storedOptions.backgroundMusic,
+      assCaptions: options.assCaptions || storedOptions.assCaptions
     }
 
-    if (options.voiceId) {
+    if (options.voiceId && !genOptions.kokoroVoicePreset) {
       genOptions.kokoroVoicePreset = options.voiceId
     }
 
@@ -302,7 +310,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const finalMp4 = path.join(outputPath, 'final_video.mp4')
     const assembledMp4 = path.join(outputPath, 'assembled_video.mp4')
     const thumbnailJpg = path.join(outputPath, 'thumbnail.jpg')
-    const narrationMp3 = path.join(outputPath, 'narration.mp3')
+    // Check both 'narration.mp3' (old) and 'global_narration.mp3' (new global audio pipeline)
+    const narrationMp3 = fs.existsSync(path.join(outputPath, 'global_narration.mp3'))
+      ? path.join(outputPath, 'global_narration.mp3')
+      : path.join(outputPath, 'narration.mp3')
     const captionsAss = path.join(outputPath, 'captions.ass')
 
     const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
@@ -336,14 +347,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       pkg.script?.totalDuration ?? (genOptions.maxDuration as number | undefined) ?? DEFAULT_VIDEO_DURATION
     )
 
-    await videoRepository.updateStatus(videoId, {
+    // Only update videoUrl if it was actually generated (avoid overwriting a previously uploaded URL)
+    const updatePayload: Record<string, any> = {
       status: 'completed',
       progress: 100,
       currentStep: 'done',
-      videoUrl: videoUrl ?? undefined,
-      thumbnailUrl: thumbnailUrl ?? undefined,
-      narrationUrl: narrationUrl ?? undefined,
-      captionsUrl: captionsUrl ?? undefined,
       duration,
       script: pkg.script as any,
       scenes: pkg.script?.scenes as any,
@@ -352,7 +360,14 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         ...((videoRecord.options as any) || {}),
         localProjectId: pkg.projectId
       }
-    })
+    }
+
+    if (videoUrl) updatePayload.videoUrl = videoUrl
+    if (thumbnailUrl) updatePayload.thumbnailUrl = thumbnailUrl
+    if (narrationUrl) updatePayload.narrationUrl = narrationUrl
+    if (captionsUrl) updatePayload.captionsUrl = captionsUrl
+
+    await videoRepository.updateStatus(videoId, updatePayload)
 
     await job.updateProgress({
       step: 'completed',

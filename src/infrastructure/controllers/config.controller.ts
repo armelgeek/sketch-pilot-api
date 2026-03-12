@@ -1,6 +1,9 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import type { Routes } from '@/domain/types'
-import { CREDIT_PACKS, VIDEO_GENRES, VIDEO_TYPES, VOICES } from '../config/video.config'
+import { CREDIT_PACKS, VIDEO_GENRES, VIDEO_TYPES } from '../config/video.config'
+import { AssetsConfigRepository } from '../repositories/assets-config.repository'
+
+const assetsConfigRepository = new AssetsConfigRepository()
 
 export class ConfigController implements Routes {
   public controller: OpenAPIHono
@@ -72,16 +75,18 @@ export class ConfigController implements Routes {
       }
     )
 
-    // GET /v1/config/voices
+    // GET /v1/config/voices  (DB-backed)
     this.controller.openapi(
       createRoute({
         method: 'get',
         path: '/v1/config/voices',
         tags: ['Config'],
-        summary: 'Get available voices by provider',
+        summary: 'Get available voices grouped by provider',
+        description:
+          'Returns all active voice presets from the database, grouped by provider (e.g. kokoro, elevenlabs).',
         responses: {
           200: {
-            description: 'Voices',
+            description: 'Voices grouped by provider',
             content: {
               'application/json': {
                 schema: z.object({
@@ -89,9 +94,13 @@ export class ConfigController implements Routes {
                     z.array(
                       z.object({
                         id: z.string(),
+                        presetId: z.string(),
+                        provider: z.string(),
                         name: z.string(),
                         language: z.string(),
-                        gender: z.string()
+                        gender: z.string(),
+                        description: z.string().nullable(),
+                        previewUrl: z.string().nullable()
                       })
                     )
                   )
@@ -101,8 +110,9 @@ export class ConfigController implements Routes {
           }
         }
       }),
-      (c: any) => {
-        return c.json({ voices: VOICES })
+      async (c: any) => {
+        const voices = await assetsConfigRepository.getAllVoicesGroupedByProvider()
+        return c.json({ voices })
       }
     )
 
@@ -145,6 +155,48 @@ export class ConfigController implements Routes {
         }))
 
         return c.json({ creditPacks })
+      }
+    )
+
+    // GET /v1/config/music  (DB-backed)
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/config/music',
+        tags: ['Config'],
+        summary: 'Get available background music tracks',
+        description: 'Returns all active background music tracks from the database.',
+        responses: {
+          200: {
+            description: 'Music tracks',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  music: z.array(
+                    z.object({
+                      id: z.string(),
+                      trackId: z.string(),
+                      name: z.string(),
+                      tags: z.array(z.string()),
+                      previewUrl: z.string().nullable()
+                    })
+                  )
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const tracks = await assetsConfigRepository.getAllMusicTracks()
+        const music = tracks.map((t) => ({
+          id: t.id,
+          trackId: t.trackId,
+          name: t.name,
+          tags: t.tags,
+          previewUrl: t.previewUrl
+        }))
+        return c.json({ music })
       }
     )
   }

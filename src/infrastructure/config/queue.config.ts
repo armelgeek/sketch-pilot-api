@@ -85,5 +85,9 @@ export interface VideoJobData {
     repromptSceneIndex?: number
     customSpec?: any
     characterModelId?: string
+    // Customization options (can be set via PATCH endpoints before assembly)
+    kokoroVoicePreset?: string
+    backgroundMusic?: string
+    assCaptions?: any
   }
 }

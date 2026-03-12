@@ -8,7 +8,7 @@ export interface MusicTrack {
 }
 
 export class MusicService {
-  private tracks: MusicTrack[] = []
+  public tracks: MusicTrack[] = []
   private assetsDir: string
 
   constructor() {

@@ -446,8 +446,9 @@ export class VideoAssembler {
     }
 
     // Add background music if requested
-    if (script.backgroundMusic) {
-      const musicTrack = this.musicService.getTrackForMood(script.backgroundMusic)
+    const bgMusic = globalOptions.backgroundMusic || script.backgroundMusic
+    if (bgMusic) {
+      const musicTrack = this.musicService.getTrackForMood(bgMusic)
       if (musicTrack) {
         const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
         const musicPath = this.musicService.getTrackPath(musicTrack.path)
