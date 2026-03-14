@@ -8,37 +8,16 @@ import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import Stripe from 'stripe'
 import { db } from '../database/db'
-import { userCredits, users } from '../database/schema'
+import * as schema from '../database/schema'
+import { CreditsRepository } from '../repositories/credits.repository'
 import { ac, adminRole, userRole } from './access-control.config'
 import { sendChangeEmailVerification, sendResetPasswordEmail, sendVerificationEmail } from './mail.config'
+
+const creditsRepository = new CreditsRepository()
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2025-11-17.clover' as any
 })
-
-async function addCreditsToUser(userId: string, credits: number): Promise<void> {
-  try {
-    const existing = await db.query.userCredits?.findFirst?.({
-      where: (t: any, { eq: eqFn }: any) => eqFn(t.userId, userId)
-    })
-    if (existing) {
-      await db
-        .update(userCredits)
-        .set({ extraCredits: existing.extraCredits + credits, updatedAt: new Date() })
-        .where(eq(userCredits.userId, userId))
-    } else {
-      await db.insert(userCredits).values({
-        id: crypto.randomUUID(),
-        userId,
-        extraCredits: credits,
-        resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1),
-        updatedAt: new Date()
-      })
-    }
-  } catch (error) {
-    console.error('Error adding credits to user:', error)
-  }
-}
 
 export const auth = betterAuth({
   plugins: [
@@ -51,48 +30,54 @@ export const auth = betterAuth({
         enabled: true,
         plans: [
           {
+            name: 'plan_starter',
+            priceId: process.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_starter_monthly',
+            annualDiscountPriceId: process.env.STRIPE_PRICE_STARTER_YEARLY || 'price_starter_yearly'
+          },
+          {
             name: 'creator',
             priceId: process.env.STRIPE_PRICE_CREATOR_MONTHLY || 'price_creator_monthly',
             annualDiscountPriceId: process.env.STRIPE_PRICE_CREATOR_YEARLY || 'price_creator_yearly'
-          },
-          {
-            name: 'professional',
-            priceId: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || 'price_professional_monthly',
-            annualDiscountPriceId: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || 'price_professional_yearly'
-          },
-          {
-            name: 'business',
-            priceId: process.env.STRIPE_PRICE_BUSINESS_MONTHLY || 'price_business_monthly',
-            annualDiscountPriceId: process.env.STRIPE_PRICE_BUSINESS_YEARLY || 'price_business_yearly'
           }
         ],
 
         requireEmailVerification: false
       },
       onEvent: async (event: Stripe.Event) => {
+        console.info(`[Stripe Webhook] Received event: ${event.type}`)
+
         if (event.type === 'checkout.session.completed') {
           const session = event.data.object as Stripe.Checkout.Session
+          console.info(`[Stripe Webhook] Checkout session completed: ${session.id}`, {
+            mode: session.mode,
+            type: session.metadata?.type,
+            userId: session.metadata?.userId
+          })
+
           if (session.mode === 'payment' && session.metadata?.type === 'credit_topup') {
             const userId = session.metadata.userId
             const credits = Number.parseInt(session.metadata.creditsAmount || '0', 10)
+
             if (userId && credits > 0) {
-              await addCreditsToUser(userId, credits)
+              console.info(`[Stripe Webhook] Processing credit topup for user ${userId}: ${credits} credits`)
+
               try {
-                const { creditTransactions } = await import('../database/schema')
-                await db.insert(creditTransactions).values({
-                  id: crypto.randomUUID(),
+                await creditsRepository.addExtraCredits(userId, credits)
+                await creditsRepository.addTransaction({
                   userId,
                   type: 'topup',
                   amount: credits,
                   price: session.amount_total ? String(session.amount_total / 100) : null,
                   currency: session.currency || 'usd',
                   stripeSessionId: session.id,
-                  packId: session.metadata.packId,
-                  createdAt: new Date()
+                  packId: session.metadata.packId
                 })
+                console.info(`[Stripe Webhook] Successfully fulfilled credit topup for user ${userId}`)
               } catch (error) {
-                console.error('Error recording credit transaction:', error)
+                console.error('[Stripe Webhook] Error fulfilling credits in database:', error)
               }
+            } else {
+              console.warn('[Stripe Webhook] Invalid userId or creditsAmount in metadata', session.metadata)
             }
           }
         }
@@ -105,7 +90,7 @@ export const auth = betterAuth({
       impersonationSessionDuration: 60 * 60 * 24
     })
   ],
-  database: drizzleAdapter(db, { provider: 'pg' }),
+  database: drizzleAdapter(db, { provider: 'pg', schema }),
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:5000',
   trustedOrigins:
     process.env.NODE_ENV === 'production'
@@ -132,6 +117,7 @@ export const auth = betterAuth({
     },
     deleteUser: { enabled: true }
   },
+  subscription: { modelName: 'subscriptions' },
   session: {
     modelName: 'sessions',
     additionalFields: {
@@ -172,7 +158,7 @@ router.on(['POST', 'GET'], '/auth/*', async (c) => {
       const data = JSON.parse(body)
       if (data?.user?.id) {
         const now = new Date()
-        await db.update(users).set({ lastLoginAt: now, updatedAt: now }).where(eq(users.id, data.user.id))
+        await db.update(schema.users).set({ lastLoginAt: now, updatedAt: now }).where(eq(schema.users.id, data.user.id))
       }
       return new Response(body, {
         status: response.status,

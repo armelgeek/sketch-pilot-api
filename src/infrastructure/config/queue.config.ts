@@ -89,5 +89,13 @@ export interface VideoJobData {
     kokoroVoicePreset?: string
     backgroundMusic?: string
     assCaptions?: any
+    scriptOnly?: boolean
+    animationMode?: string
+    aspectRatio?: string
+    resolution?: string
+    localOnlyImages?: boolean
+    imageStyle?: any
+    globalTextStyle?: any
+    promptSections?: any
   }
 }

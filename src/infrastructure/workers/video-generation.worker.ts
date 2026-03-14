@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import process from 'node:process'
+import sharp from 'sharp'
 import '@/utils/polyfills'
 
 /**
@@ -37,6 +38,59 @@ async function reportProgress(
 ): Promise<void> {
   await job.updateProgress({ step, progress, message, status: 'processing' })
   await videoRepository.updateStatus(videoId, { status: 'processing', progress, currentStep: step })
+}
+
+/**
+ * Upload each individual scene's images from local path to MinIO and update URLs in-place.
+ */
+async function uploadSceneImages(videoId: string, scenes: any[], outputPath: string): Promise<void> {
+  console.info(`[VideoWorker] Uploading scene images for video ${videoId}...`)
+
+  for (const scene of scenes) {
+    const sceneDir = path.join(outputPath, 'scenes', scene.id)
+    const sceneWebp = path.join(sceneDir, 'scene.webp')
+    const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
+
+    if (fs.existsSync(sceneWebp)) {
+      const buffer = fs.readFileSync(sceneWebp)
+      scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
+
+      // Always regenerate thumbnail from the newest image to ensure sync
+      try {
+        console.info(`[VideoWorker] Regenerating thumbnail for scene ${scene.id}...`)
+        const thumbnailBuffer = await sharp(buffer).resize(480, 270, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer()
+
+        scene.thumbnailUrl = await uploadBuffer(
+          `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
+          thumbnailBuffer,
+          'image/jpeg'
+        )
+        // Also save it locally
+        if (!fs.existsSync(path.dirname(thumbnailJpg))) {
+          fs.mkdirSync(path.dirname(thumbnailJpg), { recursive: true })
+        }
+        fs.writeFileSync(thumbnailJpg, thumbnailBuffer)
+      } catch (error) {
+        console.error(`[VideoWorker] Failed to generate thumbnail for scene ${scene.id}:`, error)
+        // Fallback to existing thumbnail if generation fails
+        if (fs.existsSync(thumbnailJpg)) {
+          const fallbackBuffer = fs.readFileSync(thumbnailJpg)
+          scene.thumbnailUrl = await uploadBuffer(
+            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
+            fallbackBuffer,
+            'image/jpeg'
+          )
+        }
+      }
+    } else if (fs.existsSync(thumbnailJpg)) {
+      const buffer = fs.readFileSync(thumbnailJpg)
+      scene.thumbnailUrl = await uploadBuffer(
+        `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
+        buffer,
+        'image/jpeg'
+      )
+    }
+  }
 }
 
 /**
@@ -78,10 +132,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       videoType: options.videoType,
       videoGenre: options.videoGenre,
       language: options.language || 'en',
-      llmProvider: options.llmProvider || 'gemini',
-      imageProvider: options.imageProvider || 'gemini',
+      llmProvider: options.llmProvider || storedOptions.llmProvider || 'gemini',
+      imageProvider: options.imageProvider || storedOptions.imageProvider || 'gemini',
       audioProvider: options.voiceProvider || storedOptions.audioProvider || 'kokoro',
-      qualityMode: options.qualityMode || 'standard',
+      qualityMode: options.qualityMode || storedOptions.qualityMode || 'standard',
       characterConsistency: options.characterConsistency !== false,
       autoTransitions: options.autoTransitions !== false,
       skipAudio: options.skipAudio || false,
@@ -95,13 +149,22 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       // Carry persisted customization options: voiceover, music, captions
       kokoroVoicePreset: options.kokoroVoicePreset || storedOptions.kokoroVoicePreset,
       backgroundMusic: options.backgroundMusic || storedOptions.backgroundMusic,
-      assCaptions: options.assCaptions || storedOptions.assCaptions
+      assCaptions: options.assCaptions || storedOptions.assCaptions,
+      scriptOnly: options.scriptOnly || false,
+
+      // Missing options mapping
+      animationMode: options.animationMode || storedOptions.animationMode || 'static',
+      aspectRatio: options.aspectRatio || storedOptions.aspectRatio || '16:9',
+      resolution: options.resolution || storedOptions.resolution || '720p',
+      localOnlyImages: options.localOnlyImages ?? storedOptions.localOnlyImages,
+      imageStyle: options.imageStyle || storedOptions.imageStyle,
+      globalTextStyle: options.globalTextStyle || storedOptions.globalTextStyle,
+      promptSections: options.promptSections || storedOptions.promptSections
     }
 
     if (options.voiceId && !genOptions.kokoroVoicePreset) {
       genOptions.kokoroVoicePreset = options.voiceId
     }
-
     if (options.generateFromScript && videoRecord.script) {
       await videoRepository.updateStatus(videoId, {
         status: 'processing',
@@ -152,10 +215,34 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       // Persist script to DB
       if (pkg.script) {
+        // NEW: Ensure scene images are also uploaded in full generation flow!
+        if (pkg.script.scenes && pkg.script.scenes.length > 0) {
+          await uploadSceneImages(videoId, pkg.script.scenes, pkg.outputPath)
+        }
+
         await videoRepository.updateStatus(videoId, {
           script: pkg.script as any,
           scenes: pkg.script.scenes as any
         })
+      }
+
+      // Handle Script-Only Mode (Stop here)
+      if (genOptions.scriptOnly) {
+        await reportProgress(job, videoId, 'script_generation', 100, 'Script generation complete.')
+        await videoRepository.updateStatus(videoId, {
+          status: 'draft',
+          progress: 100,
+          currentStep: 'done'
+        })
+
+        await job.updateProgress({
+          step: 'completed',
+          progress: 100,
+          status: 'completed',
+          videoId
+        })
+        console.info(`[VideoWorker] Script-only generation complete for videoId: ${videoId}`)
+        return
       }
     }
 
@@ -165,7 +252,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     if (options.generateOnlyAudio) {
       await reportProgress(job, videoId, 'upload_audio', 90, 'Uploading narration and transcription...')
 
-      const narrationMp3 = path.join(pkg.outputPath, 'global_narration.mp3')
+      // Use robust path resolution for narration
+      const narrationMp3 = fs.existsSync(path.join(pkg.outputPath, 'global_narration.mp3'))
+        ? path.join(pkg.outputPath, 'global_narration.mp3')
+        : path.join(pkg.outputPath, 'narration.mp3')
+
       const transcriptionJson = path.join(pkg.outputPath, 'transcription.json')
 
       let narrationUrl: string | undefined
@@ -211,26 +302,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await reportProgress(job, videoId, 'upload_scenes', 90, 'Uploading scene images and updating database...')
 
       const updatedScenes = [...(pkg.script?.scenes || [])]
-
-      for (const scene of updatedScenes as any[]) {
-        const sceneDir = path.join(pkg.outputPath, 'scenes', scene.id)
-        const sceneWebp = path.join(sceneDir, 'scene.webp')
-        const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
-
-        if (fs.existsSync(sceneWebp)) {
-          const buffer = fs.readFileSync(sceneWebp)
-          scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
-        }
-
-        if (fs.existsSync(thumbnailJpg)) {
-          const buffer = fs.readFileSync(thumbnailJpg)
-          scene.thumbnailUrl = await uploadBuffer(
-            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
-            buffer,
-            'image/jpeg'
-          )
-        }
-      }
+      await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
 
       await videoRepository.updateStatus(videoId, {
         status: 'scenes_generated',
@@ -261,27 +333,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await reportProgress(job, videoId, 'upload_scene_image', 90, `Uploading reprompted image for scene ${idx}...`)
 
       const updatedScenes = [...(pkg.script?.scenes || [])]
-      const scene = updatedScenes[idx]
-
-      if (scene) {
-        const sceneDir = path.join(pkg.outputPath, 'scenes', scene.id)
-        const sceneWebp = path.join(sceneDir, 'scene.webp')
-        const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
-
-        if (fs.existsSync(sceneWebp)) {
-          const buffer = fs.readFileSync(sceneWebp)
-          scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
-        }
-
-        if (fs.existsSync(thumbnailJpg)) {
-          const buffer = fs.readFileSync(thumbnailJpg)
-          scene.thumbnailUrl = await uploadBuffer(
-            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
-            buffer,
-            'image/jpeg'
-          )
-        }
-      }
+      await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
 
       await videoRepository.updateStatus(videoId, {
         status: 'scenes_generated', // Usually remains in this state before final assembly
@@ -314,7 +366,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const narrationMp3 = fs.existsSync(path.join(outputPath, 'global_narration.mp3'))
       ? path.join(outputPath, 'global_narration.mp3')
       : path.join(outputPath, 'narration.mp3')
-    const captionsAss = path.join(outputPath, 'captions.ass')
+
+    // Check both 'captions.ass' (old) and 'global_subtitles.ass' (new)
+    const captionsAss = fs.existsSync(path.join(outputPath, 'global_subtitles.ass'))
+      ? path.join(outputPath, 'global_subtitles.ass')
+      : path.join(outputPath, 'captions.ass')
 
     const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
 

@@ -45,7 +45,15 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
     customSpec: customSpec || options.customSpec,
-    characterModelId: options.characterModelId
+    characterModelId: options.characterModelId,
+    scriptOnly: options.scriptOnly,
+    animationMode: options.animationMode,
+    aspectRatio: options.aspectRatio,
+    resolution: options.resolution,
+    localOnlyImages: options.localOnlyImages,
+    imageStyle: options.imageStyle,
+    globalTextStyle: options.globalTextStyle,
+    promptSections: options.promptSections
   }
 }
 

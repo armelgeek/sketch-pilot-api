@@ -1,8 +1,4 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { IUseCase } from '@/domain/types'
-import { uploadBuffer } from '@/infrastructure/config/storage.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -24,7 +20,6 @@ type RepromptSceneImageResponse = {
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
-const videoGenerationService = new VideoGenerationService()
 
 export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams, RepromptSceneImageResponse> {
   async execute({
@@ -72,7 +67,8 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
         metadata: { sceneIndex, planConsumed, extraConsumed, plan: actualPlan }
       })
 
-      // 4. Update Scene Prompt (if provided)
+      // 4. Update Scene Prompt (if provided) and set status to queued
+      const jobId = crypto.randomUUID()
       if (newPrompt) {
         scenes[sceneIndex].imagePrompt = newPrompt
         if (video.script && (video.script as any).scenes) {
@@ -80,64 +76,41 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
         }
       }
 
-      // 5. Run Generation Synchronously
-      const effectiveProjectId = (video.options as any)?.localProjectId
-      if (!effectiveProjectId) {
-        return { success: false, error: 'Project not initialized (no localProjectId)' }
-      }
+      await videoRepository.updateStatus(videoId, {
+        jobId,
+        status: 'queued',
+        progress: 10,
+        currentStep: `Starting image regeneration for scene ${sceneIndex + 1}`,
+        script: video.script as any,
+        scenes: scenes as any
+      })
 
-      const pkg = await videoGenerationService.renderVideoFromScript({
-        topic: video.topic,
+      // 5. Enqueue the BullMQ job
+      const videoOptions = (video.options as any) || {}
+      const jobData = {
+        jobId,
         userId,
-        script: { ...((video.script as any) || {}), scenes } as any,
+        videoId,
+        topic: video.topic,
         options: {
-          ...((video.options as any) || {}),
+          ...videoOptions,
           generateFromScript: true,
           repromptSceneIndex: sceneIndex,
           localOnlyImages: false
-        },
-        projectId: effectiveProjectId
+        }
+      }
+
+      const { getVideoQueue } = await import('@/infrastructure/config/queue.config')
+      const queue = getVideoQueue()
+      await queue.add('generate-video', jobData, {
+        jobId,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 }
       })
 
-      // 6. Upload Result to MinIO
-      const scene = pkg.script?.scenes[sceneIndex]
-      if (scene) {
-        const sceneDir = path.join(pkg.outputPath, 'scenes', scene.id)
-        const sceneWebp = path.join(sceneDir, 'scene.webp')
-        const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
-
-        if (fs.existsSync(sceneWebp)) {
-          const buffer = fs.readFileSync(sceneWebp)
-          scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
-        }
-
-        if (fs.existsSync(thumbnailJpg)) {
-          const buffer = fs.readFileSync(thumbnailJpg)
-          scene.thumbnailUrl = await uploadBuffer(
-            `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
-            buffer,
-            'image/jpeg'
-          )
-        }
-
-        // Sync back to the main scenes array
-        scenes[sceneIndex] = scene
-      }
-
-      // 7. Persist Updated Video Record
-      const updateData: any = {
-        script: pkg.script as any,
-        scenes: scenes as any
-      }
-      if (sceneIndex === 0 && scene.thumbnailUrl) {
-        updateData.thumbnailUrl = scene.thumbnailUrl
-      }
-
-      await videoRepository.updateStatus(videoId, updateData)
-
-      return { success: true, creditsRequired: cost }
+      return { success: true, jobId, creditsRequired: cost }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to re-prompt' }
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to start re-prompt' }
     }
   }
 }

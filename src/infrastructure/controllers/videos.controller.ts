@@ -9,6 +9,7 @@ import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-vid
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
 import { RepromptSceneImageUseCase } from '@/application/use-cases/video/reprompt-scene-image.use-case'
+import { UpdateVideoUseCase } from '@/application/use-cases/video/update-video.use-case'
 import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
@@ -26,6 +27,7 @@ const generateScenesUseCase = new GenerateScenesUseCase()
 const chooseVoiceoverUseCase = new ChooseVoiceoverUseCase()
 const chooseBackgroundMusicUseCase = new ChooseBackgroundMusicUseCase()
 const configureCaptionsUseCase = new ConfigureCaptionsUseCase()
+const updateVideoUseCase = new UpdateVideoUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -1442,6 +1444,67 @@ export class VideosController implements Routes {
         }
 
         return c.json(result, 202)
+      }
+    )
+
+    // PATCH /v1/videos/:id
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}',
+        tags: ['Videos'],
+        summary: 'Update video details',
+        description: 'Updates video metadata, script, or options.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  topic: z.string().optional(),
+                  status: z.string().optional(),
+                  script: z.any().optional(),
+                  options: VideoOptionsSchema.partial().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Video updated',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), video: z.any() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const data = c.req.valid('json')
+
+        const { result } = await updateVideoUseCase.run({
+          videoId: id,
+          userId: user.id,
+          data
+        })
+
+        if (!result.success) {
+          if (result.error === 'Video not found') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error || 'Failed to update video' }, 500)
+        }
+
+        return c.json({ success: true, video: result.video })
       }
     )
   }

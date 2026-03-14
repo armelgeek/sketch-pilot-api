@@ -38,12 +38,20 @@ export class MusicService {
 
     const normalizedMood = mood.toLowerCase()
 
-    // precise match
-    const exactMatch = this.tracks.find((t) => t.tags.includes(normalizedMood))
-    if (exactMatch) return exactMatch
+    // 1. Try ID match first (e.g., 'upbeat-1')
+    const idMatch = this.getTrackById(normalizedMood)
+    if (idMatch) return idMatch
 
-    // partial match? or random fallback
+    // 2. Precise tag match (e.g., 'upbeat')
+    const tagMatch = this.tracks.find((t) => t.tags.includes(normalizedMood))
+    if (tagMatch) return tagMatch
+
+    // 3. Fallback to random
     return this.getRandomTrack()
+  }
+
+  public getTrackById(id: string): MusicTrack | null {
+    return this.tracks.find((t) => t.id === id) || null
   }
 
   public getRandomTrack(): MusicTrack {

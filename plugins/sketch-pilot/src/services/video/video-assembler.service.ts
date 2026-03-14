@@ -494,8 +494,9 @@ export class VideoAssembler {
         .input(videoPath)
         .input(musicPath)
         .complexFilter([
-          `[1:a][0:a]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=400:makeup=1[music_ducked]`,
-          `[0:a][music_ducked]amix=inputs=2:duration=first[aout]`
+          `[0:a]asplit=2[voice_sc][voice_mix]`,
+          `[1:a][voice_sc]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=400:makeup=1[music_ducked]`,
+          `[voice_mix][music_ducked]amix=inputs=2:duration=first[aout]`
         ])
         .outputOptions(['-c:v copy', '-map 0:v:0', '-map [aout]', '-shortest'])
         .save(outputPath)
@@ -1425,8 +1426,14 @@ export class VideoAssembler {
 
       // Label [narr]: Delayed + pitch-corrected speed-up via atempo
       if (!skipNarration) {
-        filterParts.push(`[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=1.0[narr]`)
-        currentAudioLabel = '[narr]'
+        if (hasSoundscape) {
+          filterParts.push(
+            `[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=1.0,asplit=2[narr_sc][narr_mix]`
+          )
+        } else {
+          filterParts.push(`[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=1.0[narr]`)
+          currentAudioLabel = '[narr]'
+        }
       }
 
       // Handle Soundscape with Tension-Aware Ducking
@@ -1440,10 +1447,10 @@ export class VideoAssembler {
           currentAudioLabel = '[amb_vol]'
         } else {
           filterParts.push(
-            `[amb_vol][narr]sidechaincompress=threshold=0.03:ratio=${duckingRatio}:attack=20:release=400:makeup=1[amb_ducked]`
+            `[amb_vol][narr_sc]sidechaincompress=threshold=0.03:ratio=${duckingRatio}:attack=20:release=400:makeup=1[amb_ducked]`
           )
           // Mix narration and ambient
-          filterParts.push(`[narr][amb_ducked]amix=inputs=2:duration=first[mixed_base]`)
+          filterParts.push(`[narr_mix][amb_ducked]amix=inputs=2:duration=first[mixed_base]`)
           currentAudioLabel = '[mixed_base]'
         }
       } else if (skipNarration) {

@@ -47,11 +47,8 @@ export const CREDIT_COSTS = {
 
 export const PLAN_MONTHLY_LIMITS: Record<string, number> = {
   free: 0,
-
-  creator: 500,
-  professional: 2000,
-  business: 5000,
-  enterprise: -1
+  plan_starter: 1000,
+  creator: 500
 }
 
 export const VIDEO_TYPES = [

@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   ListObjectsV2Command,
+  PutBucketPolicyCommand,
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3'
@@ -26,22 +27,60 @@ export const BUCKET = process.env.MINIO_BUCKET || 'sketch-videos'
 export const CDN_URL = process.env.CDN_URL || 'http://localhost:9000/sketch-videos'
 
 /**
- * Ensure the bucket exists, create it if it doesn't
+ * Ensure the bucket exists, create it if it doesn't, and set public read policy
  */
 export async function ensureBucketExists(): Promise<void> {
   try {
     await storageClient.send(new HeadBucketCommand({ Bucket: BUCKET }))
+    // Even if it exists, ensure policy is set (idempotent)
+    await setPublicBucketPolicy(BUCKET)
   } catch (error: any) {
     if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
       console.info(`[Storage] Bucket '${BUCKET}' not found, creating...`)
       try {
         await storageClient.send(new CreateBucketCommand({ Bucket: BUCKET }))
+        await setPublicBucketPolicy(BUCKET)
       } catch (createError: any) {
         console.error(`[Storage] Failed to create bucket '${BUCKET}':`, createError.message)
       }
     } else {
       console.error(`[Storage] Error checking bucket '${BUCKET}':`, error.message)
     }
+  }
+}
+
+/**
+ * Sets a public read policy on the specified bucket
+ */
+async function setPublicBucketPolicy(bucketName: string) {
+  const policy = {
+    Version: '2012-10-17',
+    Statement: [
+      {
+        Effect: 'Allow',
+        Principal: { AWS: ['*'] },
+        Action: ['s3:GetBucketLocation', 's3:ListBucket'],
+        Resource: [`arn:aws:s3:::${bucketName}`]
+      },
+      {
+        Effect: 'Allow',
+        Principal: { AWS: ['*'] },
+        Action: ['s3:GetObject'],
+        Resource: [`arn:aws:s3:::${bucketName}/*`]
+      }
+    ]
+  }
+
+  try {
+    await storageClient.send(
+      new PutBucketPolicyCommand({
+        Bucket: bucketName,
+        Policy: JSON.stringify(policy)
+      })
+    )
+    console.info(`[Storage] Public read policy applied to bucket '${bucketName}'`)
+  } catch (error: any) {
+    console.warn(`[Storage] Failed to set public policy for bucket '${bucketName}':`, error.message)
   }
 }
 
