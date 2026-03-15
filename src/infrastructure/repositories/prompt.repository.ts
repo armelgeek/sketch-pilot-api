@@ -26,6 +26,23 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
         fullNarration: 'String - The complete unbroken text of the video.',
         topic: 'String',
         audience: 'String',
+        characterSheets: [
+          {
+            id: 'CHAR-01',
+            name: 'Name',
+            role: 'Role',
+            metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
+            appearance: {
+              description: 'Base style',
+              clothing: 'Typical outfit',
+              accessories: 'Distinguishing items',
+              colorPalette: ['#HEX1', '#HEX2'],
+              uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
+            },
+            expressions: ['Happy', 'Sad', 'Neutral'],
+            imagePrompt: 'Consistent visual reference prompt'
+          }
+        ],
         scenes: [
           {
             sceneNumber: 'Integer',
@@ -37,6 +54,7 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
             actions: ['String'],
             expression: 'String',
             characterIds: ['String'],
+            speakingCharacterId: 'String',
             speechBubble: 'String',
             mood: 'String',
             cameraType: 'String',
@@ -156,6 +174,23 @@ export class PromptRepository implements PromptRepositoryInterface {
             fullNarration: 'String - The complete unbroken text of the video.',
             topic: 'String',
             audience: 'String',
+            characterSheets: [
+              {
+                id: 'CHAR-01',
+                name: 'Name',
+                role: 'Role',
+                metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
+                appearance: {
+                  description: 'Base style',
+                  clothing: 'Typical outfit',
+                  accessories: 'Distinguishing items',
+                  colorPalette: ['#HEX1', '#HEX2'],
+                  uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
+                },
+                expressions: ['Happy', 'Sad', 'Neutral'],
+                imagePrompt: 'Consistent visual reference prompt'
+              }
+            ],
             scenes: [
               {
                 sceneNumber: 'Integer',
@@ -238,6 +273,23 @@ export class PromptRepository implements PromptRepositoryInterface {
                 fullNarration: 'String - The complete unbroken text of the video.',
                 topic: 'String',
                 audience: 'String',
+                characterSheets: [
+                  {
+                    id: 'CHAR-01',
+                    name: 'Name',
+                    role: 'Role',
+                    metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
+                    appearance: {
+                      description: 'Base style',
+                      clothing: 'Typical outfit',
+                      accessories: 'Distinguishing items',
+                      colorPalette: ['#HEX1', '#HEX2'],
+                      uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
+                    },
+                    expressions: ['Happy', 'Sad', 'Neutral'],
+                    imagePrompt: 'Consistent visual reference prompt'
+                  }
+                ],
                 scenes: [
                   {
                     sceneNumber: 'Integer',

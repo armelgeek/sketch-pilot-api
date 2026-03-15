@@ -1,7 +1,4 @@
-/**
- * Shared types for the PromptMaker system.
- * Extracted to avoid circular dependencies between prompt-manager.ts and spec files.
- */
+import type { CharacterEnrollment } from '../types/video-script.types'
 
 export interface PromptMakerOptions {
   subject: string
@@ -9,6 +6,7 @@ export interface PromptMakerOptions {
   aspectRatio: string
   audience: string
   maxScenes: number
+  characters?: CharacterEnrollment[]
 }
 
 /**

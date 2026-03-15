@@ -28,8 +28,9 @@ export class KokoroTTSService implements AudioService {
   // Public API
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async generateSpeech(text: string, outputPath: string): Promise<AudioGenerationResult> {
-    console.log(`[KokoroTTS] Generating speech (${this.voicePreset}): "${text.slice(0, 50)}..."`)
+  async generateSpeech(text: string, outputPath: string, options?: any): Promise<AudioGenerationResult> {
+    const activeVoice = options?.voice || this.voicePreset
+    console.log(`[KokoroTTS] Generating speech (${activeVoice}): "${text.slice(0, 50)}..."`)
 
     await this.ensureInitialized()
     if (!this.tts) throw new Error('Kokoro TTS model failed to initialize')
@@ -52,7 +53,7 @@ export class KokoroTTSService implements AudioService {
         const textToGenerate = `${chunks[i].trim()} \n\n`
 
         const audio = await this.tts.generate(textToGenerate, {
-          voice: this.voicePreset,
+          voice: activeVoice,
           speed: 0.8 // Slow down for more natural, less "rushed" delivery
         })
         await audio.save(chunkPath)

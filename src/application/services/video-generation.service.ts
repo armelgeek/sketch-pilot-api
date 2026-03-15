@@ -41,6 +41,14 @@ export class VideoGenerationService {
         model = await this.characterModelRepository.findByName(identifier.name)
       }
 
+      // Fallback: search by metadata (Best-Fit Match)
+      if (!model && (identifier.gender || identifier.age)) {
+        console.log(
+          `[VideoGenerationService] No model found for name "${identifier.name}". Trying metadata match: ${identifier.gender}, ${identifier.age}`
+        )
+        model = await this.characterModelRepository.findByMetadata(identifier.gender, identifier.age)
+      }
+
       if (!model || !model.imageUrl) return null
 
       try {
@@ -80,12 +88,20 @@ export class VideoGenerationService {
     // 1. Resolve Spec from DB
     const scriptSpec = await this.promptService.resolveSpec((options as any).promptId)
 
+    // 2. Resolve Voice if Character is provided and no voice specified
+    let effectiveVoiceId = options.kokoroVoicePreset as string | undefined
+    if (!effectiveVoiceId && options.characterModelId) {
+      const charModel = await this.characterModelRepository.findById(options.characterModelId)
+      if (charModel?.voiceId) {
+        effectiveVoiceId = charModel.voiceId
+      }
+    }
+
     const audioConfig: AudioServiceConfig = {
       provider: (options.audioProvider as AudioServiceConfig['provider']) || 'kokoro',
       lang: options.language || 'en',
       apiKey: process.env.HUGGING_FACE_TOKEN || apiKey,
-      // kokoroVoicePreset comes from options and may be a KokoroVoicePreset enum value
-      kokoroVoicePreset: options.kokoroVoicePreset as string | undefined
+      kokoroVoicePreset: effectiveVoiceId
     }
 
     const animationConfig: AnimationServiceConfig = {

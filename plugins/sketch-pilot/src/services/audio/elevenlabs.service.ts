@@ -32,12 +32,13 @@ export class ElevenLabsService implements AudioService {
   /**
    * Generates speech and saves it to an audio file
    */
-  async generateSpeech(text: string, outputPath: string): Promise<AudioGenerationResult> {
-    console.log(`[ElevenLabs] Generating speech for: "${text.slice(0, 50)}..."`)
+  async generateSpeech(text: string, outputPath: string, options?: any): Promise<AudioGenerationResult> {
+    const activeVoiceId = options?.voiceId || options?.voice || this.voiceId
+    console.log(`[ElevenLabs] Generating speech (${activeVoiceId}) for: "${text.slice(0, 50)}..."`)
 
     try {
       // Generate audio stream
-      const audioStream = await this.client.textToSpeech.convert(this.voiceId, {
+      const audioStream = await this.client.textToSpeech.convert(activeVoiceId, {
         text,
         modelId: this.modelId,
         voiceSettings: {

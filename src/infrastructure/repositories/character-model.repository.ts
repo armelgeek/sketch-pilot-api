@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { db } from '../database/db'
 import { characterModels } from '../database/schema'
 
@@ -14,6 +14,21 @@ export class CharacterModelRepository {
 
   async findById(id: string) {
     const [model] = await db.select().from(characterModels).where(eq(characterModels.id, id))
+    return model || null
+  }
+
+  async findByMetadata(gender?: string, age?: string) {
+    if (!gender && !age) return null
+
+    const conditions = []
+    if (gender) conditions.push(eq(characterModels.gender, gender))
+    if (age) conditions.push(eq(characterModels.age, age))
+
+    const [model] = await db
+      .select()
+      .from(characterModels)
+      .where(and(...conditions))
+      .limit(1)
     return model || null
   }
 

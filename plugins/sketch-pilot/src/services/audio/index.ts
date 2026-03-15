@@ -20,8 +20,13 @@ export interface AudioGenerationResult {
   wordTimings?: WordTiming[]
 }
 
+export interface AudioOptions {
+  voice?: string // For Kokoro preset or Google/ElevenLabs fallback
+  voiceId?: string // Specifically for ElevenLabs/Google
+}
+
 export interface AudioService {
-  generateSpeech: (text: string, outputPath: string) => Promise<AudioGenerationResult>
+  generateSpeech: (text: string, outputPath: string, options?: AudioOptions) => Promise<AudioGenerationResult>
 }
 
 export type AudioProvider = 'demo' | 'google-tts' | 'openai-tts' | 'elevenlabs' | 'kokoro'

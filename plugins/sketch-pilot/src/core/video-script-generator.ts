@@ -42,8 +42,8 @@ export class VideoScriptGenerator {
     // Step 1: Generate base structure with narration
     const baseScript: any = await this.generateVideoStructure(topic, options)
 
-    // Step 2: Skip Character Sheet generation as it's not used for production and causes multi-pose issues
-    const characterSheets: any[] = []
+    // Step 2: Use auto-discovered characters from the LLM
+    const characterSheets: any[] = baseScript.characterSheets || []
 
     // Step 3: Enrich scenes with detailed prompts
     let enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets)

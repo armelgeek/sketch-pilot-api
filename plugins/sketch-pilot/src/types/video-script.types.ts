@@ -159,10 +159,29 @@ export const characterSheetSchema = z.object({
     uniqueIdentifiers: z.array(z.string())
   }),
   expressions: z.array(z.string()).describe('List of primary expressions for this character'),
+  metadata: z
+    .object({
+      gender: z.enum(['male', 'female', 'unknown']).default('unknown'),
+      age: z.enum(['child', 'youth', 'senior', 'unknown']).default('unknown')
+    })
+    .optional(),
+  modelId: z.string().optional().describe('ID of the suggested/confirmed character model'),
+  voiceId: z.string().optional().describe('ID of the assigned voice'),
   imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation')
 })
 
 export type CharacterSheet = z.infer<typeof characterSheetSchema>
+
+/**
+ * Enrollment of a specific character for the generation
+ */
+export const characterEnrollmentSchema = z.object({
+  name: z.string().describe('Name of the character (e.g. "Lily")'),
+  modelId: z.string().optional().describe('ID of the character model to use'),
+  voiceId: z.string().optional().describe('ID of the voice to use for this character')
+})
+
+export type CharacterEnrollment = z.infer<typeof characterEnrollmentSchema>
 
 /**
  * Styling for onscreenText overlay.
@@ -228,6 +247,7 @@ export const enrichedSceneSchema = z.object({
   actions: z.array(z.string()).describe('List of physical actions the character performs'),
   expression: z.string().describe('Facial expression and emotional state'),
   characterIds: z.array(z.string()).optional().describe('List of character IDs present in the scene'),
+  speakingCharacterId: z.string().optional().describe('ID of the character currently speaking/narrating'),
   speechBubble: z.string().nullish().describe('Text for speech bubble dialogue (if any)'),
   onscreenText: z
     .string()
@@ -733,6 +753,10 @@ export const videoGenerationOptionsSchema = z
       .boolean()
       .default(true)
       .describe('Enable AI-generated background scenes (default is now AI-driven)'),
+    characters: z
+      .array(characterEnrollmentSchema)
+      .optional()
+      .describe('List of characters to include in the video (multi-character support)'),
     promptSections: promptSectionsSchema
       .optional()
       .describe(

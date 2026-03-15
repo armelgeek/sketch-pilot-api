@@ -14,6 +14,9 @@ const charModelSchema = z.object({
   name: z.string(),
   imageUrl: z.string().nullable(),
   mimeType: z.string().nullable(),
+  gender: z.string(),
+  age: z.string(),
+  voiceId: z.string().nullable(),
   isStandard: z.boolean().nullable(),
   createdAt: z.string().or(z.date()),
   updatedAt: z.string().or(z.date())
@@ -75,6 +78,9 @@ export class CharacterModelController implements Routes {
               'multipart/form-data': {
                 schema: z.object({
                   name: z.string().min(1).openapi({ description: 'Unique model name' }),
+                  gender: z.enum(['male', 'female', 'unknown']).default('unknown'),
+                  age: z.enum(['child', 'youth', 'senior', 'unknown']).default('unknown'),
+                  voiceId: z.string().optional(),
                   isStandard: z.string().optional().openapi({ description: 'true/false' }),
                   image: z.instanceof(File).openapi({ description: 'Reference image file' })
                 })
@@ -105,6 +111,9 @@ export class CharacterModelController implements Routes {
         try {
           const formData = await c.req.formData()
           const name: string = formData.get('name')
+          const gender: string = formData.get('gender') || 'unknown'
+          const age: string = formData.get('age') || 'unknown'
+          const voiceId: string | null = formData.get('voiceId')
           const isStandardRaw: string | null = formData.get('isStandard')
           const file: File | null = formData.get('image')
 
@@ -132,6 +141,9 @@ export class CharacterModelController implements Routes {
             name,
             imageUrl,
             mimeType,
+            gender,
+            age,
+            voiceId,
             isStandard: isStandardRaw === 'true'
           })
 
@@ -160,6 +172,9 @@ export class CharacterModelController implements Routes {
               'application/json': {
                 schema: z.object({
                   name: z.string().optional(),
+                  gender: z.enum(['male', 'female', 'unknown']).optional(),
+                  age: z.enum(['child', 'youth', 'senior', 'unknown']).optional(),
+                  voiceId: z.string().nullable().optional(),
                   isStandard: z.boolean().optional()
                 })
               }

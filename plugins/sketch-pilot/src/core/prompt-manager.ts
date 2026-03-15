@@ -124,7 +124,34 @@ export class PromptMaker {
    * Build only the user data part (Subject, Duration, Audience)
    */
   public buildUserData(options: PromptMakerOptions): string {
-    return `Subject: ${options.subject}\nRequired Duration: ${options.duration}\nRequired Scene Count: ${options.maxScenes}\nAspect Ratio: ${options.aspectRatio}\nAudience: ${options.audience}`
+    const lines = [
+      `Subject: ${options.subject}`,
+      `Required Duration: ${options.duration}`,
+      `Required Scene Count: ${options.maxScenes}`,
+      `Aspect Ratio: ${options.aspectRatio}`,
+      `Audience: ${options.audience}`,
+      '',
+      this.buildCharacterInstructions(options)
+    ]
+
+    return lines.join('\n')
+  }
+
+  /**
+   * Build specific instructions for character discovery if needed.
+   */
+  private buildCharacterInstructions(options: PromptMakerOptions): string {
+    if (options.characters && options.characters.length > 0) {
+      const cast = options.characters
+        .map((char) => `- ${char.name}${char.modelId ? ` (Model ID: ${char.modelId})` : ''}`)
+        .join('\n')
+      return `CAST OF CHARACTERS (Mandatory):\n${cast}\n\nYou MUST use these specific Character Names and Model IDs in your script.`
+    }
+
+    return `CHARACTER IDENTIFICATION:
+- Automatically identify the core characters in this story.
+- For each character, you MUST define their name, role, gender ("male", "female", or "unknown"), and age ("child", "youth", "senior", or "unknown").
+- These attributes MUST be returned in the \`metadata\` object for each item in the \`characterSheets\` array.`
   }
 
   /**
@@ -226,7 +253,8 @@ export class PromptManager {
       duration: `${effectiveDuration} seconds`,
       aspectRatio: options.aspectRatio || '16:9',
       audience: (options as any).audience || spec.audienceDefault,
-      maxScenes: targetSceneCount
+      maxScenes: targetSceneCount,
+      characters: options.characters
     })
   }
 

@@ -16,7 +16,7 @@ export class DemoAudioService implements AudioService {
   /**
    * Generates speech and saves it to an MP3 file.
    */
-  async generateSpeech(text: string, outputPath: string): Promise<AudioGenerationResult> {
+  async generateSpeech(text: string, outputPath: string, options?: any): Promise<AudioGenerationResult> {
     console.log(`[DemoAudio] Generating speech for: "${text.slice(0, 30)}..."`)
 
     try {
@@ -44,7 +44,7 @@ export class DemoAudioService implements AudioService {
             })
           })
           .on('error', (err) => {
-            fs.unlink(outputPath, () => {})
+            fs.unlink(outputPath, () => { })
             reject(err)
           })
       })

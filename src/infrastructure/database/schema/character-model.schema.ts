@@ -5,6 +5,9 @@ export const characterModels = pgTable('character_models', {
   name: text('name').notNull().unique(),
   imageUrl: text('image_url'),
   mimeType: text('mime_type').default('image/jpeg'),
+  gender: text('gender').notNull().default('unknown'), // 'male', 'female', 'unknown'
+  age: text('age').notNull().default('unknown'), // 'child', 'youth', 'senior', 'unknown'
+  voiceId: text('voice_id'), // Associated voice preset ID
   isStandard: boolean('is_standard').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()

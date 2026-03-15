@@ -15,6 +15,7 @@ import {
 } from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 
 export type { ScriptValidationResult }
 
@@ -34,6 +35,7 @@ export interface GenerateScriptOptions {
 export class ScriptGenerationService {
   private readonly validator = new ScriptValidator()
   private readonly promptService = new PromptService(new PromptRepository())
+  private readonly characterModelRepository = new CharacterModelRepository()
 
   /**
    * Generate a complete video script using the LLM engine.
@@ -69,8 +71,24 @@ export class ScriptGenerationService {
       imageSpec: spec as any
     })
     const generator = new VideoScriptGenerator(llmService, promptManager)
+    const script = await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)
 
-    return await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)
+    // 4. Best-Fit Matching for auto-discovered characters
+    if (script.characterSheets && script.characterSheets.length > 0) {
+      for (const sheet of script.characterSheets) {
+        if (!sheet.modelId && sheet.metadata) {
+          const model = await this.characterModelRepository.findByMetadata(
+            sheet.metadata.gender,
+            sheet.metadata.age
+          )
+          if (model) {
+            sheet.modelId = model.id
+          }
+        }
+      }
+    }
+
+    return script
   }
 
   /**

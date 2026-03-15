@@ -39,8 +39,9 @@ export class GoogleTTSService implements AudioService {
   /**
    * Generates speech and saves it to an audio file
    */
-  async generateSpeech(text: string, outputPath: string): Promise<AudioGenerationResult> {
-    console.log(`[GoogleTTS] Generating speech for: "${text.slice(0, 50)}..."`)
+  async generateSpeech(text: string, outputPath: string, options?: any): Promise<AudioGenerationResult> {
+    const activeVoiceName = options?.voiceId || options?.voice || this.voiceName
+    console.log(`[GoogleTTS] Generating speech (${activeVoiceName}) for: "${text.slice(0, 50)}..."`)
 
     try {
       // Construct the request (cast to any for enableTimepointing which may not be in current type defs)
@@ -48,7 +49,7 @@ export class GoogleTTSService implements AudioService {
         input: { text },
         voice: {
           languageCode: this.languageCode,
-          ...(this.voiceName && { name: this.voiceName })
+          ...(activeVoiceName && { name: activeVoiceName })
         },
         audioConfig: {
           audioEncoding: this.audioEncoding

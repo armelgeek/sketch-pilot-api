@@ -16,7 +16,12 @@ export interface CharacterModel {
   mimeType: string
 }
 
-export type CharacterModelLoader = (identifier: { id?: string; name?: string }) => Promise<CharacterModel | null>
+export type CharacterModelLoader = (identifier: {
+  id?: string
+  name?: string
+  gender?: string
+  age?: string
+}) => Promise<CharacterModel | null>
 
 export class CharacterModelManager {
   private cache: Map<string, CharacterModel> = new Map()
@@ -35,10 +40,15 @@ export class CharacterModelManager {
   }
 
   /**
-   * Load a specific character model by ID or name
+   * Load a specific character model by ID, name, or metadata
    */
-  async loadCharacterModel(identifier: { id?: string; name?: string }): Promise<CharacterModel | null> {
-    const cacheKey = identifier.id || identifier.name
+  async loadCharacterModel(identifier: {
+    id?: string
+    name?: string
+    gender?: string
+    age?: string
+  }): Promise<CharacterModel | null> {
+    const cacheKey = identifier.id || identifier.name || `${identifier.gender}-${identifier.age}`
     if (!cacheKey) return null
 
     // Check cache first
