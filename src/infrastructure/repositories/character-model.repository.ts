@@ -17,6 +17,11 @@ export class CharacterModelRepository {
     return model || null
   }
 
+  async findStandard() {
+    const [model] = await db.select().from(characterModels).where(eq(characterModels.isStandard, true))
+    return model || null
+  }
+
   async create(data: typeof characterModels.$inferInsert) {
     const [model] = await db.insert(characterModels).values(data).returning()
     return model

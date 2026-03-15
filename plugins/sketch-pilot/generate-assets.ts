@@ -38,27 +38,27 @@ const BACKGROUNDS = [
 ]
 
 const POSES = [
-  { id: 'STAND', prompt: 'A single minimalist stickman character standing still, relaxed posture.' },
-  { id: 'WALK', prompt: 'A single minimalist stickman character walking forward, mid-stride.' },
-  { id: 'RUN', prompt: 'A single minimalist stickman character running fast, dynamic posture.' },
-  { id: 'THINK', prompt: 'A single minimalist stickman character in a thinking pose, hand on chin.' },
-  { id: 'POINT', prompt: 'A single minimalist stickman character pointing forward with one arm extended.' },
-  { id: 'SAD', prompt: 'A single minimalist stickman character sitting or standing with head down, looking sad.' },
-  { id: 'JUMP', prompt: 'A single minimalist stickman character jumping with joy, arms raised.' },
-  { id: 'SIT', prompt: 'A single minimalist stickman character sitting on an invisible chair or ledge.' },
-  { id: 'TYPE', prompt: 'A single minimalist stickman character typing on a laptop or keyboard, focused.' },
-  { id: 'EXHAUSTED', prompt: 'A single minimalist stickman character slumped over, extremely tired or burnt out.' },
-  { id: 'NOTEBOOK', prompt: 'A single minimalist stickman character writing in a small notebook.' },
-  { id: 'PHONE', prompt: 'A single minimalist stickman character looking at a smartphone.' },
+  { id: 'STAND', prompt: 'A single minimalist character standing still, relaxed posture.' },
+  { id: 'WALK', prompt: 'A single minimalist character walking forward, mid-stride.' },
+  { id: 'RUN', prompt: 'A single minimalist character running fast, dynamic posture.' },
+  { id: 'THINK', prompt: 'A single minimalist character in a thinking pose, hand on chin.' },
+  { id: 'POINT', prompt: 'A single minimalist character pointing forward with one arm extended.' },
+  { id: 'SAD', prompt: 'A single minimalist character sitting or standing with head down, looking sad.' },
+  { id: 'JUMP', prompt: 'A single minimalist character jumping with joy, arms raised.' },
+  { id: 'SIT', prompt: 'A single minimalist character sitting on an invisible chair or ledge.' },
+  { id: 'TYPE', prompt: 'A single minimalist character typing on a laptop or keyboard, focused.' },
+  { id: 'EXHAUSTED', prompt: 'A single minimalist character slumped over, extremely tired or burnt out.' },
+  { id: 'NOTEBOOK', prompt: 'A single minimalist character writing in a small notebook.' },
+  { id: 'PHONE', prompt: 'A single minimalist character looking at a smartphone.' },
   {
     id: 'ANGRY',
-    prompt: 'A single minimalist stickman character with clenched fists, looking aggressive or frustrated.'
+    prompt: 'A single minimalist character with clenched fists, looking aggressive or frustrated.'
   },
-  { id: 'SHOCK', prompt: 'A single minimalist stickman character with arms out, looking surprised or shocked.' },
-  { id: 'MEDITATE', prompt: 'A single minimalist stickman character sitting cross-legged, meditating in peace.' },
-  { id: 'LOOK-BACK', prompt: 'A single minimalist stickman character looking back over their shoulder while walking.' },
-  { id: 'CARRY-BOX', prompt: 'A single minimalist stickman character carrying a heavy cardboard moving box.' },
-  { id: 'FALL', prompt: 'A single minimalist stickman character falling backwards or down, dynamic losing balance.' }
+  { id: 'SHOCK', prompt: 'A single minimalist character with arms out, looking surprised or shocked.' },
+  { id: 'MEDITATE', prompt: 'A single minimalist character sitting cross-legged, meditating in peace.' },
+  { id: 'LOOK-BACK', prompt: 'A single minimalist character looking back over their shoulder while walking.' },
+  { id: 'CARRY-BOX', prompt: 'A single minimalist character carrying a heavy cardboard moving box.' },
+  { id: 'FALL', prompt: 'A single minimalist character falling backwards or down, dynamic losing balance.' }
 ]
 
 async function generateBackgrounds() {

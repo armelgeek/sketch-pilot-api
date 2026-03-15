@@ -6,8 +6,6 @@ export interface VideoFilters {
   page?: number
   limit?: number
   status?: string
-  genre?: string
-  type?: string
   search?: string
   sort?: string
 }
@@ -20,8 +18,6 @@ export class VideoRepository {
     status?: string
     progress?: number
     options?: any
-    genre?: string
-    type?: string
     language?: string
     script?: any
     scenes?: any
@@ -36,11 +32,10 @@ export class VideoRepository {
         status: data.status || 'queued',
         progress: data.progress || 0,
         options: data.options,
-        genre: data.genre,
-        type: data.type,
         language: data.language || 'en',
         script: data.script,
         scenes: data.scenes,
+        characterModelId: data.characterModelId,
         creditsUsed: data.status === 'draft' ? 0 : 1,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -104,13 +99,11 @@ export class VideoRepository {
   }
 
   async listByUser(userId: string, filters: VideoFilters) {
-    const { page = 1, limit = 20, status, genre, type, search, sort } = filters
+    const { page = 1, limit = 20, status, search, sort } = filters
     const offset = (page - 1) * limit
 
     const conditions = [eq(videos.userId, userId)]
     if (status) conditions.push(eq(videos.status, status))
-    if (genre) conditions.push(eq(videos.genre, genre))
-    if (type) conditions.push(eq(videos.type, type))
     if (search) conditions.push(ilike(videos.topic, `%${search}%`))
 
     const whereClause = and(...conditions)
@@ -145,6 +138,11 @@ export class VideoRepository {
       .delete(videos)
       .where(and(eq(videos.id, id), eq(videos.userId, userId)))
       .returning()
+    return deleted || null
+  }
+
+  async adminDelete(id: string) {
+    const [deleted] = await db.delete(videos).where(eq(videos.id, id)).returning()
     return deleted || null
   }
 

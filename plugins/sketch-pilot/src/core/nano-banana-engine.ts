@@ -13,6 +13,7 @@ import {
   KokoroVoicePreset,
   QualityMode,
   videoGenerationOptionsSchema,
+  type AssCaptionConfig,
   type BrandingConfig,
   type CompleteVideoPackage,
   type CompleteVideoScript,
@@ -26,8 +27,7 @@ import { getCharacterModelManager } from '../utils/character-models'
 import { TaskQueue } from '../utils/task-queue'
 import { TimingMapper } from '../utils/timing-mapper'
 
-import type { AssCaptionConfig } from '../services/video/ass-caption.service'
-import { PromptManager } from './prompt-manager'
+import { PromptManager, type PromptManagerConfig } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
 import '../utils/polyfills'
 
@@ -81,7 +81,8 @@ export class NanoBananaEngine {
     animationConfig?: AnimationServiceConfig,
     imageConfig?: ImageServiceConfig,
     llmConfig?: LLMServiceConfig,
-    transcriptionConfig?: TranscriptionConfig
+    transcriptionConfig?: TranscriptionConfig,
+    promptSpecs?: PromptManagerConfig
   ) {
     this.apiKey = apiKey
     this.audioConfig = audioConfig
@@ -100,9 +101,11 @@ export class NanoBananaEngine {
 
     this.client = new GoogleGenAI({ apiKey })
 
-    this.promptManager = new PromptManager({
-      backgroundColor: '#F5F5F5'
-    })
+    this.promptManager = new PromptManager(
+      promptSpecs || {
+        backgroundColor: '#F5F5F5'
+      }
+    )
     this.systemPrompt = systemPrompt ?? this.promptManager.buildScriptCompletePrompt('', {} as any)
 
     this.currentImageProvider = imageConfig?.provider || 'gemini'
@@ -226,29 +229,6 @@ export class NanoBananaEngine {
       this.currentOptions?.imageStyle
     )
 
-    const visualSource = 'local' // Always local (100% local rule)
-
-    // With 100% local mode, create fallback composition instead of AI generation
-    if (this.currentOptions?.localOnlyImages !== false) {
-      console.warn(
-        `[NanoBanana] Local-only mode: Skipping AI image generation for scene ${scene.id}. Creating fallback image.`
-      )
-      const aspectRatio = this.currentOptions?.aspectRatio || '16:9'
-      const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
-
-      await sharp({
-        create: {
-          width,
-          height,
-          channels: 3,
-          background: (scene as any).backgroundColor || this.currentOptions?.backgroundColor || '#FFFFFF'
-        }
-      })
-        .webp()
-        .toFile(filename)
-      return filename
-    }
-
     const systemInstruction = this.promptManager.buildImageSystemInstruction(hasReferenceImages)
 
     try {
@@ -364,7 +344,6 @@ export class NanoBananaEngine {
     const imagePrompt = scene.imagePrompt || scene.narration || ''
     const imagePath = path.join(targetDir, `scene.webp`)
 
-    // Unified Reference Images: Bible + (Optional) Previous Scene
     const effectiveBaseImages = [...baseImages]
     if (scene.continueFromPrevious && lastSceneImage) {
       // Add the previous scene's image as a high-fidelity reference
@@ -372,18 +351,10 @@ export class NanoBananaEngine {
       effectiveBaseImages.push(lastSceneImage)
     }
 
-    // Whiteboard Mode: Always white background, transparent character on top
-    console.log(
-      `[NanoBanana] Whiteboard Mode: Compositing assets for scene ${scene.id} (Pose: ${scene.poseId || 'STAND'})`
-    )
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
 
-    // Resolve pose path
-    const poseId = scene.poseId || 'STAND'
-    const posePath = path.join(process.cwd(), 'src/assets/stickmen', `${poseId}.png`)
-
     try {
-      // Start with AI-generated background or pure white
+      // Start with AI-generated scene or white fallback
       const composition =
         bgPath && fs.existsSync(bgPath)
           ? sharp(bgPath).resize(width, height, { fit: 'cover' })
@@ -392,72 +363,13 @@ export class NanoBananaEngine {
                 width,
                 height,
                 channels: 3,
-                background: '#FFFFFF'
+                background: { r: 255, g: 255, b: 255 }
               }
             })
 
       const overlays: any[] = []
 
-      // 1. Character pose overlay — ONLY in local mode (skip if AI already has the character)
-      // PRIORITY TO AI: If we have an AI-generated background/scene, we skip the local stickman overlay.
-      const skipCharacterOverlay =
-        !!bgPath && (options.localOnlyImages === false || options.repromptSceneIndex !== undefined)
-
-      if (poseId !== 'NONE' && fs.existsSync(posePath) && !skipCharacterOverlay) {
-        const style = (scene as any).onscreenTextStyle || {}
-        const globalStyle = this.currentOptions?.globalTextStyle || {}
-        const sceneOverride = (this.currentOptions?.sceneStyles || {})[scene.id] || {}
-
-        const poseSpec = (scene as any).poseStyle || {}
-        const globalPoseStyle = this.currentOptions?.globalPoseStyle || {}
-        const scenePoseOverride = (this.currentOptions?.scenePoseStyles || {})[scene.id] || {}
-
-        const posePos = scenePoseOverride.position || poseSpec.position || globalPoseStyle.position || 'center'
-        const poseScale = scenePoseOverride.scale || poseSpec.scale || globalPoseStyle.scale || 1
-
-        // Standard character height (~80% of canvas)
-        const baseCharHeight = Math.floor(height * 1)
-        const charHeight = Math.floor(baseCharHeight * poseScale)
-
-        const poseBuffer = await sharp(posePath).resize({ width, height: charHeight, fit: 'inside' }).toBuffer()
-
-        // Get actual dimensions of resized pose for precise positioning
-        const poseMeta = await sharp(poseBuffer).metadata()
-        const poseW = poseMeta.width || 0
-        const poseH = poseMeta.height || 0
-
-        // Horizontal positioning
-        let leftOffset: number
-        if (posePos === 'left') {
-          leftOffset = Math.floor(width * 0.1)
-        } else if (posePos === 'right') {
-          leftOffset = Math.floor(width * 0.9 - poseW)
-        } else if (
-          posePos === 'custom' &&
-          (scenePoseOverride.x !== undefined || poseSpec.x !== undefined || globalPoseStyle.x !== undefined)
-        ) {
-          const x = scenePoseOverride.x ?? poseSpec.x ?? globalPoseStyle.x ?? 50
-          leftOffset = Math.floor((x / 100) * width - poseW / 2)
-        } else {
-          leftOffset = Math.floor((width - poseW) / 2) // default center
-        }
-
-        // Vertical positioning: Default to centered
-        let topOffset: number
-        if (
-          posePos === 'custom' &&
-          (scenePoseOverride.y !== undefined || poseSpec.y !== undefined || globalPoseStyle.y !== undefined)
-        ) {
-          const y = scenePoseOverride.y ?? poseSpec.y ?? globalPoseStyle.y ?? 50
-          topOffset = Math.floor((y / 100) * height - poseH / 2)
-        } else {
-          topOffset = Math.floor((height - poseH) / 2)
-        }
-
-        overlays.push({ input: poseBuffer, top: topOffset, left: leftOffset })
-      }
-
-      // 2. Onscreen text overlay (independent of pose — can be mixed)
+      // 1. Onscreen text overlay
       if (scene.onscreenText) {
         const style = (scene as any).onscreenTextStyle || {}
         const globalStyle = this.currentOptions?.globalTextStyle || {}
@@ -466,9 +378,7 @@ export class NanoBananaEngine {
         // Text renders ONLY when USER explicitly enables it via globalTextStyle or sceneStyles.
         // The AI-generated scene-level onscreenTextStyle is intentionally ignored here.
         const textEnabled = globalStyle.enabled === true || sceneOverride.enabled === true
-        if (!textEnabled) {
-          // Skip rendering — will be handled in post-edit
-        } else {
+        if (textEnabled) {
           const text = scene.onscreenText
           const textColor = sceneOverride.color || style.color || globalStyle.color || '#000000'
           const fontFamily = sceneOverride.fontFamily || style.fontFamily || globalStyle.fontFamily || 'sans-serif'
@@ -493,8 +403,7 @@ export class NanoBananaEngine {
             baseY = (y / 100) * height
           } else {
             centerX = width / 2
-            const hasCharacter = poseId !== 'NONE' && fs.existsSync(posePath)
-            const pos = position || (hasCharacter ? 'top' : 'center')
+            const pos = position || 'top'
 
             if (pos === 'top') baseY = height * 0.15
             else if (pos === 'bottom') baseY = height * 0.85
@@ -592,78 +501,16 @@ export class NanoBananaEngine {
     console.log(`[NanoBanana] Generating thumbnail for ${imagePath}...`)
     await this.generateThumbnail(imagePath, thumbnailPath)
 
-    // ── Keyword Visual Generation ──────────────────────────────────────────────
-    // For each keywordVisual, generate an alt-image that will be spliced into
-    // the video at the exact word timestamp when the keyword is spoken.
-    if (scene.keywordVisuals && scene.keywordVisuals.length > 0) {
-      console.log(`[NanoBanana] Generating ${scene.keywordVisuals.length} keyword visuals for scene ${scene.id}...`)
-      const keywordManifest: Array<{ keyword: string; imagePath: string }> = []
-
-      for (let i = 0; i < scene.keywordVisuals.length; i++) {
-        const kv = scene.keywordVisuals[i]
-        const kvPath = path.join(targetDir, `keyword_visual_${i}.webp`)
-
-        await this.generationQueue.add(
-          () =>
-            this.generateImage(
-              {
-                ...scene,
-                imagePrompt: kv.imagePrompt,
-                narration: kv.imagePrompt
-              } as EnrichedScene,
-              baseImages,
-              kvPath
-            ),
-          `Scene ${scene.id} Keyword Visual [${kv.keyword}]`,
-          this.currentImageProvider
-        )
-
-        keywordManifest.push({ keyword: kv.keyword, imagePath: kvPath })
-      }
-
-      // Write manifest so VideoAssembler can look up keyword → image path
-      const manifestPath = path.join(targetDir, 'keyword_visuals.json')
-      fs.writeFileSync(manifestPath, JSON.stringify(keywordManifest, null, 2))
-      console.log(`[NanoBanana] Keyword visual manifest written: ${manifestPath}`)
-    }
-
     const audioPath = path.join(targetDir, `narration.mp3`)
-    let wordTimings: WordTiming[] | undefined = (scene as any).globalWordTimings
+    const wordTimings: WordTiming[] | undefined = (scene as any).globalWordTimings
 
     if (wordTimings && wordTimings.length > 0) {
       console.log(`[NanoBanana] Using global word timings for scene ${scene.id}`)
       // When using global audio, duration is exactly what Whisper measured
       totalDuration = scene.timeRange.end - scene.timeRange.start
-    } else if (scene.narration && !options.skipAudio) {
-      try {
-        const audioResult = await this.audioService.generateSpeech(scene.narration, audioPath)
-        wordTimings = audioResult.wordTimings
-
-        // Try transcription if word timings are missing
-        if (!wordTimings || wordTimings.length === 0) {
-          // Auto-initialize Whisper local if not already done
-          if (!this.transcriptionService) {
-            console.log(`[NanoBanana] Word timings missing from TTS. Auto-initializing Whisper local...`)
-            this.currentTranscriptionConfig = {
-              provider: 'whisper-local',
-              model: 'base',
-              device: 'cpu',
-              language: 'en'
-            }
-            this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
-          }
-
-          try {
-            console.log(`[NanoBanana] Transcribing with ${this.currentTranscriptionConfig?.provider}...`)
-            const transcriptionResult = await this.transcriptionService.transcribe(audioPath)
-            wordTimings = transcriptionResult.wordTimings
-          } catch (error) {
-            console.error(`[NanoBanana] Transcription error:`, error)
-          }
-        }
-      } catch (error) {
-        console.error(`[NanoBanana] Audio error:`, error)
-      }
+    } else {
+      console.warn(`[NanoBanana] ⚠ Word timings missing for scene ${scene.id}. Audio-visual sync may be degraded.`)
+      totalDuration = 5 // Default fallback
     }
 
     // 5. Generate Animation (Queued) - primarily for AI mode
@@ -791,10 +638,10 @@ export class NanoBananaEngine {
    */
   async syncTimings(projectDir: string): Promise<void> {
     const scriptPath = path.join(projectDir, 'script.json')
-    const globalAudioPath = path.join(projectDir, 'global_narration.mp3')
+    const globalAudioPath = path.join(projectDir, 'narration.mp3')
 
     if (!fs.existsSync(scriptPath) || !fs.existsSync(globalAudioPath)) {
-      console.warn(`[NanoBanana] Cannot sync timings: script.json or global_narration.mp3 missing in ${projectDir}`)
+      console.warn(`[NanoBanana] Cannot sync timings: script.json or narration.mp3 missing in ${projectDir}`)
       return
     }
 
@@ -1018,62 +865,6 @@ PLAIN WHITE BACKGROUND.`
   }
 
   /**
-   * Generates a new stickman pose using AI and stores it in the library.
-   * Auto-removes background to create a transparent PNG.
-   */
-  async generateAndStorePose(poseId: string, referenceImages: string[] = []): Promise<string | null> {
-    const libraryDir = path.join(process.cwd(), 'src/assets/stickmen')
-    if (!fs.existsSync(libraryDir)) fs.mkdirSync(libraryDir, { recursive: true })
-
-    const targetPath = path.join(libraryDir, `${poseId}.png`)
-    const tempPath = path.join(process.cwd(), 'tmp', `pose-gen-${Date.now()}.webp`)
-    if (!fs.existsSync(path.dirname(tempPath))) fs.mkdirSync(path.dirname(tempPath), { recursive: true })
-
-    try {
-      console.log(`[NanoBanana] Generating dynamic pose: ${poseId}...`)
-
-      const imageUrl = await this.imageService.generateImage(
-        `SINGLE CHARACTER, MINIMALIST STICKMAN, ${poseId} POSE, FULL BODY, FRONT VIEW, SOLID WHITE BACKGROUND, CLEAN VECTOR LINES, NO SHADING, NO COLOR FILLS.`,
-        tempPath,
-        {
-          aspectRatio: '1:1',
-          referenceImages,
-          systemInstruction:
-            'You are an asset generator for a minimalist whiteboard animation library. Create a single clean black-outline stickman in the requested pose on a PURE solid white (#FFFFFF) background. Use only black lines, no fills, no gradients.'
-        }
-      )
-
-      if (fs.existsSync(imageUrl)) {
-        // Remove white background via raw pixel manipulation:
-        // Any near-white pixel (R,G,B all > 200) becomes fully transparent.
-        const img = sharp(imageUrl).ensureAlpha()
-        const { data, info } = await img.raw().toBuffer({ resolveWithObject: true })
-        const { width, height, channels } = info // channels = 4 (RGBA)
-
-        for (let i = 0; i < data.length; i += channels) {
-          if (data[i] > 200 && data[i + 1] > 200 && data[i + 2] > 200) {
-            data[i + 3] = 0 // fully transparent
-          }
-        }
-
-        const transparentBuffer = await sharp(data, { raw: { width, height, channels: 4 } })
-          .trim()
-          .png()
-          .toBuffer()
-
-        fs.writeFileSync(targetPath, transparentBuffer)
-        console.log(`[NanoBanana] ✓ Dynamic pose stored (transparent): ${targetPath}`)
-        return targetPath
-      }
-    } catch (error) {
-      console.error(`[NanoBanana] Error generating pose:`, error)
-    } finally {
-      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
-    }
-    return null
-  }
-
-  /**
    * PRO DUCE video from an existing script object.
    * This is the core "Post-AI" entry point.
    */
@@ -1133,29 +924,41 @@ PLAIN WHITE BACKGROUND.`
     // AUTO-LOAD CHARACTER MODELS FOR CONSISTENCY
     // ─────────────────────────────────────────────────────────────────────────
     const characterModelManager = getCharacterModelManager()
-    const usedCharacterVariants = new Set<string>()
+    const characterReferenceImages: string[] = []
 
-    for (const scene of script.scenes) {
-      if (scene.characterVariant) {
-        usedCharacterVariants.add(scene.characterVariant)
-      } else {
-        usedCharacterVariants.add('standard')
+    if (validOptions.characterModelId) {
+      console.log(`[NanoBanana] Loading primary character model: ${validOptions.characterModelId}`)
+      const model = await characterModelManager.loadCharacterModelById(validOptions.characterModelId)
+      if (model) {
+        characterReferenceImages.push(model.base64)
       }
     }
 
-    const characterReferenceImages: string[] = []
-    if (usedCharacterVariants.size > 0) {
-      console.log(`[NanoBanana] Loading character models for: ${Array.from(usedCharacterVariants).join(', ')}`)
-      for (const variant of usedCharacterVariants) {
-        const referenceImages = await characterModelManager.getReferenceImagesForCharacter(variant)
-        characterReferenceImages.push(...referenceImages)
+    // Still check variants if no global model or to support variant specific highlights
+    // But characterReferenceImages already contains the primary truth if selected.
+    if (characterReferenceImages.length === 0) {
+      const usedCharacterVariants = new Set<string>()
+      for (const scene of script.scenes) {
+        if (scene.characterVariant) {
+          usedCharacterVariants.add(scene.characterVariant)
+        } else {
+          usedCharacterVariants.add('standard')
+        }
       }
 
-      if (characterReferenceImages.length > 0) {
-        console.log(`[NanoBanana] ✓ Character reference images loaded (${characterReferenceImages.length} model(s))`)
-      } else {
-        console.warn(`[NanoBanana] ⚠ No character reference images found. Using text-only description.`)
+      if (usedCharacterVariants.size > 0) {
+        console.log(`[NanoBanana] Loading character models for: ${Array.from(usedCharacterVariants).join(', ')}`)
+        for (const variant of usedCharacterVariants) {
+          const referenceImages = await characterModelManager.getReferenceImagesForCharacter(variant)
+          characterReferenceImages.push(...referenceImages)
+        }
       }
+    }
+
+    if (characterReferenceImages.length > 0) {
+      console.log(`[NanoBanana] ✓ Character reference images loaded (${characterReferenceImages.length} image(s))`)
+    } else {
+      console.warn(`[NanoBanana] ⚠ No character reference images found. Using text-only description.`)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1170,24 +973,6 @@ PLAIN WHITE BACKGROUND.`
 
     const scenesDir = path.join(projectDir, 'scenes')
     if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true })
-
-    // --- POSE LIBRARY AUTO-EXPANSION ---
-    // Pre-check all scenes for missing poses and generate them before we do anything else.
-    // This ensures they are available for the Production Report and any subsequent steps.
-    for (const scene of script.scenes) {
-      const poseId = (scene as any).poseId || 'STAND'
-      if (poseId === 'NONE') continue
-
-      const posePath = path.join(process.cwd(), 'src/assets/stickmen', `${poseId}.png`)
-      if (!fs.existsSync(posePath)) {
-        console.warn(`[NanoBanana] ⚠ Pose '${poseId}' not found in library. Generating with AI...`)
-        try {
-          await this.generateAndStorePose(poseId, allBaseImages)
-        } catch (error) {
-          console.error(`[NanoBanana] ❌ Failed to expand pose library for '${poseId}':`, error)
-        }
-      }
-    }
 
     // EXPORT EARLY: Save script and detailed report before starting asset generation
     console.log(`[NanoBanana] Exporting production report to: ${projectDir}/script.md`)
@@ -1211,10 +996,12 @@ PLAIN WHITE BACKGROUND.`
 
     // Setup ASS caption config EARLY in pipeline (before composeScene)
     const assCaptionConfig: AssCaptionConfig = validOptions.assCaptions || {
+      enabled: true,
       style: 'colored',
       fontSize: 70,
       fontFamily: 'Montserrat',
       position: 'bottom',
+      inactiveColor: '#FFFFFF',
       highlightColor: '#FFE135',
       borderSize: 2,
       shadowSize: 3
@@ -1232,15 +1019,24 @@ PLAIN WHITE BACKGROUND.`
       validOptions.generateOnlyAssembly ||
       validOptions.repromptSceneIndex !== undefined ||
       false
-    const globalAudioPath = path.join(projectDir, 'global_narration.mp3')
+    const globalAudioPath = path.join(projectDir, 'narration.mp3')
     let globalWordTimings: WordTiming[] = []
 
-    if (!skipAudio) {
-      console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
-      const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
+    // Skip generation if narration.mp3 already exists (Force re-use)
+    const audioExists = fs.existsSync(globalAudioPath)
+    if (audioExists && !skipAudio) {
+      console.log(`[NanoBanana] Found existing global narration at ${globalAudioPath}. Skipping generation.`)
+    }
 
+    if (!skipAudio) {
       try {
-        const audioResult = await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+        if (!audioExists) {
+          console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
+          const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
+          await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+        } else {
+          console.log(`[NanoBanana] Using existing global narration at ${globalAudioPath}`)
+        }
 
         // Auto-initialize Whisper local if not already done
         if (!this.transcriptionService) {
@@ -1269,7 +1065,14 @@ PLAIN WHITE BACKGROUND.`
           scene.timeRange.start = timing.start
           scene.timeRange.end = timing.end
           ;(scene as any).globalWordTimings = timing.wordTimings
-          console.log(`[NanoBanana] Scene ${scene.id}: ${timing.start.toFixed(2)}s -> ${timing.end.toFixed(2)}s`)
+          if (timing.wordTimings.length === 0) {
+            console.warn(
+              `[NanoBanana] ⚠ Scene ${scene.id} could not be matched to any words in transcription. Using estimation.`
+            )
+          }
+          console.log(
+            `[NanoBanana] Scene ${scene.id}: ${timing.start.toFixed(2)}s -> ${timing.end.toFixed(2)}s (${timing.wordTimings.length} words)`
+          )
         })
 
         // Update total duration
@@ -1277,7 +1080,7 @@ PLAIN WHITE BACKGROUND.`
           script.totalDuration = mappedTimings.at(-1)!.end
         }
 
-        script.globalAudio = 'global_narration.mp3'
+        script.globalAudio = 'narration.mp3'
 
         // Persist the synchronized script so future renders use these exact timings
         fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
@@ -1288,7 +1091,7 @@ PLAIN WHITE BACKGROUND.`
     } else if (validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
       if (fs.existsSync(globalAudioPath)) {
-        script.globalAudio = 'global_narration.mp3'
+        script.globalAudio = 'narration.mp3'
       }
     }
 
@@ -1319,26 +1122,12 @@ PLAIN WHITE BACKGROUND.`
           fs.mkdirSync(sceneDir, { recursive: true })
         }
 
-        // All visuals are now local (100% local rule)
-        const poseId = (scene as any).poseId || 'STAND'
-        const posePath = path.join(process.cwd(), 'src/assets/stickmen', `${poseId}.png`)
+        // Generate AI scene image (temporary background)
+        const backgroundPath = path.join(sceneDir, 'background.webp')
+        console.log(`[NanoBanana] Generating AI background for scene ${scene.id}...`)
+        const bgPath = await this.generateImage(scene, allBaseImages, backgroundPath)
 
-        // Validate that pose exists for non-NONE scenes
-        if (poseId !== 'NONE' && !fs.existsSync(posePath)) {
-          console.warn(
-            `[NanoBanana] ⚠ Pose '${poseId}' missing for scene ${scene.id}. Ensure it exists in assets/stickmen/`
-          )
-        }
-
-        // If localOnlyImages is false, generate an AI background first
-        let bgPath: string | undefined
-        if (validOptions.localOnlyImages === false) {
-          const backgroundPath = path.join(sceneDir, 'background.webp')
-          console.log(`[NanoBanana] Generating AI background for scene ${scene.id}...`)
-          bgPath = await this.generateImage(scene, allBaseImages, backgroundPath)
-        }
-
-        // Only AI generation is skipped - all visuals are local composition
+        // Overlay text/characters on top of the background, output to scene.webp
         await this.composeScene(scene, allBaseImages, sceneDir, lastSceneImageBase64, bgPath)
 
         // Keep track of the last generated image to allow for "Scene Continuation"
@@ -1394,46 +1183,6 @@ PLAIN WHITE BACKGROUND.`
   }
 
   /**
-   * Helper to make transparent stickmen opaque by adding a white background
-   * that follows the outer silhouette (handles hollow/outline assets).
-   */
-  private async solidifyPose(posePath: string, targetHeight: number): Promise<Buffer> {
-    const original = sharp(posePath)
-
-    // Resize first to work with target dimensions
-    const resized = original.resize({ height: targetHeight, fit: 'inside' })
-    const resizedBuffer = await resized.toBuffer()
-    const resizedMetadata = await sharp(resizedBuffer).metadata()
-    const w = resizedMetadata.width || 100
-    const h = resizedMetadata.height || targetHeight
-
-    // Create a "filled" mask by blurring and thresholding the alpha channel
-    // This fills small interior gaps (like body/limbs) while keeping the silhouette
-    const alphaMask = await sharp(resizedBuffer)
-      .ensureAlpha()
-      .extractChannel('alpha')
-      .blur(3) // Subtle blur to close small gaps in outlines
-      .threshold(1)
-      .toBuffer()
-
-    // Composite: White Background -> Masked with Alpha -> Original Outlines on top
-    return await sharp({
-      create: {
-        width: w,
-        height: h,
-        channels: 4,
-        background: { r: 255, g: 255, b: 255, alpha: 1 }
-      }
-    })
-      .composite([
-        { input: alphaMask, blend: 'dest-in' },
-        { input: resizedBuffer, blend: 'over' }
-      ])
-      .png()
-      .toBuffer()
-  }
-
-  /**
    * MVP shortcut: generate a short, simple static video with minimal choices.
    */
   async generateMvp(
@@ -1442,7 +1191,8 @@ PLAIN WHITE BACKGROUND.`
     userId?: string,
     qualityMode: QualityMode = QualityMode.LOW_COST,
     branding?: BrandingConfig,
-    enableContextualBackground: boolean = true
+    enableContextualBackground: boolean = true,
+    assCaptions?: AssCaptionConfig
   ): Promise<CompleteVideoPackage> {
     return this.generateVideoFromTopic(
       topic,
@@ -1450,7 +1200,7 @@ PLAIN WHITE BACKGROUND.`
         userId,
         qualityMode,
         enableContextualBackground,
-        branding: {
+        branding: branding || {
           watermarkText: 'PRO MASTER 2026',
           position: 'top-right' as any,
           opacity: 1,
@@ -1458,7 +1208,6 @@ PLAIN WHITE BACKGROUND.`
         },
         minDuration: 100,
         maxDuration: 120,
-        style: 'educational',
         animationMode: 'none',
         aspectRatio: '16:9',
         scriptOnly: false,
@@ -1466,7 +1215,7 @@ PLAIN WHITE BACKGROUND.`
         llmProvider: 'gemini',
         kokoroVoicePreset: KokoroVoicePreset.BF_ISABELLA,
         backgroundMusic: 'upbeat',
-        assCaptions: {
+        assCaptions: assCaptions || {
           enabled: true,
           style: 'colored',
           fontSize: 70,
@@ -1481,9 +1230,4 @@ PLAIN WHITE BACKGROUND.`
       baseImages
     )
   }
-}
-
-function readImageToBase64(filePath: string): string {
-  const fileBuffer = fs.readFileSync(filePath)
-  return fileBuffer.toString('base64')
 }

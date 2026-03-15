@@ -159,6 +159,48 @@ export class UserController implements Routes {
       }
     )
 
+    // GET /v1/admin/users/{id}
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/admin/users/{id}',
+        tags: ['Admin'],
+        summary: 'Get user by ID (admin)',
+        description: 'Retrieve a user by their unique identifier for admin purposes.',
+        request: {
+          params: z.object({
+            id: z.string().openapi({ description: 'User ID' })
+          })
+        },
+        responses: {
+          200: {
+            description: 'User found',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), data: z.any() })
+              }
+            }
+          },
+          404: {
+            description: 'User not found',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), error: z.string() })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id } = c.req.valid('param')
+        const user = await this.userRepository.findById(id)
+        if (!user) {
+          return c.json({ success: false, error: 'Utilisateur non trouvé' }, 404)
+        }
+        return c.successResponse(user)
+      }
+    )
+
     // POST /v1/admin/users
     this.controller.openapi(
       createRoute({
@@ -310,6 +352,81 @@ export class UserController implements Routes {
             return c.json({ success: false, error: result.error }, result.error?.includes('non trouvé') ? 404 : 400)
           }
           return c.json({ success: true, message: 'Utilisateur supprimé avec succès' })
+        } catch (error: any) {
+          return c.json({ success: false, error: error.message || 'Internal server error' }, 500)
+        }
+      }
+    )
+
+    // PATCH /v1/admin/users/{id}/ban
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/admin/users/{id}/ban',
+        tags: ['Admin'],
+        summary: 'Ban user',
+        request: {
+          params: z.object({
+            id: z.string().openapi({ param: { name: 'id', in: 'path', required: true } })
+          }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  reason: z.string().optional(),
+                  expiresAt: z.string().datetime().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'User banned successfully',
+            content: {
+              'application/json': { schema: z.object({ success: z.boolean() }) }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        try {
+          const { id } = c.req.valid('param')
+          const { reason, expiresAt } = c.req.valid('json')
+          await this.userRepository.banUser(id, reason, expiresAt ? new Date(expiresAt) : undefined)
+          return c.json({ success: true })
+        } catch (error: any) {
+          return c.json({ success: false, error: error.message || 'Internal server error' }, 500)
+        }
+      }
+    )
+
+    // PATCH /v1/admin/users/{id}/unban
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/admin/users/{id}/unban',
+        tags: ['Admin'],
+        summary: 'Unban user',
+        request: {
+          params: z.object({
+            id: z.string().openapi({ param: { name: 'id', in: 'path', required: true } })
+          })
+        },
+        responses: {
+          200: {
+            description: 'User unbanned successfully',
+            content: {
+              'application/json': { schema: z.object({ success: z.boolean() }) }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        try {
+          const { id } = c.req.valid('param')
+          await this.userRepository.unbanUser(id)
+          return c.json({ success: true })
         } catch (error: any) {
           return c.json({ success: false, error: error.message || 'Internal server error' }, 500)
         }

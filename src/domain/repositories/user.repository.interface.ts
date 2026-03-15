@@ -21,4 +21,6 @@ export interface UserRepositoryInterface {
   findPaginatedUsers: (filter: UserFilter) => Promise<PaginatedUsers>
   findByEmail: (email: string) => Promise<z.infer<typeof User> | null>
   update: (id: string, data: Partial<z.infer<typeof User>>) => Promise<z.infer<typeof User>>
+  banUser: (id: string, reason?: string, expires?: Date) => Promise<void>
+  unbanUser: (id: string) => Promise<void>
 }

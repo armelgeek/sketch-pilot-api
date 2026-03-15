@@ -30,9 +30,6 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
   return {
     duration: options.maxDuration,
     sceneCount: options.sceneCount,
-    style: options.style,
-    videoType: options.videoType,
-    videoGenre: options.videoGenre,
     language: options.language,
     voiceProvider: options.audioProvider,
     voiceId: options.kokoroVoicePreset?.toString(),
@@ -59,13 +56,8 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
     options = {}
   }: RegenerateVideoParams): Promise<RegenerateVideoResponse> {
     try {
-      // 1. Resolve Spec (Prompt Config) from DB
-      const spec = await promptService.resolveSpec({
-        promptType: 'system_prompt',
-        videoType: options.videoType,
-        videoGenre: options.videoGenre,
-        language: options.language
-      })
+      // 1. Resolve Spec from DB
+      const spec = await promptService.resolveSpec(options.promptId)
 
       // 2. Calculate & Check Credits
       const video = await videoRepository.findByIdAndUserId(videoId, userId)
@@ -81,8 +73,7 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
           options.sceneCount ||
           (video.options as any)?.sceneCount ||
           (video as any).scenes?.length ||
-          spec?.defaultSceneCount,
-        style: options.style || (video.options as any)?.style || spec?.style
+          spec?.defaultSceneCount
       }
       const plan = planId || 'free'
 
@@ -95,7 +86,7 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
         spec?.defaultSceneCount ||
         5
 
-      const isAIImage = videoOptions.localOnlyImages === false && videoOptions.imageProvider === 'gemini'
+      const isAIImage = videoOptions.imageProvider === 'gemini'
       const imageCostPerScene = isAIImage ? CREDIT_COSTS.IMAGE_CREATOR : CREDIT_COSTS.IMAGE_FREE
 
       const exportCost =

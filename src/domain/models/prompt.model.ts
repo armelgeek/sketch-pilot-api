@@ -1,21 +1,33 @@
 import { z } from 'zod'
-import { PROMPT_TYPES } from '@/infrastructure/database/schema/prompt.schema'
 
-export const PromptTypeSchema = z.enum(PROMPT_TYPES)
+export const VideoTypeSpecificationSchema = z.object({
+  name: z.string(),
+  role: z.string(),
+  context: z.string(),
+  audienceDefault: z.string(),
+  task: z.string(),
+  goals: z.array(z.string()),
+  structure: z.string(),
+  rules: z.array(z.string()),
+  formatting: z.string(),
+  outputFormat: z.string(),
+  instructions: z.array(z.string()),
+  assetSystemInstruction: z.string().optional(),
+  assetPromptTemplate: z.string().optional(),
+  wordsPerSecondBase: z.number().optional(),
+  wordsPerSecondFactors: z.record(z.number()).optional(),
+  defaultFontSize: z.number().optional(),
+  defaultFontFamily: z.string().optional(),
+  defaultBackgroundPrompt: z.string().optional(),
+  defaultPoseId: z.string().optional(),
+  defaultPoseScale: z.number().optional(),
+  defaultPosePosition: z.string().optional()
+})
 
-export const PromptSchema = z.object({
+export const PromptSchema = VideoTypeSpecificationSchema.extend({
   id: z.string().uuid(),
-  name: z.string().min(1),
   description: z.string().optional(),
-  promptType: PromptTypeSchema,
-  videoType: z.string().optional(),
-  videoGenre: z.string().optional(),
-  template: z.string().min(1),
-  variables: z.array(z.string()).default([]),
-  language: z.string().optional(),
-  config: z.any().optional(), // This will hold the VideoTypeSpecification
   isActive: z.boolean().default(true),
-
   createdAt: z.date(),
   updatedAt: z.date()
 })

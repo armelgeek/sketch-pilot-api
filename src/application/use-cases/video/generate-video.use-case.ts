@@ -1,12 +1,13 @@
+import { videoGenerationOptionsSchema, type VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { UserRepository } from '@/infrastructure/repositories/user.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
-import type { VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
 type GenerateVideoParams = {
   userId: string
@@ -32,9 +33,6 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
   return {
     duration: options.maxDuration,
     sceneCount: options.sceneCount,
-    style: options.style,
-    videoType: options.videoType,
-    videoGenre: options.videoGenre,
     language: options.language,
     voiceProvider: options.audioProvider,
     voiceId: options.kokoroVoicePreset?.toString(),
@@ -50,7 +48,6 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     animationMode: options.animationMode,
     aspectRatio: options.aspectRatio,
     resolution: options.resolution,
-    localOnlyImages: options.localOnlyImages,
     imageStyle: options.imageStyle,
     globalTextStyle: options.globalTextStyle,
     promptSections: options.promptSections
@@ -65,25 +62,22 @@ const userRepository = new UserRepository()
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
   async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
     try {
-      // 1. Resolve Spec (Prompt Config) from DB
-      const spec = await promptService.resolveSpec({
-        promptType: 'system_prompt',
-        videoType: options.videoType,
-        videoGenre: options.videoGenre,
-        language: options.language
+      // 1. Resolve Spec from DB
+      const spec = await promptService.resolveSpec(options.promptId)
+
+      // 2. Build options using the schema for validation and transformation
+      const targetDuration = (options as any).duration || options.maxDuration
+      const videoOptions = videoGenerationOptionsSchema.parse({
+        ...options,
+        minDuration: targetDuration,
+        maxDuration: targetDuration,
+        customSpec: spec
       })
 
-      // 2. Calculate Estimated Total Cost
-      const videoOptions: Partial<VideoGenerationOptions> = {
-        ...options,
-        sceneCount: options.sceneCount || spec?.defaultSceneCount,
-        style: options.style || spec?.style
-      }
       const plan = planId || 'free'
-      const duration = videoOptions.maxDuration || 30
-      const estimatedScenes = videoOptions.sceneCount || Math.ceil(duration / 7)
+      const estimatedScenes = videoOptions.sceneCount // Guaranteed to be computed via schema transform
 
-      const isAIImage = videoOptions.localOnlyImages === false && videoOptions.imageProvider === 'gemini'
+      const isAIImage = videoOptions.imageProvider === 'gemini'
       const imageCostPerScene = isAIImage ? CREDIT_COSTS.IMAGE_CREATOR : CREDIT_COSTS.IMAGE_FREE
 
       const exportCost =
@@ -125,7 +119,6 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         metadata: {
           estimatedScenes,
           imageProvider: videoOptions.imageProvider,
-          localOnlyImages: videoOptions.localOnlyImages,
           resolution: videoOptions.resolution,
           planConsumed,
           extraConsumed,
@@ -138,6 +131,15 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
       if (!finalCharacterModelId) {
         const userRec = await userRepository.findById(userId)
         finalCharacterModelId = userRec?.defaultCharacterModelId || undefined
+
+        // If still no model, fallback to standard model
+        if (!finalCharacterModelId) {
+          const charRepo = new CharacterModelRepository()
+          const standardModel = await charRepo.findStandard()
+          if (standardModel) {
+            finalCharacterModelId = standardModel.id
+          }
+        }
       }
 
       // Create the video record
@@ -148,9 +150,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         id: videoId,
         userId,
         topic,
-        options,
-        genre: options.videoGenre,
-        type: options.videoType,
+        options: videoOptions,
         language: options.language || 'en',
         characterModelId: finalCharacterModelId
       })
@@ -163,7 +163,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         userId,
         videoId,
         topic,
-        options: toJobOptions({ ...options, characterModelId: finalCharacterModelId }, spec)
+        options: toJobOptions({ ...videoOptions, characterModelId: finalCharacterModelId }, spec)
       }
 
       const queue = getVideoQueue()

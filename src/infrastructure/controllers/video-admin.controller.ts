@@ -67,7 +67,7 @@ export class VideoAdminController implements Routes {
             db.select({ total: sql<number>`sum(extra_credits)` }).from(userCredits)
           ])
 
-        return c.json({
+        return c.successResponse({
           totalUsers: Number(userCountResult[0]?.count ?? 0),
           totalVideos: Number(videoCountResult[0]?.count ?? 0),
           videosByStatus: videosByStatus.map((v) => ({ status: v.status, count: Number(v.count) })),
@@ -136,7 +136,7 @@ export class VideoAdminController implements Routes {
 
         const result = await videoRepository.listAll({ page, limit, status })
 
-        return c.json({
+        return c.successResponse({
           data: result.data.map((v) => ({
             id: v.id,
             jobId: v.jobId,
@@ -229,6 +229,112 @@ export class VideoAdminController implements Routes {
         }
 
         return c.json({ userId: id, extraCredits, success: true })
+      }
+    )
+
+    // GET /v1/admin/videos
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/admin/videos',
+        tags: ['Admin'],
+        summary: 'List all platform videos',
+        security: [{ Bearer: [] }],
+        request: {
+          query: z.object({
+            page: z.string().optional(),
+            limit: z.string().optional(),
+            status: z.string().optional(),
+            search: z.string().optional(),
+            userId: z.string().optional()
+          })
+        },
+        responses: {
+          200: {
+            description: 'Platform videos',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  data: z.array(z.any()),
+                  total: z.number(),
+                  page: z.number(),
+                  limit: z.number()
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const query = c.req.valid('query')
+        const page = query.page ? Number.parseInt(query.page, 10) : 1
+        const limit = Math.min(query.limit ? Number.parseInt(query.limit, 10) : 20, 100)
+
+        const result = await videoRepository.listAll({
+          page,
+          limit,
+          status: query.status,
+          search: query.search,
+          userId: query.userId
+        })
+
+        return c.successResponse({
+          videos: result.data,
+          total: result.total,
+          page: result.page,
+          limit: result.limit
+        })
+      }
+    )
+
+    // GET /v1/admin/videos/{id}
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/admin/videos/{id}',
+        tags: ['Admin'],
+        summary: 'Get video details for admin',
+        security: [{ Bearer: [] }],
+        request: { params: z.object({ id: z.string() }) },
+        responses: {
+          200: {
+            description: 'Video details',
+            content: { 'application/json': { schema: z.any() } }
+          },
+          404: {
+            description: 'Video not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findById(id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+        return c.successResponse(video)
+      }
+    )
+
+    // DELETE /v1/admin/videos/{id}
+    this.controller.openapi(
+      createRoute({
+        method: 'delete',
+        path: '/v1/admin/videos/{id}',
+        tags: ['Admin'],
+        summary: 'Force delete any video',
+        security: [{ Bearer: [] }],
+        request: { params: z.object({ id: z.string() }) },
+        responses: {
+          200: {
+            description: 'Video deleted',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id } = c.req.valid('param')
+        await videoRepository.adminDelete(id)
+        return c.json({ success: true })
       }
     )
   }

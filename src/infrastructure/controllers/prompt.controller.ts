@@ -5,7 +5,6 @@ import { GetPromptUseCase } from '@/application/use-cases/prompt/get-prompt.use-
 import { ListPromptsUseCase } from '@/application/use-cases/prompt/list-prompts.use-case'
 import { RenderPromptUseCase } from '@/application/use-cases/prompt/render-prompt.use-case'
 import { UpdatePromptUseCase } from '@/application/use-cases/prompt/update-prompt.use-case'
-import { PROMPT_TYPES } from '@/infrastructure/database/schema/prompt.schema'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import type { Routes } from '@/domain/types'
 
@@ -13,12 +12,18 @@ const PromptResponseSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   description: z.string().optional().nullable(),
-  promptType: z.enum(PROMPT_TYPES),
-  videoType: z.string().optional().nullable(),
-  videoGenre: z.string().optional().nullable(),
-  template: z.string(),
-  variables: z.array(z.string()),
-  language: z.string().optional().nullable(),
+  role: z.string(),
+  context: z.string(),
+  audienceDefault: z.string(),
+  character: z.string(),
+  task: z.string(),
+  goals: z.array(z.string()),
+  structure: z.string(),
+  visualStyle: z.string(),
+  rules: z.array(z.string()),
+  formatting: z.string(),
+  outputFormat: z.string(),
+  instructions: z.array(z.string()),
   isActive: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string()
@@ -27,12 +32,18 @@ const PromptResponseSchema = z.object({
 const CreatePromptBodySchema = z.object({
   name: z.string().min(1).describe('Human-readable name for this prompt'),
   description: z.string().optional().describe('Optional notes'),
-  promptType: z.enum(PROMPT_TYPES).describe('Category of prompt'),
-  videoType: z.string().optional().describe('Scoped video type (null = all)'),
-  videoGenre: z.string().optional().describe('Scoped video genre (null = all)'),
-  template: z.string().min(1).describe('Template string with {{variable}} placeholders'),
-  variables: z.array(z.string()).optional().describe('Expected variable names in the template'),
-  language: z.string().optional().describe('Target language (null = language-agnostic)'),
+  role: z.string(),
+  context: z.string(),
+  audienceDefault: z.string(),
+  character: z.string(),
+  task: z.string(),
+  goals: z.array(z.string()),
+  structure: z.string(),
+  visualStyle: z.string(),
+  rules: z.array(z.string()),
+  formatting: z.string(),
+  outputFormat: z.string(),
+  instructions: z.array(z.string()),
   isActive: z.boolean().optional().default(true)
 })
 
@@ -87,10 +98,6 @@ export class PromptController implements Routes {
         security: [{ Bearer: [] }],
         request: {
           query: z.object({
-            promptType: z.enum(PROMPT_TYPES).optional(),
-            videoType: z.string().optional(),
-            videoGenre: z.string().optional(),
-            language: z.string().optional(),
             isActive: z.enum(['true', 'false']).optional(),
             page: z.string().optional(),
             limit: z.string().optional()
@@ -114,10 +121,6 @@ export class PromptController implements Routes {
         const q = c.req.query()
         const useCase = new ListPromptsUseCase(this.repository)
         const { result } = await useCase.run({
-          promptType: q.promptType,
-          videoType: q.videoType,
-          videoGenre: q.videoGenre,
-          language: q.language,
           isActive: q.isActive !== undefined ? q.isActive === 'true' : undefined,
           page: q.page ? Number(q.page) : 1,
           limit: q.limit ? Number(q.limit) : 20
@@ -136,10 +139,6 @@ export class PromptController implements Routes {
         summary: 'List active prompts (public)',
         request: {
           query: z.object({
-            promptType: z.enum(PROMPT_TYPES).optional(),
-            videoType: z.string().optional(),
-            videoGenre: z.string().optional(),
-            language: z.string().optional(),
             page: z.string().optional(),
             limit: z.string().optional()
           })
@@ -159,10 +158,6 @@ export class PromptController implements Routes {
         const q = c.req.query()
         const useCase = new ListPromptsUseCase(this.repository)
         const { result } = await useCase.run({
-          promptType: q.promptType,
-          videoType: q.videoType,
-          videoGenre: q.videoGenre,
-          language: q.language,
           isActive: true, // public route: active only
           page: q.page ? Number(q.page) : 1,
           limit: q.limit ? Number(q.limit) : 20
@@ -280,10 +275,7 @@ export class PromptController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  promptType: z.enum(PROMPT_TYPES),
-                  videoType: z.string().optional(),
-                  videoGenre: z.string().optional(),
-                  language: z.string().optional(),
+                  name: z.string().optional().describe('Name of the prompt to match (optional)'),
                   variables: z.record(z.string()).optional().describe('Key-value pairs to inject into the template'),
                   fallback: z.string().optional().describe('Fallback template if no DB prompt is found')
                 })

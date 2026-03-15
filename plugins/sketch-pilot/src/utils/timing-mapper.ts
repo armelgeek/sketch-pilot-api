@@ -63,7 +63,7 @@ export class TimingMapper {
         let wIdx = i
         let matchCount = 0
         let gapCount = 0
-        const GAP_LIMIT = 4
+        const GAP_LIMIT = 8
         const windowEnd = Math.min(i + Math.ceil(n * 1.5) + 5, transcribedWords.length)
 
         while (narIdx < n && wIdx < windowEnd) {
@@ -89,7 +89,7 @@ export class TimingMapper {
         }
       }
 
-      const MIN_SCORE = 0.25
+      const MIN_SCORE = 0.15
 
       if (bestStartIdx >= 0 && bestScore >= MIN_SCORE) {
         const sceneWordTimings = transcribedWords.slice(bestStartIdx, bestEndIdx + 1)

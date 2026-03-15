@@ -36,13 +36,10 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
         return { success: false, error: 'Video not found' }
       }
 
-      // 2. Resolve Spec (Prompt Config) from DB
+      // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
       const spec = await promptService.resolveSpec({
-        promptType: 'system_prompt',
-        videoType: videoOptions.videoType,
-        videoGenre: videoOptions.videoGenre,
-        language: videoOptions.language
+        name: videoOptions.videoType
       })
 
       // 2. Calculate & Check Credits

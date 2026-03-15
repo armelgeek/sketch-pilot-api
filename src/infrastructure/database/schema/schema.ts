@@ -16,6 +16,11 @@ export const users = pgTable('users', {
   isAdmin: boolean('is_admin').notNull().default(false),
   stripeCustomerId: text('stripe_customer_id'),
   defaultCharacterModelId: text('default_character_model_id'),
+  utmSource: text('utm_source'),
+  utmMedium: text('utm_medium'),
+  utmCampaign: text('utm_campaign'),
+  utmTerm: text('utm_term'),
+  utmContent: text('utm_content'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

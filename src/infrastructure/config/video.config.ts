@@ -51,28 +51,6 @@ export const PLAN_MONTHLY_LIMITS: Record<string, number> = {
   creator: 500
 }
 
-export const VIDEO_TYPES = [
-  { id: 'tutorial', name: 'Tutorial', description: 'Step-by-step instructional content' },
-  { id: 'explainer', name: 'Explainer', description: 'Explains a concept or idea clearly' },
-  { id: 'story', name: 'Story', description: 'Narrative-driven content' },
-  { id: 'promotional', name: 'Promotional', description: 'Marketing and product promotion' },
-  { id: 'educational', name: 'Educational', description: 'Learning-focused content' },
-  { id: 'entertainment', name: 'Entertainment', description: 'Fun and engaging content' }
-]
-
-export const VIDEO_GENRES = [
-  { id: 'tech', name: 'Technology', description: 'Technology and programming topics' },
-  { id: 'science', name: 'Science', description: 'Scientific concepts and discoveries' },
-  { id: 'business', name: 'Business', description: 'Business, entrepreneurship and finance' },
-  { id: 'health', name: 'Health & Wellness', description: 'Health, fitness and wellness' },
-  { id: 'history', name: 'History', description: 'Historical events and figures' },
-  { id: 'culture', name: 'Culture', description: 'Art, culture and society' },
-  { id: 'sports', name: 'Sports', description: 'Sports and athletics' },
-  { id: 'news', name: 'News', description: 'Current events and news' },
-  { id: 'motivation', name: 'Motivation', description: 'Motivational and self-improvement' },
-  { id: 'comedy', name: 'Comedy', description: 'Humor and entertainment' }
-]
-
 export const VOICES = {
   elevenlabs: [
     { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', language: 'en', gender: 'female' },

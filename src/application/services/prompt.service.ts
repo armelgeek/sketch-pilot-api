@@ -1,21 +1,13 @@
 /**
  * PromptService — application-layer service for dynamic prompt management.
- *
- * Responsibilities:
- *  - Resolve the best-matching prompt for a given context (type, video type, genre, language)
- *  - Inject runtime variables into prompt templates using {{variable_name}} syntax
- *  - Provide fallback to built-in defaults when no DB prompt is found
  */
 import type { PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
-import type { PromptType } from '@/infrastructure/database/schema/prompt.schema'
 
 export type PromptVariables = Record<string, string | number | boolean>
 
 export interface ResolvePromptOptions {
-  promptType: PromptType
-  videoType?: string
-  videoGenre?: string
-  language?: string
+  id?: string
+  name?: string
   variables?: PromptVariables
   /** Fallback string to use when no DB prompt is found */
   fallback?: string
@@ -26,30 +18,28 @@ export class PromptService {
 
   /**
    * Resolve a prompt template from the database and inject variables.
-   * Returns the interpolated string, or the fallback (if provided) when no
-   * active prompt is found.
    */
   async resolve(options: ResolvePromptOptions): Promise<string | null> {
-    const { promptType, videoType, videoGenre, language, variables = {}, fallback } = options
-    const prompt = await this.repository.findBestMatch({ promptType, videoType, videoGenre, language })
-    const template = prompt?.template ?? fallback ?? null
+    const { id, variables = {}, fallback } = options
+    const prompt = await this.repository.findBestMatch({ id })
+
+    // In the new flat model, context or task often serves as the "template"
+    const template = (prompt as any)?.context ?? fallback ?? null
     if (!template) return null
     return this.interpolate(template, variables)
   }
 
   /**
-   * Resolve the full VideoTypeSpecification (config) from a prompt.
+   * Central method to resolve a full specification (Script, Image, etc.) from a prompt.
+   * This is the single point of entry for getting managed specs from the database.
    */
-  async resolveSpec(options: Omit<ResolvePromptOptions, 'variables' | 'fallback'>): Promise<any | null> {
-    const { promptType, videoType, videoGenre, language } = options
-    const prompt = await this.repository.findBestMatch({ promptType, videoType, videoGenre, language })
-    return prompt?.config ?? null
+  async resolveSpec(id?: string): Promise<any | null> {
+    const prompt = await this.repository.findBestMatch({ id })
+    return prompt ?? null
   }
 
   /**
-   * Interpolate a template string, replacing all {{variable_name}} tokens
-   * with the corresponding value from the variables map.
-   * Unknown variables are left as-is.
+   * Interpolate a template string, replacing all {{variable_name}} tokens.
    */
   interpolate(template: string, variables: PromptVariables = {}): string {
     return template.replaceAll(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match, key: string) => {
@@ -61,7 +51,6 @@ export class PromptService {
 
   /**
    * Extract all variable names referenced in a template string.
-   * Returns a deduplicated array of variable names.
    */
   extractVariables(template: string): string[] {
     const matches = [...template.matchAll(/\{\{(\s*[\w.]+\s*)\}\}/g)]

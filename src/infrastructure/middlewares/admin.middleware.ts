@@ -9,7 +9,7 @@ export async function requireAdmin(c: Context, next: Next): Promise<void | Respo
   if (!user) {
     return c.json({ success: false, error: 'Unauthorized' }, 401)
   }
-  if (user.role !== 'admin') {
+  if (!user.isAdmin && user.role !== 'admin') {
     return c.json({ success: false, error: 'Forbidden: admin access required' }, 403)
   }
   return await next()

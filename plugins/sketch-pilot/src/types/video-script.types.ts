@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+/**
+ * Shared validation schemas
+ */
+const hexColorSchema = z
+  .string()
+  .regex(/^#([A-F0-9]{6}|[A-F0-9]{3})$/i, 'Must be a valid hex color (e.g. #FFFFFF)')
+  .default('#FFFFFF')
+
 export type ImageProvider = 'gemini' | 'grok'
 export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku'
 
@@ -162,10 +170,12 @@ export type CharacterSheet = z.infer<typeof characterSheetSchema>
  */
 export const onscreenTextStyleSchema = z.object({
   enabled: z.boolean().default(false).describe('Whether to actually display the onscreenText.'),
-  color: z.string().default('#000000').describe('Default text color (hex)'),
+  color: hexColorSchema.describe('Default text color (hex)'),
   fontFamily: z.string().default('sans-serif').describe('Font family name'),
   fontSize: z
     .number()
+    .min(1)
+    .max(500)
     .optional()
     .describe('Font size in pixels. If omitted, auto-calculated from canvas height (~8%).'),
   fontWeight: z.enum(['normal', 'bold', 'bolder']).default('bold').describe('Font weight'),
@@ -180,12 +190,14 @@ export const onscreenTextStyleSchema = z.object({
     .array(
       z.object({
         word: z.string().describe('The exact word or phrase to highlight'),
-        color: z.string().optional().describe('Highlight color (hex). If omitted, uses highlightColor or textColor.')
+        color: hexColorSchema
+          .optional()
+          .describe('Highlight color (hex). If omitted, uses highlightColor or textColor.')
       })
     )
     .optional()
     .describe('Words to render in a different color for emphasis'),
-  highlightColor: z.string().optional().describe('Default highlight color for this style block.')
+  highlightColor: hexColorSchema.optional().describe('Default highlight color for this style block.')
 })
 
 export type OnscreenTextStyle = z.infer<typeof onscreenTextStyleSchema>
@@ -284,7 +296,7 @@ export const enrichedSceneSchema = z.object({
     })
     .describe('Scene purpose label used for duration estimation'),
   characterVariant: characterVariantSchema.nullish().describe('Special variant of the character'),
-  backgroundColor: z.string().optional().describe('Background color for this specific scene'),
+  backgroundColor: hexColorSchema.optional().describe('Background color for this specific scene'),
   // Dynamism fields
   soundEffects: z.array(soundEffectSchema).optional().describe('List of sound effects for this scene'),
   soundscape: z.string().optional().describe('Ambient background soundscape (e.g., office, forest, crowd)'),
@@ -425,48 +437,6 @@ export const completeVideoScriptSchema = z.object({
 export type CompleteVideoScript = z.infer<typeof completeVideoScriptSchema>
 
 /**
- * Video types inspired by shortsbot.ai
- */
-export const videoTypeSchema = z.enum([
-  'faceless', // Faceless videos with narration and visuals
-  'explainer', // Educational explainer videos
-  'tutorial', // Step-by-step how-to guides
-  'listicle', // Top 5/10 lists, facts, rankings
-  'news', // News recaps, trending topics
-  'animation', // Motion graphics and animations
-  'review', // Product reviews and recommendations
-  'story', // Narratives, urban legends, mini-mysteries
-  'motivational', // Inspirational quotes and affirmations
-  'entertainment' // Memes, trends, funny content
-])
-
-export type VideoType = z.infer<typeof videoTypeSchema>
-
-/**
- * Video genres/niches for targeting specific audiences
- */
-export const videoGenreSchema = z.enum([
-  'educational', // Learning and knowledge
-  'fun', // Fun and engaging entertainment content
-  'business', // Business tips, entrepreneurship
-  'lifestyle', // Daily life, productivity, wellness
-  'tech', // Technology and gadgets
-  'finance', // Money, investing, personal finance
-  'health', // Health and fitness
-  'travel', // Travel tips and destinations
-  'food', // Recipes and food content
-  'gaming', // Gaming content and tips
-  'sports', // Sports news and analysis
-  'science', // Scientific facts and discoveries
-  'history', // Historical facts and stories
-  'self-improvement', // Personal development
-  'mystery', // Mysteries and unsolved cases
-  'general' // General interest content
-])
-
-export type VideoGenre = z.infer<typeof videoGenreSchema>
-
-/**
  * Text overlay position for video captions
  */
 export const textPositionSchema = z.enum([
@@ -498,13 +468,16 @@ export const assCaptionConfigSchema = z.object({
     .enum(['top', 'center', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'none'])
     .default('bottom')
     .describe('Position of captions'),
-  highlightColor: z.string().default('#FFE135').describe('Highlight color for active words'),
-  inactiveColor: z.string().default('#888888').optional().describe('Color for inactive words'),
-  pillColor: z.string().default('#3B82F6').optional().describe('Pill/background color for animated-background style'),
-  borderSize: z.number().default(2).optional().describe('Border width'),
-  shadowSize: z.number().default(0).optional().describe('Shadow size'),
+  highlightColor: hexColorSchema.default('#FFE135').describe('Highlight color for active words'),
+  inactiveColor: hexColorSchema.optional().describe('Color for inactive words'),
+  pillColor: hexColorSchema
+    .default('#3B82F6')
+    .optional()
+    .describe('Pill/background color for animated-background style'),
+  borderSize: z.number().min(0).default(2).optional().describe('Border width'),
+  shadowSize: z.number().min(0).default(0).optional().describe('Shadow size'),
   wordSpacing: z.number().optional().describe('Custom word spacing in pixels'),
-  charWidthRatio: z.number().optional().describe('Character width ratio for font metrics')
+  charWidthRatio: z.number().min(0).max(5).optional().describe('Character width ratio for font metrics')
 })
 
 export type AssCaptionConfig = z.infer<typeof assCaptionConfigSchema>
@@ -515,8 +488,8 @@ export type AssCaptionConfig = z.infer<typeof assCaptionConfigSchema>
 export const textOverlayConfigSchema = z.object({
   enabled: z.boolean().default(false).describe('Enable text overlays on video'),
   position: textPositionSchema.default('bottom').describe('Position of text overlay'),
-  fontSize: z.number().default(48).describe('Font size in pixels'),
-  fontColor: z.string().default('white').describe('Text color'),
+  fontSize: z.number().min(1).default(48).describe('Font size in pixels'),
+  fontColor: hexColorSchema.describe('Text color'),
   backgroundColor: z.string().default('black@0.6').describe('Background color with transparency'),
   fontFamily: z.string().default('Arial').describe('Font family'),
   maxCharsPerLine: z.number().default(40).describe('Maximum characters per line before wrapping'),
@@ -537,8 +510,7 @@ export const textOverlayConfigSchema = z.object({
     ])
     .default('classic')
     .describe('Visual style of the subtitles'),
-  highlightColor: z
-    .string()
+  highlightColor: hexColorSchema
     .default('#00E676')
     .describe('Highlight color for the active word in colored-words, scaling-words, and animated-background styles'),
   googleFontUrl: z
@@ -681,9 +653,6 @@ export const videoGenerationOptionsSchema = z
       .max(60)
       .default(15)
       .describe('Maximum duration of a single scene in seconds'),
-    style: z.enum(['motivational', 'educational', 'storytelling', 'tutorial']).optional(),
-    videoType: videoTypeSchema.optional().describe('Type of video content to generate'),
-    videoGenre: videoGenreSchema.optional().describe('Genre/niche for the video'),
     theme: z
       .enum(['script-system', 'psychology'])
       .optional()
@@ -710,9 +679,10 @@ export const videoGenerationOptionsSchema = z
     proEncoding: proEncodingConfigSchema.optional().describe('Advanced encoding parameters'),
     assCaptions: assCaptionConfigSchema.optional().describe('ASS caption configuration for video subtitles'),
     transcription: transcriptionConfigSchema.optional().describe('Transcription service configuration'),
-    backgroundColor: z.string().default('#FFF').describe('Global background color for the video'),
+    backgroundColor: hexColorSchema.describe('Global background color for the video'),
     imageProvider: z.enum(['gemini', 'grok']).default('gemini').describe('Provider for image generation'),
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
+    promptId: z.string().optional().describe('ID of the managed prompt template to use'),
     autoTransitions: z.boolean().default(true).describe('Automatically assign transitions when the script omits them'),
     llmProvider: z.enum(['gemini', 'grok']).default('gemini').describe('Provider for script generation'),
     kokoroVoicePreset: z
@@ -761,12 +731,8 @@ export const videoGenerationOptionsSchema = z
     qualityMode: z.nativeEnum(QualityMode).default(QualityMode.STANDARD).describe('Quality mode for generation'),
     enableContextualBackground: z
       .boolean()
-      .default(false)
-      .describe('Deprecated: Backgrounds are now always solid white.'),
-    localOnlyImages: z
-      .boolean()
       .default(true)
-      .describe('If true, strictly prohibit AI image generation and rely ONLY on local assets and text mode.'),
+      .describe('Enable AI-generated background scenes (default is now AI-driven)'),
     promptSections: promptSectionsSchema
       .optional()
       .describe(
@@ -817,13 +783,14 @@ export const videoGenerationOptionsSchema = z
   })
   .transform((opts) => {
     // Determine the effective range for the video duration
-    const minDur = opts.minDuration ?? opts.maxDuration
-    const maxDur = opts.maxDuration
+    const targetDur = opts.maxDuration ?? opts.minDuration ?? 30
+    const minDur = opts.minDuration ?? targetDur
+    const maxDur = opts.maxDuration ?? targetDur
+
     if (minDur > maxDur) {
       throw new Error('minDuration cannot be greater than maxDuration')
     }
-    // For downstream compatibility we keep `duration` set to the target (= max)
-    const targetDur = maxDur
+    // For downstream compatibility we keep `duration` set to the target
 
     return {
       ...opts,

@@ -20,8 +20,6 @@ export const videos = pgTable('videos', {
   captionsUrl: text('captions_url'),
   duration: integer('duration'), // in seconds
   // Metadata
-  genre: text('genre'),
-  type: text('type'),
   language: text('language').default('en'),
   characterModelId: text('character_model_id'), // FK → character_models.id (nullable)
   creditsUsed: integer('credits_used').notNull().default(1),

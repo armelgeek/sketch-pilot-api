@@ -128,7 +128,6 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const genOptions: Record<string, any> = {
       maxDuration: options.duration || DEFAULT_VIDEO_DURATION,
       sceneCount: options.sceneCount || 6,
-      style: options.style || 'educational',
       videoType: options.videoType,
       videoGenre: options.videoGenre,
       language: options.language || 'en',
@@ -156,7 +155,6 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       animationMode: options.animationMode || storedOptions.animationMode || 'static',
       aspectRatio: options.aspectRatio || storedOptions.aspectRatio || '16:9',
       resolution: options.resolution || storedOptions.resolution || '720p',
-      localOnlyImages: options.localOnlyImages ?? storedOptions.localOnlyImages,
       imageStyle: options.imageStyle || storedOptions.imageStyle,
       globalTextStyle: options.globalTextStyle || storedOptions.globalTextStyle,
       promptSections: options.promptSections || storedOptions.promptSections

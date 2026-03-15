@@ -64,7 +64,6 @@ export interface VideoJobData {
   options: {
     duration?: number
     sceneCount?: number
-    style?: string
     videoType?: string
     videoGenre?: string
     language?: string
@@ -93,7 +92,6 @@ export interface VideoJobData {
     animationMode?: string
     aspectRatio?: string
     resolution?: string
-    localOnlyImages?: boolean
     imageStyle?: any
     globalTextStyle?: any
     promptSections?: any

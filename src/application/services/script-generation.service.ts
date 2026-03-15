@@ -8,21 +8,27 @@ import { ScriptValidator, type ScriptValidationResult } from '@sketch-pilot/core
  */
 import { VideoScriptGenerator } from '@sketch-pilot/core/video-script-generator'
 import { LLMServiceFactory, type LLMServiceConfig } from '@sketch-pilot/services/llm'
+import {
+  videoGenerationOptionsSchema,
+  type CompleteVideoScript,
+  type VideoGenerationOptions
+} from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
-import type { CompleteVideoScript, VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
 export type { ScriptValidationResult }
 
 export interface GenerateScriptOptions {
+  duration?: number
   maxDuration?: number
   sceneCount?: number
-  style?: 'motivational' | 'educational' | 'storytelling' | 'tutorial'
-  videoType?: string
-  videoGenre?: string
   language?: string
   qualityMode?: string
   llmProvider?: string
+  promptId?: string
+  characterModelId?: string
+  aspectRatio?: '9:16' | '16:9' | '1:1'
+  backgroundMusic?: string
 }
 
 export class ScriptGenerationService {
@@ -40,28 +46,28 @@ export class ScriptGenerationService {
     }
     const llmService = LLMServiceFactory.create(llmConfig)
 
-    // 1. Resolve Spec (Prompt Config) from DB
-    const spec = await this.promptService.resolveSpec({
-      promptType: 'system_prompt',
-      videoType: options.videoType,
-      videoGenre: options.videoGenre,
-      language: options.language
+    // 1. Resolve Spec from DB by promptId
+    const spec = await this.promptService.resolveSpec(options.promptId)
+
+    // 2. Build options using the schema for validation and transformation (handles dynamic scene count, duration mapping, etc.)
+    const targetDuration = options.duration || options.maxDuration
+    const genOptions = videoGenerationOptionsSchema.parse({
+      minDuration: targetDuration,
+      maxDuration: targetDuration,
+      sceneCount: options.sceneCount,
+      language: options.language,
+      aspectRatio: options.aspectRatio,
+      qualityMode: options.qualityMode,
+      characterModelId: options.characterModelId,
+      backgroundMusic: options.backgroundMusic,
+      customSpec: spec
     })
 
-    // 2. Build options, prioritizing explicit options over spec defaults
-    const genOptions: Partial<VideoGenerationOptions> = {
-      maxDuration: options.maxDuration || 60,
-      sceneCount: options.sceneCount || spec?.defaultSceneCount || 6,
-      style: (options.style as any) || spec?.style || 'educational',
-      videoType: options.videoType as any,
-      videoGenre: options.videoGenre as any,
-      language: options.language || 'en',
-      qualityMode: options.qualityMode as any,
-      customSpec: spec
-    }
-
-    // 3. Initialize generator and run
-    const promptManager = new PromptManager()
+    // 3. Initialize generator and run (using the SAME spec for both script and image)
+    const promptManager = new PromptManager({
+      scriptSpec: spec as any,
+      imageSpec: spec as any
+    })
     const generator = new VideoScriptGenerator(llmService, promptManager)
 
     return await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { ChooseBackgroundMusicUseCase } from '@/application/use-cases/video/choose-background-music.use-case'
 import { ChooseVoiceoverUseCase } from '@/application/use-cases/video/choose-voiceover.use-case'
+import { ConfigureBrandingUseCase } from '@/application/use-cases/video/configure-branding.use-case'
 import { ConfigureCaptionsUseCase } from '@/application/use-cases/video/configure-captions.use-case'
 import { GenerateFinalVideoUseCase } from '@/application/use-cases/video/generate-final-video.use-case'
 import { GenerateNarrationUseCase } from '@/application/use-cases/video/generate-narration.use-case'
@@ -27,6 +28,7 @@ const generateScenesUseCase = new GenerateScenesUseCase()
 const chooseVoiceoverUseCase = new ChooseVoiceoverUseCase()
 const chooseBackgroundMusicUseCase = new ChooseBackgroundMusicUseCase()
 const configureCaptionsUseCase = new ConfigureCaptionsUseCase()
+const configureBrandingUseCase = new ConfigureBrandingUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
 
 export class VideosController implements Routes {
@@ -51,7 +53,7 @@ export class VideosController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  topic: z.string().min(1).max(500),
+                  topic: z.string().min(1).max(5000),
                   options: VideoOptionsSchema.optional()
                 })
               }
@@ -1240,6 +1242,68 @@ export class VideosController implements Routes {
       }
     )
 
+    // PATCH /v1/videos/:id/branding
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}/branding',
+        tags: ['Videos'],
+        summary: 'Configure branding',
+        description: 'Updates the professional branding configuration (logo, watermark) for the video.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  brandingConfig: z.any()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Branding updated successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { brandingConfig } = c.req.valid('json')
+
+        const result = await configureBrandingUseCase.run({
+          videoId: id,
+          userId: user.id,
+          brandingConfig
+        })
+
+        if (!result.success) {
+          if (result.error === 'Video not found') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error || 'Failed to update branding configuration' }, 400)
+        }
+
+        return c.json({ success: true, video: result.video }, 200)
+      }
+    )
+
     // POST /v1/videos/:id/narrate (Step 2.5)
     this.controller.openapi(
       createRoute({
@@ -1324,7 +1388,16 @@ export class VideosController implements Routes {
         description: 'Generates global narration audio, transcribes it, and assembles the final video package.',
         security: [{ Bearer: [] }],
         request: {
-          params: z.object({ id: z.string() })
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  options: z.any().optional()
+                })
+              }
+            }
+          }
         },
         responses: {
           202: {
@@ -1359,11 +1432,13 @@ export class VideosController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const { id } = c.req.valid('param')
+        const { options } = c.req.valid('json') || {}
 
         const { result } = await generateFinalVideoUseCase.run({
           videoId: id,
           userId: user.id,
-          planId: (user as any).planId
+          planId: (user as any).planId,
+          options
         })
 
         if (!result.success) {

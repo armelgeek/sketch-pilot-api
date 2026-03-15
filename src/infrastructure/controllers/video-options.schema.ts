@@ -4,18 +4,6 @@ export const VideoOptionsSchema = z
   .object({
     duration: z.number().optional().openapi({ example: 30, description: 'Target duration in seconds' }),
     sceneCount: z.number().optional().openapi({ example: 5, description: 'Number of scenes' }),
-    style: z
-      .enum(['motivational', 'educational', 'storytelling', 'tutorial'])
-      .optional()
-      .openapi({ example: 'motivational' }),
-    videoType: z
-      .string()
-      .optional()
-      .openapi({ example: 'explainer', description: 'Type of video (tutorial, explainer, story, etc.)' }),
-    videoGenre: z
-      .string()
-      .optional()
-      .openapi({ example: 'tech', description: 'Genre/niche (tech, science, business, etc.)' }),
     language: z.string().optional().openapi({ example: 'en-US', description: 'Language code' }),
     imageProvider: z
       .enum(['gemini', 'grok'])
@@ -60,9 +48,15 @@ export const VideoOptionsSchema = z
       .boolean()
       .optional()
       .openapi({ example: false, description: 'Stop after scene generation for manual review' }),
-    localOnlyImages: z
-      .boolean()
+    branding: z.any().optional().openapi({ description: 'Professional branding options (logo, watermark)' }),
+    assCaptions: z.any().optional().openapi({ description: 'ASS caption configuration for video subtitles' }),
+    promptId: z
+      .string()
       .optional()
-      .openapi({ example: true, description: 'Disable AI image generation, use local assets only' })
+      .openapi({ example: 'uuid', description: 'ID of the managed prompt template to use' }),
+    characterModelId: z
+      .string()
+      .optional()
+      .openapi({ example: 'uuid', description: 'ID of the character model to use' })
   })
   .openapi('VideoOptions')

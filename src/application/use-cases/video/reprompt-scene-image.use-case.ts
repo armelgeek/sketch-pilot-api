@@ -95,8 +95,7 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
         options: {
           ...videoOptions,
           generateFromScript: true,
-          repromptSceneIndex: sceneIndex,
-          localOnlyImages: false
+          repromptSceneIndex: sceneIndex
         }
       }
 

@@ -238,7 +238,7 @@ ${scene.narration}`
     })
 
     // Safety check for timeRange (sometimes LLMs skip it)
-    const targetTotal = options.maxDuration ?? options.duration ?? 30
+    const targetTotal = options.duration ?? options.maxDuration ?? 30
     const maxScene = typeof options.maxSceneDuration === 'number' ? options.maxSceneDuration : Number.POSITIVE_INFINITY
     const minScene = MIN_SCENE_DURATION
 

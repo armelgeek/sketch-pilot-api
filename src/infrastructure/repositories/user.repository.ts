@@ -6,7 +6,7 @@ import type {
   UserRepositoryInterface
 } from '@/domain/repositories/user.repository.interface'
 import { db } from '../database/db'
-import { users } from '../database/schema'
+import { userCredits, users } from '../database/schema'
 import type { z } from 'zod'
 
 export class UserRepository implements UserRepositoryInterface {
@@ -23,6 +23,10 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
+      role: user.role,
+      banned: user.banned,
+      banReason: user.banReason,
+      banExpires: user.banExpires || null,
       stripeCustomerId: user.stripeCustomerId || undefined,
       defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
@@ -42,6 +46,10 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
+      role: user.role,
+      banned: user.banned,
+      banReason: user.banReason,
+      banExpires: user.banExpires || null,
       stripeCustomerId: user.stripeCustomerId || undefined,
       defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
@@ -82,9 +90,19 @@ export class UserRepository implements UserRepositoryInterface {
       .select({ count: sql<number>`count(${users.id})::int` })
       .from(query.as('filtered_users'))
 
-    const results = await query.orderBy(users.createdAt).limit(limit).offset(offset)
+    const results = await db
+      .select({
+        user: users,
+        credits: userCredits
+      })
+      .from(users)
+      .leftJoin(userCredits, eq(users.id, userCredits.userId))
+      .where(whereClause || sql`true`)
+      .orderBy(users.createdAt)
+      .limit(limit)
+      .offset(offset)
 
-    const mappedUsers = results.map((user) => ({
+    const mappedUsers = results.map(({ user, credits }) => ({
       id: user.id,
       name: user.name,
       firstname: user.firstname || undefined,
@@ -98,7 +116,16 @@ export class UserRepository implements UserRepositoryInterface {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt || null,
-      role: user.role
+      role: user.role,
+      banned: user.banned,
+      banReason: user.banReason,
+      banExpires: user.banExpires || null,
+      credits: credits
+        ? {
+            extraCredits: credits.extraCredits,
+            videosThisMonth: credits.videosThisMonth
+          }
+        : undefined
     }))
 
     return { users: mappedUsers, total: count, page, limit }
@@ -117,6 +144,10 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: user.lastLoginAt || null,
       image: user.image || undefined,
       isAdmin: user.isAdmin,
+      role: user.role,
+      banned: user.banned,
+      banReason: user.banReason,
+      banExpires: user.banExpires || null,
       defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
@@ -132,6 +163,10 @@ export class UserRepository implements UserRepositoryInterface {
     if (data.emailVerified !== undefined) updateData.emailVerified = data.emailVerified
     if (data.image !== undefined) updateData.image = data.image
     if (data.isAdmin !== undefined) updateData.isAdmin = data.isAdmin
+    if (data.role !== undefined) updateData.role = data.role
+    if (data.banned !== undefined) updateData.banned = data.banned
+    if (data.banReason !== undefined) updateData.banReason = data.banReason
+    if (data.banExpires !== undefined) updateData.banExpires = data.banExpires
     if (data.defaultCharacterModelId !== undefined) updateData.defaultCharacterModelId = data.defaultCharacterModelId
 
     const [updatedUser] = await db.update(users).set(updateData).where(eq(users.id, id)).returning()
@@ -147,6 +182,10 @@ export class UserRepository implements UserRepositoryInterface {
       lastLoginAt: updatedUser.lastLoginAt || null,
       image: updatedUser.image || undefined,
       isAdmin: updatedUser.isAdmin,
+      role: updatedUser.role,
+      banned: updatedUser.banned,
+      banReason: updatedUser.banReason,
+      banExpires: updatedUser.banExpires || null,
       stripeCustomerId: updatedUser.stripeCustomerId || undefined,
       defaultCharacterModelId: updatedUser.defaultCharacterModelId || undefined,
       createdAt: updatedUser.createdAt,
@@ -178,5 +217,29 @@ export class UserRepository implements UserRepositoryInterface {
       .from(users)
       .where(eq(users.role, 'user'))
     return result[0]?.count || 0
+  }
+
+  async banUser(id: string, reason?: string, expires?: Date): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        banned: true,
+        banReason: reason || null,
+        banExpires: expires || null,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+  }
+
+  async unbanUser(id: string): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        banned: false,
+        banReason: null,
+        banExpires: null,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
   }
 }

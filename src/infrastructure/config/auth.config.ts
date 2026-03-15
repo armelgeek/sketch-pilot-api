@@ -101,13 +101,17 @@ export const auth = betterAuth({
     additionalFields: {
       firstname: { type: 'string' },
       lastname: { type: 'string' },
-      isAdmin: { type: 'boolean' },
-      lastLoginAt: { type: 'date' },
-      role: { type: 'string' },
-      banned: { type: 'boolean' },
-      banReason: { type: 'string' },
-      banExpires: { type: 'date' },
-      stripeCustomerId: { type: 'string' }
+      isAdmin: { type: 'boolean', input: false },
+      lastLoginAt: { type: 'date', input: false },
+      banned: { type: 'boolean', input: false },
+      banReason: { type: 'string', input: false },
+      banExpires: { type: 'date', input: false },
+      stripeCustomerId: { type: 'string', input: false },
+      utmSource: { type: 'string' },
+      utmMedium: { type: 'string' },
+      utmCampaign: { type: 'string' },
+      utmTerm: { type: 'string' },
+      utmContent: { type: 'string' }
     },
     changeEmail: {
       enabled: true,

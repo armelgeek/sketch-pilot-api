@@ -1,23 +1,87 @@
+import * as crypto from 'node:crypto'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from '@/infrastructure/database/db'
-import { prompts, type PromptType } from '@/infrastructure/database/schema/prompt.schema'
+import { prompts } from '@/infrastructure/database/schema/prompt.schema'
 import type { CreatePromptInput, Prompt, UpdatePromptInput } from '@/domain/models/prompt.model'
-import type { PromptFilters, PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
+import type { PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
 
 function toPrompt(row: typeof prompts.$inferSelect): Prompt {
+  const config = (row.config as any) || {}
   return {
     id: row.id,
-    name: row.name,
+    name: config.name || row.name,
     description: row.description ?? undefined,
-    promptType: row.promptType as PromptType,
-    videoType: row.videoType ?? undefined,
-    videoGenre: row.videoGenre ?? undefined,
-    template: row.template,
-    variables: (row.variables as string[]) ?? [],
-    language: row.language ?? undefined,
-    config: row.config ?? undefined,
     isActive: row.isActive,
-
+    role: config.role,
+    context: config.context,
+    audienceDefault: config.audienceDefault,
+    task: config.task,
+    goals: config.goals || [],
+    structure: config.structure,
+    rules: config.rules || [],
+    formatting: config.formatting,
+    outputFormat: JSON.stringify(
+      {
+        titles: ['Title 1', 'Title 2', 'Title 3'],
+        fullNarration: 'String - The complete unbroken text of the video.',
+        topic: 'String',
+        audience: 'String',
+        scenes: [
+          {
+            sceneNumber: 'Integer',
+            timeRange: { start: 'Float', end: 'Float' },
+            duration: 'Float',
+            timestamp: 'Float',
+            summary: 'String',
+            narration: 'String',
+            actions: ['String'],
+            expression: 'String',
+            characterIds: ['String'],
+            speechBubble: 'String',
+            mood: 'String',
+            cameraType: 'String',
+            framing: 'String',
+            lighting: 'String',
+            imagePrompt: '[action/metaphor]',
+            animationPrompt: '...',
+            transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
+            tension: 5,
+            characterVariant: 'Optional character skin name',
+            continueFromPrevious: false,
+            visualSource: 'local',
+            poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
+            poseStyle: {
+              position: 'left | center | right | custom',
+              x: 50,
+              y: 50,
+              scale: 1
+            },
+            onscreenText: 'The primary large overlay text',
+            onscreenTextSuggestions: [
+              'Concise version',
+              'Action-oriented version',
+              'Question-based version',
+              'Keyword-heavy version'
+            ],
+            onscreenTextStyle: {
+              enabled: true,
+              color: '#000000',
+              fontFamily: 'sans-serif',
+              fontSize: 58,
+              fontWeight: 'bold',
+              maxWordsPerLine: 6,
+              highlightWords: [{ word: 'specificword', color: '#FF0000' }]
+            },
+            anchorDetail: 'String',
+            soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
+            soundscape: 'String'
+          }
+        ]
+      },
+      null,
+      2
+    ),
+    instructions: config.instructions || [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -29,15 +93,11 @@ export class PromptRepository implements PromptRepositoryInterface {
     return row ? toPrompt(row) : null
   }
 
-  async findAll(filters: PromptFilters = {}): Promise<{ data: Prompt[]; total: number }> {
-    const { promptType, videoType, videoGenre, language, isActive, page = 1, limit = 20 } = filters
+  async findAll(filters: any = {}): Promise<{ data: Prompt[]; total: number }> {
+    const { isActive, page = 1, limit = 20 } = filters
     const offset = (page - 1) * limit
 
     const conditions: any[] = []
-    if (promptType) conditions.push(eq(prompts.promptType, promptType))
-    if (videoType !== undefined) conditions.push(eq(prompts.videoType, videoType))
-    if (videoGenre !== undefined) conditions.push(eq(prompts.videoGenre, videoGenre))
-    if (language !== undefined) conditions.push(eq(prompts.language, language))
     if (isActive !== undefined) conditions.push(eq(prompts.isActive, isActive))
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined
@@ -56,59 +116,103 @@ export class PromptRepository implements PromptRepositoryInterface {
     }
   }
 
-  async findBestMatch(criteria: {
-    promptType: PromptType
-    videoType?: string
-    videoGenre?: string
-    language?: string
-  }): Promise<Prompt | null> {
-    const { promptType, videoType, videoGenre, language } = criteria
+  async findBestMatch(criteria: { id?: string; name?: string }): Promise<Prompt | null> {
+    const { id, name } = criteria
 
-    // Fetch all active prompts of this type (small set, safe to load in memory)
-    const candidates = await db
-      .select()
-      .from(prompts)
-      .where(and(eq(prompts.promptType, promptType), eq(prompts.isActive, true)))
+    if (id) {
+      return this.findById(id)
+    }
+
+    // Fetch all active prompts
+    const candidates = await db.select().from(prompts).where(eq(prompts.isActive, true))
 
     if (candidates.length === 0) return null
 
-    // Score each candidate: higher = better match
-    function score(row: typeof prompts.$inferSelect): number {
-      let s = 0
-      if (videoType && row.videoType === videoType) s += 4
-      else if (row.videoType !== null) return -1 // Mismatched videoType
-      if (videoGenre && row.videoGenre === videoGenre) s += 2
-      else if (row.videoGenre !== null) return -1 // Mismatched videoGenre
-      if (language && row.language === language) s += 1
-      else if (row.language !== null) return -1 // Mismatched language
-      return s
+    // For now, if name is provided, find by name, otherwise take the first one (Rebuild Narrative System)
+    if (name) {
+      const match = candidates.find((c) => c.name === name)
+      return match ? toPrompt(match) : toPrompt(candidates[0])
     }
 
-    const scored = candidates
-      .map((row) => ({ row, score: score(row) }))
-      .filter((x: { row: typeof prompts.$inferSelect; score: number }) => x.score >= 0)
-    if (scored.length === 0) return null
-
-    scored.sort((a: { score: number }, b: { score: number }) => b.score - a.score)
-    return toPrompt(scored[0].row)
+    return toPrompt(candidates[0])
   }
 
   async create(data: CreatePromptInput): Promise<Prompt> {
     const id = crypto.randomUUID()
     const now = new Date()
+
+    // Flattened data into config for DB storage, while keeping metadata columns
+    const { id: _, isActive, description, createdAt, updatedAt, ...config } = data as any
+
     await db.insert(prompts).values({
       id,
-      name: data.name,
-      description: data.description,
-      promptType: data.promptType,
-      videoType: data.videoType,
-      videoGenre: data.videoGenre,
-      template: data.template,
-      variables: data.variables ?? [],
-      language: data.language,
-      config: data.config,
-      isActive: data.isActive ?? true,
-
+      name: config.name,
+      description,
+      config: {
+        ...config,
+        outputFormat: JSON.stringify(
+          {
+            titles: ['Title 1', 'Title 2', 'Title 3'],
+            fullNarration: 'String - The complete unbroken text of the video.',
+            topic: 'String',
+            audience: 'String',
+            scenes: [
+              {
+                sceneNumber: 'Integer',
+                timeRange: { start: 'Float', end: 'Float' },
+                duration: 'Float',
+                timestamp: 'Float',
+                summary: 'String',
+                narration: 'String',
+                actions: ['String'],
+                expression: 'String',
+                characterIds: ['String'],
+                speechBubble: 'String',
+                mood: 'String',
+                cameraType: 'String',
+                framing: 'String',
+                lighting: 'String',
+                imagePrompt: '[action/metaphor]',
+                animationPrompt: '...',
+                transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
+                tension: 5,
+                characterVariant: 'Optional character skin name',
+                continueFromPrevious: false,
+                visualSource: 'local',
+                poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
+                poseStyle: {
+                  position: 'left | center | right | custom',
+                  x: 50,
+                  y: 50,
+                  scale: 1
+                },
+                onscreenText: 'The primary large overlay text',
+                onscreenTextSuggestions: [
+                  'Concise version',
+                  'Action-oriented version',
+                  'Question-based version',
+                  'Keyword-heavy version'
+                ],
+                onscreenTextStyle: {
+                  enabled: true,
+                  color: '#000000',
+                  fontFamily: 'sans-serif',
+                  fontSize: 58,
+                  fontWeight: 'bold',
+                  maxWordsPerLine: 6,
+                  highlightWords: [{ word: 'specificword', color: '#FF0000' }]
+                },
+                anchorDetail: 'String',
+                soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
+                soundscape: 'String'
+              }
+            ]
+          },
+          null,
+          2
+        )
+      },
+      isActive: isActive ?? true,
       createdAt: now,
       updatedAt: now
     })
@@ -119,20 +223,80 @@ export class PromptRepository implements PromptRepositoryInterface {
 
   async update(id: string, data: UpdatePromptInput): Promise<Prompt | null> {
     const now = new Date()
+    const { isActive, description, ...config } = data as any
+
     await db
       .update(prompts)
       .set({
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.description !== undefined && { description: data.description }),
-        ...(data.promptType !== undefined && { promptType: data.promptType }),
-        ...(data.videoType !== undefined && { videoType: data.videoType }),
-        ...(data.videoGenre !== undefined && { videoGenre: data.videoGenre }),
-        ...(data.template !== undefined && { template: data.template }),
-        ...(data.variables !== undefined && { variables: data.variables }),
-        ...(data.language !== undefined && { language: data.language }),
-        ...(data.config !== undefined && { config: data.config }),
-        ...(data.isActive !== undefined && { isActive: data.isActive }),
-
+        ...(description !== undefined && { description }),
+        ...(Object.keys(config).length > 0 && {
+          config: {
+            ...config,
+            outputFormat: JSON.stringify(
+              {
+                titles: ['Title 1', 'Title 2', 'Title 3'],
+                fullNarration: 'String - The complete unbroken text of the video.',
+                topic: 'String',
+                audience: 'String',
+                scenes: [
+                  {
+                    sceneNumber: 'Integer',
+                    timeRange: { start: 'Float', end: 'Float' },
+                    duration: 'Float',
+                    timestamp: 'Float',
+                    summary: 'String',
+                    narration: 'String',
+                    actions: ['String'],
+                    expression: 'String',
+                    characterIds: ['String'],
+                    speechBubble: 'String',
+                    mood: 'String',
+                    cameraType: 'String',
+                    framing: 'String',
+                    lighting: 'String',
+                    imagePrompt: '[action/metaphor]',
+                    animationPrompt: '...',
+                    transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
+                    tension: 5,
+                    characterVariant: 'Optional character skin name',
+                    continueFromPrevious: false,
+                    visualSource: 'local',
+                    poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
+                    poseStyle: {
+                      position: 'left | center | right | custom',
+                      x: 50,
+                      y: 50,
+                      scale: 1
+                    },
+                    onscreenText: 'The primary large overlay text',
+                    onscreenTextSuggestions: [
+                      'Concise version',
+                      'Action-oriented version',
+                      'Question-based version',
+                      'Keyword-heavy version'
+                    ],
+                    onscreenTextStyle: {
+                      enabled: true,
+                      color: '#000000',
+                      fontFamily: 'sans-serif',
+                      fontSize: 58,
+                      fontWeight: 'bold',
+                      maxWordsPerLine: 6,
+                      highlightWords: [{ word: 'specificword', color: '#FF0000' }]
+                    },
+                    anchorDetail: 'String',
+                    soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
+                    soundscape: 'String'
+                  }
+                ]
+              },
+              null,
+              2
+            )
+          },
+          name: config.name
+        }),
+        ...(isActive !== undefined && { isActive }),
         updatedAt: now
       })
       .where(eq(prompts.id, id))

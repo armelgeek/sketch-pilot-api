@@ -37,13 +37,10 @@ export class GenerateNarrationUseCase extends IUseCase<GenerateNarrationParams, 
         return { success: false, error: 'Video script not found. Please generate a script first.' }
       }
 
-      // 2. Resolve Spec (Prompt Config) from DB
+      // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
       const spec = await promptService.resolveSpec({
-        promptType: 'system_prompt',
-        videoType: videoOptions.videoType,
-        videoGenre: videoOptions.videoGenre,
-        language: videoOptions.language
+        name: videoOptions.videoType
       })
 
       // 3. Calculate & Check Credits (TTS + Subtitles only)

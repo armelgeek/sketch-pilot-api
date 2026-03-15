@@ -79,7 +79,8 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         type: options.videoType,
         language: options.language || 'en',
         script,
-        scenes: script.scenes
+        scenes: script.scenes,
+        characterModelId: options.characterModelId
       })
 
       return {

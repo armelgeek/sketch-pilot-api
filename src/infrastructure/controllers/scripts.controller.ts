@@ -29,7 +29,7 @@ export class ScriptsController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  topic: z.string().min(1).max(500),
+                  topic: z.string().min(1).max(5000),
                   options: VideoOptionsSchema.optional()
                 })
               }

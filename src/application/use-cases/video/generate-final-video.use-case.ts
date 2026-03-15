@@ -10,6 +10,7 @@ type GenerateFinalVideoParams = {
   videoId: string
   userId: string
   planId?: string
+  options?: any
 }
 
 type GenerateFinalVideoResponse = {
@@ -25,7 +26,7 @@ const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
 
 export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams, GenerateFinalVideoResponse> {
-  async execute({ videoId, userId }: GenerateFinalVideoParams): Promise<GenerateFinalVideoResponse> {
+  async execute({ videoId, userId, options }: GenerateFinalVideoParams): Promise<GenerateFinalVideoResponse> {
     try {
       // 1. Check if video exists and belongs to user
       const video = await videoRepository.findByIdAndUserId(videoId, userId)
@@ -37,14 +38,9 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
         return { success: false, error: 'Video script not found. Please generate a script first.' }
       }
 
-      // 2. Resolve Spec (Prompt Config) from DB
+      // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
-      const spec = await promptService.resolveSpec({
-        promptType: 'system_prompt',
-        videoType: videoOptions.videoType,
-        videoGenre: videoOptions.videoGenre,
-        language: videoOptions.language
-      })
+      const spec = await promptService.resolveSpec(undefined, videoOptions.videoType)
 
       // 3. Calculate & Check Credits (Export only)
       // Step 3 cost = Export
@@ -104,6 +100,7 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
         topic: video.topic,
         options: {
           ...videoOptions,
+          ...(options || {}),
           generateOnlyAssembly: true, // ONLY ASSEMBLY
           generateFromScript: true, // DONT REGEN SCRIPT
           customSpec: spec || videoOptions.customSpec
