@@ -764,6 +764,10 @@ export const videoGenerationOptionsSchema = z
       .boolean()
       .default(false)
       .describe('If true, skip narration/transcription and only perform final assembly'),
+    forceRegenerateAudio: z
+      .boolean()
+      .default(false)
+      .describe('If true, force re-generation of narration even in assembly-only mode (used when voice changes)'),
     repromptSceneIndex: z
       .number()
       .optional()

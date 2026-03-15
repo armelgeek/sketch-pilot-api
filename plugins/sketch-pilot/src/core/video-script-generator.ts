@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex */
 import {
   completeVideoScriptSchema,
   MIN_SCENE_DURATION,
@@ -98,7 +99,12 @@ export class VideoScriptGenerator {
     }
 
     // Validate with Zod and return
-    return completeVideoScriptSchema.parse(completeScript)
+    try {
+      return completeVideoScriptSchema.parse(completeScript)
+    } catch (validationError: any) {
+      console.error('[VideoScriptGen] Schema validation failed:', validationError.errors || validationError.message)
+      throw new Error(`Script validation failed: ${validationError.message}`)
+    }
   }
 
   /**
@@ -129,11 +135,31 @@ export class VideoScriptGenerator {
     } else {
       try {
         // Clean markdown blocks if present
-        const cleaned = text.replaceAll(/```json\n?|\n?```/g, '').trim()
-        parsed = JSON.parse(cleaned)
+        let cleaned = text.replaceAll(/```json\n?|\n?```/g, '').trim()
+
+        // Additional cleaning: remove BOM and other control characters
+        cleaned = cleaned.replace(/^\uFEFF/, '') // Remove BOM
+        cleaned = cleaned.replaceAll(/[\u0000-\u0008\v\f\u000E-\u001F\u007F]/g, '') // Remove control chars
+
+        // Fix common issues with JSON
+        // Handle trailing commas (common LLM error)
+        cleaned = cleaned.replaceAll(/,\s*([\]}])/g, '$1')
+
+        // Attempt to parse
+        try {
+          parsed = JSON.parse(cleaned)
+        } catch (parseError) {
+          // If parsing fails, try to find the JSON object and extract it
+          const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            parsed = JSON.parse(jsonMatch[0])
+          } else {
+            throw parseError
+          }
+        }
       } catch (error) {
-        console.error('[VideoScriptGen] Failed to parse JSON. Raw text:', text)
-        throw error
+        console.error('[VideoScriptGen] Failed to parse JSON. Raw text:', text.substring(0, 500))
+        throw new Error(`JSON parsing failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     if (!parsed.scenes || !Array.isArray(parsed.scenes)) {

@@ -323,7 +323,8 @@ export class NanoBananaEngine {
     scene: EnrichedScene,
     baseImages: string[],
     targetDir: string,
-    lastSceneImage?: string
+    lastSceneImage?: string,
+    isReprompt: boolean = false
   ): Promise<void> {
     console.log(`\n--- Composing Scene: ${scene.id} ---`)
     const options = this.currentOptions || ({} as any)
@@ -349,13 +350,106 @@ export class NanoBananaEngine {
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
 
     try {
+      // Check if scene image already exists (but NOT if this is a reprompt)
+      if (!isReprompt && fs.existsSync(imagePath)) {
+        console.log(`[NanoBanana] Scene image already exists for ${scene.id}, skipping generation`)
+        const composition = sharp(imagePath).resize(width, height, { fit: 'cover' })
+
+        // Proceed with overlays if needed (text, etc)
+        const overlays: any[] = []
+
+        // Generate thumbnail if missing
+        const thumbnailPath = path.join(targetDir, 'thumbnail.jpg')
+        if (!fs.existsSync(thumbnailPath)) {
+          console.log(`[NanoBanana] Generating thumbnail for ${imagePath}...`)
+          await this.generateThumbnail(imagePath, thumbnailPath)
+        }
+
+        // Save manifest and return early
+        const manifest: any = {
+          id: scene.id,
+          sceneImage,
+          audio: !options.globalAudioPath && scene.narration ? 'narration.mp3' : undefined,
+          video: false,
+          animationMode,
+          aspectRatio,
+          soundEffects: scene.soundEffects,
+          cameraAction: scene.cameraAction,
+          transitionToNext: scene.transitionToNext,
+          backgroundColor: scene.backgroundColor || options.backgroundColor || '#FFFFFF',
+          pauseBefore: (scene as any).pauseBefore,
+          pauseAfter: (scene as any).pauseAfter,
+          onscreenText: scene.onscreenText,
+          visualMode: scene.visualMode
+        }
+
+        const wordTimings: WordTiming[] | undefined = (scene as any).globalWordTimings
+        if (wordTimings && wordTimings.length > 0) {
+          const startTime = scene.timeRange.start
+          manifest.wordTimings = wordTimings.map((w) => {
+            const relStart = Math.max(0, w.start - startTime)
+            const relEnd = Math.max(relStart, w.end - startTime)
+            return {
+              ...w,
+              start: Math.round(relStart * 100) / 100,
+              end: Math.round(relEnd * 100) / 100,
+              startMs: Math.round(relStart * 1000)
+            }
+          })
+
+          manifest.globalWordTimings = wordTimings.map((w) => ({
+            ...w,
+            start: Math.round(w.start * 100) / 100,
+            end: Math.round(w.end * 100) / 100,
+            startMs: Math.round(w.startMs)
+          }))
+        }
+
+        fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+        console.log(`[NanoBanana] Scene manifest saved (skipped image generation).`)
+        return
+      }
+
       // Generate AI scene image to temp file
       console.log(`[NanoBanana] Generating AI scene for ${scene.id}...`)
       const tempBgPath = path.join(targetDir, 'temp_bg.webp')
-      await this.generateImage(scene, effectiveBaseImages, tempBgPath)
 
-      // Use generated image as base for composition
-      const composition = sharp(tempBgPath).resize(width, height, { fit: 'cover' })
+      let generatedPath = ''
+      try {
+        generatedPath = await this.generateImage(scene, effectiveBaseImages, tempBgPath)
+        console.log(`[NanoBanana] generateImage returned: ${generatedPath}, file exists: ${fs.existsSync(tempBgPath)}`)
+      } catch (imageError) {
+        console.warn(
+          `[NanoBanana] Image generation error for scene ${scene.id}:`,
+          imageError instanceof Error ? imageError.message : imageError
+        )
+        generatedPath = ''
+      }
+
+      // Check if image generation succeeded and create final image
+      if (!generatedPath || !fs.existsSync(tempBgPath)) {
+        console.log(`[NanoBanana] Creating white fallback image for scene ${scene.id} at ${imagePath}`)
+        await sharp({
+          create: { width, height, channels: 3, background: '#FFFFFF' }
+        })
+          .webp()
+          .toFile(imagePath)
+        console.log(`[NanoBanana] Fallback image written to ${imagePath}, exists: ${fs.existsSync(imagePath)}`)
+      } else {
+        // Use generated image - resize and prepare for composition
+        console.log(`[NanoBanana] Resizing generated image from ${tempBgPath} to ${imagePath}`)
+        await sharp(tempBgPath).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
+        console.log(`[NanoBanana] Generated image written to ${imagePath}, exists: ${fs.existsSync(imagePath)}`)
+      }
+
+      // Verify image file exists before proceeding to overlays
+      if (!fs.existsSync(imagePath)) {
+        console.error(`[NanoBanana] CRITICAL: Image file not created at ${imagePath}! Dimensions: ${width}x${height}`)
+        throw new Error(`Failed to create scene image at ${imagePath}`)
+      }
+
+      // Read the final image (either generated or fallback) for overlays
+      const composition = sharp(imagePath)
 
       const overlays: any[] = []
 
@@ -470,18 +564,28 @@ export class NanoBananaEngine {
         }
       }
     } catch (error) {
-      console.error(`[NanoBanana] Composition failed, creating solid white fallback:`, error)
+      console.error(
+        `[NanoBanana] Composition failed for scene ${scene.id}, creating white fallback:`,
+        error instanceof Error ? error.message : error
+      )
+      console.log(`[NanoBanana] Writing fallback white image to ${imagePath} (${width}x${height})`)
       await sharp({
         create: { width, height, channels: 3, background: '#FFFFFF' }
       })
         .webp()
         .toFile(imagePath)
+      console.log(`[NanoBanana] Fallback image written, exists: ${fs.existsSync(imagePath)}`)
     }
 
     // Generate thumbnail from scene image
     const thumbnailPath = path.join(targetDir, 'thumbnail.jpg')
-    console.log(`[NanoBanana] Generating thumbnail for ${imagePath}...`)
-    await this.generateThumbnail(imagePath, thumbnailPath)
+    console.log(`[NanoBanana] Creating thumbnail from ${imagePath} at ${thumbnailPath}...`)
+    if (!fs.existsSync(imagePath)) {
+      console.error(`[NanoBanana] CRITICAL: Scene image not found at ${imagePath}! Cannot create thumbnail.`)
+    } else {
+      await this.generateThumbnail(imagePath, thumbnailPath)
+      console.log(`[NanoBanana] Thumbnail created, exists: ${fs.existsSync(thumbnailPath)}`)
+    }
 
     const audioPath = path.join(targetDir, `narration.mp3`)
     const wordTimings: WordTiming[] | undefined = (scene as any).globalWordTimings
@@ -577,7 +681,7 @@ export class NanoBananaEngine {
     }
 
     fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-    console.log(`[NanoBanana] Scene manifest saved.`)
+    console.log(`[NanoBanana] Scene manifest saved to ${path.join(targetDir, 'manifest.json')}`)
   }
 
   /**
@@ -854,7 +958,8 @@ PLAIN WHITE BACKGROUND.`
     script: CompleteVideoScript,
     options: Partial<VideoGenerationOptions> = {},
     baseImages: string[] = [],
-    projectId?: string
+    projectId?: string,
+    onProgress?: (progress: number, message: string) => Promise<void>
   ): Promise<CompleteVideoPackage> {
     const startTime = Date.now()
     const validOptions = videoGenerationOptionsSchema.parse(options)
@@ -1168,8 +1273,125 @@ PLAIN WHITE BACKGROUND.`
       }
     } else if (validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
+
+      const forceRegen = (validOptions as any).forceRegenerateAudio
+
+      // If voice changed, delete cached narration so it gets re-generated with the new voice
+      if (forceRegen && fs.existsSync(globalAudioPath)) {
+        console.log(`[NanoBanana] forceRegenerateAudio=true — deleting cached narration to re-generate with new voice`)
+        fs.unlinkSync(globalAudioPath)
+      }
+
       if (fs.existsSync(globalAudioPath)) {
+        // ✅ Priority 1: Audio already exists locally
         script.globalAudio = 'narration.mp3'
+      } else if (
+        !forceRegen &&
+        script.globalAudio &&
+        typeof script.globalAudio === 'string' &&
+        script.globalAudio.startsWith('http')
+      ) {
+        // ✅ Priority 2: Download from MinIO (Skipped if forceRegen is true)
+        console.log(`[NanoBanana] Narration not found locally. Downloading from MinIO: ${script.globalAudio}`)
+        let downloaded = false
+        try {
+          const narrationResponse = await axios.get(script.globalAudio, { responseType: 'arraybuffer' })
+          fs.writeFileSync(globalAudioPath, Buffer.from(narrationResponse.data))
+          script.globalAudio = 'narration.mp3'
+          downloaded = true
+          console.log(`[NanoBanana] ✓ Narration downloaded to ${globalAudioPath}`)
+        } catch (error: any) {
+          console.warn(`[NanoBanana] ⚠ Failed to download narration from MinIO: ${error.message}`)
+        }
+
+        if (!downloaded) {
+          // ✅ Priority 3: Re-generate narration from script text (last resort)
+          console.log(`[NanoBanana] Regenerating narration from script text as a last resort...`)
+          try {
+            const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+            await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+            if (fs.existsSync(globalAudioPath)) {
+              script.globalAudio = 'narration.mp3'
+              console.log(`[NanoBanana] ✓ Narration re-generated from script at ${globalAudioPath}`)
+            }
+          } catch (error: any) {
+            console.error(
+              `[NanoBanana] ❌ Narration re-generation also failed: ${error.message}. Assembly will have no audio.`
+            )
+          }
+        }
+      } else {
+        // ✅ Priority 3 (no URL or forceRegen=true): Re-generate narration from script text
+        console.log(
+          `[NanoBanana] ${forceRegen ? 'Force Regenerate ON' : 'No local narration and no URL'}. Regenerating from script text...`
+        )
+        try {
+          const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+          await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+          if (fs.existsSync(globalAudioPath)) {
+            script.globalAudio = 'narration.mp3'
+            console.log(`[NanoBanana] ✓ Narration re-generated from script at ${globalAudioPath}`)
+          }
+        } catch (error: any) {
+          console.error(
+            `[NanoBanana] ❌ Narration re-generation failed: ${error.message}. Assembly will have no audio.`
+          )
+        }
+      }
+
+      // --- TRANSCRIPTION FOR ASS CAPTIONS (assembly-only) ---
+      // If assCaptions is enabled and word timings are not already in the script, run Whisper to get them.
+      // This is needed so VideoAssembler.generateGlobalASS produces word-highlighted subtitles.
+      const needsTranscription =
+        validOptions.assCaptions?.enabled !== false &&
+        fs.existsSync(globalAudioPath) &&
+        script.scenes.some((s: any) => !s.globalWordTimings || s.globalWordTimings.length === 0)
+
+      if (needsTranscription) {
+        console.log(`[NanoBanana] ASS captions enabled — running Whisper transcription for word timings...`)
+        try {
+          // Auto-initialize Whisper if needed
+          if (!this.transcriptionService) {
+            this.currentTranscriptionConfig = {
+              provider: 'whisper-local',
+              model: 'base',
+              device: 'cpu',
+              language: validOptions.language?.split('-')[0] || 'en'
+            }
+            this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
+          }
+
+          const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
+          const assemblyWordTimings = transcriptionResult.wordTimings
+
+          // Map word timings back to scenes (using existing TimeRange from script)
+          const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
+          const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
+
+          // Store word timings in each scene for generateGlobalASS to use
+          mappedTimings.forEach((timing: any, idx: number) => {
+            const scene = script.scenes[idx]
+            if (timing.wordTimings.length > 0) {
+              ;(scene as any).globalWordTimings = timing.wordTimings
+              // Also update timeRange if it's still 0–0 (first generation)
+              if (!scene.timeRange || (scene.timeRange.start === 0 && scene.timeRange.end === 0)) {
+                scene.timeRange = { start: timing.start, end: timing.end }
+              }
+            }
+          })
+
+          if (script.totalDuration === 0 && mappedTimings.length > 0) {
+            script.totalDuration = mappedTimings.at(-1)!.end
+          }
+
+          console.log(
+            `[NanoBanana] ✓ Transcription complete — word timings injected into ${mappedTimings.length} scenes`
+          )
+        } catch (error: any) {
+          console.warn(
+            `[NanoBanana] ⚠ Transcription failed, ASS captions will use scene text fallback: ${error.message}`
+          )
+        }
       }
     }
 
@@ -1188,10 +1410,16 @@ PLAIN WHITE BACKGROUND.`
         const scene = script.scenes[i]
 
         if (validOptions.repromptSceneIndex !== undefined && validOptions.repromptSceneIndex !== i) {
-          // If we are skipping, we still need to keep track of the last image if the NEXT scene might need it
-          // But actually, if we are ONLY doing one scene, we just need to load it ONCE for that scene.
           continue
         }
+
+        // Report progress for scene generation
+        const sceneProgress = 15 + ((i - startSceneIndex) / script.scenes.length) * 70
+        const progressMessage = `Generating scene ${i + 1}/${script.scenes.length}...`
+        if (onProgress) {
+          await onProgress(sceneProgress, progressMessage)
+        }
+        console.log(`[NanoBanana] ${progressMessage} (${sceneProgress.toFixed(0)}%)`)
 
         // Load previous scene image if this scene continues from it
         if (scene.continueFromPrevious && i > 0 && !lastSceneImageBase64) {
@@ -1224,7 +1452,8 @@ PLAIN WHITE BACKGROUND.`
         }
 
         // Compose scene (generates background internally, then overlays text)
-        await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64)
+        const isReprompt = validOptions.repromptSceneIndex === i
+        await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt)
 
         // Keep track of the last generated image to allow for "Scene Continuation"
         const lastImagePath = path.join(sceneDir, 'scene.webp')
@@ -1235,6 +1464,11 @@ PLAIN WHITE BACKGROUND.`
 
       // Wait for all queued tasks (animations, etc.) to complete before assembly
       await this.generationQueue.onIdle()
+
+      // Report progress after scene generation complete
+      if (onProgress) {
+        await onProgress(85, 'Scene generation complete, assembling video...')
+      }
     }
 
     // --- ASSEMBLE FINAL VIDEO ---
@@ -1244,6 +1478,25 @@ PLAIN WHITE BACKGROUND.`
       validOptions.generateOnlyAudio ||
       validOptions.repromptSceneIndex !== undefined
     if (!skipAssembly) {
+      // Ensure all scene images are present locally before assembly
+      for (const [index, scene] of script.scenes.entries()) {
+        const sceneDir = path.join(scenesDir, scene.id)
+        const localPath = path.join(sceneDir, 'scene.webp')
+
+        if (!fs.existsSync(localPath) && scene.imageUrl) {
+          console.log(
+            `[NanoBanana] Downloading missing local scene image ${index + 1}/${script.scenes.length} from MinIO...`
+          )
+          if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
+          try {
+            const response = await axios.get(scene.imageUrl, { responseType: 'arraybuffer' })
+            fs.writeFileSync(localPath, Buffer.from(response.data))
+          } catch (error: any) {
+            console.warn(`[NanoBanana] Failed to download scene image from MinIO: ${error.message}`)
+          }
+        }
+      }
+
       try {
         const videoAssembler = new VideoAssembler()
         const finalVideoPath = await videoAssembler.assembleVideo(

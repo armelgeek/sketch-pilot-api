@@ -63,12 +63,24 @@ async function reportProgress(
 function initializeCheckpoint(videoId: string, jobId: string): any {
   const existing = checkpointStorage.load(videoId)
   if (existing) {
-    const completedPhases = Object.values(existing.phases)
-      .filter((p: any) => p.completed)
-      .map((p: any) => p.name)
-      .join(', ')
-    console.info(`[VideoWorker] Resumed from checkpoint for videoId: ${videoId}, completed phases: ${completedPhases}`)
-    return existing
+    // ✅ Only resume the checkpoint if it belongs to the SAME job run.
+    // If jobId differs, this is a new job (e.g., a new assemble after scenes were done).
+    // Reusing a stale checkpoint would skip phases (like UPLOAD) that should run again.
+    if (existing.jobId === jobId) {
+      const completedPhases = Object.values(existing.phases)
+        .filter((p: any) => p.completed)
+        .map((p: any) => p.name)
+        .join(', ')
+      console.info(
+        `[VideoWorker] Resumed from checkpoint for videoId: ${videoId}, completed phases: ${completedPhases}`
+      )
+      return existing
+    } else {
+      console.info(
+        `[VideoWorker] Stale checkpoint detected for videoId: ${videoId} (old jobId: ${existing.jobId}, new jobId: ${jobId}). Starting fresh.`
+      )
+      checkpointStorage.delete(videoId)
+    }
   }
 
   const checkpoint = checkpointService.initializeCheckpoint(videoId, jobId)
@@ -269,8 +281,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
         checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
         checkpointStorage.save(checkpoint)
-      }
-      if (checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
+      } else if (checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
         console.info(`[VideoWorker] Skipping script generation (already completed) for videoId: ${videoId}`)
         pkg = await videoGenerationService.renderVideoFromScript({
           topic: videoRecord.topic,

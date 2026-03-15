@@ -40,7 +40,7 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
 
       // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
-      const spec = await promptService.resolveSpec(undefined, videoOptions.videoType)
+      const spec = await promptService.resolveSpec(videoOptions.videoType as string | undefined)
 
       // 3. Calculate & Check Credits (Export only)
       // Step 3 cost = Export
@@ -83,7 +83,7 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
         }
       })
 
-      // 4. Update the video record status
+      // 5. Enqueue the BullMQ job
       const jobId = crypto.randomUUID()
       await videoRepository.updateStatus(videoId, {
         jobId,
@@ -103,6 +103,9 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
           ...(options || {}),
           generateOnlyAssembly: true, // ONLY ASSEMBLY
           generateFromScript: true, // DONT REGEN SCRIPT
+          // Always regenerate audio: voice, characters, narration text edits all impact TTS.
+          // Attempting to detect individual changes is fragile — always regenerate is safer.
+          forceRegenerateAudio: true,
           customSpec: spec || videoOptions.customSpec
         }
       }
