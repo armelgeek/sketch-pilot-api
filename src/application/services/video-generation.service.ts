@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import * as fs from 'node:fs/promises'
 import process from 'node:process'
 
 /**
@@ -7,13 +8,13 @@ import process from 'node:process'
  * Used by the BullMQ worker to execute video generation jobs.
  */
 import { NanoBananaEngine } from '@sketch-pilot/core/nano-banana-engine'
+import { ImageServiceFactory, type ImageServiceConfig } from '@sketch-pilot/services/image'
 import { getCharacterModelManager } from '@sketch-pilot/utils/character-models'
 import { PromptService } from '@/application/services/prompt.service'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
 import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
-import type { ImageServiceConfig } from '@sketch-pilot/services/image'
 import type { LLMServiceConfig } from '@sketch-pilot/services/llm'
 import type { CompleteVideoPackage, VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
@@ -64,9 +65,8 @@ export class VideoGenerationService {
         // export interface CharacterModel { name: string; path: string; base64: string; mimeType: string; }
 
         // If it's a URL, we should fetch it and convert to base64 for the AI service.
-        const response = await fetch(model.imageUrl)
-        const arrayBuffer = await response.arrayBuffer()
-        const base64 = Buffer.from(arrayBuffer).toString('base64')
+        const imageBuffer = await this.fetchImageBuffer(model.imageUrl)
+        const base64 = imageBuffer.toString('base64')
         const dataUrl = `data:${model.mimeType || 'image/jpeg'};base64,${base64}`
 
         return {
@@ -157,5 +157,62 @@ export class VideoGenerationService {
     const { script, options = {}, projectId } = input
     const engine = await this.buildEngine(options)
     return await engine.generateVideoFromScript(script, options as VideoGenerationOptions, [], projectId)
+  }
+
+  /**
+   * Generate a character reference image using a model as a style anchor.
+   */
+  async generateCharacterImage(prompt: string, modelId?: string): Promise<Buffer> {
+    const apiKey = process.env.GEMINI_API_KEY || ''
+    const imageConfig: ImageServiceConfig = {
+      provider: 'gemini', // Use Gemini for high-quality character consistency
+      apiKey
+    }
+    const imageService = ImageServiceFactory.create(imageConfig)
+
+    const referenceImages: string[] = []
+    if (modelId && modelId !== 'none') {
+      const model = await this.characterModelRepository.findById(modelId)
+      if (model?.imageUrl) {
+        const imageBuffer = await this.fetchImageBuffer(model.imageUrl)
+        referenceImages.push(imageBuffer.toString('base64'))
+      }
+    }
+
+    const filename = `char-gen-${Date.now()}.png`
+    const imageUrl = await imageService.generateImage(prompt, filename, {
+      referenceImages,
+      removeBackground: false,
+      aspectRatio: '1:1',
+      quality: 'high',
+      systemInstruction:
+        'Generate a high-quality character design illustration. Maintain the style of the reference image if provided.'
+    })
+
+    // Fetch the generated image and return as Buffer
+    const buffer = await this.fetchImageBuffer(imageUrl)
+
+    // If it was a local file, we might want to clean it up
+    // Note: fetchImageBuffer doesn't delete the file, so we do it here if it's local
+    if (!imageUrl.startsWith('http')) {
+      await fs.unlink(imageUrl).catch(() => {})
+    }
+
+    return buffer
+  }
+
+  /**
+   * Robustly fetch an image as a Buffer, handling both URLs and local paths.
+   */
+  private async fetchImageBuffer(urlOrPath: string): Promise<Buffer> {
+    if (urlOrPath.startsWith('http')) {
+      const response = await fetch(urlOrPath)
+      if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`)
+      const arrayBuffer = await response.arrayBuffer()
+      return Buffer.from(arrayBuffer)
+    }
+
+    // Assume it's a local file path
+    return await fs.readFile(urlOrPath)
   }
 }

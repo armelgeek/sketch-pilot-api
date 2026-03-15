@@ -64,7 +64,10 @@ export class App {
     this.app.use(addSession)
     this.app.use('*', (c, next) => {
       // Allow public access to config endpoints
-      if (c.req.method === 'GET' && c.req.path.startsWith('/api/v1/config/')) {
+      if (
+        c.req.method === 'GET' &&
+        (c.req.path === '/api/v1/subscription-plans' || c.req.path.startsWith('/api/v1/config/'))
+      ) {
         return next()
       }
       // Allow public read access to active prompts

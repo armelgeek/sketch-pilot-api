@@ -328,7 +328,7 @@ export class PromptManager {
     const qualityTags = imageStyle?.qualityTags ?? []
 
     // 1. Character Identification
-    const baseCharacter = imageStyle?.characterDescription || 'A main character'
+    const baseCharacter = imageStyle?.characterDescription || ''
     const characterVariant = scene.characterVariant ? ` (${scene.characterVariant})` : ''
     const characterIdentity = `${baseCharacter}${characterVariant}`.trim()
 

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { GoogleGenAI } from '@google/genai'
+import axios from 'axios'
 import sharp from 'sharp'
 import { AnimationServiceFactory, type AnimationService, type AnimationServiceConfig } from '../services/animation'
 import { AudioServiceFactory, type AudioService, type AudioServiceConfig, type WordTiming } from '../services/audio'
@@ -359,13 +360,13 @@ export class NanoBananaEngine {
         bgPath && fs.existsSync(bgPath)
           ? sharp(bgPath).resize(width, height, { fit: 'cover' })
           : sharp({
-            create: {
-              width,
-              height,
-              channels: 3,
-              background: { r: 255, g: 255, b: 255 }
-            }
-          })
+              create: {
+                width,
+                height,
+                channels: 3,
+                background: { r: 255, g: 255, b: 255 }
+              }
+            })
 
       const overlays: any[] = []
 
@@ -553,10 +554,10 @@ export class NanoBananaEngine {
       panningEffect:
         animationMode === 'panning'
           ? {
-            type: scene.cameraAction?.type || 'zoom-in',
-            intensity: scene.cameraAction?.intensity || 'medium',
-            duration: totalDuration
-          }
+              type: scene.cameraAction?.type || 'zoom-in',
+              intensity: scene.cameraAction?.intensity || 'medium',
+              duration: totalDuration
+            }
           : undefined,
       aspectRatio,
       soundEffects: scene.soundEffects,
@@ -694,13 +695,13 @@ export class NanoBananaEngine {
           }
         })
 
-          // Update globalWordTimings (absolute for global subtitle sync)
-          ; (manifest as any).globalWordTimings = wordTimings.map((w) => ({
-            ...w,
-            start: Math.round(w.start * 100) / 100,
-            end: Math.round(w.end * 100) / 100,
-            startMs: Math.round(w.startMs)
-          }))
+        // Update globalWordTimings (absolute for global subtitle sync)
+        ;(manifest as any).globalWordTimings = wordTimings.map((w) => ({
+          ...w,
+          start: Math.round(w.start * 100) / 100,
+          end: Math.round(w.end * 100) / 100,
+          startMs: Math.round(w.startMs)
+        }))
 
         fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
       }
@@ -746,7 +747,8 @@ export class NanoBananaEngine {
       JSON.stringify(validOptions.transcription) !== JSON.stringify(this.currentTranscriptionConfig)
     ) {
       console.log(
-        `[NanoBanana] Updating transcription provider: ${this.currentTranscriptionConfig?.provider || 'none'
+        `[NanoBanana] Updating transcription provider: ${
+          this.currentTranscriptionConfig?.provider || 'none'
         } -> ${validOptions.transcription.provider}`
       )
       this.currentTranscriptionConfig = validOptions.transcription
@@ -823,10 +825,11 @@ export class NanoBananaEngine {
           referenceImages: existingBaseImages,
           systemInstruction: `You are creating a CHARACTER REFERENCE SHEET. 
 Output a 2x2 grid. 
-${uniqueCharacters.length > 1
-              ? `Include all characters: ${uniqueCharacters.join(', ')}. Each should have at least one full-body and one clear face shot.`
-              : 'Include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
-            }
+${
+  uniqueCharacters.length > 1
+    ? `Include all characters: ${uniqueCharacters.join(', ')}. Each should have at least one full-body and one clear face shot.`
+    : 'Include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
+}
 PLAIN WHITE BACKGROUND.`
         }
       )
@@ -937,6 +940,9 @@ PLAIN WHITE BACKGROUND.`
 
         if (model) {
           characterReferenceMap.set(enrollment.name, [model.base64])
+          if (enrollment.modelId) {
+            characterReferenceMap.set(enrollment.modelId, [model.base64])
+          }
         }
       }
     }
@@ -948,6 +954,23 @@ PLAIN WHITE BACKGROUND.`
 
       console.log(`[NanoBanana] Resolving reference for script character: ${charSheet.name}`)
 
+      // A. Custom Reference Image (User Refined)
+      if (charSheet.referenceImageUrl) {
+        try {
+          console.log(
+            `[NanoBanana] Loading custom reference image for ${charSheet.name}: ${charSheet.referenceImageUrl}`
+          )
+          const response = await axios.get(charSheet.referenceImageUrl, { responseType: 'arraybuffer' })
+          const base64 = Buffer.from(response.data, 'binary').toString('base64')
+          characterReferenceMap.set(charSheet.name, [base64])
+          if (charSheet.id) characterReferenceMap.set(charSheet.id, [base64])
+          continue // Priority: user-refined character image wins
+        } catch (error: any) {
+          console.warn(`[NanoBanana] ⚠ Failed to load custom reference for ${charSheet.name}:`, error.message)
+        }
+      }
+
+      // B. Visual Model Reference (Standard Casting)
       let model = null
       if (charSheet.modelId && charSheet.modelId !== 'none') {
         model = await characterModelManager.loadCharacterModelById(charSheet.modelId)
@@ -964,6 +987,11 @@ PLAIN WHITE BACKGROUND.`
       if (model) {
         console.log(`[NanoBanana] ✓ Matched "${charSheet.name}" to model: ${model.name}`)
         characterReferenceMap.set(charSheet.name, [model.base64])
+        // Also key by internal IDs for robustness in scene mapping
+        if (charSheet.id) characterReferenceMap.set(charSheet.id, [model.base64])
+        if (charSheet.modelId && charSheet.modelId !== 'none') {
+          characterReferenceMap.set(charSheet.modelId, [model.base64])
+        }
       } else {
         console.warn(`[NanoBanana] ⚠ No model match for "${charSheet.name}". Will generate fresh visuals.`)
       }
@@ -1057,7 +1085,7 @@ PLAIN WHITE BACKGROUND.`
           // Resolve character voices
           const characterVoices = new Map<string, string>()
           if (script.characterSheets) {
-            for (const char of (script.characterSheets as any[])) {
+            for (const char of script.characterSheets as any[]) {
               if (char.voiceId && char.voiceId !== 'none') {
                 characterVoices.set(char.id, char.voiceId)
               }
@@ -1084,7 +1112,7 @@ PLAIN WHITE BACKGROUND.`
               )
               await this.audioService.generateSpeech(scene.narration, sceneAudioPath, {
                 voice: voiceId,
-                voiceId: voiceId
+                voiceId
               })
               sceneAudioFiles.push(sceneAudioPath)
             }
@@ -1095,7 +1123,7 @@ PLAIN WHITE BACKGROUND.`
             // Cleanup temp
             try {
               fs.rmSync(tempDir, { recursive: true, force: true })
-            } catch (e) {
+            } catch {
               /* ignore */
             }
           } else {
@@ -1133,7 +1161,7 @@ PLAIN WHITE BACKGROUND.`
           const scene = script.scenes[idx]
           scene.timeRange.start = timing.start
           scene.timeRange.end = timing.end
-            ; (scene as any).globalWordTimings = timing.wordTimings
+          ;(scene as any).globalWordTimings = timing.wordTimings
           if (timing.wordTimings.length === 0) {
             console.warn(
               `[NanoBanana] ⚠ Scene ${scene.id} could not be matched to any words in transcription. Using estimation.`

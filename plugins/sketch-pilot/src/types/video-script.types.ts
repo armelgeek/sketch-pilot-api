@@ -154,7 +154,7 @@ export const characterSheetSchema = z.object({
   appearance: z.object({
     description: z.string().describe('Base style (Round head, stick limbs, etc.)'),
     clothing: z.string(),
-    accessories: z.string(),
+    accessories: z.array(z.string()),
     colorPalette: z.array(z.string()),
     uniqueIdentifiers: z.array(z.string())
   }),
@@ -167,6 +167,7 @@ export const characterSheetSchema = z.object({
     .optional(),
   modelId: z.string().optional().describe('ID of the suggested/confirmed character model'),
   voiceId: z.string().optional().describe('ID of the assigned voice'),
+  referenceImageUrl: z.string().optional().describe('URL to a custom AI-generated reference image for this character'),
   imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation')
 })
 

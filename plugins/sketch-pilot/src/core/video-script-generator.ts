@@ -392,7 +392,15 @@ ${scene.narration}`
         expression: resolveCharacters(scene.expression || ''),
         summary: resolveCharacters(scene.summary || ''),
         narration: resolveCharacters(scene.narration || ''),
-        background: resolveCharacters(scene.background || '')
+        background: resolveCharacters(scene.background || ''),
+        // Resolve character IDs in the structural metadata as well
+        characterIds: (scene.characterIds || []).map((id) => charMap[id] || id),
+        speakingCharacterId: scene.speakingCharacterId
+          ? charMap[scene.speakingCharacterId] || scene.speakingCharacterId
+          : undefined,
+        characterVariant: scene.characterVariant
+          ? charMap[scene.characterVariant] || scene.characterVariant
+          : scene.characterVariant
       }
 
       const imagePrompt = this.promptGenerator.generateImagePrompt(

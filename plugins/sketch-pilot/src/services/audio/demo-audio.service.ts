@@ -44,7 +44,7 @@ export class DemoAudioService implements AudioService {
             })
           })
           .on('error', (err) => {
-            fs.unlink(outputPath, () => { })
+            fs.unlink(outputPath, () => {})
             reject(err)
           })
       })

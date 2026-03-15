@@ -1,7 +1,9 @@
 import { Buffer } from 'node:buffer'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { auth } from '@/infrastructure/config/auth.config'
 import { uploadBuffer } from '@/infrastructure/config/storage.config'
 import { requireAdmin } from '@/infrastructure/middlewares/admin.middleware'
+import { authMiddleware } from '@/infrastructure/middlewares/auth.middleware'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { UserRepository } from '@/infrastructure/repositories/user.repository'
 import type { Routes } from '@/domain/types'
@@ -17,6 +19,8 @@ const charModelSchema = z.object({
   gender: z.string(),
   age: z.string(),
   voiceId: z.string().nullable(),
+  description: z.string().nullable(),
+  userId: z.string().nullable(),
   isStandard: z.boolean().nullable(),
   createdAt: z.string().or(z.date()),
   updatedAt: z.string().or(z.date())
@@ -34,7 +38,7 @@ export class CharacterModelController implements Routes {
     this.controller.use('/v1/admin/*', requireAdmin)
 
     // ─── GET /v1/character-models ─────────────────────────────────────
-    // Public: list all available character models (for the user to pick from)
+    // Public: list all available character models
     this.controller.openapi(
       createRoute({
         method: 'get',
@@ -55,8 +59,77 @@ export class CharacterModelController implements Routes {
       }),
       async (c: any) => {
         try {
-          const models = await characterModelRepository.findAll()
+          const session = await auth.api.getSession({ headers: c.req.raw.headers })
+          const models = session?.user
+            ? await characterModelRepository.findAllForUser(session.user.id)
+            : await characterModelRepository.findAll()
           return c.json({ success: true, data: models })
+        } catch (error: any) {
+          return c.json({ success: false, error: error.message }, 500)
+        }
+      }
+    )
+
+    // ─── POST /v1/character-models/personal ──────────────────────────
+    // Authenticated user: save a character as a personal model
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/character-models/personal',
+        tags: ['CharacterModels'],
+        summary: 'Save a character as a personal model',
+        operationId: 'savePersonalCharacterModel',
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  name: z.string(),
+                  imageUrl: z.string(),
+                  description: z.string(),
+                  gender: z.string().optional(),
+                  age: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        middleware: [authMiddleware],
+        responses: {
+          201: {
+            description: 'Personal model created',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), data: charModelSchema })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        try {
+          const user = c.get('user')
+          const body = c.req.valid('json')
+
+          let finalName = body.name
+          const existing = await characterModelRepository.findByName(finalName)
+          if (existing) {
+            finalName = `${body.name} (${crypto.randomUUID().slice(0, 4)})`
+          }
+
+          const id = crypto.randomUUID()
+          const model = await characterModelRepository.create({
+            id,
+            name: finalName,
+            imageUrl: body.imageUrl,
+            description: body.description,
+            userId: user.id,
+            gender: body.gender || 'unknown',
+            age: body.age || 'unknown',
+            isStandard: false
+          })
+
+          return c.json({ success: true, data: model }, 201)
         } catch (error: any) {
           return c.json({ success: false, error: error.message }, 500)
         }
@@ -81,6 +154,7 @@ export class CharacterModelController implements Routes {
                   gender: z.enum(['male', 'female', 'unknown']).default('unknown'),
                   age: z.enum(['child', 'youth', 'senior', 'unknown']).default('unknown'),
                   voiceId: z.string().optional(),
+                  description: z.string().optional(),
                   isStandard: z.string().optional().openapi({ description: 'true/false' }),
                   image: z.instanceof(File).openapi({ description: 'Reference image file' })
                 })
@@ -96,14 +170,6 @@ export class CharacterModelController implements Routes {
                 schema: z.object({ success: z.boolean(), data: charModelSchema })
               }
             }
-          },
-          400: {
-            description: 'Bad request',
-            content: {
-              'application/json': {
-                schema: z.object({ success: z.boolean(), error: z.string() })
-              }
-            }
           }
         }
       }),
@@ -114,6 +180,7 @@ export class CharacterModelController implements Routes {
           const gender: string = formData.get('gender') || 'unknown'
           const age: string = formData.get('age') || 'unknown'
           const voiceId: string | null = formData.get('voiceId')
+          const description: string | null = formData.get('description')
           const isStandardRaw: string | null = formData.get('isStandard')
           const file: File | null = formData.get('image')
 
@@ -121,13 +188,11 @@ export class CharacterModelController implements Routes {
             return c.json({ success: false, error: 'name and image are required' }, 400)
           }
 
-          // Check unique name
           const existing = await characterModelRepository.findByName(name)
           if (existing) {
             return c.json({ success: false, error: `A model named "${name}" already exists` }, 400)
           }
 
-          // Read file & upload to MinIO
           const arrayBuffer = await file.arrayBuffer()
           const buffer = Buffer.from(arrayBuffer)
           const mimeType = file.type || 'image/jpeg'
@@ -144,6 +209,7 @@ export class CharacterModelController implements Routes {
             gender,
             age,
             voiceId,
+            description,
             isStandard: isStandardRaw === 'true'
           })
 
@@ -155,7 +221,6 @@ export class CharacterModelController implements Routes {
     )
 
     // ─── PATCH /v1/admin/character-models/:id ────────────────────────
-    // Admin: update model metadata
     this.controller.openapi(
       createRoute({
         method: 'patch',
@@ -175,6 +240,7 @@ export class CharacterModelController implements Routes {
                   gender: z.enum(['male', 'female', 'unknown']).optional(),
                   age: z.enum(['child', 'youth', 'senior', 'unknown']).optional(),
                   voiceId: z.string().nullable().optional(),
+                  description: z.string().nullable().optional(),
                   isStandard: z.boolean().optional()
                 })
               }
@@ -206,7 +272,6 @@ export class CharacterModelController implements Routes {
     )
 
     // ─── DELETE /v1/admin/character-models/:id ───────────────────────
-    // Admin: delete a character model
     this.controller.openapi(
       createRoute({
         method: 'delete',
@@ -243,7 +308,6 @@ export class CharacterModelController implements Routes {
     )
 
     // ─── PATCH /v1/users/me/character-model ─────────────────────────
-    // Authenticated user: set their default character model
     this.controller.openapi(
       createRoute({
         method: 'patch',
@@ -264,6 +328,7 @@ export class CharacterModelController implements Routes {
             }
           }
         },
+        middleware: [authMiddleware],
         responses: {
           200: {
             description: 'Default model updated',
@@ -277,12 +342,9 @@ export class CharacterModelController implements Routes {
       }),
       async (c: any) => {
         try {
-          const user = c.get('user') as any
-          if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401)
-
+          const user = c.get('user')
           const { characterModelId } = c.req.valid('json')
 
-          // If a model ID is given, validate it exists
           if (characterModelId) {
             const model = await characterModelRepository.findById(characterModelId)
             if (!model) {

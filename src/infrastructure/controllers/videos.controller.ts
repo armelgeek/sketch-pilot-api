@@ -3,6 +3,7 @@ import { ChooseBackgroundMusicUseCase } from '@/application/use-cases/video/choo
 import { ChooseVoiceoverUseCase } from '@/application/use-cases/video/choose-voiceover.use-case'
 import { ConfigureBrandingUseCase } from '@/application/use-cases/video/configure-branding.use-case'
 import { ConfigureCaptionsUseCase } from '@/application/use-cases/video/configure-captions.use-case'
+import { GenerateCharacterImageUseCase } from '@/application/use-cases/video/generate-character-image.use-case'
 import { GenerateFinalVideoUseCase } from '@/application/use-cases/video/generate-final-video.use-case'
 import { GenerateNarrationUseCase } from '@/application/use-cases/video/generate-narration.use-case'
 import { GenerateScenesUseCase } from '@/application/use-cases/video/generate-scenes.use-case'
@@ -29,6 +30,7 @@ const chooseVoiceoverUseCase = new ChooseVoiceoverUseCase()
 const chooseBackgroundMusicUseCase = new ChooseBackgroundMusicUseCase()
 const configureCaptionsUseCase = new ConfigureCaptionsUseCase()
 const configureBrandingUseCase = new ConfigureBrandingUseCase()
+const generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
 
 export class VideosController implements Routes {
@@ -197,7 +199,6 @@ export class VideosController implements Routes {
               }
             }
           }
-
           const close = () => {
             if (!closed) {
               closed = true
@@ -1580,6 +1581,66 @@ export class VideosController implements Routes {
         }
 
         return c.json({ success: true, video: result.video })
+      }
+    )
+
+    // POST /v1/videos/:id/characters/:characterId/generate
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/characters/{characterId}/generate',
+        tags: ['Videos'],
+        summary: 'Generate a character reference image',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({
+            id: z.string(),
+            characterId: z.string()
+          }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  prompt: z.string(),
+                  modelId: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Image generated',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  imageUrl: z.string(),
+                  creditsRequired: z.number()
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        const { id, characterId } = c.req.valid('param')
+        const { prompt, modelId } = c.req.valid('json')
+
+        const { result } = await generateCharacterImageUseCase.run({
+          videoId: id,
+          characterId,
+          userId: user.id,
+          prompt,
+          modelId
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error }, result.insufficientCredits ? 402 : 500)
+        }
+
+        return c.json(result)
       }
     )
   }

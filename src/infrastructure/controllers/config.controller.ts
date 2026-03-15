@@ -58,6 +58,57 @@ export class ConfigController implements Routes {
       }
     )
 
+    // GET /v1/subscription-plans (Frontend alias)
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/subscription-plans',
+        tags: ['Config'],
+        summary: 'Get pricing plans (Frontend alias)',
+        responses: {
+          200: {
+            description: 'List of pricing plans',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  data: z.array(
+                    z.object({
+                      id: z.string(),
+                      name: z.string(),
+                      price: z.number(),
+                      credits: z.number(),
+                      features: z.array(z.string())
+                    })
+                  )
+                })
+              }
+            }
+          }
+        }
+      }),
+      (c: any) => {
+        const plans = [
+          {
+            id: 'plan_starter',
+            name: 'Starter',
+            price: 5,
+            credits: 1000,
+            features: ['1000 credits/mo', '720p Export', 'Basic Voices']
+          },
+          {
+            id: 'creator',
+            name: 'Creator',
+            price: 15,
+            credits: 500,
+            features: ['500 high-quality credits/mo', '1080p Export', 'All Voices', 'No Watermark']
+          }
+        ]
+
+        return c.json({ success: true, data: plans })
+      }
+    )
+
     // GET /v1/config/plans
     this.controller.openapi(
       createRoute({

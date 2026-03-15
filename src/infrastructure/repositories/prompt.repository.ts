@@ -35,7 +35,7 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
             appearance: {
               description: 'Base style',
               clothing: 'Typical outfit',
-              accessories: 'Distinguishing items',
+              accessories: ['Distinguishing items'],
               colorPalette: ['#HEX1', '#HEX2'],
               uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
             },
@@ -183,7 +183,7 @@ export class PromptRepository implements PromptRepositoryInterface {
                 appearance: {
                   description: 'Base style',
                   clothing: 'Typical outfit',
-                  accessories: 'Distinguishing items',
+                  accessories: ['Distinguishing items'],
                   colorPalette: ['#HEX1', '#HEX2'],
                   uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
                 },

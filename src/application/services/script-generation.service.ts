@@ -14,8 +14,10 @@ import {
   type VideoGenerationOptions
 } from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
-import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { AssetsConfigRepository } from '@/infrastructure/repositories/assets-config.repository'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
+
+import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 
 export type { ScriptValidationResult }
 
@@ -36,6 +38,7 @@ export class ScriptGenerationService {
   private readonly validator = new ScriptValidator()
   private readonly promptService = new PromptService(new PromptRepository())
   private readonly characterModelRepository = new CharacterModelRepository()
+  private readonly assetsConfigRepository = new AssetsConfigRepository()
 
   /**
    * Generate a complete video script using the LLM engine.
@@ -75,14 +78,23 @@ export class ScriptGenerationService {
 
     // 4. Best-Fit Matching for auto-discovered characters
     if (script.characterSheets && script.characterSheets.length > 0) {
+      const allVoices = await this.assetsConfigRepository.getAllVoices()
+
       for (const sheet of script.characterSheets) {
+        // Match visual model if not present
         if (!sheet.modelId && sheet.metadata) {
-          const model = await this.characterModelRepository.findByMetadata(
-            sheet.metadata.gender,
-            sheet.metadata.age
-          )
+          const model = await this.characterModelRepository.findByMetadata(sheet.metadata.gender, sheet.metadata.age)
           if (model) {
             sheet.modelId = model.id
+          }
+        }
+
+        // AUTO-VOICE: Match voice preset by gender if not present
+        if (!sheet.voiceId && sheet.metadata?.gender) {
+          const gender = sheet.metadata.gender.toLowerCase()
+          const matchingVoice = allVoices.find((v) => v.gender === gender)
+          if (matchingVoice) {
+            sheet.voiceId = matchingVoice.presetId
           }
         }
       }

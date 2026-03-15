@@ -1,10 +1,17 @@
-import { eq, and } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import { db } from '../database/db'
 import { characterModels } from '../database/schema'
 
 export class CharacterModelRepository {
   async findAll() {
-    return await db.select().from(characterModels)
+    return await db.select().from(characterModels).where(eq(characterModels.isStandard, true))
+  }
+
+  async findAllForUser(userId: string) {
+    return await db
+      .select()
+      .from(characterModels)
+      .where(or(eq(characterModels.isStandard, true), eq(characterModels.userId, userId)))
   }
 
   async findByName(name: string) {
