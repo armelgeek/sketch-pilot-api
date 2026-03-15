@@ -88,7 +88,8 @@ export class CharacterModelController implements Routes {
                   imageUrl: z.string(),
                   description: z.string(),
                   gender: z.string().optional(),
-                  age: z.string().optional()
+                  age: z.string().optional(),
+                  voiceId: z.string().optional()
                 })
               }
             }
@@ -126,6 +127,7 @@ export class CharacterModelController implements Routes {
             userId: user.id,
             gender: body.gender || 'unknown',
             age: body.age || 'unknown',
+            voiceId: body.voiceId || null,
             isStandard: false
           })
 

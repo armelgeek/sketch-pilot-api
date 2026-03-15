@@ -168,7 +168,19 @@ export const characterSheetSchema = z.object({
   modelId: z.string().optional().describe('ID of the suggested/confirmed character model'),
   voiceId: z.string().optional().describe('ID of the assigned voice'),
   referenceImageUrl: z.string().optional().describe('URL to a custom AI-generated reference image for this character'),
-  imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation')
+  imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation'),
+  lockedPromptSegment: z.string().optional().describe('Base style DNA segment that stays fixed between generations'),
+  generationVariants: z
+    .array(
+      z.object({
+        id: z.string(),
+        imageUrl: z.string(),
+        seedUsed: z.number().optional(),
+        generatedAt: z.string().optional()
+      })
+    )
+    .optional()
+    .describe('Session history of recent character generations')
 })
 
 export type CharacterSheet = z.infer<typeof characterSheetSchema>
