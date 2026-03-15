@@ -6,6 +6,7 @@ export interface PromptMakerOptions {
   aspectRatio: string
   audience: string
   maxScenes: number
+  language?: string
   characters?: CharacterEnrollment[]
 }
 

@@ -89,10 +89,20 @@ export class ScriptGenerationService {
           }
         }
 
-        // AUTO-VOICE: Match voice preset by gender if not present
+        // AUTO-VOICE: Match voice preset by gender AND language if not present
         if (!sheet.voiceId && sheet.metadata?.gender) {
           const gender = sheet.metadata.gender.toLowerCase()
-          const matchingVoice = allVoices.find((v) => v.gender === gender)
+          const targetLang = (options.language || 'en').toLowerCase().split('-')[0]
+
+          // Try to find a voice matching both gender and language (prefix match, e.g., 'fr' matches 'fr-FR')
+          const matchingVoice =
+            allVoices.find((v) => {
+              const voiceLang = v.language.toLowerCase().split('-')[0]
+              return v.gender === gender && voiceLang === targetLang
+            }) ||
+            // Fallback to just gender if no language-specific voice is found
+            allVoices.find((v) => v.gender === gender)
+
           if (matchingVoice) {
             sheet.voiceId = matchingVoice.presetId
           }

@@ -130,6 +130,7 @@ export class PromptMaker {
       `Required Scene Count: ${options.maxScenes}`,
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
+      `Target Language: ${options.language || 'English'} (You MUST generate ALL narration, titles, and text in this language)`,
       '',
       this.buildCharacterInstructions(options)
     ]
@@ -254,6 +255,7 @@ export class PromptManager {
       aspectRatio: options.aspectRatio || '16:9',
       audience: (options as any).audience || spec.audienceDefault,
       maxScenes: targetSceneCount,
+      language: options.language,
       characters: options.characters
     })
   }
@@ -286,6 +288,7 @@ export class PromptManager {
       duration: `${effectiveDuration} seconds`,
       aspectRatio: options.aspectRatio || '16:9',
       audience: (options as any).audience || 'General Audience',
+      language: options.language,
       maxScenes
     })
   }

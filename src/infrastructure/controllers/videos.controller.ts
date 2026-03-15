@@ -11,6 +11,7 @@ import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-vid
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
 import { RepromptSceneImageUseCase } from '@/application/use-cases/video/reprompt-scene-image.use-case'
+import { SuggestTopicsUseCase } from '@/application/use-cases/video/suggest-topics.use-case'
 import { UpdateVideoUseCase } from '@/application/use-cases/video/update-video.use-case'
 import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
@@ -31,6 +32,7 @@ const chooseBackgroundMusicUseCase = new ChooseBackgroundMusicUseCase()
 const configureCaptionsUseCase = new ConfigureCaptionsUseCase()
 const configureBrandingUseCase = new ConfigureBrandingUseCase()
 const generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
+const suggestTopicsUseCase = new SuggestTopicsUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
 
 export class VideosController implements Routes {
@@ -123,6 +125,80 @@ export class VideosController implements Routes {
           },
           202
         )
+      }
+    )
+
+    // POST /v1/videos/suggest-topics
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/suggest-topics',
+        tags: ['Videos'],
+        summary: 'Suggest video topics',
+        description: 'Generates 3 creative video ideas based on configuration.',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  options: z.object({
+                    language: z.string().optional(),
+                    videoType: z.string().optional(),
+                    videoGenre: z.string().optional(),
+                    aspectRatio: z.string().optional(),
+                    themeName: z.string().optional(),
+                    themeDescription: z.string().optional(),
+                    goals: z.array(z.string()).optional()
+                  })
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Topics suggested',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  topics: z.array(z.string())
+                })
+              }
+            }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { options } = c.req.valid('json')
+
+        const suggestResponse = await suggestTopicsUseCase.run({
+          userId: user.id,
+          planId: (user as any).planId,
+          options
+        })
+
+        const result = suggestResponse.result
+
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          return c.json({ error: result.error || 'Failed to suggest topics' }, 500)
+        }
+
+        return c.json({ topics: result.topics })
       }
     )
 
@@ -535,8 +611,6 @@ export class VideosController implements Routes {
             thumbnailUrl: v.thumbnailUrl,
             videoUrl: v.videoUrl,
             duration: v.duration,
-            genre: v.genre,
-            type: v.type,
             createdAt: v.createdAt.toISOString(),
             creditsUsed: v.creditsUsed
           })),
@@ -622,8 +696,6 @@ export class VideosController implements Routes {
           narrationUrl: video.narrationUrl,
           captionsUrl: video.captionsUrl,
           duration: video.duration,
-          genre: video.genre,
-          type: video.type,
           language: video.language,
           options: video.options,
           script: video.script,

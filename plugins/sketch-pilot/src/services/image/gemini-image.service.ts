@@ -23,8 +23,8 @@ export class GeminiImageService implements ImageService {
   /**
    * Maximum internal retries for NO_IMAGE responses before giving up.
    */
-  private static readonly NO_IMAGE_MAX_RETRIES = 3
-  private static readonly NO_IMAGE_BASE_DELAY_MS = 3000
+  private static readonly NO_IMAGE_MAX_RETRIES = 7
+  private static readonly NO_IMAGE_BASE_DELAY_MS = 10000
 
   async generateImage(
     prompt: string,

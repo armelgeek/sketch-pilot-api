@@ -22,6 +22,8 @@ const PromptResponseSchema = z.object({
   formatting: z.string(),
   outputFormat: z.string(),
   instructions: z.array(z.string()),
+  category: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional().nullable(),
   isActive: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string()
@@ -40,6 +42,8 @@ const CreatePromptBodySchema = z.object({
   formatting: z.string(),
   outputFormat: z.string(),
   instructions: z.array(z.string()),
+  category: z.string().optional(),
+  tags: z.array(z.string()).optional(),
   isActive: z.boolean().optional().default(true)
 })
 
@@ -303,8 +307,11 @@ export class PromptController implements Routes {
 }
 
 function serializePrompt(prompt: any) {
+  if (!prompt) return null
   return {
     ...prompt,
+    category: prompt.category || null,
+    tags: Array.isArray(prompt.tags) ? prompt.tags : [],
     createdAt: prompt.createdAt instanceof Date ? prompt.createdAt.toISOString() : prompt.createdAt,
     updatedAt: prompt.updatedAt instanceof Date ? prompt.updatedAt.toISOString() : prompt.updatedAt
   }

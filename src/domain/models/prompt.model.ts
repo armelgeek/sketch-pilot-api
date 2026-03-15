@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 export const VideoTypeSpecificationSchema = z.object({
   name: z.string(),
+  category: z.string().optional(),
+  tags: z.array(z.string()).optional(),
   role: z.string(),
   context: z.string(),
   audienceDefault: z.string(),

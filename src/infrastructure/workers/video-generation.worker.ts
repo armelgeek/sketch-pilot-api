@@ -12,9 +12,12 @@ import '@/utils/polyfills'
  * 3. Uploads the result to MinIO
  * 4. Updates the video record in the database
  * 5. Reports progress back via BullMQ job.updateProgress()
+ * 6. Manages checkpoints for resumption on failure/timeout
  */
 import * as path from 'node:path'
 import { Worker, type Job } from 'bullmq'
+import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
+import { checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { redisConnectionOptions, VIDEO_QUEUE_NAME, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
@@ -26,18 +29,73 @@ const DEFAULT_VIDEO_DURATION = 60 // seconds
 const videoRepository = new VideoRepository()
 const videoGenerationService = new VideoGenerationService()
 
+const CHECKPOINT_PHASES = {
+  SCRIPT_GENERATION: 'script_generation',
+  ASSET_GENERATION: 'asset_generation',
+  NARRATION_GENERATION: 'narration_generation',
+  VIDEO_ASSEMBLY: 'video_assembly',
+  UPLOAD: 'upload',
+  COMPLETED: 'completed'
+} as const
+
 /**
- * Emit a progress update for a job.
+ * Emit a progress update for a job and save checkpoint
  */
 async function reportProgress(
   job: Job<VideoJobData>,
   videoId: string,
   step: string,
   progress: number,
-  message: string
+  message: string,
+  checkpoint?: any
 ): Promise<void> {
   await job.updateProgress({ step, progress, message, status: 'processing' })
   await videoRepository.updateStatus(videoId, { status: 'processing', progress, currentStep: step })
+
+  if (checkpoint) {
+    checkpointStorage.save(checkpoint)
+  }
+}
+
+/**
+ * Initialize or load checkpoint for a job
+ */
+function initializeCheckpoint(videoId: string, jobId: string): any {
+  const existing = checkpointStorage.load(videoId)
+  if (existing) {
+    const completedPhases = Object.values(existing.phases)
+      .filter((p: any) => p.completed)
+      .map((p: any) => p.name)
+      .join(', ')
+    console.info(`[VideoWorker] Resumed from checkpoint for videoId: ${videoId}, completed phases: ${completedPhases}`)
+    return existing
+  }
+
+  const checkpoint = checkpointService.initializeCheckpoint(videoId, jobId)
+  checkpointStorage.save(checkpoint)
+  return checkpoint
+}
+
+/**
+ * Find the last completed scene index by checking for existing scene.webp files
+ */
+function findLastCompletedSceneIndex(scenesDir: string, script: any): number | undefined {
+  if (!fs.existsSync(scenesDir)) {
+    return undefined
+  }
+
+  let lastIndex = -1
+  for (let i = 0; i < script.scenes.length; i++) {
+    const scene = script.scenes[i]
+    const sceneImagePath = path.join(scenesDir, scene.id, 'scene.webp')
+    if (fs.existsSync(sceneImagePath)) {
+      lastIndex = i
+    } else {
+      break // Stop at first missing scene
+    }
+  }
+
+  return lastIndex >= 0 ? lastIndex + 1 : undefined
 }
 
 /**
@@ -100,6 +158,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
 
   try {
+    // Initialize checkpoint for resumption
+    let checkpoint = await initializeCheckpoint(videoId, job.id || 'unknown')
+
     // 0. Fetch the video record early to access options (like localProjectId)
     const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId)
     if (!videoRecord) {
@@ -119,7 +180,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
     }
 
-    let pkg: CompleteVideoPackage
+    let pkg: CompleteVideoPackage | null = null
 
     // Build generation options from job data
     // Pull persisted customization options from the stored video record
@@ -155,53 +216,90 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       animationMode: options.animationMode || storedOptions.animationMode || 'static',
       aspectRatio: options.aspectRatio || storedOptions.aspectRatio || '16:9',
       resolution: options.resolution || storedOptions.resolution || '720p',
-      imageStyle: options.imageStyle || storedOptions.imageStyle,
-      globalTextStyle: options.globalTextStyle || storedOptions.globalTextStyle,
-      promptSections: options.promptSections || storedOptions.promptSections
+      promptSections: options.promptSections || storedOptions.promptSections,
+      narrationVolume: options.narrationVolume ?? storedOptions.narrationVolume,
+      backgroundMusicVolume: options.backgroundMusicVolume ?? storedOptions.backgroundMusicVolume,
+      audioOverlap: options.audioOverlap ?? storedOptions.audioOverlap,
+      backgroundColor: options.backgroundColor || storedOptions.backgroundColor
     }
 
     if (options.voiceId && !genOptions.kokoroVoicePreset) {
       genOptions.kokoroVoicePreset = options.voiceId
     }
+
+    // CHECKPOINT: Script Generation Phase
     if (options.generateFromScript && videoRecord.script) {
-      await videoRepository.updateStatus(videoId, {
-        status: 'processing',
-        progress: 10,
-        currentStep: options.generateOnlyAudio ? 'narration_generation' : 'rendering'
-      })
-
-      const stepLabel = options.generateOnlyAudio ? 'Generating narration...' : 'Rendering video...'
-      await reportProgress(job, videoId, options.generateOnlyAudio ? 'narration' : 'rendering', 15, stepLabel)
-
-      // Run the specialized rendering pipeline
-      pkg = await videoGenerationService.renderVideoFromScript({
-        topic: videoRecord.topic,
-        userId,
-        script: videoRecord.script as any,
-        options: {
-          ...genOptions,
-          generateOnlyAudio: options.generateOnlyAudio,
-          generateOnlyAssembly: options.generateOnlyAssembly
-        },
-        projectId: effectiveProjectId
-      })
-
-      // Persist synced script to DB immediately
-      if (pkg.script) {
+      if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
         await videoRepository.updateStatus(videoId, {
-          script: pkg.script as any,
-          scenes: pkg.script.scenes as any
+          status: 'processing',
+          progress: 10,
+          currentStep: options.generateOnlyAudio ? 'narration_generation' : 'rendering'
+        })
+
+        const stepLabel = options.generateOnlyAudio ? 'Generating narration...' : 'Rendering video...'
+        await reportProgress(
+          job,
+          videoId,
+          options.generateOnlyAudio ? 'narration' : 'rendering',
+          15,
+          stepLabel,
+          checkpoint
+        )
+
+        // Run the specialized rendering pipeline
+        pkg = await videoGenerationService.renderVideoFromScript({
+          topic: videoRecord.topic,
+          userId,
+          script: videoRecord.script as any,
+          options: {
+            ...genOptions,
+            generateOnlyAudio: options.generateOnlyAudio,
+            generateOnlyAssembly: options.generateOnlyAssembly
+          },
+          projectId: effectiveProjectId
+        })
+
+        // Persist synced script to DB immediately
+        if (pkg.script) {
+          await videoRepository.updateStatus(videoId, {
+            script: pkg.script as any,
+            scenes: pkg.script.scenes as any
+          })
+        }
+
+        checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
+        checkpointStorage.save(checkpoint)
+      }
+      if (checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
+        console.info(`[VideoWorker] Skipping script generation (already completed) for videoId: ${videoId}`)
+        pkg = await videoGenerationService.renderVideoFromScript({
+          topic: videoRecord.topic,
+          userId,
+          script: videoRecord.script as any,
+          options: {
+            ...genOptions,
+            generateOnlyAudio: options.generateOnlyAudio,
+            generateOnlyAssembly: options.generateOnlyAssembly
+          },
+          projectId: effectiveProjectId
         })
       }
-    } else {
+    } else if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
       await videoRepository.updateStatus(videoId, {
         status: 'processing',
         progress: 5,
         currentStep: 'script_generation'
       })
-      await reportProgress(job, videoId, 'script_generation', 10, 'Generating script...')
+      await reportProgress(job, videoId, 'script_generation', 10, 'Generating script...', checkpoint)
 
-      await reportProgress(job, videoId, 'script_generation', 25, 'Script generated, starting asset generation...')
+      await reportProgress(
+        job,
+        videoId,
+        'script_generation',
+        25,
+        'Script generated, starting asset generation...',
+        checkpoint
+      )
 
       // Run the full generation pipeline
       pkg = await videoGenerationService.generateVideo({
@@ -224,14 +322,20 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         })
       }
 
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
+      await checkpointStorage.save(checkpoint)
+
       // Handle Script-Only Mode (Stop here)
       if (genOptions.scriptOnly) {
-        await reportProgress(job, videoId, 'script_generation', 100, 'Script generation complete.')
+        await reportProgress(job, videoId, 'script_generation', 100, 'Script generation complete.', checkpoint)
         await videoRepository.updateStatus(videoId, {
           status: 'draft',
           progress: 100,
           currentStep: 'done'
         })
+
+        checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
+        await checkpointStorage.save(checkpoint)
 
         await job.updateProgress({
           step: 'completed',
@@ -242,13 +346,40 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         console.info(`[VideoWorker] Script-only generation complete for videoId: ${videoId}`)
         return
       }
+    } else {
+      console.info(`[VideoWorker] Skipping script generation (already completed) for videoId: ${videoId}`)
+      // Use stored script if available
+      if (videoRecord.script) {
+        pkg = {
+          script: videoRecord.script,
+          outputPath: path.join(process.cwd(), 'output', effectiveProjectId)
+        } as any
+
+        // Calculate resume point from existing scene files
+        if (pkg && pkg.script && pkg.script.scenes && pkg.script.scenes.length > 0) {
+          const scenesDir = path.join(pkg.outputPath, 'scenes')
+          const resumeFromSceneIndex = findLastCompletedSceneIndex(scenesDir, pkg.script)
+          if (resumeFromSceneIndex !== undefined && resumeFromSceneIndex > 0) {
+            console.info(
+              `[VideoWorker] Scene generation checkpoint: resuming from scene index ${resumeFromSceneIndex} (${pkg.script.scenes.length - resumeFromSceneIndex} scenes remaining)`
+            )
+            genOptions.resumeFromSceneIndex = resumeFromSceneIndex
+          }
+        }
+      }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // NEW: Handle Narration-Only Phase (Step 2.5)
-    // ─────────────────────────────────────────────────────────────────────────────
-    if (options.generateOnlyAudio) {
-      await reportProgress(job, videoId, 'upload_audio', 90, 'Uploading narration and transcription...')
+    // Ensure pkg is initialized before proceeding
+    if (!pkg) {
+      throw new Error(`[VideoWorker] Video package failed to initialize for videoId: ${videoId}`)
+    }
+
+    // CHECKPOINT: Asset Generation Phase
+    if (
+      options.generateOnlyAudio &&
+      !checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.NARRATION_GENERATION)
+    ) {
+      await reportProgress(job, videoId, 'upload_audio', 90, 'Uploading narration and transcription...', checkpoint)
 
       // Use robust path resolution for narration
       const narrationMp3 = fs.existsSync(path.join(pkg.outputPath, 'global_narration.mp3'))
@@ -273,6 +404,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         ;(pkg.script as any).globalAudio = narrationUrl
       }
 
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.NARRATION_GENERATION)
+      checkpointStorage.save(checkpoint)
+
       await videoRepository.updateStatus(videoId, {
         status: 'narration_generated',
         progress: 100,
@@ -283,6 +417,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         scenes: pkg.script?.scenes as any,
         completedAt: new Date()
       })
+
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
+      checkpointStorage.save(checkpoint)
 
       await job.updateProgress({
         step: 'completed',
@@ -296,11 +433,21 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       return
     }
 
-    if (options.generateOnlyScenes) {
-      await reportProgress(job, videoId, 'upload_scenes', 90, 'Uploading scene images and updating database...')
+    if (options.generateOnlyScenes && !checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)) {
+      await reportProgress(
+        job,
+        videoId,
+        'upload_scenes',
+        90,
+        'Uploading scene images and updating database...',
+        checkpoint
+      )
 
       const updatedScenes = [...(pkg.script?.scenes || [])]
       await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
+
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)
+      checkpointStorage.save(checkpoint)
 
       await videoRepository.updateStatus(videoId, {
         status: 'scenes_generated',
@@ -315,6 +462,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         }
       })
 
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
+      checkpointStorage.save(checkpoint)
+
       await job.updateProgress({
         step: 'completed',
         progress: 100,
@@ -328,112 +478,136 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
     if (options.repromptSceneIndex !== undefined) {
       const idx = options.repromptSceneIndex
-      await reportProgress(job, videoId, 'upload_scene_image', 90, `Uploading reprompted image for scene ${idx}...`)
+      if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)) {
+        await reportProgress(
+          job,
+          videoId,
+          'upload_scene_image',
+          90,
+          `Uploading reprompted image for scene ${idx}...`,
+          checkpoint
+        )
 
-      const updatedScenes = [...(pkg.script?.scenes || [])]
-      await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
+        const updatedScenes = [...(pkg.script?.scenes || [])]
+        await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
 
-      await videoRepository.updateStatus(videoId, {
-        status: 'scenes_generated', // Usually remains in this state before final assembly
+        checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)
+        checkpointStorage.save(checkpoint)
+
+        await videoRepository.updateStatus(videoId, {
+          status: 'scenes_generated',
+          progress: 100,
+          currentStep: 'done',
+          script: pkg.script as any,
+          scenes: updatedScenes as any,
+          completedAt: new Date()
+        })
+
+        checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
+        await checkpointStorage.save(checkpoint)
+
+        await job.updateProgress({
+          step: 'completed',
+          progress: 100,
+          status: 'completed',
+          videoId
+        })
+
+        console.info(`[VideoWorker] Scene reprompt completed for videoId: ${videoId}, sceneIndex: ${idx}`)
+        return
+      }
+    }
+
+    // CHECKPOINT: Upload Phase
+    if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.UPLOAD)) {
+      await reportProgress(job, videoId, 'upload', 85, 'Uploading video to storage...', checkpoint)
+
+      // Look for the final video in the output directory
+      const outputPath = pkg.outputPath
+      const finalMp4 = path.join(outputPath, 'final_video.mp4')
+      const assembledMp4 = path.join(outputPath, 'assembled_video.mp4')
+      const thumbnailJpg = path.join(outputPath, 'thumbnail.jpg')
+      // Check both 'narration.mp3' (old) and 'global_narration.mp3' (new global audio pipeline)
+      const narrationMp3 = fs.existsSync(path.join(outputPath, 'global_narration.mp3'))
+        ? path.join(outputPath, 'global_narration.mp3')
+        : path.join(outputPath, 'narration.mp3')
+
+      // Check both 'captions.ass' (old) and 'global_subtitles.ass' (new)
+      const captionsAss = fs.existsSync(path.join(outputPath, 'global_subtitles.ass'))
+        ? path.join(outputPath, 'global_subtitles.ass')
+        : path.join(outputPath, 'captions.ass')
+
+      const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
+
+      let videoUrl: string | undefined
+      let thumbnailUrl: string | undefined
+      let narrationUrl: string | undefined
+      let captionsUrl: string | undefined
+
+      if (videoFilePath) {
+        videoUrl = await uploadVideoToMinio(videoId, videoFilePath)
+      }
+
+      if (fs.existsSync(thumbnailJpg)) {
+        const buffer = fs.readFileSync(thumbnailJpg)
+        thumbnailUrl = await uploadBuffer(`videos/${videoId}/thumbnail.jpg`, buffer, 'image/jpeg')
+      }
+
+      if (fs.existsSync(narrationMp3)) {
+        const buffer = fs.readFileSync(narrationMp3)
+        narrationUrl = await uploadBuffer(`videos/${videoId}/narration.mp3`, buffer, 'audio/mpeg')
+      }
+
+      if (fs.existsSync(captionsAss)) {
+        const buffer = fs.readFileSync(captionsAss)
+        captionsUrl = await uploadBuffer(`videos/${videoId}/captions.ass`, buffer, 'text/plain')
+      }
+
+      // Derive duration from script
+      const duration = Math.round(
+        pkg.script?.totalDuration ?? (genOptions.maxDuration as number | undefined) ?? DEFAULT_VIDEO_DURATION
+      )
+
+      // Only update videoUrl if it was actually generated (avoid overwriting a previously uploaded URL)
+      const updatePayload: Record<string, any> = {
+        status: 'completed',
         progress: 100,
         currentStep: 'done',
+        duration,
         script: pkg.script as any,
-        scenes: updatedScenes as any,
-        completedAt: new Date()
-      })
+        scenes: pkg.script?.scenes as any,
+        completedAt: new Date(),
+        options: {
+          ...((videoRecord.options as any) || {}),
+          localProjectId: pkg.projectId
+        }
+      }
+
+      if (videoUrl) updatePayload.videoUrl = videoUrl
+      if (thumbnailUrl) updatePayload.thumbnailUrl = thumbnailUrl
+      if (narrationUrl) updatePayload.narrationUrl = narrationUrl
+      if (captionsUrl) updatePayload.captionsUrl = captionsUrl
+
+      await videoRepository.updateStatus(videoId, updatePayload)
+
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.UPLOAD)
+      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
+      checkpointStorage.save(checkpoint)
 
       await job.updateProgress({
         step: 'completed',
         progress: 100,
         status: 'completed',
-        videoId
+        videoId,
+        videoUrl,
+        thumbnailUrl,
+        duration
       })
-
-      console.info(`[VideoWorker] Scene reprompt completed for videoId: ${videoId}, sceneIndex: ${idx}`)
-      return
     }
-
-    await reportProgress(job, videoId, 'upload', 85, 'Uploading video to storage...')
-
-    // Look for the final video in the output directory
-    const outputPath = pkg.outputPath
-    const finalMp4 = path.join(outputPath, 'final_video.mp4')
-    const assembledMp4 = path.join(outputPath, 'assembled_video.mp4')
-    const thumbnailJpg = path.join(outputPath, 'thumbnail.jpg')
-    // Check both 'narration.mp3' (old) and 'global_narration.mp3' (new global audio pipeline)
-    const narrationMp3 = fs.existsSync(path.join(outputPath, 'global_narration.mp3'))
-      ? path.join(outputPath, 'global_narration.mp3')
-      : path.join(outputPath, 'narration.mp3')
-
-    // Check both 'captions.ass' (old) and 'global_subtitles.ass' (new)
-    const captionsAss = fs.existsSync(path.join(outputPath, 'global_subtitles.ass'))
-      ? path.join(outputPath, 'global_subtitles.ass')
-      : path.join(outputPath, 'captions.ass')
-
-    const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
-
-    let videoUrl: string | undefined
-    let thumbnailUrl: string | undefined
-    let narrationUrl: string | undefined
-    let captionsUrl: string | undefined
-
-    if (videoFilePath) {
-      videoUrl = await uploadVideoToMinio(videoId, videoFilePath)
-    }
-
-    if (fs.existsSync(thumbnailJpg)) {
-      const buffer = fs.readFileSync(thumbnailJpg)
-      thumbnailUrl = await uploadBuffer(`videos/${videoId}/thumbnail.jpg`, buffer, 'image/jpeg')
-    }
-
-    if (fs.existsSync(narrationMp3)) {
-      const buffer = fs.readFileSync(narrationMp3)
-      narrationUrl = await uploadBuffer(`videos/${videoId}/narration.mp3`, buffer, 'audio/mpeg')
-    }
-
-    if (fs.existsSync(captionsAss)) {
-      const buffer = fs.readFileSync(captionsAss)
-      captionsUrl = await uploadBuffer(`videos/${videoId}/captions.ass`, buffer, 'text/plain')
-    }
-
-    // Derive duration from script
-    const duration = Math.round(
-      pkg.script?.totalDuration ?? (genOptions.maxDuration as number | undefined) ?? DEFAULT_VIDEO_DURATION
-    )
-
-    // Only update videoUrl if it was actually generated (avoid overwriting a previously uploaded URL)
-    const updatePayload: Record<string, any> = {
-      status: 'completed',
-      progress: 100,
-      currentStep: 'done',
-      duration,
-      script: pkg.script as any,
-      scenes: pkg.script?.scenes as any,
-      completedAt: new Date(),
-      options: {
-        ...((videoRecord.options as any) || {}),
-        localProjectId: pkg.projectId
-      }
-    }
-
-    if (videoUrl) updatePayload.videoUrl = videoUrl
-    if (thumbnailUrl) updatePayload.thumbnailUrl = thumbnailUrl
-    if (narrationUrl) updatePayload.narrationUrl = narrationUrl
-    if (captionsUrl) updatePayload.captionsUrl = captionsUrl
-
-    await videoRepository.updateStatus(videoId, updatePayload)
-
-    await job.updateProgress({
-      step: 'completed',
-      progress: 100,
-      status: 'completed',
-      videoId,
-      videoUrl,
-      thumbnailUrl,
-      duration
-    })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Video generation failed'
+    console.error(`[VideoWorker] Job failed for videoId: ${videoId}:`, message)
+
     await videoRepository.updateStatus(videoId, {
       status: 'failed',
       errorMessage: message
@@ -455,7 +629,10 @@ export function startVideoGenerationWorker(): Worker<VideoJobData> {
     },
     {
       connection: redisConnectionOptions,
-      concurrency: Number.parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '2', 10)
+      concurrency: Number.parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '2', 10),
+      lockDuration: 10 * 60 * 1000, // 10 minutes (video generation can be lengthy)
+      stalledInterval: 30 * 1000, // Check stalled status every 30 seconds
+      maxStalledCount: 5 // Allow up to 5 stall checks before failing
     }
   )
 

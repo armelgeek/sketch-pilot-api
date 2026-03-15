@@ -298,7 +298,8 @@ export class VideoAssembler {
             duration,
             startPadding,
             sceneTension,
-            hasGlobalAudio // skipNarration
+            hasGlobalAudio, // skipNarration
+            globalOptions
           )
           finalClip = mixedClipPath
         }
@@ -404,10 +405,12 @@ export class VideoAssembler {
     if (hasGlobalAudio && fs.existsSync(globalOptions.globalAudioPath!)) {
       console.log(`[VideoAssembler] Overlaying global audio: ${globalOptions.globalAudioPath}`)
       const videoWithGlobalAudio = path.join(projectDir, 'final_video_with_global_audio.mp4')
+      const narrationVol = globalOptions.narrationVolume ?? 1
       await new Promise<void>((resolve, reject) => {
         ffmpeg(finalVideoNoMusic)
           .input(globalOptions.globalAudioPath!)
-          .outputOptions(['-c:v copy', '-map 0:v:0', '-map 1:a:0', '-shortest'])
+          .complexFilter([`[1:a]volume=${narrationVol.toFixed(2)}[a_weighted]`])
+          .outputOptions(['-c:v copy', '-map 0:v:0', '-map [a_weighted]', '-shortest'])
           .save(videoWithGlobalAudio)
           .on('end', () => {
             finalVisualPath = videoWithGlobalAudio
@@ -454,7 +457,8 @@ export class VideoAssembler {
         const musicPath = this.musicService.getTrackPath(musicTrack.path)
 
         // Mix background music with AUTO-DUCKING (sidechain)
-        return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, 0.1)
+        const musicVol = globalOptions.backgroundMusicVolume ?? 0.15
+        return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
       }
     }
 
@@ -476,26 +480,36 @@ export class VideoAssembler {
     outputPath: string,
     volume: number = 0.1
   ): Promise<string> {
-    console.log(`[VideoAssembler] Adding background music with aggressive auto-ducking...`)
-    return new Promise((resolve, reject) => {
+    console.log(`[VideoAssembler] Adding background music with volume ${volume}...`)
+    return new Promise(async (resolve, reject) => {
       if (!fs.existsSync(musicPath)) {
         console.warn(`[VideoAssembler] Music file not found: ${musicPath}`)
         return resolve(videoPath)
       }
 
+      // Check if input video has audio
+      const meta = await this.getClipMetadata(videoPath).catch(() => ({ hasAudio: false }))
+
+      if (!meta.hasAudio) {
+        console.warn(`[VideoAssembler] Input video has no audio. Adding music without ducking...`)
+        ffmpeg()
+          .input(videoPath)
+          .input(musicPath)
+          .outputOptions(['-c:v copy', '-map 0:v:0', '-map 1:a:0', '-shortest', `-vol ${Math.round(volume * 256)}`])
+          .save(outputPath)
+          .on('end', () => resolve(outputPath))
+          .on('error', (err) => reject(new Error(`Background music addition failed: ${err.message}`)))
+        return
+      }
+
       // IMPROVED DUCKING: More aggressive parameters for better voice clarity
-      // threshold=0.03: Starts ducking at lower levels (-30dB), catches all speech
-      // ratio=10: Strong suppression (10:1) when voice is detected
-      // attack=20: Very fast response (20ms) to voice onset
-      // release=400: Smooth release back to normal after voice ends
-      // makeup=1: Compensates for gain reduction loss
-      // [0:a] is dialogue/narration (sidechain input), [1:a] is background music
       ffmpeg()
         .input(videoPath)
         .input(musicPath)
         .complexFilter([
           `[0:a]asplit=2[voice_sc][voice_mix]`,
-          `[1:a][voice_sc]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=400:makeup=1[music_ducked]`,
+          `[1:a]volume=${volume}[music_raw]`,
+          `[music_raw][voice_sc]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=400:makeup=1[music_ducked]`,
           `[voice_mix][music_ducked]amix=inputs=2:duration=first[aout]`
         ])
         .outputOptions(['-c:v copy', '-map 0:v:0', '-map [aout]', '-shortest'])
@@ -1360,7 +1374,8 @@ export class VideoAssembler {
     duration: number,
     startPadding: number,
     tension: number = 5,
-    skipNarration: boolean = false
+    skipNarration: boolean = false,
+    options?: VideoGenerationOptions
   ): Promise<string> {
     // ── Tension-Driven Audio Parameters ──
     const atempoRate = this.getAtempoRate(tension)
@@ -1384,13 +1399,16 @@ export class VideoAssembler {
       `[VideoAssembler] Mixing audio | tension: ${tension} | atempo: ${atempoRate.toFixed(2)}x | ambVol: ${ambientBaseVolume} | duck ratio: ${duckingRatio}`
     )
 
+    const narrVol = options?.narrationVolume ?? 1
+
     return new Promise((resolve, reject) => {
       const cmd = ffmpeg().input(videoPath)
 
       let currentInputIndex = 1
 
       // Input: Narration (skipped if using global audio)
-      if (!skipNarration) {
+      const hasNarration = narrationPath && fs.existsSync(narrationPath)
+      if (!skipNarration && hasNarration) {
         cmd.input(narrationPath)
         currentInputIndex++
       }
@@ -1414,7 +1432,7 @@ export class VideoAssembler {
           activeSFX.push({
             path: sfxPath,
             timestamp: sfx.timestamp,
-            volume: sfx.volume ?? 0.8
+            volume: (sfx.volume ?? 0.8) * narrVol // SFX follow narration volume
           })
           currentInputIndex++
         }
@@ -1425,13 +1443,15 @@ export class VideoAssembler {
       let currentAudioLabel = ''
 
       // Label [narr]: Delayed + pitch-corrected speed-up via atempo
-      if (!skipNarration) {
+      if (!skipNarration && hasNarration) {
         if (hasSoundscape) {
           filterParts.push(
-            `[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=1.0,asplit=2[narr_sc][narr_mix]`
+            `[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=${narrVol.toFixed(2)},asplit=2[narr_sc][narr_mix]`
           )
         } else {
-          filterParts.push(`[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=1.0[narr]`)
+          filterParts.push(
+            `[1:a]adelay=${delayMs}|${delayMs},atempo=${atempoRate.toFixed(4)},volume=${narrVol.toFixed(2)}[narr]`
+          )
           currentAudioLabel = '[narr]'
         }
       }
@@ -1442,7 +1462,7 @@ export class VideoAssembler {
         // Ducking ratio: calm = gentle sidechain, peak = aggressive suppression.
         filterParts.push(`${ambInputStr}volume=${ambientBaseVolume}[amb_vol]`)
 
-        if (skipNarration) {
+        if (skipNarration || !hasNarration) {
           // No narration means no ducking needed, just use ambient
           currentAudioLabel = '[amb_vol]'
         } else {
@@ -1453,7 +1473,7 @@ export class VideoAssembler {
           filterParts.push(`[narr_mix][amb_ducked]amix=inputs=2:duration=first[mixed_base]`)
           currentAudioLabel = '[mixed_base]'
         }
-      } else if (skipNarration) {
+      } else if (skipNarration || !hasNarration) {
         // Neither narration nor soundscape: start with silence
         filterParts.push(`anullsrc=r=44100:cl=stereo:d=${duration}[silent_base]`)
         currentAudioLabel = '[silent_base]'
@@ -1464,9 +1484,6 @@ export class VideoAssembler {
         const sfxLabels: string[] = []
         for (const [i, element] of activeSFX.entries()) {
           const sfxInputIdx = sfxStartIndex + i
-          // SFX timestamp is relative to scene start (after padding is applied visually, but SFX might be relative to narration?)
-          // Usually SFX are tied to animation which starts at 0, so delay = timestamp * 1000.
-          // If we want it relative to the visual start (including startPadding), it's sfx.timestamp * 1000.
           const sfxDelayMs = Math.floor(element.timestamp * 1000)
           const sfxLabel = `[sfx${i}]`
           filterParts.push(`[${sfxInputIdx}:a]adelay=${sfxDelayMs}|${sfxDelayMs},volume=${element.volume}${sfxLabel}`)
@@ -1479,7 +1496,7 @@ export class VideoAssembler {
         currentAudioLabel = '[final_a]'
       }
 
-      // Ensure the mixed audio is padded to full clip duration if narration is short
+      // Ensure the mixed audio is padded to full clip duration
       filterParts.push(`${currentAudioLabel}apad[aout_padded]`)
 
       cmd
@@ -1687,12 +1704,12 @@ export class VideoAssembler {
     let audioCumulativeOffset = 0
 
     for (let i = 1; i < n; i++) {
-      const maxSafeOverlap = Math.min(durations[i - 1], durations[i]) / 2
+      const maxSafeOverlap = Math.min(durations[i - 1], durations[i]) / 2.1 // More conservative safety buffer
       const incomingTransitionType = transitions[i - 1]
       const transition = this.getXfadeTransition(incomingTransitionType, maxSafeOverlap)
-      // Unified 0.04s (1 frame) fallback for 'none'/'cut'
+
       const transitionDuration = transition ? transition.duration : 0.04
-      const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.05
+      const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.1
       const effectiveAudioOverlap = Math.min(
         Math.max(transitionDuration, audioOverlap),
         Math.max(0.01, maxPossibleOverlap)

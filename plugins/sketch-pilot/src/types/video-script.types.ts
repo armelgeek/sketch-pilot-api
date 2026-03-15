@@ -264,7 +264,7 @@ export const enrichedSceneSchema = z.object({
   speechBubble: z.string().nullish().describe('Text for speech bubble dialogue (if any)'),
   onscreenText: z
     .string()
-    .optional()
+    .nullish()
     .describe(
       'The primary text to display as a large overlay on the screen (e.g. titles, keywords). When poseId is NONE, this is the main visual element.'
     ),
@@ -732,6 +732,13 @@ export const videoGenerationOptionsSchema = z
       .string()
       .optional()
       .describe('Suggested mood/genre for background music (e.g. upbeat, calm, dramatic)'),
+    narrationVolume: z.number().min(0).max(2).default(1).describe('Volume level for narration/TTS (0.0 to 2.0)'),
+    backgroundMusicVolume: z
+      .number()
+      .min(0)
+      .max(2)
+      .default(0.15)
+      .describe('Volume level for background music (0.0 to 2.0)'),
     audioOverlap: z
       .number()
       .min(0)
@@ -761,6 +768,11 @@ export const videoGenerationOptionsSchema = z
       .number()
       .optional()
       .describe('If provided, only generate the visual assets for this specific scene index and skip others'),
+    resumeFromSceneIndex: z
+      .number()
+      .min(0)
+      .optional()
+      .describe('Resume scene generation from this 0-based index (for checkpoint resumption after timeout)'),
     qualityMode: z.nativeEnum(QualityMode).default(QualityMode.STANDARD).describe('Quality mode for generation'),
     enableContextualBackground: z
       .boolean()

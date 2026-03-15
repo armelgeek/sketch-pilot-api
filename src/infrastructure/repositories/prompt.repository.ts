@@ -5,6 +5,82 @@ import { prompts } from '@/infrastructure/database/schema/prompt.schema'
 import type { CreatePromptInput, Prompt, UpdatePromptInput } from '@/domain/models/prompt.model'
 import type { PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
 
+export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
+  titles: ['Title 1', 'Title 2', 'Title 3'],
+  fullNarration: 'String - The complete unbroken text of the video.',
+  topic: 'String',
+  audience: 'String',
+  characterSheets: [
+    {
+      id: 'CHAR-01',
+      name: 'Name',
+      role: 'Role',
+      metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
+      appearance: {
+        description: 'Base style',
+        clothing: 'Typical outfit',
+        accessories: ['Distinguishing items'],
+        colorPalette: ['#HEX1', '#HEX2'],
+        uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
+      },
+      expressions: ['Happy', 'Sad', 'Neutral'],
+      imagePrompt: 'Consistent visual reference prompt'
+    }
+  ],
+  scenes: [
+    {
+      sceneNumber: 'Integer',
+      timeRange: { start: 'Float', end: 'Float' },
+      duration: 'Float',
+      timestamp: 'Float',
+      summary: 'String',
+      narration: 'String',
+      actions: ['String'],
+      expression: 'String',
+      characterIds: ['String'],
+      speakingCharacterId: 'String',
+      speechBubble: 'String',
+      mood: 'String',
+      cameraType: 'String',
+      framing: 'String',
+      lighting: 'String',
+      imagePrompt: '[action/metaphor]',
+      animationPrompt: '...',
+      transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
+      tension: 5,
+      characterVariant: 'Optional character skin name',
+      continueFromPrevious: false,
+      visualSource: 'local',
+      poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
+      poseStyle: {
+        position: 'left | center | right | custom',
+        x: 50,
+        y: 50,
+        scale: 1
+      },
+      onscreenText: 'The primary large overlay text',
+      onscreenTextSuggestions: [
+        'Concise version',
+        'Action-oriented version',
+        'Question-based version',
+        'Keyword-heavy version'
+      ],
+      onscreenTextStyle: {
+        enabled: true,
+        color: '#000000',
+        fontFamily: 'sans-serif',
+        fontSize: 58,
+        fontWeight: 'bold',
+        maxWordsPerLine: 6,
+        highlightWords: [{ word: 'specificword', color: '#FF0000' }]
+      },
+      anchorDetail: 'String',
+      soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
+      soundscape: 'String'
+    }
+  ]
+}
+
 function toPrompt(row: typeof prompts.$inferSelect): Prompt {
   const config = (row.config as any) || {}
   return {
@@ -12,6 +88,8 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     name: config.name || row.name,
     description: row.description ?? undefined,
     isActive: row.isActive,
+    category: config.category,
+    tags: config.tags || [],
     role: config.role,
     context: config.context,
     audienceDefault: config.audienceDefault,
@@ -20,85 +98,7 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     structure: config.structure,
     rules: config.rules || [],
     formatting: config.formatting,
-    outputFormat: JSON.stringify(
-      {
-        titles: ['Title 1', 'Title 2', 'Title 3'],
-        fullNarration: 'String - The complete unbroken text of the video.',
-        topic: 'String',
-        audience: 'String',
-        characterSheets: [
-          {
-            id: 'CHAR-01',
-            name: 'Name',
-            role: 'Role',
-            metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
-            appearance: {
-              description: 'Base style',
-              clothing: 'Typical outfit',
-              accessories: ['Distinguishing items'],
-              colorPalette: ['#HEX1', '#HEX2'],
-              uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
-            },
-            expressions: ['Happy', 'Sad', 'Neutral'],
-            imagePrompt: 'Consistent visual reference prompt'
-          }
-        ],
-        scenes: [
-          {
-            sceneNumber: 'Integer',
-            timeRange: { start: 'Float', end: 'Float' },
-            duration: 'Float',
-            timestamp: 'Float',
-            summary: 'String',
-            narration: 'String',
-            actions: ['String'],
-            expression: 'String',
-            characterIds: ['String'],
-            speakingCharacterId: 'String',
-            speechBubble: 'String',
-            mood: 'String',
-            cameraType: 'String',
-            framing: 'String',
-            lighting: 'String',
-            imagePrompt: '[action/metaphor]',
-            animationPrompt: '...',
-            transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
-            tension: 5,
-            characterVariant: 'Optional character skin name',
-            continueFromPrevious: false,
-            visualSource: 'local',
-            poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
-            poseStyle: {
-              position: 'left | center | right | custom',
-              x: 50,
-              y: 50,
-              scale: 1
-            },
-            onscreenText: 'The primary large overlay text',
-            onscreenTextSuggestions: [
-              'Concise version',
-              'Action-oriented version',
-              'Question-based version',
-              'Keyword-heavy version'
-            ],
-            onscreenTextStyle: {
-              enabled: true,
-              color: '#000000',
-              fontFamily: 'sans-serif',
-              fontSize: 58,
-              fontWeight: 'bold',
-              maxWordsPerLine: 6,
-              highlightWords: [{ word: 'specificword', color: '#FF0000' }]
-            },
-            anchorDetail: 'String',
-            soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
-            soundscape: 'String'
-          }
-        ]
-      },
-      null,
-      2
-    ),
+    outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2),
     instructions: config.instructions || [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
@@ -168,6 +168,8 @@ export class PromptRepository implements PromptRepositoryInterface {
       description,
       config: {
         ...config,
+        category: config.category,
+        tags: config.tags || [],
         outputFormat: JSON.stringify(
           {
             titles: ['Title 1', 'Title 2', 'Title 3'],
@@ -257,8 +259,16 @@ export class PromptRepository implements PromptRepositoryInterface {
   }
 
   async update(id: string, data: UpdatePromptInput): Promise<Prompt | null> {
+    const [existing] = await db.select().from(prompts).where(eq(prompts.id, id))
+    if (!existing) return null
+
     const now = new Date()
-    const { isActive, description, ...config } = data as any
+    const { isActive, description, ...inputConfig } = data as any
+
+    const config = {
+      ...(existing.config as any),
+      ...inputConfig
+    }
 
     await db
       .update(prompts)
@@ -267,6 +277,8 @@ export class PromptRepository implements PromptRepositoryInterface {
         ...(Object.keys(config).length > 0 && {
           config: {
             ...config,
+            category: config.category,
+            tags: config.tags || (existing.config as any)?.tags || [],
             outputFormat: JSON.stringify(
               {
                 titles: ['Title 1', 'Title 2', 'Title 3'],

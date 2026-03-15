@@ -323,8 +323,7 @@ export class NanoBananaEngine {
     scene: EnrichedScene,
     baseImages: string[],
     targetDir: string,
-    lastSceneImage?: string,
-    bgPath?: string
+    lastSceneImage?: string
   ): Promise<void> {
     console.log(`\n--- Composing Scene: ${scene.id} ---`)
     const options = this.currentOptions || ({} as any)
@@ -339,34 +338,24 @@ export class NanoBananaEngine {
     }
 
     const layers: any[] = []
-    const sceneImage = 'scene.webp' // Default to WebP format
-
-    // Standard single image generation
-    const imagePrompt = scene.imagePrompt || scene.narration || ''
+    const sceneImage = 'scene.webp'
     const imagePath = path.join(targetDir, `scene.webp`)
 
     const effectiveBaseImages = [...baseImages]
     if (scene.continueFromPrevious && lastSceneImage) {
-      // Add the previous scene's image as a high-fidelity reference
-      // It is placed AFTER the character bible to maintain identity but provide scene context
       effectiveBaseImages.push(lastSceneImage)
     }
 
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
 
     try {
-      // Start with AI-generated scene or white fallback
-      const composition =
-        bgPath && fs.existsSync(bgPath)
-          ? sharp(bgPath).resize(width, height, { fit: 'cover' })
-          : sharp({
-              create: {
-                width,
-                height,
-                channels: 3,
-                background: { r: 255, g: 255, b: 255 }
-              }
-            })
+      // Generate AI scene image to temp file
+      console.log(`[NanoBanana] Generating AI scene for ${scene.id}...`)
+      const tempBgPath = path.join(targetDir, 'temp_bg.webp')
+      await this.generateImage(scene, effectiveBaseImages, tempBgPath)
+
+      // Use generated image as base for composition
+      const composition = sharp(tempBgPath).resize(width, height, { fit: 'cover' })
 
       const overlays: any[] = []
 
@@ -468,22 +457,14 @@ export class NanoBananaEngine {
       // Final composition
       if (overlays.length > 0) {
         await composition.composite(overlays).webp().toFile(imagePath)
-      } else if (bgPath && fs.existsSync(bgPath)) {
-        // Just use the background as the scene image
-        fs.copyFileSync(bgPath, imagePath)
       } else {
-        // Fallback to white
-        await sharp({
-          create: { width, height, channels: 3, background: '#FFFFFF' }
-        })
-          .webp()
-          .toFile(imagePath)
+        await composition.webp().toFile(imagePath)
       }
 
-      // Clean up temporary background file if it exists
-      if (bgPath && fs.existsSync(bgPath) && bgPath.includes('background.webp')) {
+      // Clean up temporary background file
+      if (fs.existsSync(tempBgPath)) {
         try {
-          fs.unlinkSync(bgPath)
+          fs.unlinkSync(tempBgPath)
         } catch {
           // ignore cleanup errors
         }
@@ -908,7 +889,7 @@ PLAIN WHITE BACKGROUND.`
       this.currentKokoroVoicePreset = validOptions.kokoroVoicePreset
       this.audioService = AudioServiceFactory.create({
         provider: 'kokoro',
-        lang: 'en',
+        lang: (validOptions.language?.split('-')[0] || 'en') as any,
         apiKey: process.env.HUGGING_FACE_TOKEN || this.apiKey,
         kokoroVoicePreset: this.currentKokoroVoicePreset
       })
@@ -1194,9 +1175,16 @@ PLAIN WHITE BACKGROUND.`
 
     // --- SCENE COMPOSITION ---
     // Skip composition if we only want audio OR if visuals are already generated
-    const skipComposition = validOptions.generateOnlyAudio
+    const skipComposition = validOptions.generateOnlyAudio || validOptions.generateOnlyAssembly
     if (!skipComposition) {
-      for (let i = 0; i < script.scenes.length; i++) {
+      const startSceneIndex = validOptions.resumeFromSceneIndex ?? 0
+      if (startSceneIndex > 0) {
+        console.log(
+          `[NanoBanana] Resuming scene generation from index ${startSceneIndex} (${script.scenes.length - startSceneIndex} scenes to generate)`
+        )
+      }
+
+      for (let i = startSceneIndex; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
 
         if (validOptions.repromptSceneIndex !== undefined && validOptions.repromptSceneIndex !== i) {
@@ -1235,13 +1223,8 @@ PLAIN WHITE BACKGROUND.`
           sceneBaseImages.push(...characterReferenceMap.get('standard')!)
         }
 
-        // Generate AI scene image (temporary background)
-        const backgroundPath = path.join(sceneDir, 'background.webp')
-        console.log(`[NanoBanana] Generating AI background for scene ${scene.id}...`)
-        const bgPath = await this.generateImage(scene, sceneBaseImages, backgroundPath)
-
-        // Overlay text/characters on top of the background, output to scene.webp
-        await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, bgPath)
+        // Compose scene (generates background internally, then overlays text)
+        await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64)
 
         // Keep track of the last generated image to allow for "Scene Continuation"
         const lastImagePath = path.join(sceneDir, 'scene.webp')
@@ -1249,6 +1232,9 @@ PLAIN WHITE BACKGROUND.`
           lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
         }
       }
+
+      // Wait for all queued tasks (animations, etc.) to complete before assembly
+      await this.generationQueue.onIdle()
     }
 
     // --- ASSEMBLE FINAL VIDEO ---
@@ -1281,7 +1267,7 @@ PLAIN WHITE BACKGROUND.`
     }
 
     const stats = {
-      apiCalls: script.sceneCount * 2,
+      apiCalls: script.sceneCount,
       generationTimeMs: Date.now() - startTime
     }
 

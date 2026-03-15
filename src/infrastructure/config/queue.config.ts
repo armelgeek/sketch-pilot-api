@@ -92,8 +92,11 @@ export interface VideoJobData {
     animationMode?: string
     aspectRatio?: string
     resolution?: string
-    imageStyle?: any
     globalTextStyle?: any
     promptSections?: any
+    narrationVolume?: number
+    backgroundMusicVolume?: number
+    audioOverlap?: number
+    backgroundColor?: string
   }
 }
