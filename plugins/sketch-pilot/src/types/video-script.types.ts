@@ -288,6 +288,13 @@ export const enrichedSceneSchema = z.object({
   framing: z.string().nullish().describe('Cinematic framing (e.g., Close-up, Wide, Medium)'),
   lighting: z.string().nullish().describe('Lighting description (e.g., Warm sunset, Harsh office light)'),
   background: z.string().nullish().describe('Background description'),
+  locationId: z
+    .string()
+    .optional()
+    .describe(
+      'Unique identifier for the location of this scene (e.g. "train-station", "office"). ' +
+        'Scenes sharing the same locationId reuse the same visual background for consistency.'
+    ),
   imagePrompt: z
     .string()
     .describe('Concise, single-string image generation prompt (e.g. 2D vector style, character action, 16:9)'),

@@ -1,5 +1,6 @@
 import type { AnimationPrompt, EnrichedScene, ImagePrompt } from '../types/video-script.types'
 import { PromptManager } from './prompt-manager'
+import type { SceneMemory } from './scene-memory'
 
 /**
  * Generates image and animation prompts from enriched scene descriptions.
@@ -27,14 +28,16 @@ export class PromptGenerator {
    * When hasReferenceImages is true, reference image backgrounds are preserved.
    * @param aspectRatio - The aspect ratio string to append (e.g. '16:9', '9:16', '1:1')
    * @param imageStyle - Optional visual style override (stylePrefix + characterDescription)
+   * @param memory - Optional inter-scene visual memory for narrative continuity
    */
   generateImagePrompt(
     scene: EnrichedScene,
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
-    imageStyle?: { stylePrefix?: string; characterDescription?: string }
+    imageStyle?: { stylePrefix?: string; characterDescription?: string },
+    memory?: SceneMemory
   ): ImagePrompt {
-    return this.manager.buildImagePrompt(scene, hasReferenceImages, aspectRatio, imageStyle)
+    return this.manager.buildImagePrompt(scene, hasReferenceImages, aspectRatio, imageStyle, memory)
   }
 
   /**
