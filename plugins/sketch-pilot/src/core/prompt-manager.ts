@@ -12,6 +12,7 @@
 import { computeSceneCount } from '../types/video-script.types'
 import type { AnimationPrompt, EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../types/video-script.types'
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
+import type { SceneMemory } from './scene-memory'
 
 export class PromptMaker {
   private role: string = ''
@@ -344,7 +345,8 @@ export class PromptManager {
     scene: EnrichedScene,
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
-    imageStyle?: { stylePrefix?: string; characterDescription?: string; qualityTags?: string[] }
+    imageStyle?: { stylePrefix?: string; characterDescription?: string; qualityTags?: string[] },
+    memory?: SceneMemory
   ): ImagePrompt {
     const elements = this.extractSceneElements(scene)
     const stylePrefix = imageStyle?.stylePrefix ?? ''
@@ -354,12 +356,16 @@ export class PromptManager {
     const header = [stylePrefix, aspectRatio].filter(Boolean).join(', ')
 
     // ── Location ─────────────────────────────────────────────────────────
-    const rawBg = scene.background || this.spec?.defaultBackgroundPrompt || ''
+    // When a locationId is established in memory, reuse its prompt for visual continuity.
+    const memoryLocation = scene.locationId ? memory?.locations.get(scene.locationId) : undefined
+    const rawBg = memoryLocation?.prompt ?? scene.background ?? this.spec?.defaultBackgroundPrompt ?? ''
     const sanitizedBg = this.sanitizeForImageGen(rawBg, hasReferenceImages)
     const location = sanitizedBg ? `[Location]: ${sanitizedBg}` : ''
 
     // ── Lighting ──────────────────────────────────────────────────────────
-    const lighting = scene.lighting ? `[Lighting]: ${scene.lighting}` : ''
+    // Fall back to memory-derived time-of-day when the scene has no explicit lighting.
+    const effectiveLighting = scene.lighting ?? (memory?.timeOfDay ? `${memory.timeOfDay} lighting` : '')
+    const lighting = effectiveLighting ? `[Lighting]: ${effectiveLighting}` : ''
 
     // ── Action ────────────────────────────────────────────────────────────
     const baseCharacter = imageStyle?.characterDescription || ''
@@ -389,18 +395,25 @@ export class PromptManager {
     const action = `[Action]: ${subjectPart}${expressionPart}`
 
     // ── Framing ───────────────────────────────────────────────────────────
+    // Merge scene props with memory-derived character props for continuity.
+    const sceneProps = scene.props ?? []
+    const memoryProps = this.resolveMemoryProps(scene, memory)
+    const effectiveProps = sceneProps.length > 0 ? sceneProps : memoryProps
     const framingContent = [
       scene.framing,
       scene.cameraType,
       scene.eyelineMatch ? `eyeline ${scene.eyelineMatch.toLowerCase()}` : '',
-      scene.props?.length ? `props: ${scene.props.join(', ')}` : ''
+      effectiveProps.length ? `props: ${effectiveProps.join(', ')}` : ''
     ]
       .filter(Boolean)
       .join(', ')
     const framing = framingContent ? `[Framing]: ${framingContent}` : ''
 
     // ── Mood ──────────────────────────────────────────────────────────────
-    const moodContent = [scene.mood, ...qualityTags].filter(Boolean).join('. ')
+    // Append memory-derived weather to mood when present and not already mentioned.
+    const weatherContext =
+      memory?.weather && !(scene.mood ?? '').toLowerCase().includes(memory.weather) ? memory.weather : ''
+    const moodContent = [scene.mood, weatherContext, ...qualityTags].filter(Boolean).join('. ')
     const mood = moodContent ? `[Mood]: ${moodContent}` : ''
 
     // ── Assemble ──────────────────────────────────────────────────────────
@@ -418,10 +431,26 @@ export class PromptManager {
         pose: elements.pose,
         action: elements.action,
         expression: scene.expression,
-        props: scene.props,
-        background: scene.background || this.backgroundColor
+        props: effectiveProps,
+        background: rawBg || this.backgroundColor
       }
     }
+  }
+
+  /**
+   * Resolve props from scene memory for characters present in this scene.
+   * Returns merged props from all characters in memory that appear in this scene.
+   */
+  private resolveMemoryProps(scene: EnrichedScene, memory?: SceneMemory): string[] {
+    if (!memory || !scene.characterIds || scene.characterIds.length === 0) return []
+    const props: string[] = []
+    for (const charId of scene.characterIds) {
+      const memChar = memory.characters.get(charId)
+      if (memChar?.currentProps.length) {
+        props.push(...memChar.currentProps)
+      }
+    }
+    return [...new Set(props)]
   }
 
   /**

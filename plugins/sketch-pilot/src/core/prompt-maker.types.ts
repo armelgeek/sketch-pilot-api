@@ -36,6 +36,13 @@ export interface VideoTypeSpecification {
   anchorTechniques?: string[]
   emotionalArc?: Record<string, { label: string; tension: string; mood: string }>
   closingQuestionTemplate?: string
+  /**
+   * Optional narrative arc definition for storytelling videos.
+   * Maps stage keys to their descriptive label and optional tension/mood hints.
+   * Example: { "intro": { label: "Introduction", description: "Set the scene" },
+   *            "climax": { label: "Climax", description: "Peak tension moment" } }
+   */
+  narrativeArc?: Record<string, { label: string; description?: string; tension?: number }>
 
   // --- Total Dynamization Fields ---
   /** System instruction for the asset generator AI (e.g. pose creator) */

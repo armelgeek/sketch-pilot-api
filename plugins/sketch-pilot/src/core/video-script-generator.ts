@@ -11,6 +11,7 @@ import {
 import type { LLMService } from '../services/llm'
 import { PromptGenerator } from './prompt-generator'
 import { PromptManager } from './prompt-manager'
+import { SceneMemoryBuilder } from './scene-memory'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -439,33 +440,41 @@ export class VideoScriptGenerator {
       return resolved
     }
 
-    return baseScenes.map((scene) => {
-      const resolvedScene = {
-        ...scene,
-        actions: (scene.actions || []).map((a) => resolveCharacters(a)),
-        expression: resolveCharacters(scene.expression || ''),
-        summary: resolveCharacters(scene.summary || ''),
-        narration: resolveCharacters(scene.narration || ''),
-        background: resolveCharacters(scene.background || ''),
-        characterIds: (scene.characterIds || []).map((id) => charMap[id] || id),
-        speakingCharacterId: scene.speakingCharacterId
-          ? charMap[scene.speakingCharacterId] || scene.speakingCharacterId
-          : undefined,
-        characterVariant: scene.characterVariant
-          ? charMap[scene.characterVariant] || scene.characterVariant
-          : scene.characterVariant
-      }
+    // First pass: resolve all scenes so SceneMemoryBuilder works with resolved names
+    const resolvedScenes = baseScenes.map((scene) => ({
+      ...scene,
+      actions: (scene.actions || []).map((a) => resolveCharacters(a)),
+      expression: resolveCharacters(scene.expression || ''),
+      summary: resolveCharacters(scene.summary || ''),
+      narration: resolveCharacters(scene.narration || ''),
+      background: resolveCharacters(scene.background || ''),
+      characterIds: (scene.characterIds || []).map((id) => charMap[id] || id),
+      speakingCharacterId: scene.speakingCharacterId
+        ? charMap[scene.speakingCharacterId] || scene.speakingCharacterId
+        : undefined,
+      characterVariant: scene.characterVariant
+        ? charMap[scene.characterVariant] || scene.characterVariant
+        : scene.characterVariant
+    }))
 
+    // Build inter-scene visual memory from the resolved scenes and character sheets
+    const memoryBuilder = new SceneMemoryBuilder()
+    const sceneMemory = memoryBuilder.build(resolvedScenes)
+
+    // Second pass: generate image/animation prompts with memory context
+    return resolvedScenes.map((resolvedScene) => {
       const imagePrompt = this.promptGenerator.generateImagePrompt(
         resolvedScene as EnrichedScene,
         false,
         aspectRatio,
-        imageStyle
+        imageStyle,
+        sceneMemory
       )
 
-      const animationPromptText = scene.animationPrompt
-        ? resolveCharacters(scene.animationPrompt)
-        : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
+      const animationPromptText =
+        resolvedScene.animationPrompt != null
+          ? resolveCharacters(resolvedScene.animationPrompt)
+          : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
 
       return {
         ...resolvedScene,
