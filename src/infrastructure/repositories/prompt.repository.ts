@@ -18,7 +18,7 @@ export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
       metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
       appearance: {
         description: 'Base style',
-        clothing: 'Typical outfit',
+        clothing: 'Specific clothing...',
         accessories: ['Distinguishing items'],
         colorPalette: ['#HEX1', '#HEX2'],
         uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
@@ -30,6 +30,7 @@ export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
   scenes: [
     {
       sceneNumber: 'Integer',
+      locationId: 'String - Identifier to reuse locations across scenes',
       timeRange: { start: 'Float', end: 'Float' },
       duration: 'Float',
       timestamp: 'Float',
@@ -43,7 +44,9 @@ export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
       mood: 'String',
       cameraType: 'String',
       framing: 'String',
-      lighting: 'String',
+      background: 'String - Explicit background description including weather and time-of-day',
+      lighting: 'String - Explicit lighting description (e.g., morning sun, neon, soft)',
+      props: ['String - Relevant props for this scene to track logically'],
       imagePrompt: '[action/metaphor]',
       animationPrompt: '...',
       transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
@@ -170,84 +173,7 @@ export class PromptRepository implements PromptRepositoryInterface {
         ...config,
         category: config.category,
         tags: config.tags || [],
-        outputFormat: JSON.stringify(
-          {
-            titles: ['Title 1', 'Title 2', 'Title 3'],
-            fullNarration: 'String - The complete unbroken text of the video.',
-            topic: 'String',
-            audience: 'String',
-            characterSheets: [
-              {
-                id: 'CHAR-01',
-                name: 'Name',
-                role: 'Role',
-                metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
-                appearance: {
-                  description: 'Base style',
-                  clothing: 'Typical outfit',
-                  accessories: ['Distinguishing items'],
-                  colorPalette: ['#HEX1', '#HEX2'],
-                  uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
-                },
-                expressions: ['Happy', 'Sad', 'Neutral'],
-                imagePrompt: 'Consistent visual reference prompt'
-              }
-            ],
-            scenes: [
-              {
-                sceneNumber: 'Integer',
-                timeRange: { start: 'Float', end: 'Float' },
-                duration: 'Float',
-                timestamp: 'Float',
-                summary: 'String',
-                narration: 'String',
-                actions: ['String'],
-                expression: 'String',
-                characterIds: ['String'],
-                speechBubble: 'String',
-                mood: 'String',
-                cameraType: 'String',
-                framing: 'String',
-                lighting: 'String',
-                imagePrompt: '[action/metaphor]',
-                animationPrompt: '...',
-                transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
-                tension: 5,
-                characterVariant: 'Optional character skin name',
-                continueFromPrevious: false,
-                visualSource: 'local',
-                poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
-                poseStyle: {
-                  position: 'left | center | right | custom',
-                  x: 50,
-                  y: 50,
-                  scale: 1
-                },
-                onscreenText: 'The primary large overlay text',
-                onscreenTextSuggestions: [
-                  'Concise version',
-                  'Action-oriented version',
-                  'Question-based version',
-                  'Keyword-heavy version'
-                ],
-                onscreenTextStyle: {
-                  enabled: true,
-                  color: '#000000',
-                  fontFamily: 'sans-serif',
-                  fontSize: 58,
-                  fontWeight: 'bold',
-                  maxWordsPerLine: 6,
-                  highlightWords: [{ word: 'specificword', color: '#FF0000' }]
-                },
-                anchorDetail: 'String',
-                soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
-                soundscape: 'String'
-              }
-            ]
-          },
-          null,
-          2
-        )
+        outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2)
       },
       isActive: isActive ?? true,
       createdAt: now,
@@ -279,84 +205,7 @@ export class PromptRepository implements PromptRepositoryInterface {
             ...config,
             category: config.category,
             tags: config.tags || (existing.config as any)?.tags || [],
-            outputFormat: JSON.stringify(
-              {
-                titles: ['Title 1', 'Title 2', 'Title 3'],
-                fullNarration: 'String - The complete unbroken text of the video.',
-                topic: 'String',
-                audience: 'String',
-                characterSheets: [
-                  {
-                    id: 'CHAR-01',
-                    name: 'Name',
-                    role: 'Role',
-                    metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
-                    appearance: {
-                      description: 'Base style',
-                      clothing: 'Typical outfit',
-                      accessories: 'Distinguishing items',
-                      colorPalette: ['#HEX1', '#HEX2'],
-                      uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
-                    },
-                    expressions: ['Happy', 'Sad', 'Neutral'],
-                    imagePrompt: 'Consistent visual reference prompt'
-                  }
-                ],
-                scenes: [
-                  {
-                    sceneNumber: 'Integer',
-                    timeRange: { start: 'Float', end: 'Float' },
-                    duration: 'Float',
-                    timestamp: 'Float',
-                    summary: 'String',
-                    narration: 'String',
-                    actions: ['String'],
-                    expression: 'String',
-                    characterIds: ['String'],
-                    speechBubble: 'String',
-                    mood: 'String',
-                    cameraType: 'String',
-                    framing: 'String',
-                    lighting: 'String',
-                    imagePrompt: '[action/metaphor]',
-                    animationPrompt: '...',
-                    transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
-                    tension: 5,
-                    characterVariant: 'Optional character skin name',
-                    continueFromPrevious: false,
-                    visualSource: 'local',
-                    poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
-                    poseStyle: {
-                      position: 'left | center | right | custom',
-                      x: 50,
-                      y: 50,
-                      scale: 1
-                    },
-                    onscreenText: 'The primary large overlay text',
-                    onscreenTextSuggestions: [
-                      'Concise version',
-                      'Action-oriented version',
-                      'Question-based version',
-                      'Keyword-heavy version'
-                    ],
-                    onscreenTextStyle: {
-                      enabled: true,
-                      color: '#000000',
-                      fontFamily: 'sans-serif',
-                      fontSize: 58,
-                      fontWeight: 'bold',
-                      maxWordsPerLine: 6,
-                      highlightWords: [{ word: 'specificword', color: '#FF0000' }]
-                    },
-                    anchorDetail: 'String',
-                    soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
-                    soundscape: 'String'
-                  }
-                ]
-              },
-              null,
-              2
-            )
+            outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2)
           },
           name: config.name
         }),
