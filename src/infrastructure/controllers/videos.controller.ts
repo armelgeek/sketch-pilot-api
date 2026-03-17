@@ -14,7 +14,7 @@ import { RepromptSceneImageUseCase } from '@/application/use-cases/video/repromp
 import { SuggestTopicsUseCase } from '@/application/use-cases/video/suggest-topics.use-case'
 import { UpdateVideoUseCase } from '@/application/use-cases/video/update-video.use-case'
 import type { Routes } from '@/domain/types'
-import { getVideoQueue, getVideoQueueEvents } from '../config/queue.config'
+import { getVideoQueue, getVideoQueueEvents, redisClient } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
 import { VideoRepository } from '../repositories/video.repository'
 import { VideoOptionsSchema } from './video-options.schema'
@@ -37,6 +37,62 @@ const updateVideoUseCase = new UpdateVideoUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
+
+  // Global registry for SSE streams mapped by JobId to prevent memory leaks from duplicate BullMQ listeners
+  private sseStreamsByJobId = new Map<string, Set<(event: string, data: any) => void>>()
+  private isGlobalQueueListenerInitialized = false
+
+  private initGlobalQueueListener() {
+    if (this.isGlobalQueueListenerInitialized) return
+    this.isGlobalQueueListenerInitialized = true
+
+    try {
+      const queueEvents = getVideoQueueEvents()
+
+      queueEvents.on('progress', ({ jobId, data }) => {
+        const streams = this.sseStreamsByJobId.get(jobId)
+        if (streams) {
+          // Since "data" comes from bullmq as "number | object" we need to handle primitive vs object correctly
+          const progressPayload =
+            typeof data === 'object' && data !== null ? { jobId, ...data } : { jobId, progress: data }
+
+          for (const enqueue of streams) enqueue('progress', progressPayload)
+        }
+      })
+
+      queueEvents.on('completed', async ({ jobId }) => {
+        const streams = this.sseStreamsByJobId.get(jobId)
+        if (streams && streams.size > 0) {
+          try {
+            const completedVideo = await videoRepository.findByJobId(jobId)
+            for (const enqueue of streams) {
+              enqueue('completed', {
+                jobId,
+                status: 'completed',
+                progress: 100,
+                videoId: completedVideo?.id,
+                videoUrl: completedVideo?.videoUrl,
+                thumbnailUrl: completedVideo?.thumbnailUrl,
+                duration: completedVideo?.duration
+              })
+            }
+          } catch {
+            for (const enqueue of streams) enqueue('completed', { jobId, status: 'completed', progress: 100 })
+          }
+        }
+      })
+
+      queueEvents.on('failed', ({ jobId, failedReason }) => {
+        const streams = this.sseStreamsByJobId.get(jobId)
+        if (streams) {
+          for (const enqueue of streams)
+            enqueue('error', { jobId, status: 'failed', error: failedReason, retryable: true })
+        }
+      })
+    } catch (error) {
+      console.error('[SSE] Failed to init global queue events listener:', error)
+    }
+  }
 
   constructor() {
     this.controller = new OpenAPIHono()
@@ -203,9 +259,6 @@ export class VideosController implements Routes {
     )
 
     // GET /v1/videos/jobs/:jobId/stream (SSE)
-    // Rate limiting: max 5 active SSE connections per user
-    const sseConnectionCount = new Map<string, number>()
-
     this.controller.get('/v1/videos/jobs/:jobId/stream', async (c: any) => {
       const user = c.get('user')
       if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -213,32 +266,48 @@ export class VideosController implements Routes {
       const { jobId } = c.req.param()
 
       // Rate-limit: allow at most 5 concurrent SSE connections per user
-      const currentConnections = sseConnectionCount.get(user.id) || 0
+      const sseConnectionKey = `sse:connections:${user.id}`
+      const currentConnectionsStr = await redisClient.get(sseConnectionKey)
+      const currentConnections = currentConnectionsStr ? Number.parseInt(currentConnectionsStr, 10) : 0
+
       if (currentConnections >= 5) {
         return c.json({ error: 'Too many active connections. Please wait.' }, 429)
       }
-      sseConnectionCount.set(user.id, currentConnections + 1)
+
+      await redisClient.incr(sseConnectionKey)
+      // Expire automatically via TTL in case of unhandled disconnects
+      await redisClient.expire(sseConnectionKey, 10 * 60)
 
       // Find the video by jobId
       const video = await videoRepository.findByJobId(jobId)
       if (!video || video.userId !== user.id) {
-        sseConnectionCount.set(user.id, (sseConnectionCount.get(user.id) || 1) - 1)
+        if ((await redisClient.decr(sseConnectionKey)) === 0) {
+          await redisClient.del(sseConnectionKey)
+        }
         return c.json({ error: 'Job not found' }, 404)
       }
 
       const headers = new Headers({
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform', // no-transform is crucial for Cloudflare caching
         Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no'
+        'X-Accel-Buffering': 'no',
+        'Content-Encoding': 'identity' // Ensure gzip doesn't delay chunks by adding 'identity', or let a proxy configure gzip instead
       })
 
       const sendEvent = (event: string, data: object) => {
         return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
       }
 
+      const releaseConnection = async () => {
+        if ((await redisClient.decr(sseConnectionKey)) <= 0) {
+          await redisClient.del(sseConnectionKey)
+        }
+      }
+
       // If already completed or failed, return immediately
       if (video.status === 'completed') {
+        await releaseConnection()
         const body = sendEvent('completed', {
           jobId,
           status: 'completed',
@@ -252,6 +321,7 @@ export class VideosController implements Routes {
       }
 
       if (video.status === 'failed') {
+        await releaseConnection()
         const body = sendEvent('error', {
           jobId,
           status: 'failed',
@@ -262,6 +332,7 @@ export class VideosController implements Routes {
       }
 
       if (video.status === 'cancelled') {
+        await releaseConnection()
         const body = sendEvent('error', {
           jobId,
           status: 'cancelled',
@@ -273,34 +344,64 @@ export class VideosController implements Routes {
 
       // Stream events
       const stream = new ReadableStream({
-        start(controller) {
+        start: (controller) => {
+          this.initGlobalQueueListener()
           const encoder = new TextEncoder()
           let closed = false
+
+          let keepAliveInterval: any = null
+          let pollTimeout: any = null
+          let connectionTimeout: any = null
+
+          const cleanupStreamResources = async () => {
+            if (closed) return
+            closed = true
+
+            if (keepAliveInterval) clearInterval(keepAliveInterval)
+            if (pollTimeout) clearTimeout(pollTimeout)
+            if (connectionTimeout) clearTimeout(connectionTimeout)
+
+            // Remove from global registry
+            const streams = this.sseStreamsByJobId.get(jobId)
+            if (streams) {
+              streams.delete(handleGlobalEvent)
+              if (streams.size === 0) {
+                this.sseStreamsByJobId.delete(jobId)
+              }
+            }
+
+            try {
+              controller.close()
+            } catch {
+              // already closed
+            }
+
+            // Release connection early
+            await releaseConnection()
+          }
 
           const enqueue = (text: string) => {
             if (!closed) {
               try {
                 controller.enqueue(encoder.encode(text))
               } catch {
-                closed = true
+                cleanupStreamResources()
               }
             }
           }
           const close = () => {
-            if (!closed) {
-              closed = true
-              try {
-                controller.close()
-              } catch {
-                // already closed
-              }
-            }
+            cleanupStreamResources()
           }
 
-          // Keep-alive heartbeat to prevent proxy timeouts
-          const keepAliveInterval = setInterval(() => {
+          c.req.raw.signal.addEventListener('abort', () => {
+            close()
+          })
+
+          // Adaptive keep-alive heartbeat
+          const heartbeatInterval = video.status === 'processing' ? 5000 : 15000
+          keepAliveInterval = setInterval(() => {
             enqueue(sendEvent('ping', { timestamp: new Date().toISOString() }))
-          }, 15000)
+          }, heartbeatInterval)
 
           // Send initial connected event
           enqueue(
@@ -311,69 +412,38 @@ export class VideosController implements Routes {
             })
           )
 
-          // Listen for BullMQ events
-          let queueEvents: ReturnType<typeof getVideoQueueEvents> | null = null
+          // Handle incoming events from the global registry
+          const handleGlobalEvent = (eventName: string, data: any) => {
+            enqueue(sendEvent(eventName, data))
+            if (eventName === 'completed' || eventName === 'error') {
+              close() // Auto-close connection when final state is reached
+            }
+          }
+
           try {
-            queueEvents = getVideoQueueEvents()
+            // Check if queue events are functioning (if throws, fallback to polling)
+            getVideoQueueEvents()
 
-            const onProgress = ({ jobId: jId, data }: { jobId: string; data: any }) => {
-              if (jId !== jobId) return
-              enqueue(sendEvent('progress', { jobId, ...data }))
+            // Register this specific connection to the global map
+            if (!this.sseStreamsByJobId.has(jobId)) {
+              this.sseStreamsByJobId.set(jobId, new Set())
             }
+            this.sseStreamsByJobId.get(jobId)!.add(handleGlobalEvent)
 
-            const onCompleted = async ({ jobId: jId }: { jobId: string }) => {
-              if (jId !== jobId) return
-              try {
-                const completedVideo = await videoRepository.findByJobId(jobId)
-                enqueue(
-                  sendEvent('completed', {
-                    jobId,
-                    status: 'completed',
-                    progress: 100,
-                    videoId: completedVideo?.id,
-                    videoUrl: completedVideo?.videoUrl,
-                    thumbnailUrl: completedVideo?.thumbnailUrl,
-                    duration: completedVideo?.duration
-                  })
-                )
-              } catch {
-                enqueue(sendEvent('completed', { jobId, status: 'completed', progress: 100 }))
-              }
-              cleanup()
-            }
-
-            const onFailed = ({ jobId: jId, failedReason }: { jobId: string; failedReason: string }) => {
-              if (jId !== jobId) return
-              enqueue(sendEvent('error', { jobId, status: 'failed', error: failedReason, retryable: true }))
-              cleanup()
-            }
-
-            queueEvents.on('progress', onProgress)
-            queueEvents.on('completed', onCompleted)
-            queueEvents.on('failed', onFailed)
-
-            const cleanup = () => {
-              clearInterval(keepAliveInterval)
-              if (queueEvents) {
-                queueEvents.off('progress', onProgress)
-                queueEvents.off('completed', onCompleted)
-                queueEvents.off('failed', onFailed)
-              }
-              // Decrement connection count on cleanup
-              sseConnectionCount.set(user.id, Math.max(0, (sseConnectionCount.get(user.id) || 1) - 1))
-              close()
-            }
-
-            // Timeout: 10 minutes
-            setTimeout(cleanup, 10 * 60 * 1000)
+            // Connection TTL (max 30 mins just in case)
+            connectionTimeout = setTimeout(close, 30 * 60 * 1000)
           } catch (error) {
-            console.error('Queue events not available:', error)
-            // Fall back to polling
-            const poll = setInterval(async () => {
+            console.warn('Queue events not available, falling back to polling:', error)
+
+            // Exponential backoff polling
+            let pollIntervalMs = 2000
+            const maxPollIntervalMs = 30000
+
+            const doPoll = async () => {
+              if (closed) return
               try {
                 const updated = await videoRepository.findByJobId(jobId)
                 if (!updated) {
-                  clearInterval(poll)
                   close()
                   return
                 }
@@ -389,8 +459,8 @@ export class VideosController implements Routes {
                       duration: updated.duration
                     })
                   )
-                  clearInterval(poll)
                   close()
+                  return
                 } else if (updated.status === 'failed' || updated.status === 'cancelled') {
                   enqueue(
                     sendEvent('error', {
@@ -400,9 +470,11 @@ export class VideosController implements Routes {
                       retryable: updated.status === 'failed'
                     })
                   )
-                  clearInterval(poll)
                   close()
+                  return
                 } else if (updated.progress !== video.progress) {
+                  // Reset backoff on progress
+                  pollIntervalMs = 2000
                   enqueue(
                     sendEvent('progress', {
                       jobId,
@@ -412,23 +484,24 @@ export class VideosController implements Routes {
                       message: updated.currentStep
                     })
                   )
+                } else {
+                  // Increase poll interval if no progress
+                  pollIntervalMs = Math.min(pollIntervalMs * 1.5, maxPollIntervalMs)
                 }
               } catch {
-                clearInterval(keepAliveInterval)
-                clearInterval(poll)
                 close()
+                return
               }
-            }, 3000)
+              pollTimeout = setTimeout(doPoll, pollIntervalMs)
+            }
 
-            setTimeout(
-              () => {
-                clearInterval(keepAliveInterval)
-                clearInterval(poll)
-                close()
-              },
-              10 * 60 * 1000
-            )
+            pollTimeout = setTimeout(doPoll, pollIntervalMs)
+            connectionTimeout = setTimeout(close, 30 * 60 * 1000)
           }
+        },
+        cancel() {
+          // Client disconnected - release resources
+          // Releasing is handled by controller.close() which eventually sets closed
         }
       })
 

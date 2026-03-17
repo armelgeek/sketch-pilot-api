@@ -103,21 +103,32 @@ export class PromptMaker {
 
   /**
    * Build only the high-level system instructions (Role, Context, Goals, Rules, etc.)
+   * Each section is labelled with a Markdown header so the LLM can clearly
+   * distinguish boundaries between blocks.
    */
   public buildSystemInstructions(): string {
-    const sections = []
+    const sections: string[] = []
 
-    if (this.role) sections.push(this.role)
-    if (this.context) sections.push(this.context)
-    if (this.task) sections.push(this.task)
-    if (this.goals?.length) sections.push(this.goals.join('\n'))
-    if (this.structure) sections.push(this.structure)
-    if (this.rules?.length) sections.push(this.rules.join('\n'))
-    if (this.formatting) sections.push(this.formatting)
-    if (this.outputFormat) sections.push(this.outputFormat)
-    if (this.instructions?.length) sections.push(this.instructions.join('\n'))
+    if (this.role) sections.push(`## ROLE\n${this.role}`)
 
-    return sections.filter((s) => s.trim().length > 0).join('\n\n')
+    if (this.context) sections.push(`## CONTEXT\n${this.context}`)
+
+    if (this.task) sections.push(`## TASK\n${this.task}`)
+
+    if (this.goals?.length) sections.push(`## GOALS\n${this.goals.map((g) => `- ${g}`).join('\n')}`)
+
+    if (this.structure) sections.push(`## STRUCTURE\n${this.structure}`)
+
+    if (this.rules?.length) sections.push(`## RULES\n${this.rules.map((r) => `- ${r}`).join('\n')}`)
+
+    if (this.formatting) sections.push(`## FORMATTING\n${this.formatting}`)
+
+    if (this.outputFormat) sections.push(`## OUTPUT FORMAT\n${this.outputFormat}`)
+
+    if (this.instructions?.length)
+      sections.push(`## INSTRUCTIONS\n${this.instructions.map((i) => `- ${i}`).join('\n')}`)
+
+    return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
   }
 
   /**
@@ -135,11 +146,15 @@ export class PromptMaker {
       this.buildCharacterInstructions(options)
     ]
 
-    return lines.join('\n')
+    // FIX: filter out empty strings before joining to avoid orphan blank lines
+    return lines.filter(Boolean).join('\n')
   }
 
   /**
    * Build specific instructions for character discovery if needed.
+   *
+   * FIX: replaced "this story" with "this subject" — neutral wording that works
+   * for tutorials, explainers, documentaries, etc., not just narrative formats.
    */
   private buildCharacterInstructions(options: PromptMakerOptions): string {
     if (options.characters && options.characters.length > 0) {
@@ -150,7 +165,7 @@ export class PromptMaker {
     }
 
     return `CHARACTER IDENTIFICATION:
-- Automatically identify the core characters in this story.
+- Automatically identify the core characters relevant to this subject.
 - For each character, you MUST define their name, role, gender ("male", "female", or "unknown"), and age ("child", "youth", "senior", or "unknown").
 - These attributes MUST be returned in the \`metadata\` object for each item in the \`characterSheets\` array.`
   }
@@ -247,6 +262,7 @@ export class PromptManager {
     const spec = this.getEffectiveSpec(options)
     const maker = new PromptMaker(spec)
     const effectiveDuration = this.getEffectiveDuration(options)
+    // FIX: use computeSceneCount as single source of truth (aligned with buildScriptCompletePrompt)
     const targetSceneCount = options.sceneCount ?? computeSceneCount(effectiveDuration)
 
     return maker.buildUserData({
@@ -281,13 +297,14 @@ export class PromptManager {
     }
 
     const effectiveDuration = this.getEffectiveDuration(options)
-    const maxScenes = Math.ceil(effectiveDuration / 10)
+    // FIX: replaced Math.ceil(effectiveDuration / 10) with computeSceneCount — single source of truth
+    const maxScenes = options.sceneCount ?? computeSceneCount(effectiveDuration)
 
     return maker.build({
-      subject: topic || 'Automated Video Script',
+      subject: topic || '',
       duration: `${effectiveDuration} seconds`,
       aspectRatio: options.aspectRatio || '16:9',
-      audience: (options as any).audience || 'General Audience',
+      audience: (options as any).audience || spec.audienceDefault || 'General Audience',
       language: options.language,
       maxScenes
     })
@@ -301,6 +318,9 @@ export class PromptManager {
    * Build the full system instruction for the image generation model.
    * When reference images are provided, they are the ABSOLUTE SOURCE OF TRUTH.
    * All other instructions serve the reference images, never contradict them.
+   *
+   * FIX: now delegates to PromptMaker.buildSystemInstructions() to avoid duplicating
+   * assembly logic and to include all spec fields (role, task, goals…) consistently.
    */
   buildImageSystemInstruction(hasReferenceImages: boolean): string {
     const spec = this.spec
@@ -310,15 +330,16 @@ export class PromptManager {
       ? `REFERENCE-DRIVEN MODE: Reference images provided are the ONLY visual source of truth. Match character identity, clothing, and artistic style 100%.`
       : ''
 
-    const sections = [spec.context, referenceMode, ...(spec.rules || []), ...(spec.instructions || [])]
+    // Inject the reference mode notice as the first instruction so it
+    // takes precedence over all other spec instructions.
+    const imageSpec: VideoTypeSpecification = {
+      ...spec,
+      instructions: [...(referenceMode ? [referenceMode] : []), ...(spec.instructions || [])]
+    }
 
-    return sections.filter((s) => s && s.trim().length > 0).join('\n\n')
+    return new PromptMaker(imageSpec).buildSystemInstructions()
   }
 
-  /**
-   * Build a complete scene image generation prompt.
-   * Fully Character-Agnostic.
-   */
   buildImagePrompt(
     scene: EnrichedScene,
     hasReferenceImages: boolean = false,
@@ -326,68 +347,68 @@ export class PromptManager {
     imageStyle?: { stylePrefix?: string; characterDescription?: string; qualityTags?: string[] }
   ): ImagePrompt {
     const elements = this.extractSceneElements(scene)
-
     const stylePrefix = imageStyle?.stylePrefix ?? ''
     const qualityTags = imageStyle?.qualityTags ?? []
 
-    // 1. Character Identification
+    // ── Header ───────────────────────────────────────────────────────────
+    const header = [stylePrefix, aspectRatio].filter(Boolean).join(', ')
+
+    // ── Location ─────────────────────────────────────────────────────────
+    const rawBg = scene.background || this.spec?.defaultBackgroundPrompt || ''
+    const sanitizedBg = this.sanitizeForImageGen(rawBg, hasReferenceImages)
+    const location = sanitizedBg ? `[Location]: ${sanitizedBg}` : ''
+
+    // ── Lighting ──────────────────────────────────────────────────────────
+    const lighting = scene.lighting ? `[Lighting]: ${scene.lighting}` : ''
+
+    // ── Action ────────────────────────────────────────────────────────────
     const baseCharacter = imageStyle?.characterDescription || ''
     const characterVariant = scene.characterVariant ? ` (${scene.characterVariant})` : ''
     const characterIdentity = `${baseCharacter}${characterVariant}`.trim()
 
-    // 2. Action & Expression
-    const expressionDesc = scene.expression ? `with a ${scene.expression.toLowerCase()} expression` : ''
-    const moodDesc = scene.mood ? `embodying a ${scene.mood.toLowerCase()} mood` : ''
+    let sceneCore: string
+    if (scene.imagePrompt?.trim()) {
+      sceneCore = this.sanitizeForImageGen(scene.imagePrompt.trim(), hasReferenceImages)
+    } else {
+      const posePart = elements.pose ?? ''
+      const actionPart = elements.action && elements.action !== elements.pose ? elements.action : ''
+      const progressivePart =
+        scene.continueFromPrevious && scene.progressiveElements?.length ? scene.progressiveElements.join(', ') : ''
+      sceneCore = this.sanitizeForImageGen(
+        [posePart, actionPart, progressivePart].filter(Boolean).join(', '),
+        hasReferenceImages
+      )
+    }
 
-    const posePart = elements.pose ?? ''
-    const actionPart = elements.action && elements.action !== elements.pose ? elements.action : ''
+    const expressionPart = scene.expression ? ` ${scene.expression}.` : ''
+    const subjectPart =
+      characterIdentity && !sceneCore.toLowerCase().includes(characterIdentity.toLowerCase())
+        ? `${characterIdentity} — ${sceneCore}`
+        : sceneCore
 
-    const progressivePart =
-      scene.continueFromPrevious && scene.progressiveElements && scene.progressiveElements.length > 0
-        ? scene.progressiveElements.join(', ')
-        : ''
+    const action = `[Action]: ${subjectPart}${expressionPart}`
 
-    const sceneDescription = scene.imagePrompt
-      ? scene.imagePrompt
-      : [posePart, actionPart, progressivePart].filter(Boolean).join(', ')
+    // ── Framing ───────────────────────────────────────────────────────────
+    const framingContent = [
+      scene.framing,
+      scene.cameraType,
+      scene.eyelineMatch ? `eyeline ${scene.eyelineMatch.toLowerCase()}` : '',
+      scene.props?.length ? `props: ${scene.props.join(', ')}` : ''
+    ]
+      .filter(Boolean)
+      .join(', ')
+    const framing = framingContent ? `[Framing]: ${framingContent}` : ''
 
-    const sanitizedScene = this.sanitizeForImageGen(sceneDescription, hasReferenceImages)
+    // ── Mood ──────────────────────────────────────────────────────────────
+    const moodContent = [scene.mood, ...qualityTags].filter(Boolean).join('. ')
+    const mood = moodContent ? `[Mood]: ${moodContent}` : ''
 
-    // 3. Environment & Setup
-    const backgroundPart = scene.background || this.spec?.defaultBackgroundPrompt || ''
-    const sanitizedBg = this.sanitizeForImageGen(backgroundPart, hasReferenceImages)
-    const backgroundDesc = sanitizedBg ? `set against ${sanitizedBg}` : ''
-
-    const framingPart = scene.framing ?? ''
-    const cameraPart = scene.cameraType ?? ''
-    const setupPart = [framingPart, cameraPart].filter(Boolean).join(' ')
-    const lightingPart = scene.lighting ? `lit by ${scene.lighting.toLowerCase()}` : ''
-
-    // 4. Details & Technical
-    const propsPart = scene.props && scene.props.length > 0 ? `visible props: ${scene.props.join(', ')}` : ''
-    const eyelinePart = scene.eyelineMatch ? `eyeline directed ${scene.eyelineMatch.toLowerCase()}` : ''
-
-    const parts = [
-      stylePrefix,
-      `${characterIdentity} ${sanitizedScene}`.trim(),
-      expressionDesc,
-      moodDesc,
-      setupPart,
-      lightingPart,
-      eyelinePart,
-      backgroundDesc,
-      ...qualityTags,
-      propsPart,
-      aspectRatio
-    ].filter((p) => p && p.trim().length > 0)
-
-    let prompt = parts.join(', ')
-
-    // Final cleanup
-    prompt = prompt
+    // ── Assemble ──────────────────────────────────────────────────────────
+    const prompt = [header, location, lighting, action, framing, mood]
+      .filter((b) => b?.trim().length > 0)
+      .join('\n')
       .replaceAll(/,\s*,/g, ',')
       .replaceAll(/\s{2,}/g, ' ')
-      .replaceAll(': ,', ': ')
       .trim()
 
     return {

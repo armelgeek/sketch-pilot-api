@@ -1,6 +1,7 @@
 import process from 'node:process'
 
 import { Queue, QueueEvents } from 'bullmq'
+import Redis from 'ioredis'
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
@@ -32,6 +33,8 @@ function getRedisConnectionOptions() {
 }
 
 export const redisConnectionOptions = getRedisConnectionOptions()
+
+export const redisClient = new Redis(redisConnectionOptions)
 
 export const VIDEO_QUEUE_NAME = 'video-generation'
 
