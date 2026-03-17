@@ -29,6 +29,7 @@ export class GrokImageService implements ImageService {
       quality?: 'ultra-low' | 'low' | 'medium' | 'high'
       smartUpscale?: boolean
       format?: 'png' | 'webp'
+      seed?: number
     } = {}
   ): Promise<string> {
     console.log(`[GrokImage] Generating image: ${prompt.slice(0, 30)}...`)

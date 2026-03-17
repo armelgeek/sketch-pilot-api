@@ -18,6 +18,8 @@ export interface ImageService {
       smartUpscale?: boolean
       /** Output format: 'png' (default) or 'webp' (30% smaller, faster) */
       format?: 'png' | 'webp'
+      /** Deterministic seed for reproducible generation (ensures consistency) */
+      seed?: number
     }
   ) => Promise<string>
 }

@@ -15,7 +15,7 @@ import '@/utils/polyfills'
  * 6. Manages checkpoints for resumption on failure/timeout
  */
 import * as path from 'node:path'
-import { Worker, type Job } from 'bullmq'
+import { MetricsTime, Queue, Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
@@ -39,8 +39,11 @@ const CHECKPOINT_PHASES = {
 } as const
 
 /**
- * Emit a progress update for a job and save checkpoint
+ * Emit a progress update for a job and save checkpoint.
+ * DB writes are debounced: only persist to DB when progress jumps >= 5%
+ * to avoid excessive SQL writes during long-running generation.
  */
+let lastPersistedProgress = 0
 async function reportProgress(
   job: Job<VideoJobData>,
   videoId: string,
@@ -49,8 +52,16 @@ async function reportProgress(
   message: string,
   checkpoint?: any
 ): Promise<void> {
+  // Always emit to BullMQ (fast, Redis-based)
   await job.updateProgress({ step, progress, message, status: 'processing' })
-  await videoRepository.updateStatus(videoId, { status: 'processing', progress, currentStep: step })
+
+  // Only write to DB if progress jumped >= 5% or it's a terminal step
+  const isTerminalStep = step === 'completed' || step === 'failed'
+  const shouldPersist = isTerminalStep || progress - lastPersistedProgress >= 5
+  if (shouldPersist) {
+    await videoRepository.updateStatus(videoId, { status: 'processing', progress, currentStep: step })
+    lastPersistedProgress = progress
+  }
 
   if (checkpoint) {
     checkpointStorage.save(checkpoint)
@@ -168,6 +179,8 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
  */
 async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
+  // Hoist pkg here so the finally block can check if the job succeeded
+  let pkg: CompleteVideoPackage | null = null
 
   try {
     // Initialize checkpoint for resumption
@@ -191,8 +204,6 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         }
       })
     }
-
-    let pkg: CompleteVideoPackage | null = null
 
     // Build generation options from job data
     // Pull persisted customization options from the stored video record
@@ -268,7 +279,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             generateOnlyAudio: options.generateOnlyAudio,
             generateOnlyAssembly: options.generateOnlyAssembly
           },
-          projectId: effectiveProjectId
+          projectId: effectiveProjectId,
+          onProgress: async (p, m) => {
+            // Engine gives [0, 100], we map to [15, 85]
+            const mappedProgress = 15 + (p / 100) * 70
+            await reportProgress(job, videoId, 'rendering', Math.round(mappedProgress), m)
+          }
         })
 
         // Persist synced script to DB immediately
@@ -292,7 +308,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             generateOnlyAudio: options.generateOnlyAudio,
             generateOnlyAssembly: options.generateOnlyAssembly
           },
-          projectId: effectiveProjectId
+          projectId: effectiveProjectId,
+          onProgress: async (p, m) => {
+            // Engine gives [0, 100], we map to [15, 85]
+            const mappedProgress = 15 + (p / 100) * 70
+            await reportProgress(job, videoId, 'rendering', Math.round(mappedProgress), m)
+          }
         })
       }
     } else if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
@@ -317,7 +338,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         topic,
         userId,
         options: genOptions,
-        projectId: effectiveProjectId
+        projectId: effectiveProjectId,
+        onProgress: async (p, m) => {
+          // Script generation is [0, 15] in engine usually, then scenes.
+          // Since we already reported 25% for starting asset generation, let's map [0,100] -> [25, 85]
+          const mappedProgress = 25 + (p / 100) * 60
+          await reportProgress(job, videoId, 'asset_generation', Math.round(mappedProgress), m)
+        }
       })
 
       // Persist script to DB
@@ -624,6 +651,24 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       errorMessage: message
     })
     throw error // Let BullMQ handle retries
+  } finally {
+    // Fix 5: Cleanup temp project directory to avoid disk leaks on final failure
+    const jobAttempts = job.opts.attempts || 1
+    const isLastAttempt = job.attemptsMade >= jobAttempts
+    if (isLastAttempt && pkg === null) {
+      // pkg is null means the job failed to produce output — safe to clean up
+      try {
+        const engineOutputDir = path.join(process.cwd(), 'plugins', 'sketch-pilot', 'output', videoId)
+        if (fs.existsSync(engineOutputDir)) {
+          fs.rmSync(engineOutputDir, { recursive: true, force: true })
+          console.info(`[VideoWorker] Cleaned temp directory: ${engineOutputDir}`)
+        }
+      } catch (error) {
+        console.warn(`[VideoWorker] Failed to clean temp dir for ${videoId}:`, error)
+      }
+    }
+    // Reset per-job debounce counter
+    lastPersistedProgress = 0
   }
 }
 
@@ -643,7 +688,10 @@ export function startVideoGenerationWorker(): Worker<VideoJobData> {
       concurrency: Number.parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '2', 10),
       lockDuration: 10 * 60 * 1000, // 10 minutes (video generation can be lengthy)
       stalledInterval: 30 * 1000, // Check stalled status every 30 seconds
-      maxStalledCount: 5 // Allow up to 5 stall checks before failing
+      maxStalledCount: 5, // Allow up to 5 stall checks before failing
+      metrics: {
+        maxDataPoints: MetricsTime.ONE_WEEK // Add monitoring metrics
+      }
     }
   )
 
@@ -651,8 +699,25 @@ export function startVideoGenerationWorker(): Worker<VideoJobData> {
     console.info(`[VideoWorker] Job ${job.id} completed — videoId: ${job.data.videoId}`)
   })
 
-  worker.on('failed', (job, err) => {
+  worker.on('failed', async (job, err) => {
     console.error(`[VideoWorker] Job ${job?.id} failed — videoId: ${job?.data?.videoId}:`, err.message)
+
+    // DLQ Policy: if job failed and reached max attempts, move to Dead Letter Queue
+    if (job && job.attemptsMade >= (job.opts.attempts || 1)) {
+      console.warn(`[VideoWorker] Job ${job.id} exhausted retries. Moving to Dead Letter Queue.`)
+      try {
+        const dlqName = `${VIDEO_QUEUE_NAME}-dlq`
+        const dlq = new Queue(dlqName, { connection: redisConnectionOptions })
+        await dlq.add(job.name, job.data, {
+          jobId: job.id, // maintain original job ID for tracing
+          removeOnComplete: true, // avoid cluttering DLQ
+          removeOnFail: false // keep failed DLQ jobs indefinitely
+        })
+        console.info(`[VideoWorker] Job ${job.id} successfully moved to ${dlqName}.`)
+      } catch (error) {
+        console.error(`[VideoWorker] Failed to move Job ${job.id} to DLQ:`, error)
+      }
+    }
   })
 
   worker.on('error', (err) => {

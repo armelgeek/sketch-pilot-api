@@ -203,15 +203,26 @@ export class VideosController implements Routes {
     )
 
     // GET /v1/videos/jobs/:jobId/stream (SSE)
+    // Rate limiting: max 5 active SSE connections per user
+    const sseConnectionCount = new Map<string, number>()
+
     this.controller.get('/v1/videos/jobs/:jobId/stream', async (c: any) => {
       const user = c.get('user')
       if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
       const { jobId } = c.req.param()
 
+      // Rate-limit: allow at most 5 concurrent SSE connections per user
+      const currentConnections = sseConnectionCount.get(user.id) || 0
+      if (currentConnections >= 5) {
+        return c.json({ error: 'Too many active connections. Please wait.' }, 429)
+      }
+      sseConnectionCount.set(user.id, currentConnections + 1)
+
       // Find the video by jobId
       const video = await videoRepository.findByJobId(jobId)
       if (!video || video.userId !== user.id) {
+        sseConnectionCount.set(user.id, (sseConnectionCount.get(user.id) || 1) - 1)
         return c.json({ error: 'Job not found' }, 404)
       }
 
@@ -286,6 +297,11 @@ export class VideosController implements Routes {
             }
           }
 
+          // Keep-alive heartbeat to prevent proxy timeouts
+          const keepAliveInterval = setInterval(() => {
+            enqueue(sendEvent('ping', { timestamp: new Date().toISOString() }))
+          }, 15000)
+
           // Send initial connected event
           enqueue(
             sendEvent('connected', {
@@ -337,11 +353,14 @@ export class VideosController implements Routes {
             queueEvents.on('failed', onFailed)
 
             const cleanup = () => {
+              clearInterval(keepAliveInterval)
               if (queueEvents) {
                 queueEvents.off('progress', onProgress)
                 queueEvents.off('completed', onCompleted)
                 queueEvents.off('failed', onFailed)
               }
+              // Decrement connection count on cleanup
+              sseConnectionCount.set(user.id, Math.max(0, (sseConnectionCount.get(user.id) || 1) - 1))
               close()
             }
 
@@ -395,6 +414,7 @@ export class VideosController implements Routes {
                   )
                 }
               } catch {
+                clearInterval(keepAliveInterval)
                 clearInterval(poll)
                 close()
               }
@@ -402,6 +422,7 @@ export class VideosController implements Routes {
 
             setTimeout(
               () => {
+                clearInterval(keepAliveInterval)
                 clearInterval(poll)
                 close()
               },

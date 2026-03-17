@@ -232,6 +232,17 @@ export class NanoBananaEngine {
 
     const systemInstruction = this.promptManager.buildImageSystemInstruction(hasReferenceImages)
 
+    const cacheKey = `${scene.id}-${this.currentOptions?.qualityMode || 'standard'}-${this.currentOptions?.aspectRatio || '16:9'}`
+    const cachedResult = this.sceneCache.get(fullPrompt, {
+      sceneId: scene.id,
+      imageStyle: this.currentOptions?.imageStyle
+    })
+
+    if (cachedResult) {
+      console.log(`[NanoBanana] ✓ Using cached image for scene ${scene.id}`)
+      return cachedResult
+    }
+
     try {
       const quality =
         this.currentOptions?.qualityMode === QualityMode.LOW_COST
@@ -240,7 +251,9 @@ export class NanoBananaEngine {
             ? 'high'
             : 'medium'
 
-      return await this.imageService.generateImage(fullPrompt, filename, {
+      const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
+
+      const result = await this.imageService.generateImage(fullPrompt, filename, {
         quality,
         smartUpscale: true,
         format: 'webp',
@@ -248,17 +261,25 @@ export class NanoBananaEngine {
         removeBackground: false,
         skipTrim: true,
         referenceImages: baseImages,
-        systemInstruction
+        systemInstruction,
+        seed
       })
+
+      this.sceneCache.set(fullPrompt, result, {
+        sceneId: scene.id,
+        imageStyle: this.currentOptions?.imageStyle
+      })
+      return result
     } catch (error: any) {
       if (this.currentImageProvider !== 'gemini' && this.isNetworkError(error)) {
         console.warn(`[NanoBanana] Network error with ${this.currentImageProvider}, falling back to Gemini...`)
         try {
+          const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
           const geminiService = ImageServiceFactory.create({
             provider: 'gemini',
             apiKey: this.apiKey
           } as any)
-          return await geminiService.generateImage(fullPrompt, filename, {
+          const result = await geminiService.generateImage(fullPrompt, filename, {
             quality: 'medium',
             smartUpscale: true,
             format: 'webp',
@@ -266,8 +287,14 @@ export class NanoBananaEngine {
             removeBackground: false,
             skipTrim: true,
             referenceImages: baseImages,
-            systemInstruction
+            systemInstruction,
+            seed
           })
+          this.sceneCache.set(fullPrompt, result, {
+            sceneId: scene.id,
+            imageStyle: this.currentOptions?.imageStyle
+          })
+          return result
         } catch (fallbackError) {
           console.error(`[NanoBanana] Fallback to Gemini also failed:`, fallbackError)
           throw fallbackError
@@ -351,105 +378,11 @@ export class NanoBananaEngine {
 
     try {
       // Check if scene image already exists (but NOT if this is a reprompt)
-      if (!isReprompt && fs.existsSync(imagePath)) {
-        console.log(`[NanoBanana] Scene image already exists for ${scene.id}, skipping generation`)
-        const composition = sharp(imagePath).resize(width, height, { fit: 'cover' })
 
-        // Proceed with overlays if needed (text, etc)
-        const overlays: any[] = []
-
-        // Generate thumbnail if missing
-        const thumbnailPath = path.join(targetDir, 'thumbnail.jpg')
-        if (!fs.existsSync(thumbnailPath)) {
-          console.log(`[NanoBanana] Generating thumbnail for ${imagePath}...`)
-          await this.generateThumbnail(imagePath, thumbnailPath)
-        }
-
-        // Save manifest and return early
-        const manifest: any = {
-          id: scene.id,
-          sceneImage,
-          audio: !options.globalAudioPath && scene.narration ? 'narration.mp3' : undefined,
-          video: false,
-          animationMode,
-          aspectRatio,
-          soundEffects: scene.soundEffects,
-          cameraAction: scene.cameraAction,
-          transitionToNext: scene.transitionToNext,
-          backgroundColor: scene.backgroundColor || options.backgroundColor || '#FFFFFF',
-          pauseBefore: (scene as any).pauseBefore,
-          pauseAfter: (scene as any).pauseAfter,
-          onscreenText: scene.onscreenText,
-          visualMode: scene.visualMode
-        }
-
-        const wordTimings: WordTiming[] | undefined = (scene as any).globalWordTimings
-        if (wordTimings && wordTimings.length > 0) {
-          const startTime = scene.timeRange.start
-          manifest.wordTimings = wordTimings.map((w) => {
-            const relStart = Math.max(0, w.start - startTime)
-            const relEnd = Math.max(relStart, w.end - startTime)
-            return {
-              ...w,
-              start: Math.round(relStart * 100) / 100,
-              end: Math.round(relEnd * 100) / 100,
-              startMs: Math.round(relStart * 1000)
-            }
-          })
-
-          manifest.globalWordTimings = wordTimings.map((w) => ({
-            ...w,
-            start: Math.round(w.start * 100) / 100,
-            end: Math.round(w.end * 100) / 100,
-            startMs: Math.round(w.startMs)
-          }))
-        }
-
-        fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-        console.log(`[NanoBanana] Scene manifest saved (skipped image generation).`)
-        return
-      }
-
-      // Generate AI scene image to temp file
-      console.log(`[NanoBanana] Generating AI scene for ${scene.id}...`)
       const tempBgPath = path.join(targetDir, 'temp_bg.webp')
+      await this.generateImage(scene, effectiveBaseImages, tempBgPath)
 
-      let generatedPath = ''
-      try {
-        generatedPath = await this.generateImage(scene, effectiveBaseImages, tempBgPath)
-        console.log(`[NanoBanana] generateImage returned: ${generatedPath}, file exists: ${fs.existsSync(tempBgPath)}`)
-      } catch (imageError) {
-        console.warn(
-          `[NanoBanana] Image generation error for scene ${scene.id}:`,
-          imageError instanceof Error ? imageError.message : imageError
-        )
-        generatedPath = ''
-      }
-
-      // Check if image generation succeeded and create final image
-      if (!generatedPath || !fs.existsSync(tempBgPath)) {
-        console.log(`[NanoBanana] Creating white fallback image for scene ${scene.id} at ${imagePath}`)
-        await sharp({
-          create: { width, height, channels: 3, background: '#FFFFFF' }
-        })
-          .webp()
-          .toFile(imagePath)
-        console.log(`[NanoBanana] Fallback image written to ${imagePath}, exists: ${fs.existsSync(imagePath)}`)
-      } else {
-        // Use generated image - resize and prepare for composition
-        console.log(`[NanoBanana] Resizing generated image from ${tempBgPath} to ${imagePath}`)
-        await sharp(tempBgPath).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
-        console.log(`[NanoBanana] Generated image written to ${imagePath}, exists: ${fs.existsSync(imagePath)}`)
-      }
-
-      // Verify image file exists before proceeding to overlays
-      if (!fs.existsSync(imagePath)) {
-        console.error(`[NanoBanana] CRITICAL: Image file not created at ${imagePath}! Dimensions: ${width}x${height}`)
-        throw new Error(`Failed to create scene image at ${imagePath}`)
-      }
-
-      // Read the final image (either generated or fallback) for overlays
-      const composition = sharp(imagePath)
+      const composition = sharp(tempBgPath).resize(width, height, { fit: 'cover' })
 
       const overlays: any[] = []
 
@@ -939,15 +872,26 @@ PLAIN WHITE BACKGROUND.`
     topic: string,
     options: Partial<VideoGenerationOptions> = {},
     baseImages: string[] = [],
-    projectId?: string
+    projectId?: string,
+    onProgress?: (progress: number, message: string) => Promise<void>
   ): Promise<CompleteVideoPackage> {
     const validOptions = videoGenerationOptionsSchema.parse(options)
     this.currentOptions = validOptions
 
+    if (onProgress) {
+      await onProgress(5, `Generating script for topic: ${topic}...`)
+    }
+
     console.log(`\n=== GENERATING SCRIPT: ${topic} ===`)
     const script = await this.generateStructuredScript(topic, validOptions)
 
-    return this.generateVideoFromScript(script, options, baseImages, projectId)
+    if (onProgress && validOptions.scriptOnly) {
+      await onProgress(100, `Script generated successfully.`)
+    } else if (onProgress) {
+      await onProgress(15, `Script generated. Starting asset generation...`)
+    }
+
+    return this.generateVideoFromScript(script, options, baseImages, projectId, onProgress)
   }
 
   /**
@@ -1164,6 +1108,7 @@ PLAIN WHITE BACKGROUND.`
     }
 
     if (!skipAudio) {
+      if (onProgress) await onProgress(10, 'Generating narration audio...')
       try {
         if (!audioExists) {
           console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
@@ -1233,11 +1178,12 @@ PLAIN WHITE BACKGROUND.`
           this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
         }
 
+        if (onProgress) await onProgress(12, 'Transcribing audio with Whisper...')
         console.log(`[NanoBanana] Transcribing global audio with Whisper...`)
         const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
         globalWordTimings = transcriptionResult.wordTimings
 
-        // Map timings back to scenes
+        if (onProgress) await onProgress(14, 'Mapping timings to scenes...')
         console.log(`[NanoBanana] Mapping global timings to scenes...`)
         const sceneNarrations = script.scenes.map((s) => ({ sceneId: s.id, narration: s.narration }))
         const mappedTimings = TimingMapper.mapScenes(sceneNarrations, globalWordTimings)
@@ -1498,6 +1444,7 @@ PLAIN WHITE BACKGROUND.`
       }
 
       try {
+        if (onProgress) await onProgress(87, 'Assembling final video with FFmpeg...')
         const videoAssembler = new VideoAssembler()
         const finalVideoPath = await videoAssembler.assembleVideo(
           script,
@@ -1510,6 +1457,7 @@ PLAIN WHITE BACKGROUND.`
           }
         )
         console.log(`\n✅ VIDEO ASSEMBLY COMPLETE: ${finalVideoPath}`)
+        if (onProgress) await onProgress(98, 'Video assembled! Uploading...')
       } catch (assemblyError) {
         console.error(`\n❌ VIDEO ASSEMBLY FAILED:`, assemblyError)
       }
@@ -1600,5 +1548,23 @@ PLAIN WHITE BACKGROUND.`
     } finally {
       if (fs.existsSync(listFile)) fs.unlinkSync(listFile)
     }
+  }
+
+  /**
+   * Clears the scene image cache to force regeneration.
+   * Useful when you want to regenerate scenes with different parameters.
+   */
+  clearImageCache(): void {
+    this.sceneCache.clear()
+    console.log('[NanoBanana] Scene image cache cleared')
+  }
+
+  /**
+   * Gets the current cache size for debugging purposes.
+   */
+  getCacheStats(): { entries: number; cacheFile: string } {
+    const cacheSize = Object.keys((this.sceneCache as any).cache).length
+    const cacheFile = (this.sceneCache as any).filePath
+    return { entries: cacheSize, cacheFile }
   }
 }

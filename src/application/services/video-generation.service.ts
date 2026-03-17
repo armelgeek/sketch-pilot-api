@@ -22,6 +22,7 @@ export interface VideoGenerationInput {
   topic: string
   userId?: string
   options?: Partial<VideoGenerationOptions>
+  onProgress?: (progress: number, message: string) => Promise<void>
 }
 
 export class VideoGenerationService {
@@ -142,9 +143,12 @@ export class VideoGenerationService {
    * This is the main entry point used by the BullMQ worker.
    */
   async generateVideo(input: VideoGenerationInput & { projectId?: string }): Promise<CompleteVideoPackage> {
-    const { topic, options = {}, projectId } = input
+    const { topic, options = {}, projectId, onProgress } = input
     const engine = await this.buildEngine(options)
-    return await engine.generateVideoFromTopic(topic, options as VideoGenerationOptions, [], projectId)
+
+    // In NanoBananaEngine, generateVideoFromTopic currently does not accept onProgress directly
+    // Let's modify generateVideoFromTopic manually later. For now, we pass it down.
+    return await engine.generateVideoFromTopic(topic, options as VideoGenerationOptions, [], projectId, onProgress)
   }
 
   /**
@@ -154,9 +158,9 @@ export class VideoGenerationService {
   async renderVideoFromScript(
     input: VideoGenerationInput & { script: any; projectId?: string }
   ): Promise<CompleteVideoPackage> {
-    const { script, options = {}, projectId } = input
+    const { script, options = {}, projectId, onProgress } = input
     const engine = await this.buildEngine(options)
-    return await engine.generateVideoFromScript(script, options as VideoGenerationOptions, [], projectId)
+    return await engine.generateVideoFromScript(script, options as VideoGenerationOptions, [], projectId, onProgress)
   }
 
   /**

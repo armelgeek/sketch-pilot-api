@@ -158,8 +158,11 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
 
       // Enqueue the BullMQ job
+      // Fix 3: Use videoId as BullMQ jobId for automatic deduplication.
+      // If the same video is enqueued twice, BullMQ will deduplicate based on jobId,
+      // preventing double processing and double billing.
       const jobData: VideoJobData = {
-        jobId,
+        jobId: videoId, // use videoId for deduplication
         userId,
         videoId,
         topic,
@@ -168,7 +171,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
 
       const queue = getVideoQueue()
       await queue.add('generate-video', jobData, {
-        jobId,
+        jobId: videoId, // BullMQ deduplication key
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 }
       })

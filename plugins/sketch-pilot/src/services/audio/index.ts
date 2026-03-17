@@ -21,15 +21,17 @@ export interface AudioGenerationResult {
 }
 
 export interface AudioOptions {
-  voice?: string // For Kokoro preset or Google/ElevenLabs fallback
+  voice?: string // For Kokoro preset or Google/ElevenLabs/Gemini fallback
   voiceId?: string // Specifically for ElevenLabs/Google
+  styleDirections?: string // For Gemini TTS natural language style control
+  multiSpeaker?: Array<{ speaker: string; voiceName: string; styleDirections?: string }> // For Gemini multi-speaker
 }
 
 export interface AudioService {
   generateSpeech: (text: string, outputPath: string, options?: AudioOptions) => Promise<AudioGenerationResult>
 }
 
-export type AudioProvider = 'demo' | 'google-tts' | 'openai-tts' | 'elevenlabs' | 'kokoro'
+export type AudioProvider = 'demo' | 'google-tts' | 'openai-tts' | 'elevenlabs' | 'kokoro' | 'gemini-tts'
 
 export interface AudioServiceConfig {
   provider: AudioProvider
@@ -43,6 +45,9 @@ export interface AudioServiceConfig {
   modelId?: string
   // Kokoro TTS specific options
   kokoroVoicePreset?: string
+  // Gemini TTS specific options
+  geminiVoiceName?: string
+  styleDirections?: string
 }
 
 /**
@@ -81,9 +86,15 @@ export const AudioServiceFactory = {
       case 'kokoro':
         const { KokoroTTSService } = require('./kokoro-tts.service')
         return new KokoroTTSService(config.apiKey || '', config.lang || 'en-US', config.kokoroVoicePreset || 'af_heart')
+      case 'gemini-tts':
+        if (!config.apiKey) {
+          throw new Error('API key is required for Gemini TTS provider')
+        }
+        const { GeminiSpeechService } = require('./gemini-speech.service')
+        return new GeminiSpeechService(config.apiKey, config.lang || 'en', config.geminiVoiceName || 'Kore')
       case 'openai-tts':
         throw new Error(
-          `Audio provider "${config.provider}" is not yet implemented. Consider using google-tts, elevenlabs, or kokoro.`
+          `Audio provider "${config.provider}" is not yet implemented. Consider using google-tts, elevenlabs, kokoro, or gemini-tts.`
         )
       default:
         throw new Error(`Unknown audio provider: ${config.provider}`)
@@ -94,13 +105,17 @@ export const AudioServiceFactory = {
    * Get available providers
    */
   getAvailableProviders(): AudioProvider[] {
-    return ['demo', 'google-tts', 'openai-tts', 'elevenlabs']
+    return ['demo', 'google-tts', 'openai-tts', 'elevenlabs', 'gemini-tts']
   },
 
   /**
    * Get implemented providers
    */
   getImplementedProviders(): AudioProvider[] {
-    return ['demo', 'google-tts', 'elevenlabs', 'kokoro']
+    return ['demo', 'google-tts', 'elevenlabs', 'kokoro', 'gemini-tts']
   }
 }
+
+// Export Gemini Speech specific types and service
+export type { GeminiSpeechOptions, GeminiVoiceName, SpeakerConfig } from './gemini-speech.service'
+export { GeminiSpeechService } from './gemini-speech.service'

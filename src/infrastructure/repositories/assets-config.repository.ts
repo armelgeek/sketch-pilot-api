@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../database/db'
 import { musicTracks, voicePresets, type MusicTrack, type VoicePreset } from '../database/schema'
 
@@ -10,7 +10,7 @@ export class AssetsConfigRepository {
       return db
         .select()
         .from(voicePresets)
-        .where(eq(voicePresets.isActive, true) && (eq(voicePresets.provider, provider) as any))
+        .where(and(eq(voicePresets.isActive, true), eq(voicePresets.provider, provider)))
     }
     return db.select().from(voicePresets).where(eq(voicePresets.isActive, true))
   }

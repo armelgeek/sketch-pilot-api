@@ -38,6 +38,7 @@ export class GeminiImageService implements ImageService {
       quality?: 'ultra-low' | 'low' | 'medium' | 'high'
       smartUpscale?: boolean
       format?: 'png' | 'webp'
+      seed?: number
     } = {}
   ): Promise<string> {
     const baseImages = options.referenceImages || []

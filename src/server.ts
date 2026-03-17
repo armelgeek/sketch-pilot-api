@@ -30,13 +30,31 @@ const app = new App([
   new CharacterModelController()
 ]).getApp()
 
+let videoWorker: any = null
 if (process.env.ENABLE_VIDEO_WORKER !== 'false') {
   try {
-    startVideoGenerationWorker()
+    videoWorker = startVideoGenerationWorker()
   } catch (error) {
     console.warn('[Server] Video worker could not start (Redis may not be available):', error)
   }
 }
+
+// Handle graceful shutdown for workers
+const gracefulShutdown = async (signal: string) => {
+  console.info(`\n[Server] Received ${signal}, shutting down gracefully...`)
+  if (videoWorker) {
+    try {
+      await videoWorker.close()
+      console.info('[Server] Video worker closed successfully.')
+    } catch (error) {
+      console.error('[Server] Error closing video worker:', error)
+    }
+  }
+  process.exit(0)
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 
 const PORT = Bun.env.PORT || 5000
 
