@@ -35,16 +35,30 @@ export class PromptGenerator {
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
     imageStyle?: { stylePrefix?: string; characterDescription?: string },
-    memory?: SceneMemory
+    memory?: SceneMemory,
+    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan,
+    characterSheets?: import('../types/video-script.types').CharacterSheet[]
   ): ImagePrompt {
-    return this.manager.buildImagePrompt(scene, hasReferenceImages, aspectRatio, imageStyle, memory)
+    return this.manager.buildImagePrompt(
+      scene,
+      hasReferenceImages,
+      aspectRatio,
+      imageStyle,
+      memory,
+      globalPlan,
+      characterSheets
+    )
   }
 
   /**
    * Generate animation instructions for a scene
    * @param imageStyle - Optional visual style override (characterDescription)
    */
-  generateAnimationPrompt(scene: EnrichedScene, imageStyle?: { characterDescription?: string }): AnimationPrompt {
-    return this.manager.buildAnimationPrompt(scene, imageStyle)
+  generateAnimationPrompt(
+    scene: EnrichedScene,
+    imageStyle?: { characterDescription?: string },
+    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan
+  ): AnimationPrompt {
+    return this.manager.buildAnimationPrompt(scene, imageStyle, globalPlan)
   }
 }

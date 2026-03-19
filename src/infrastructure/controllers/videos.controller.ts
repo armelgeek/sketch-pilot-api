@@ -370,6 +370,15 @@ export class VideosController implements Routes {
               }
             }
 
+            // Also remove from video.id registry (used for BullMQ deduplication events)
+            const videoStreams = this.sseStreamsByJobId.get(video.id)
+            if (videoStreams) {
+              videoStreams.delete(handleGlobalEvent)
+              if (videoStreams.size === 0) {
+                this.sseStreamsByJobId.delete(video.id)
+              }
+            }
+
             try {
               controller.close()
             } catch {
@@ -424,11 +433,19 @@ export class VideosController implements Routes {
             // Check if queue events are functioning (if throws, fallback to polling)
             getVideoQueueEvents()
 
-            // Register this specific connection to the global map
+            // Register this specific connection to the global map using jobId
             if (!this.sseStreamsByJobId.has(jobId)) {
               this.sseStreamsByJobId.set(jobId, new Set())
             }
             this.sseStreamsByJobId.get(jobId)!.add(handleGlobalEvent)
+
+            // Also register using video.id (because GenerateVideoUseCase uses videoId for BullMQ deduplication)
+            if (video.id !== jobId) {
+              if (!this.sseStreamsByJobId.has(video.id)) {
+                this.sseStreamsByJobId.set(video.id, new Set())
+              }
+              this.sseStreamsByJobId.get(video.id)!.add(handleGlobalEvent)
+            }
 
             // Connection TTL (max 30 mins just in case)
             connectionTimeout = setTimeout(close, 30 * 60 * 1000)

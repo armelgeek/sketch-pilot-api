@@ -64,6 +64,7 @@ export class VideoAssembler {
     animationMode: 'panning' | 'ai' | 'composition' | 'static' | 'none',
     globalOptions: VideoGenerationOptions
   ): Promise<string> {
+    const hasGlobalAudio = !!globalOptions.globalAudioPath
     console.log(`[VideoAssembler] Assembling video in ${animationMode} mode...`)
     const clips: string[] = []
     const transitions: (string | undefined)[] = []
@@ -111,7 +112,6 @@ export class VideoAssembler {
 
       // Determine duration: Use audio duration if available, otherwise default
       // If global audio is present, use the timeRange from the script
-      const hasGlobalAudio = !!globalOptions.globalAudioPath
       const scriptDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
       const rawDuration = hasGlobalAudio ? scriptDuration : await this.getAudioDuration(audioPath).catch(() => 5)
 
@@ -278,7 +278,6 @@ export class VideoAssembler {
         let finalClip = clipOutputPath
 
         // ── Advanced Multi-layer Audio Mixing ──
-        const hasGlobalAudio = !!globalOptions.globalAudioPath
         if (fs.existsSync(audioPath) || hasGlobalAudio) {
           const mixedClipPath = path.join(sceneDir, 'clip_mixed.mp4')
 
@@ -395,7 +394,6 @@ export class VideoAssembler {
     }
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
-    const hasGlobalAudio = !!globalOptions.globalAudioPath
     // If global audio is used, we prefer hard cuts (0 overlap) to maintain sync
     const audioOverlap = hasGlobalAudio ? 0 : (globalOptions.audioOverlap ?? 0.3)
     await this.stitchClips(clips, finalVideoNoMusic, transitions, audioOverlap)
@@ -663,38 +661,30 @@ export class VideoAssembler {
     const assPath = options?.globalAssPath
 
     return new Promise((resolve, reject) => {
-      // Get total duration first
-      this.getClipDuration(videoPath)
-        .then((duration) => {
-          ffmpeg(videoPath)
-            .complexFilter([
-              // 1. Vignette: subtle dark edges
-              `vignette=angle=0.15[vignetted]`,
-              // 2. Subtle Grain: 2% noise for organic feel
-              `[vignetted]noise=alls=2:allf=t[polished]`,
-              // 3. Global Subtitles if path provided
-              assPath
-                ? `[polished]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
-                : `[polished]copy[outv]`
-            ])
-            .outputOptions([
-              '-map [outv]',
-              '-map 0:a?',
-              '-c:v libx264',
-              `-preset ${preset}`,
-              `-crf ${crf}`,
-              '-shortest' // Ensure output doesn't exceed audio stream length
-            ])
-            .save(outputPath)
-            .on('end', () => resolve(outputPath))
-            .on('error', (err) => {
-              console.error(`[VideoAssembler] Polish failed: ${err.message}`)
-              resolve(videoPath) // Fallback to original on error
-            })
-        })
-        .catch((error) => {
-          console.warn(`[VideoAssembler] Could not get duration for polish: ${error.message}`)
-          resolve(videoPath)
+      ffmpeg(videoPath)
+        .complexFilter([
+          // 1. Vignette: subtle dark edges
+          `vignette=angle=0.15[vignetted]`,
+          // 2. Subtle Grain: 2% noise for organic feel
+          `[vignetted]noise=alls=2:allf=t[polished]`,
+          // 3. Global Subtitles if path provided
+          assPath
+            ? `[polished]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
+            : `[polished]copy[outv]`
+        ])
+        .outputOptions([
+          '-map [outv]',
+          '-map 0:a?',
+          '-c:v libx264',
+          `-preset ${preset}`,
+          `-crf ${crf}`,
+          '-shortest' // Ensure output doesn't exceed audio stream length
+        ])
+        .save(outputPath)
+        .on('end', () => resolve(outputPath))
+        .on('error', (err) => {
+          console.error(`[VideoAssembler] Polish failed: ${err.message}`)
+          resolve(videoPath) // Fallback to original on error
         })
     })
   }
@@ -805,8 +795,12 @@ export class VideoAssembler {
             const hasPunctuation = wordTimings[i].word.match(/[.!?]$/)
 
             if (currentLine.length >= 5 || hasPunctuation || isLastWord) {
-              const startTime = this.formatSRTTime(cumulativeTime + currentLine[0].startMs / 1000)
-              const endTime = this.formatSRTTime(cumulativeTime + currentLine.at(-1).end / 1000)
+              const startInSec =
+                currentLine[0].startMs !== undefined ? currentLine[0].startMs / 1000 : currentLine[0].start
+              const endInSec = currentLine.at(-1).end
+
+              const startTime = this.formatSRTTime(cumulativeTime + startInSec)
+              const endTime = this.formatSRTTime(cumulativeTime + endInSec)
               const text = currentLine.map((w) => w.word).join(' ')
 
               srtContent += `${index}\n${startTime} --> ${endTime}\n${text}\n\n`
@@ -903,11 +897,10 @@ export class VideoAssembler {
     let lastEnd = 0
 
     for (const [i, w] of wordTimings.entries()) {
-      const startSec = w.startMs / 1000
-      const endSec = w.end / 1000
-      const gap = startSec - lastEnd
-
       // Attack zoom: first word or after a decent pause
+      const startSec = w.startMs !== undefined ? w.startMs / 1000 : w.start
+      const endSec = w.end
+      const gap = startSec - lastEnd
       if (i === 0 || gap > 0.3) {
         // Gaussian pulse on zoom: +0.02 at the peak, lasting ~0.2s
         zoomPulses.push(`0.02*exp(-pow(time-${startSec.toFixed(3)}, 2)*40)`)
@@ -1109,8 +1102,10 @@ export class VideoAssembler {
 
       // Process keyword visuals (overlays that swap the whole frame)
 
+      const finalFilterChain = filterChain.replace(/;+$/, '')
+
       command
-        .complexFilter(filterChain.endsWith(';') ? filterChain.slice(0, -1) : filterChain)
+        .complexFilter(finalFilterChain)
         .map(`[${lastOutput}]`)
         .outputOptions([`-t ${duration}`, '-pix_fmt yuv420p', `-r ${fps}`, '-c:v libx264'])
         .on('start', (cmd) => console.log(`[VideoAssembler-Composition] Command: ${cmd}`))
@@ -1144,13 +1139,67 @@ export class VideoAssembler {
 
       const reactive = this.buildAudioReactiveExpressions(wordTimings, duration)
 
-      // For static clips, we still use zoompan to enable the reactive micro-zooms
-      const zExpr = `1.0${reactive.zoomExpr}`
-      const x = 'iw/2-(iw/zoom/2)'
-      const y = 'ih/2-(ih/zoom/2)'
+      // ----------------------------------------------------
+      // DYNAMIC STATIC CLIIP EFFECTS
+      // ----------------------------------------------------
+      let baseZ = '1.0'
+      let baseX = 'iw/2-(iw/zoom/2)'
+      let baseY = 'ih/2-(ih/zoom/2)'
+
       const frameCount = Math.round(duration * 25)
 
-      const filterString = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s=${resolution}`
+      // Random deterministic index based on the hash of the image path
+      let hash = 0
+      for (let i = 0; i < imagePath.length; i++) {
+        hash = imagePath.charCodeAt(i) + ((hash << 5) - hash)
+      }
+      // Add randomness based on the scene index/timings to avoid sequences generating same effect
+      hash += duration * 1000
+      const effectIndex = Math.abs(Math.floor(hash)) % 6
+
+      // Max zoom target for zoom in/out
+      const zoomIntensity = 1.05
+      const dz = (zoomIntensity - 1).toFixed(3)
+
+      // Buffer for panning (needs more zoom for noticeable movement, minimum 15% crop area)
+      const panIntensity = 1.15
+
+      switch (effectIndex) {
+        case 0: // Subtle Zoom In
+          baseZ = `1.0+(${dz}*on/${frameCount})`
+          break
+        case 1: // Subtle Zoom Out
+          baseZ = `${zoomIntensity}-(${dz}*on/${frameCount})`
+          break
+        case 2: // Pan Left to Right
+          baseZ = `${panIntensity}`
+          baseX = `(iw-(iw/zoom))*(on/${frameCount})`
+          baseY = `ih/2-(ih/zoom/2)`
+          break
+        case 3: // Pan Right to Left
+          baseZ = `${panIntensity}`
+          baseX = `(iw-(iw/zoom))*(1-(on/${frameCount}))`
+          baseY = `ih/2-(ih/zoom/2)`
+          break
+        case 4: // Pan Top to Bottom
+          baseZ = `${panIntensity}`
+          baseX = `iw/2-(iw/zoom/2)`
+          baseY = `(ih-(ih/zoom))*(on/${frameCount})`
+          break
+        case 5: // Pan Bottom to Top
+          baseZ = `${panIntensity}`
+          baseX = `iw/2-(iw/zoom/2)`
+          baseY = `(ih-(ih/zoom))*(1-(on/${frameCount}))`
+          break
+      }
+
+      // We append the reactive zoom expr to our base z-expression to keep micro-zooms working
+      const zExpr = `${baseZ}${reactive.zoomExpr}`
+      const x = baseX
+      const y = baseY
+      // ----------------------------------------------------
+
+      const filterString = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s=${resolution}:fps=25`
 
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
 
@@ -1637,7 +1686,7 @@ export class VideoAssembler {
       } else {
         // Inject silent audio if stream is missing
         command.input(clip)
-        command.input('anullsrc=r=44100:cl=stereo').inputOptions(['-f lavfi'])
+        command.input('anullsrc=r=44100:cl=stereo').inputOptions(['-f', 'lavfi'])
       }
     })
 

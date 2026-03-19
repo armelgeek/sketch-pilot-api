@@ -1,4 +1,5 @@
 import * as fs from 'node:fs'
+import * as fsPromises from 'node:fs/promises'
 import process from 'node:process'
 import sharp from 'sharp'
 import '@/utils/polyfills'
@@ -43,7 +44,7 @@ const CHECKPOINT_PHASES = {
  * DB writes are debounced: only persist to DB when progress jumps >= 5%
  * to avoid excessive SQL writes during long-running generation.
  */
-let lastPersistedProgress = 0
+const jobProgressMap = new Map<string, number>()
 async function reportProgress(
   job: Job<VideoJobData>,
   videoId: string,
@@ -55,12 +56,14 @@ async function reportProgress(
   // Always emit to BullMQ (fast, Redis-based)
   await job.updateProgress({ step, progress, message, status: 'processing' })
 
+  const lastPersistedProgress = jobProgressMap.get(job.id!) || 0
+
   // Only write to DB if progress jumped >= 5% or it's a terminal step
   const isTerminalStep = step === 'completed' || step === 'failed'
   const shouldPersist = isTerminalStep || progress - lastPersistedProgress >= 5
   if (shouldPersist) {
     await videoRepository.updateStatus(videoId, { status: 'processing', progress, currentStep: step })
-    lastPersistedProgress = progress
+    jobProgressMap.set(job.id!, progress)
   }
 
   if (checkpoint) {
@@ -133,7 +136,7 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
     const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
 
     if (fs.existsSync(sceneWebp)) {
-      const buffer = fs.readFileSync(sceneWebp)
+      const buffer = await fsPromises.readFile(sceneWebp)
       scene.imageUrl = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
 
       // Always regenerate thumbnail from the newest image to ensure sync
@@ -148,14 +151,14 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
         )
         // Also save it locally
         if (!fs.existsSync(path.dirname(thumbnailJpg))) {
-          fs.mkdirSync(path.dirname(thumbnailJpg), { recursive: true })
+          await fsPromises.mkdir(path.dirname(thumbnailJpg), { recursive: true })
         }
-        fs.writeFileSync(thumbnailJpg, thumbnailBuffer)
+        await fsPromises.writeFile(thumbnailJpg, thumbnailBuffer)
       } catch (error) {
         console.error(`[VideoWorker] Failed to generate thumbnail for scene ${scene.id}:`, error)
         // Fallback to existing thumbnail if generation fails
         if (fs.existsSync(thumbnailJpg)) {
-          const fallbackBuffer = fs.readFileSync(thumbnailJpg)
+          const fallbackBuffer = await fsPromises.readFile(thumbnailJpg)
           scene.thumbnailUrl = await uploadBuffer(
             `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
             fallbackBuffer,
@@ -164,7 +167,7 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
         }
       }
     } else if (fs.existsSync(thumbnailJpg)) {
-      const buffer = fs.readFileSync(thumbnailJpg)
+      const buffer = await fsPromises.readFile(thumbnailJpg)
       scene.thumbnailUrl = await uploadBuffer(
         `videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`,
         buffer,
@@ -181,6 +184,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
   // Hoist pkg here so the finally block can check if the job succeeded
   let pkg: CompleteVideoPackage | null = null
+  let effectiveProjectId = ''
 
   try {
     // Initialize checkpoint for resumption
@@ -193,7 +197,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     }
 
     // Determine the fixed folder name for this video
-    let effectiveProjectId = (videoRecord.options as any)?.localProjectId
+    effectiveProjectId = (videoRecord.options as any)?.localProjectId
     if (!effectiveProjectId) {
       effectiveProjectId = `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
       // LOCK IT IN DB IMMEDIATELY
@@ -646,29 +650,52 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const message = error instanceof Error ? error.message : 'Video generation failed'
     console.error(`[VideoWorker] Job failed for videoId: ${videoId}:`, message)
 
-    await videoRepository.updateStatus(videoId, {
-      status: 'failed',
-      errorMessage: message
-    })
-    throw error // Let BullMQ handle retries
-  } finally {
-    // Fix 5: Cleanup temp project directory to avoid disk leaks on final failure
     const jobAttempts = job.opts.attempts || 1
     const isLastAttempt = job.attemptsMade >= jobAttempts
-    if (isLastAttempt && pkg === null) {
-      // pkg is null means the job failed to produce output — safe to clean up
+
+    if (isLastAttempt) {
+      await videoRepository.updateStatus(videoId, {
+        status: 'failed',
+        errorMessage: message
+      })
+    } else {
+      await videoRepository.updateStatus(videoId, {
+        errorMessage: `Attempt ${job.attemptsMade}/${jobAttempts} failed, retrying in background... (${message})`
+      })
+    }
+
+    throw error // Let BullMQ handle retries
+  } finally {
+    // Fix 5: Cleanup temp project directory to avoid massive disk leaks
+    // Always clean up if we successfully produced output and uploaded everything
+    if (pkg && pkg.outputPath && fs.existsSync(pkg.outputPath)) {
       try {
-        const engineOutputDir = path.join(process.cwd(), 'plugins', 'sketch-pilot', 'output', videoId)
-        if (fs.existsSync(engineOutputDir)) {
-          fs.rmSync(engineOutputDir, { recursive: true, force: true })
-          console.info(`[VideoWorker] Cleaned temp directory: ${engineOutputDir}`)
-        }
+        fs.rmSync(pkg.outputPath, { recursive: true, force: true })
+        console.info(`[VideoWorker] Cleaned temp project directory upon completion: ${pkg.outputPath}`)
       } catch (error) {
-        console.warn(`[VideoWorker] Failed to clean temp dir for ${videoId}:`, error)
+        console.warn(`[VideoWorker] Failed to clean temp dir upon completion ${pkg.outputPath}:`, error)
+      }
+    } else {
+      // If pkg is null (job failed before returning pkg), only clean up on the final attempt
+      const jobAttempts = job.opts.attempts || 1
+      const isLastAttempt = job.attemptsMade >= jobAttempts
+      if (isLastAttempt && effectiveProjectId) {
+        try {
+          const engineOutputDir = path.join(process.cwd(), 'plugins', 'sketch-pilot', 'output', effectiveProjectId)
+          if (fs.existsSync(engineOutputDir)) {
+            fs.rmSync(engineOutputDir, { recursive: true, force: true })
+            console.info(`[VideoWorker] Cleaned temp directory after final failure: ${engineOutputDir}`)
+          }
+        } catch (error) {
+          console.warn(`[VideoWorker] Failed to clean temp dir after failure for ${effectiveProjectId}:`, error)
+        }
       }
     }
-    // Reset per-job debounce counter
-    lastPersistedProgress = 0
+
+    // Request cleanup for this specific job
+    if (job.id) {
+      jobProgressMap.delete(job.id)
+    }
   }
 }
 

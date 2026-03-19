@@ -3,32 +3,22 @@ import {
   completeVideoScriptSchema,
   MIN_SCENE_DURATION,
   suggestSceneDuration,
+  type CharacterSheet,
   type CompleteVideoScript,
   type EnrichedScene,
+  type GlobalNarrativePlan,
   type SceneContextType,
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import type { LLMService } from '../services/llm'
+import { ArtDirector } from './art-director'
+import { DirectorPlanner } from './director-planner'
 import { PromptGenerator } from './prompt-generator'
 import { PromptManager } from './prompt-manager'
 import { SceneMemoryBuilder } from './scene-memory'
+import { ScriptDoctor } from './script-doctor'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface CharacterSheet {
-  id: string
-  name: string
-  role: string
-  appearance: {
-    description: string
-    clothing: string
-    accessories: string[]
-    colorPalette: string[]
-    uniqueIdentifiers: string[]
-  }
-  expressions: string[]
-  imagePrompt: string
-}
 
 type RawScene = Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'> & {
   animationPrompt?: string
@@ -47,12 +37,18 @@ type RawScene = Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'> & {
 export class VideoScriptGenerator {
   private readonly llmService: LLMService
   private readonly promptGenerator: PromptGenerator
+  private readonly directorPlanner: DirectorPlanner
+  private readonly scriptDoctor: ScriptDoctor
+  private readonly artDirector: ArtDirector
   readonly promptManager: PromptManager
 
   constructor(llmService: LLMService, promptManager?: PromptManager) {
     this.llmService = llmService
     this.promptManager = promptManager ?? new PromptManager()
     this.promptGenerator = new PromptGenerator(this.promptManager)
+    this.directorPlanner = new DirectorPlanner(this.llmService, this.promptManager)
+    this.scriptDoctor = new ScriptDoctor(this.llmService, this.promptManager)
+    this.artDirector = new ArtDirector(this.llmService, this.promptManager)
   }
 
   /**
@@ -65,21 +61,31 @@ export class VideoScriptGenerator {
   /**
    * Generate a complete video script from a topic.
    */
-  async generateCompleteScript(topic: string, options: VideoGenerationOptions): Promise<CompleteVideoScript> {
+  async generateCompleteScript(
+    topic: string,
+    options: VideoGenerationOptions,
+    onProgress?: (progress: number, message: string) => Promise<void>
+  ): Promise<CompleteVideoScript> {
     console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
 
-    const baseScript = await this.generateVideoStructure(topic, options)
+    if (onProgress) await onProgress(1, 'Studio: Planning initial structure...')
+    let baseScript = await this.generateVideoStructure(topic, options)
+
+    // NEW: Niche Expertise Pass (Script Doctoring)
+    if (onProgress) await onProgress(5, `ScriptDoctor: Analyzing "${topic}" specialized niche...`)
+    console.log(`[VideoScriptGen] Starting ScriptDoctor refinement for topic: "${topic}"...`)
+    baseScript = await this.scriptDoctor.doctorScript(topic, baseScript, options)
+
+    // NEW: Director Pass (Two-Pass Stage)
     const characterSheets: CharacterSheet[] = baseScript.characterSheets || []
 
-    let enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets)
-
     // Enforce eyelineMatch default and progressive zoom-in for revelation area
-    const totalDuration = enrichedScenes.reduce((acc, s) => {
+    const totalDuration = baseScript.scenes.reduce((acc, s) => {
       const end = s.timeRange?.end
       return typeof end === 'number' ? Math.max(acc, end) : acc
     }, 0)
 
-    enrichedScenes = enrichedScenes.map((scene, idx) => {
+    baseScript.scenes.forEach((scene, idx) => {
       if (!scene.eyelineMatch) scene.eyelineMatch = 'center'
 
       const startRatio = scene.timeRange.start / totalDuration
@@ -91,8 +97,32 @@ export class VideoScriptGenerator {
           timestamp: 0
         }
       }
-      return scene
     })
+
+    // NEW: Artistic Identity Pass (Art Direction)
+    if (onProgress) await onProgress(10, 'Art Director: Defining visual soul and brand identity...')
+    console.log(`[VideoScriptGen] Starting ArtDirector for visual identity...`)
+    const artisticStyle = await this.artDirector.defineVisualIdentity(topic, baseScript.fullNarration, options)
+
+    // NEW: Director Pass (Two-Pass Stage)
+    if (onProgress) await onProgress(15, 'Director: Plotting narrative arc and camera pacing...')
+    console.log('[VideoScriptGen] Starting Director Pass (Global Planning)...')
+    const globalPlan = await this.directorPlanner.planGlobalExecution(
+      topic,
+      baseScript.fullNarration,
+      baseScript.scenes,
+      characterSheets,
+      options
+    )
+
+    // Merge Art Director's style into the global plan
+    if (globalPlan) {
+      globalPlan.artisticStyle = artisticStyle
+    }
+
+    // NEW: Layout Pass removed per user request
+
+    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets, globalPlan)
 
     let actualTotal = enrichedScenes.reduce((acc, s) => {
       const end = s.timeRange?.end
@@ -113,9 +143,11 @@ export class VideoScriptGenerator {
       totalDuration: actualTotal,
       sceneCount: enrichedScenes.length,
       characterSheets,
-      scenes: enrichedScenes as any[],
+      scenes: enrichedScenes,
       aspectRatio: options.aspectRatio || '16:9',
-      backgroundMusic: baseScript.backgroundMusic
+      backgroundMusic: baseScript.backgroundMusic,
+      globalPlan,
+      globalAudio: options.globalAudioPath
     }
 
     try {
@@ -146,17 +178,41 @@ export class VideoScriptGenerator {
 
     console.log(`[VideoScriptGen] Calling LLM for structure...`)
 
-    const text = await this.llmService.generateContent(userPrompt, systemPrompt, 'application/json')
-    if (!text) throw new Error('Failed to generate video structure')
+    const MAX_RETRIES = 3
+    let parsed: ReturnType<typeof this.parseJsonResponse> | null = null
+    let lastError: Error | null = null
 
-    const parsed = this.parseJsonResponse(text)
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`[VideoScriptGen] Generation attempt ${attempt}/${MAX_RETRIES}...`)
+        const text = await this.llmService.generateContent(userPrompt, systemPrompt, 'application/json')
+        if (!text) throw new Error('API returned empty generated content or timeout')
 
-    if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
-      console.error('[VideoScriptGen] Invalid response structure:', String(text).substring(0, 500))
-      throw new Error("Generated script JSON is missing 'scenes' array")
+        parsed = this.parseJsonResponse(text)
+
+        if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
+          throw new Error("Generated script JSON is missing 'scenes' array")
+        }
+
+        // Successfully parsed and validated structure, break loop
+        break
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.warn(`[VideoScriptGen] Attempt ${attempt} failed: ${lastError.message}`)
+        if (attempt < MAX_RETRIES) {
+          const delay = attempt * 2000 // Exponential-ish backoff: 2s, 4s
+          console.log(`[VideoScriptGen] Waiting ${delay}ms before retrying...`)
+          await new Promise((res) => setTimeout(res, delay))
+        }
+      }
     }
 
-    parsed.scenes = this.postProcessScenes(parsed.scenes)
+    if (!parsed) {
+      console.error('[VideoScriptGen] All retry attempts failed.')
+      throw lastError || new Error('Failed to generate video structure after multiple attempts')
+    }
+
+    parsed.scenes = this.postProcessScenes(parsed.scenes, parsed.characterSheets || [])
     parsed.scenes = this.assignTimeRanges(parsed.scenes, options)
 
     return parsed
@@ -190,24 +246,34 @@ export class VideoScriptGenerator {
    * Run all editorial post-processing passes on raw scenes.
    * Each pass is self-contained and documented.
    */
-  private postProcessScenes(scenes: RawScene[]): RawScene[] {
-    this.deduplicateProps(scenes)
+  private postProcessScenes(scenes: RawScene[], characterSheets: CharacterSheet[]): RawScene[] {
+    this.enforceCharacterPresence(scenes, characterSheets)
     this.truncateExcessiveProps(scenes)
     this.deduplicateNarration(scenes)
-    this.trimDenseNarration(scenes)
-    this.enforceContextTypes(scenes)
     this.assignSoundEffectIds(scenes)
+    this.ensureRequiredFields(scenes)
     return scenes
   }
 
-  /** Remove props that already appeared in the previous scene. */
-  private deduplicateProps(scenes: RawScene[]): void {
+  /**
+   * Ensure every scene has at least one character.
+   * If the LLM generated a scene with empty characterIds, inject the first character
+   * from the character sheets as a fallback (narrator/observer role).
+   */
+  private enforceCharacterPresence(scenes: RawScene[], characterSheets: CharacterSheet[]): void {
+    if (!characterSheets || characterSheets.length === 0) return
+    const primaryCharId = characterSheets[0].id || characterSheets[0].name
+
     scenes.forEach((scene, idx) => {
-      if (idx > 0 && scene.props && Array.isArray(scene.props)) {
-        const prev = scenes[idx - 1]
-        if (prev.props && Array.isArray(prev.props)) {
-          scene.props = scene.props.filter((p) => !prev.props!.includes(p))
-          if (scene.props.length === 0) delete scene.props
+      const hasChars = Array.isArray(scene.characterIds) && scene.characterIds.length > 0
+      if (!hasChars) {
+        console.warn(
+          `[VideoScriptGen] Scene ${idx + 1} has no characters — injecting primary character "${primaryCharId}" as observer.`
+        )
+        scene.characterIds = [primaryCharId]
+        // If no character variant set, leave it to the prompt manager to figure out
+        if (!scene.characterVariant) {
+          scene.characterVariant = primaryCharId
         }
       }
     })
@@ -237,56 +303,6 @@ export class VideoScriptGenerator {
     })
   }
 
-  /**
-   * When two consecutive scenes both exceed 15 words, shorten the second one
-   * to reduce cognitive overload.
-   */
-  private trimDenseNarration(scenes: RawScene[]): void {
-    const denseThreshold = 15
-    const wordCounts = scenes.map((s) => (s.narration ? s.narration.trim().split(/\s+/).length : 0))
-
-    for (let i = 1; i < scenes.length; i++) {
-      if (wordCounts[i - 1] > denseThreshold && wordCounts[i] > denseThreshold) {
-        const tokens = scenes[i].narration!.trim().split(/\s+/)
-        const shortened = tokens.slice(0, Math.min(10, tokens.length)).join(' ')
-        scenes[i].narration = shortened.endsWith('.') ? shortened : `${shortened}.`
-      }
-    }
-  }
-
-  /** Map unknown contextType values to valid ones, drop the rest. */
-  private enforceContextTypes(scenes: RawScene[]): void {
-    const validContexts = new Set<SceneContextType>([
-      'quick-list',
-      'transition',
-      'story',
-      'explanation',
-      'detailed-breakdown',
-      'conclusion'
-    ])
-    const contextMap: Record<string, SceneContextType> = {
-      hook: 'story',
-      revelation: 'explanation',
-      intro: 'transition',
-      outro: 'conclusion'
-    }
-
-    scenes.forEach((scene, idx) => {
-      if (scene.contextType && !validContexts.has(scene.contextType as SceneContextType)) {
-        const key = scene.contextType.toLowerCase()
-        if (contextMap[key]) {
-          console.warn(
-            `[VideoScriptGen] Mapping unknown contextType "${scene.contextType}" in scene ${idx + 1} to "${contextMap[key]}"`
-          )
-          scene.contextType = contextMap[key]
-        } else {
-          console.warn(`[VideoScriptGen] Dropping invalid contextType "${scene.contextType}" in scene ${idx + 1}`)
-          delete scene.contextType
-        }
-      }
-    })
-  }
-
   /** Ensure every sound effect has a unique ID. */
   private assignSoundEffectIds(scenes: RawScene[]): void {
     scenes.forEach((scene, idx) => {
@@ -297,6 +313,17 @@ export class VideoScriptGenerator {
           }
         })
       }
+    })
+  }
+
+  /**
+   * Ensure required fields for EnrichedScene are present with defaults.
+   */
+  private ensureRequiredFields(scenes: RawScene[]): void {
+    scenes.forEach((scene) => {
+      if (!scene.narration) scene.narration = ''
+      if (!scene.actions) scene.actions = []
+      if (!scene.expression) scene.expression = 'neutral'
     })
   }
 
@@ -331,6 +358,7 @@ export class VideoScriptGenerator {
 
     let cursor = 0
     scenes.forEach((scene, index) => {
+      scene.sceneNumber = index + 1
       if (!scene.id) scene.id = `scene-${index + 1}-${Math.random().toString(36).slice(2, 9)}`
       if (!scene.timeRange || typeof scene.timeRange.start !== 'number' || typeof scene.timeRange.end !== 'number') {
         const start = index === 0 ? cursor : Math.max(0, cursor - overlap)
@@ -379,6 +407,7 @@ export class VideoScriptGenerator {
     minScene: number,
     maxScene: number
   ): number[] {
+    total = Math.round(total)
     if (count === 1) return [total]
 
     const weightSum = weights.reduce((a, b) => a + b, 0)
@@ -392,7 +421,7 @@ export class VideoScriptGenerator {
 
     const clamped = values.map((v) => Math.max(minScene, Math.min(maxScene, v)))
 
-    let diff = total - clamped.reduce((a, b) => a + b, 0)
+    let diff = Math.round(total - clamped.reduce((a, b) => a + b, 0))
     for (let i = 0; i < clamped.length && diff !== 0; i++) {
       if (diff > 0 && clamped[i] < maxScene) {
         const add = Math.min(diff, maxScene - clamped[i])
@@ -417,9 +446,10 @@ export class VideoScriptGenerator {
   private async enrichScenes(
     baseScenes: RawScene[],
     options: VideoGenerationOptions,
-    characterSheets: CharacterSheet[]
+    characterSheets: CharacterSheet[],
+    globalPlan?: GlobalNarrativePlan
   ): Promise<EnrichedScene[]> {
-    console.log(`[VideoScriptGen] Enriching ${baseScenes.length} scenes with prompts...`)
+    console.log(`[VideoScriptGen] Enriching ${baseScenes.length} scenes with prompts and global plan...`)
 
     const aspectRatio = options.aspectRatio || '16:9'
     const imageStyle = options.imageStyle
@@ -457,24 +487,35 @@ export class VideoScriptGenerator {
         : scene.characterVariant
     }))
 
-    // Build inter-scene visual memory from the resolved scenes and character sheets
+    // Build inter-scene visual memory progressively
     const memoryBuilder = new SceneMemoryBuilder()
-    const sceneMemory = memoryBuilder.build(resolvedScenes)
+    const sceneMemory: import('./scene-memory').SceneMemory = {
+      locations: new Map(),
+      characters: new Map(),
+      timeOfDay: '',
+      weather: ''
+    }
+    const charDescriptionMap = memoryBuilder.buildCharDescriptionMap(characterSheets)
 
-    // Second pass: generate image/animation prompts with memory context
+    // Second pass: generate image/animation prompts with progressive memory context
     return resolvedScenes.map((resolvedScene) => {
+      // 1. Process this scene into memory FIRST
+      memoryBuilder.processScene(resolvedScene, sceneMemory, charDescriptionMap)
+
       const imagePrompt = this.promptGenerator.generateImagePrompt(
         resolvedScene as EnrichedScene,
         false,
         aspectRatio,
         imageStyle,
-        sceneMemory
+        sceneMemory,
+        globalPlan
       )
 
       const animationPromptText =
         resolvedScene.animationPrompt != null
           ? resolveCharacters(resolvedScene.animationPrompt)
-          : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
+          : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle, globalPlan)
+              .instructions
 
       return {
         ...resolvedScene,

@@ -44,11 +44,16 @@ export class VideoGenerationService {
       }
 
       // Fallback: search by metadata (Best-Fit Match)
-      if (!model && (identifier.gender || identifier.age)) {
-        console.log(
-          `[VideoGenerationService] No model found for name "${identifier.name}". Trying metadata match: ${identifier.gender}, ${identifier.age}`
-        )
-        model = await this.characterModelRepository.findByMetadata(identifier.gender, identifier.age)
+      if (!model) {
+        const gender = identifier.gender && identifier.gender !== 'unknown' ? identifier.gender : undefined
+        const age = identifier.age && identifier.age !== 'unknown' ? identifier.age : undefined
+
+        if (gender || age) {
+          console.log(
+            `[VideoGenerationService] No model found for name "${identifier.name}". Trying metadata match: ${gender || 'any'}, ${age || 'any'}`
+          )
+          model = await this.characterModelRepository.findByMetadata(gender, age)
+        }
       }
 
       if (!model || !model.imageUrl) return null

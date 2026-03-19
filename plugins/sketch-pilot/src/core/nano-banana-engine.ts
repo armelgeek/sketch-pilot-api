@@ -1,5 +1,7 @@
+import { exec } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { promisify } from 'node:util'
 import { GoogleGenAI } from '@google/genai'
 import axios from 'axios'
 import sharp from 'sharp'
@@ -16,6 +18,7 @@ import {
   videoGenerationOptionsSchema,
   type AssCaptionConfig,
   type BrandingConfig,
+  type CharacterSheet,
   type CompleteVideoPackage,
   type CompleteVideoScript,
   type EnrichedScene,
@@ -30,6 +33,7 @@ import { TimingMapper } from '../utils/timing-mapper'
 
 import { PromptManager, type PromptManagerConfig } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
+import type { SceneMemory } from './scene-memory'
 import '../utils/polyfills'
 
 // Types and Schemas
@@ -107,15 +111,15 @@ export class NanoBananaEngine {
         backgroundColor: '#F5F5F5'
       }
     )
-    this.systemPrompt = systemPrompt ?? this.promptManager.buildScriptCompletePrompt('', {} as any)
+    this.systemPrompt = systemPrompt ?? this.promptManager.buildScriptCompletePrompt('', this.currentOptions)
 
     this.currentImageProvider = imageConfig?.provider || 'gemini'
     this.currentLLMProvider = llmConfig?.provider || 'gemini'
 
     this.sceneCache = new SceneCacheService()
 
-    // Pass the shared PromptManager into VideoScriptGenerator via constructor injection
-    this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+    // Will be lazily instantiated properly when generateStructuredScript is called
+    this.scriptGenerator = null as any
 
     // Initialize queue with provider-specific rate limits and circuit breakers
     // maxConcurrency is total global concurrency across all providers
@@ -221,26 +225,129 @@ export class NanoBananaEngine {
     this._transcriptionService = service
   }
 
-  async generateImage(scene: EnrichedScene, baseImages: string[], filename: string): Promise<string> {
+  private getSceneImageStyle(scene: EnrichedScene, script?: CompleteVideoScript) {
+    type ImageStyle = NonNullable<VideoGenerationOptions['imageStyle']>
+    const globalStyle: Partial<ImageStyle> = this.currentOptions?.imageStyle ?? {}
+
+    let specificCharacterDescription = ''
+
+    if (script?.characterSheets && script.characterSheets.length > 0) {
+      // Find the primary character for this scene using a strict match first
+      const mainCharId = scene.characterIds?.[0] || scene.characterVariant
+      let matchingSheet: CharacterSheet | undefined
+
+      if (mainCharId) {
+        matchingSheet = script.characterSheets.find(
+          (c) => c.id === mainCharId || c.name === mainCharId || c.role === mainCharId
+        )
+      }
+
+      // Warn if casting fails in a multi-character script (avoids silent drift)
+      if (mainCharId && !matchingSheet && script.characterSheets.length > 1) {
+        console.warn(
+          `[NanoBanana] ⚠ Scene ${scene.id} requested character "${mainCharId}" but no matching sheet was found. Visuals may drift.`
+        )
+      }
+
+      // Only fallback to sheet[0] when the script has exactly ONE character sheet
+      // (avoids applying Eleanor's female description to Mr. Henderson's or Mark's scenes)
+      if (!matchingSheet && script.characterSheets.length === 1) {
+        matchingSheet = script.characterSheets[0]
+      }
+
+      if (matchingSheet) {
+        const metadata = matchingSheet.metadata
+
+        // Prefer the full imagePrompt from the character sheet: it already encodes
+        // gender, age, appearance and clothing in one coherent sentence.
+        const sheetImagePrompt = (matchingSheet as any).imagePrompt as string | undefined
+        const desc = matchingSheet.appearance?.description || ''
+
+        if (sheetImagePrompt) {
+          specificCharacterDescription = sheetImagePrompt
+        } else {
+          let genderPrompt = ''
+          if (metadata?.gender === 'male') genderPrompt = 'male character, a man'
+          else if (metadata?.gender === 'female') genderPrompt = 'female character, a woman'
+
+          const age = metadata?.age && metadata.age !== 'unknown' ? metadata.age : ''
+
+          const identityParts = [age, genderPrompt, desc].filter(Boolean)
+          if (identityParts.length > 0) {
+            specificCharacterDescription = `Subject (${identityParts.join(', ')})`
+          }
+        }
+
+        console.log(
+          `[NanoBanana] Scene ${scene.id} → character sheet: "${matchingSheet.name}" (${metadata?.gender ?? 'unknown'}) — desc: ${specificCharacterDescription.slice(0, 80)}…`
+        )
+      }
+    }
+
+    // Safely combine the specific scene character description with the global style
+    let finalCharacterDescription = specificCharacterDescription
+    if (globalStyle.characterDescription) {
+      finalCharacterDescription = finalCharacterDescription
+        ? `${finalCharacterDescription} - ${globalStyle.characterDescription}`
+        : globalStyle.characterDescription
+    }
+
+    return {
+      ...globalStyle,
+      characterDescription: finalCharacterDescription
+    }
+  }
+
+  async generateImage(
+    scene: EnrichedScene,
+    baseImages: string[],
+    filename: string,
+    script?: CompleteVideoScript,
+    bypassCache: boolean = false,
+    memory?: SceneMemory
+  ): Promise<string> {
     const hasReferenceImages = baseImages.length > 0
+    const sceneImageStyle = this.getSceneImageStyle(scene, script)
     const { prompt: fullPrompt } = this.promptManager.buildImagePrompt(
       scene,
       hasReferenceImages,
       this.currentOptions?.aspectRatio || '16:9',
-      this.currentOptions?.imageStyle
+      sceneImageStyle,
+      memory,
+      script?.globalPlan,
+      script?.characterSheets
     )
+
+    // Guard: abstract scenes (no characters) must stay on-style.
+    const isAbstractScene =
+      (!scene.characterIds || scene.characterIds.length === 0) &&
+      (!scene.characterVariant || scene.characterVariant === 'none') &&
+      !script?.characterSheets?.length
+
+    let effectivePrompt = fullPrompt
+    if (isAbstractScene) {
+      effectivePrompt = `FLAT 2D ILLUSTRATION STYLE. Simple, clean, diagrammatic.\n${fullPrompt}`
+    }
 
     const systemInstruction = this.promptManager.buildImageSystemInstruction(hasReferenceImages)
 
-    const cacheKey = `${scene.id}-${this.currentOptions?.qualityMode || 'standard'}-${this.currentOptions?.aspectRatio || '16:9'}`
-    const cachedResult = this.sceneCache.get(fullPrompt, {
-      sceneId: scene.id,
-      imageStyle: this.currentOptions?.imageStyle
-    })
+    if (!bypassCache) {
+      const cachedResult = this.sceneCache.get(effectivePrompt, {
+        sceneId: scene.id,
+        imageStyle: this.currentOptions?.imageStyle
+      })
 
-    if (cachedResult) {
-      console.log(`[NanoBanana] ✓ Using cached image for scene ${scene.id}`)
-      return cachedResult
+      if (cachedResult && fs.existsSync(cachedResult)) {
+        console.log(`[NanoBanana] ✓ Using cached image for scene ${scene.id} from ${cachedResult}`)
+        if (cachedResult !== filename) {
+          fs.copyFileSync(cachedResult, filename)
+        }
+        return filename
+      } else if (cachedResult) {
+        console.log(`[NanoBanana] ⚠ Cached image not found on disk, regenerating...`)
+      }
+    } else {
+      console.log(`[NanoBanana] 🚀 Bypassing cache for scene ${scene.id} due to reprompt/force...`)
     }
 
     try {
@@ -253,24 +360,24 @@ export class NanoBananaEngine {
 
       const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
 
-      const result = await this.imageService.generateImage(fullPrompt, filename, {
-        quality,
-        smartUpscale: true,
-        format: 'webp',
+      const startTime = Date.now()
+      const imageUrl = await this.imageService.generateImage(effectivePrompt, filename, {
         aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-        removeBackground: false,
-        skipTrim: true,
         referenceImages: baseImages,
-        systemInstruction,
-        seed
+        systemInstruction
       })
 
-      this.sceneCache.set(fullPrompt, result, {
-        sceneId: scene.id,
-        imageStyle: this.currentOptions?.imageStyle
-      })
-      return result
-    } catch (error: any) {
+      const duration = Date.now() - startTime
+      console.log(`[NanoBanana] ✓ Image generated in ${duration}ms for scene ${scene.id}`)
+
+      if (!bypassCache) {
+        this.sceneCache.set(effectivePrompt, imageUrl, {
+          sceneId: scene.id,
+          imageStyle: this.currentOptions?.imageStyle
+        })
+      }
+      return imageUrl
+    } catch (error: unknown) {
       if (this.currentImageProvider !== 'gemini' && this.isNetworkError(error)) {
         console.warn(`[NanoBanana] Network error with ${this.currentImageProvider}, falling back to Gemini...`)
         try {
@@ -295,7 +402,7 @@ export class NanoBananaEngine {
             imageStyle: this.currentOptions?.imageStyle
           })
           return result
-        } catch (fallbackError) {
+        } catch (fallbackError: unknown) {
           console.error(`[NanoBanana] Fallback to Gemini also failed:`, fallbackError)
           throw fallbackError
         }
@@ -329,9 +436,9 @@ export class NanoBananaEngine {
   /**
    * Detect if error is network-related
    */
-  private isNetworkError(error: any): boolean {
-    const message = error?.message || ''
-    const code = error?.code || ''
+  private isNetworkError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as any).code) : ''
     return (
       code === 'ETIMEDOUT' ||
       code === 'ECONNREFUSED' ||
@@ -350,8 +457,10 @@ export class NanoBananaEngine {
     scene: EnrichedScene,
     baseImages: string[],
     targetDir: string,
-    lastSceneImage?: string,
-    isReprompt: boolean = false
+    lastSceneImageBase64?: string,
+    isReprompt: boolean = false,
+    script?: CompleteVideoScript,
+    memory?: SceneMemory
   ): Promise<void> {
     console.log(`\n--- Composing Scene: ${scene.id} ---`)
     const options = this.currentOptions || ({} as any)
@@ -370,17 +479,26 @@ export class NanoBananaEngine {
     const imagePath = path.join(targetDir, `scene.webp`)
 
     const effectiveBaseImages = [...baseImages]
-    if (scene.continueFromPrevious && lastSceneImage) {
-      effectiveBaseImages.push(lastSceneImage)
+    if (scene.continueFromPrevious && lastSceneImageBase64) {
+      effectiveBaseImages.push(lastSceneImageBase64)
     }
 
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
 
+    const tempBgPath = path.join(targetDir, 'temp_bg.webp')
     try {
-      // Check if scene image already exists (but NOT if this is a reprompt)
-
-      const tempBgPath = path.join(targetDir, 'temp_bg.webp')
-      await this.generateImage(scene, effectiveBaseImages, tempBgPath)
+      // Check if scene image already exists
+      const finalImagePath = await this.generateImage(
+        scene,
+        effectiveBaseImages,
+        tempBgPath,
+        script,
+        isReprompt,
+        memory
+      )
+      if (!finalImagePath) {
+        throw new Error(`generateImage failed to return a valid path (possible API rejection or safety block).`)
+      }
 
       const composition = sharp(tempBgPath).resize(width, height, { fit: 'cover' })
 
@@ -487,7 +605,13 @@ export class NanoBananaEngine {
       } else {
         await composition.webp().toFile(imagePath)
       }
-
+    } catch (error) {
+      console.error(
+        `[NanoBanana] Composition failed for scene ${scene.id}:`,
+        error instanceof Error ? error.message : error
+      )
+      throw error
+    } finally {
       // Clean up temporary background file
       if (fs.existsSync(tempBgPath)) {
         try {
@@ -496,18 +620,6 @@ export class NanoBananaEngine {
           // ignore cleanup errors
         }
       }
-    } catch (error) {
-      console.error(
-        `[NanoBanana] Composition failed for scene ${scene.id}, creating white fallback:`,
-        error instanceof Error ? error.message : error
-      )
-      console.log(`[NanoBanana] Writing fallback white image to ${imagePath} (${width}x${height})`)
-      await sharp({
-        create: { width, height, channels: 3, background: '#FFFFFF' }
-      })
-        .webp()
-        .toFile(imagePath)
-      console.log(`[NanoBanana] Fallback image written, exists: ${fs.existsSync(imagePath)}`)
     }
 
     // Generate thumbnail from scene image
@@ -538,6 +650,7 @@ export class NanoBananaEngine {
     const clipDuration = options.animationClipDuration || 6
 
     if (animationMode === 'ai' && scene.animationPrompt) {
+      hasVideo = true // We assume true for manifest since generation is queued and required
       await this.generationQueue.add(
         async () => {
           try {
@@ -625,23 +738,23 @@ export class NanoBananaEngine {
    * @param baseImages - Reference images as base64 strings for character consistency
    * @param targetDir - The scene directory where scene.webp and thumbnail.jpg will be written
    */
-  async regenerateSceneImage(scene: EnrichedScene, baseImages: string[], targetDir: string): Promise<void> {
+  async regenerateSceneImage(
+    scene: EnrichedScene,
+    baseImages: string[],
+    targetDir: string,
+    script?: CompleteVideoScript
+  ): Promise<void> {
     console.log(`\n--- Regenerating Scene Image: ${scene.id} ---`)
-    const aspectRatio = this.currentOptions?.aspectRatio || '16:9'
-    const { prompt: fullPrompt } = this.promptManager.buildImagePrompt(
-      scene,
-      baseImages.length > 0,
-      aspectRatio,
-      this.currentOptions?.imageStyle
-    )
     const imagePath = path.join(targetDir, 'scene.webp')
 
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true })
     }
 
+    // Pass script so getSceneImageStyle can resolve the correct character sheet
+    // (gender, appearance) even during re-generation.
     await this.generationQueue.add(
-      () => this.generateImage(scene, baseImages, imagePath),
+      () => this.generateImage(scene, baseImages, imagePath, script),
       `Scene ${scene.id} Image Regeneration`,
       this.currentImageProvider
     )
@@ -669,12 +782,14 @@ export class NanoBananaEngine {
     // Auto-initialize Whisper local if not already done
     if (!this.transcriptionService) {
       console.log(`[NanoBanana-Sync] Initializing Whisper for sync...`)
-      this.transcriptionService = TranscriptionServiceFactory.create({
-        provider: 'whisper-local',
-        model: 'base',
-        device: 'cpu',
-        language: 'en'
-      })
+      this.transcriptionService = TranscriptionServiceFactory.create(
+        (this.currentTranscriptionConfig as any) || {
+          provider: 'whisper-local',
+          model: 'base',
+          device: 'cpu',
+          language: 'en'
+        }
+      )
     }
 
     console.log(`[NanoBanana-Sync] Transcribing global audio for project: ${path.basename(projectDir)}`)
@@ -741,19 +856,22 @@ export class NanoBananaEngine {
    */
   async generateStructuredScript(
     topic: string,
-    options: Partial<VideoGenerationOptions> = {}
+    options: Partial<VideoGenerationOptions> = {},
+    onProgress?: (progress: number, message: string) => Promise<void>
   ): Promise<CompleteVideoScript> {
     const validOptions = videoGenerationOptionsSchema.parse(options)
 
     // Dynamic LLM provider switching
-    if (validOptions.llmProvider !== this.currentLLMProvider) {
-      console.log(`[NanoBanana] Switching LLM provider: ${this.currentLLMProvider} -> ${validOptions.llmProvider}`)
-      this.currentLLMProvider = validOptions.llmProvider
-      this.llmService = LLMServiceFactory.create({
-        provider: this.currentLLMProvider,
-        apiKey: this.currentLLMProvider === 'grok' ? process.env.XAI_API_KEY || this.apiKey : this.apiKey,
-        cacheSystemPrompt: true // ← Option B: Enable prompt caching
-      })
+    if (!this.scriptGenerator || validOptions.llmProvider !== this.currentLLMProvider) {
+      if (validOptions.llmProvider && validOptions.llmProvider !== this.currentLLMProvider) {
+        console.log(`[NanoBanana] Switching LLM provider: ${this.currentLLMProvider} -> ${validOptions.llmProvider}`)
+        this.currentLLMProvider = validOptions.llmProvider
+        this.llmService = LLMServiceFactory.create({
+          provider: this.currentLLMProvider,
+          apiKey: this.currentLLMProvider === 'grok' ? process.env.XAI_API_KEY || this.apiKey : this.apiKey,
+          cacheSystemPrompt: true // ← Option B: Enable prompt caching
+        })
+      }
 
       // Re-initialize generator with new service, sharing the same PromptManager
       this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
@@ -775,7 +893,7 @@ export class NanoBananaEngine {
 
     try {
       return await this.generationQueue.add(
-        () => this.scriptGenerator.generateCompleteScript(topic, validOptions),
+        () => this.scriptGenerator.generateCompleteScript(topic, validOptions, onProgress),
         `Script Generation: ${topic}`,
         'llm'
       )
@@ -793,10 +911,11 @@ export class NanoBananaEngine {
 
         // Re-initialize generator with Claude
         this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+        ;(validOptions as any).llmProvider = 'haiku' // Propagate the provider change to options
 
         // Retry with Claude Haiku
         try {
-          return await this.scriptGenerator.generateCompleteScript(topic, validOptions)
+          return await this.scriptGenerator.generateCompleteScript(topic, validOptions, onProgress)
         } catch (fallbackError) {
           console.error(`[NanoBanana] Fallback to Claude Haiku also failed:`, fallbackError)
           throw fallbackError
@@ -834,12 +953,17 @@ export class NanoBananaEngine {
       uniqueCharacters.push('standard')
     }
 
+    const artisticStyle = script.globalPlan?.artisticStyle
+    const styleCue = artisticStyle
+      ? `Visual Style: Texture: ${artisticStyle.textureAndGrain}. Line Quality: ${artisticStyle.lineQuality}. Color Harmony: ${artisticStyle.colorHarmonyStrategy}.`
+      : ''
+
     try {
       const bibleImageUrl = await this.imageService.generateImage(
-        `CHARACTER BIBLE: Consistent ${uniqueCharacters.join(', ')} design.`,
+        `CHARACTER BIBLE: Consistent ${uniqueCharacters.join(', ')} design. ${styleCue}`,
         path.join(projectDir, 'character_bible.webp'),
         {
-          aspectRatio: '1:1', // Grid is best as square
+          aspectRatio: '1:1',
           referenceImages: existingBaseImages,
           systemInstruction: `You are creating a CHARACTER REFERENCE SHEET. 
 Output a 2x2 grid. 
@@ -848,6 +972,7 @@ ${
     ? `Include all characters: ${uniqueCharacters.join(', ')}. Each should have at least one full-body and one clear face shot.`
     : 'Include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
 }
+${styleCue}
 PLAIN WHITE BACKGROUND.`
         }
       )
@@ -1220,7 +1345,7 @@ PLAIN WHITE BACKGROUND.`
     } else if (validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
 
-      const forceRegen = (validOptions as any).forceRegenerateAudio
+      const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
 
       // If voice changed, delete cached narration so it gets re-generated with the new voice
       if (forceRegen && fs.existsSync(globalAudioPath)) {
@@ -1339,6 +1464,16 @@ PLAIN WHITE BACKGROUND.`
           )
         }
       }
+    } else if (skipAudio && !validOptions.generateOnlyAssembly) {
+      console.log(`[NanoBanana] Audio skipped. Estimating timing based on text length for scenes...`)
+      let currentTime = 0
+      script.scenes.forEach((scene) => {
+        const wordCount = (scene.narration || '').split(/\s+/).length
+        const duration = Math.max(3, wordCount / 2.5) // roughly ~2.5 words per second
+        scene.timeRange = { start: currentTime, end: currentTime + duration }
+        currentTime += duration
+      })
+      script.totalDuration = currentTime
     }
 
     // --- SCENE COMPOSITION ---
@@ -1356,6 +1491,11 @@ PLAIN WHITE BACKGROUND.`
         const scene = script.scenes[i]
 
         if (validOptions.repromptSceneIndex !== undefined && validOptions.repromptSceneIndex !== i) {
+          const expectedSceneDir = path.join(scenesDir, scene.id)
+          const expectedImagePath = path.join(expectedSceneDir, 'scene.webp')
+          if (fs.existsSync(expectedImagePath)) {
+            lastSceneImageBase64 = fs.readFileSync(expectedImagePath).toString('base64')
+          }
           continue
         }
 
@@ -1399,12 +1539,19 @@ PLAIN WHITE BACKGROUND.`
 
         // Compose scene (generates background internally, then overlays text)
         const isReprompt = validOptions.repromptSceneIndex === i
-        await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt)
+        try {
+          // Initialize memory if not exists (minimal fallback)
+          const memory = (script as any).memory || { locations: new Map() }
 
-        // Keep track of the last generated image to allow for "Scene Continuation"
-        const lastImagePath = path.join(sceneDir, 'scene.webp')
-        if (fs.existsSync(lastImagePath)) {
-          lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
+          await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt, script, memory)
+
+          // Keep track of the last generated image to allow for "Scene Continuation"
+          const lastImagePath = path.join(sceneDir, 'scene.webp')
+          if (fs.existsSync(lastImagePath)) {
+            lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
+          }
+        } catch (sceneError) {
+          console.error(`[NanoBanana] Failed to generate scene ${scene.id}, continuing to next scene...`, sceneError)
         }
       }
 
@@ -1532,8 +1679,6 @@ PLAIN WHITE BACKGROUND.`
   }
 
   private async stitchAudioFiles(filePaths: string[], outputPath: string): Promise<void> {
-    const { exec } = require('node:child_process')
-    const { promisify } = require('node:util')
     const execAsync = promisify(exec)
 
     const listFile = `${outputPath}.list.txt`

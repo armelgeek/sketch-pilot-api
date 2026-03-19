@@ -23,6 +23,9 @@ export enum QualityMode {
   HIGH_QUALITY = 'high-quality'
 }
 
+export type VideoType = 'explainer' | 'marketing' | 'educational' | 'storytelling' | 'tutorial' | 'social' | 'other'
+export type VideoGenre = 'professional' | 'casual' | 'cinematic' | 'corporate' | 'humorous' | 'documentary' | 'other'
+
 /**
  * Kokoro TTS voice presets
  *
@@ -392,11 +395,109 @@ export const enrichedSceneSchema = z.object({
     .describe(
       'List of keyword-to-visual mappings. When the narrator says a keyword, the scene visual swaps to a new image for the duration of that word/phrase, then returns to default.'
     ),
+  visualAnchors: z
+    .array(
+      z.object({
+        text: z.string().describe('The word or phrase to be drawn/anchored in the scene'),
+        position: z
+          .enum(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'])
+          .default('top-left')
+          .describe('Where to anchor the text visually'),
+        style: z
+          .enum(['hand-drawn', 'bold', 'chalk', 'marker'])
+          .default('hand-drawn')
+          .describe('Visual style of the anchored text')
+      })
+    )
+    .optional()
+    .describe('Key terms to be visually integrated/drawn into the whiteboard scene'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
+
+/**
+ * Global Narrative Plan for the Director Pass.
+ * Defines the visual and emotional arc across the entire video.
+ */
+export const globalNarrativePlanSchema = z.object({
+  visualArc: z.object({
+    lightingEvolution: z.string().describe('How lighting changes from start to end (e.g. "bright to moody")'),
+    colorPaletteShift: z.string().describe('How colors evolve (e.g. "saturated to monochrome")'),
+    styleContinuity: z.string().describe('Key visual elements to maintain (e.g. "minimalist lines", "soft watercolor")')
+  }),
+  recurringSymbols: z
+    .array(
+      z.object({
+        element: z.string().describe('The object/symbol (e.g. "Red Umbrella")'),
+        meaning: z.string().describe('What it represents'),
+        scenes: z.array(z.string()).describe('Scene IDs or descriptors where it must appear')
+      })
+    )
+    .optional(),
+  emotionalCurve: z
+    .array(
+      z.object({
+        stage: z.string(),
+        tension: z.number().min(0).max(10),
+        visualVibe: z.string().describe('How the visual style reflects the tension')
+      })
+    )
+    .describe('Emotional arc mapping to visual vibe'),
+  foreshadowing: z
+    .array(
+      z.object({
+        element: z.string().describe('The object or hint to introduce early'),
+        appearsInScenes: z.array(z.string()).describe('Scene IDs or indices where it should appear as a hint'),
+        payoffSceneId: z.string().describe('The scene ID where this element becomes critical'),
+        hintDescription: z
+          .string()
+          .describe('How to subtly show it (e.g. "blurry in background", "on a distant shelf")')
+      })
+    )
+    .optional()
+    .describe('Elements introduced early to prepare for later payoffs'),
+  visualStorytelling: z
+    .object({
+      keyVisualMetaphors: z.array(z.string()).describe('Visual metaphors to represent abstract concepts'),
+      clarityStrategy: z.string().describe('Strategy to ensure the message is understood without audio')
+    })
+    .optional()
+    .describe('Directives to make the video understandable without sound'),
+  callbacks: z
+    .array(
+      z.object({
+        element: z.string().describe('The object or composition to reuse'),
+        originalSceneId: z.string().describe('Where it first appeared'),
+        callbackSceneId: z.string().describe('Where it reappears to show evolution'),
+        meaning: z.string().describe('The resonance or change being highlighted')
+      })
+    )
+    .optional()
+    .describe('Visual references to previous scenes to show evolution or memory'),
+  pacing: z
+    .object({
+      cameraMovementStrategy: z.string().describe('Global camera movement style (static, dynamic, shaky)'),
+      transitionPulse: z
+        .string()
+        .describe('How transitions should follow the emotional arc (e.g. "rapid cuts", "slow fades")')
+    })
+    .optional()
+    .describe('Global rhythm and movement directives'),
+  artisticStyle: z
+    .object({
+      textureAndGrain: z.string().describe('Visual texture (e.g. "rough paper", "clean digital", "soft grain")'),
+      lineQuality: z.string().describe('Line style (e.g. "tapered ink", "uniform charcoal", "fuzzy pencil")'),
+      colorHarmonyStrategy: z
+        .string()
+        .describe('Strategy for color consistency (e.g. "triadic brights", "analogous blues")')
+    })
+    .optional()
+    .describe('Directives from the Art Director for visual consistency')
+})
+
+export type GlobalNarrativePlan = z.infer<typeof globalNarrativePlanSchema>
 
 /**
  * Context types used by the scene-duration model.
@@ -471,6 +572,9 @@ export const completeVideoScriptSchema = z.object({
     .optional()
     .describe('Suggested mood/genre for background music'),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('16:9').describe('Aspect ratio of the video'),
+  globalPlan: globalNarrativePlanSchema
+    .optional()
+    .describe('Global narrative and visual strategy from the Director Pass'),
   globalAudio: z.string().optional().describe('Path to the global audio narration file if used')
 })
 

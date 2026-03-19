@@ -100,20 +100,35 @@ export class SceneMemoryBuilder {
     }
 
     // Build a character name/id → description lookup from the character sheets
+    const charDescriptionMap = this.buildCharDescriptionMap(characterSheets)
+
+    for (const scene of scenes) {
+      this.processScene(scene, memory, charDescriptionMap)
+    }
+
+    return memory
+  }
+
+  /**
+   * Builds the character lookup map for processing scenes.
+   */
+  public buildCharDescriptionMap(characterSheets: CharacterSheet[]): Map<string, string> {
     const charDescriptionMap = new Map<string, string>()
     for (const sheet of characterSheets) {
       const desc = [sheet.name, sheet.appearance?.description, sheet.appearance?.clothing].filter(Boolean).join(', ')
       if (sheet.id) charDescriptionMap.set(sheet.id, desc)
       charDescriptionMap.set(sheet.name, desc)
     }
+    return charDescriptionMap
+  }
 
-    for (const scene of scenes) {
-      this.processLocation(scene, memory)
-      this.processCharacters(scene, memory, charDescriptionMap)
-      this.processTemporalContext(scene, memory)
-    }
-
-    return memory
+  /**
+   * Incrementally processes a single scene into the given SceneMemory object.
+   */
+  public processScene(scene: SceneMemoryInput, memory: SceneMemory, charDescriptionMap: Map<string, string>): void {
+    this.processLocation(scene, memory)
+    this.processCharacters(scene, memory, charDescriptionMap)
+    this.processTemporalContext(scene, memory)
   }
 
   /**
@@ -159,10 +174,10 @@ export class SceneMemoryBuilder {
         })
       } else {
         // Later appearance — update current props and emotion
-        if (scene.props && scene.props.length > 0) {
+        if (scene.props !== undefined) {
           existing.currentProps = scene.props
         }
-        if (scene.expression) {
+        if (scene.expression !== undefined && scene.expression !== null) {
           existing.currentEmotion = scene.expression
         }
       }

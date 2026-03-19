@@ -43,7 +43,8 @@ export const CREDIT_COSTS = {
   SUBTITLES: 2,
   SUGGEST_TOPIC: 5,
   EXPORT_720P: 5,
-  EXPORT_1080P: 10
+  EXPORT_1080P: 10,
+  STUDIO_PASS_SURCHARGE: 5 // Fee for ScriptDoctor + ArtDirector + Director passes
 }
 
 export const PLAN_MONTHLY_LIMITS: Record<string, number> = {

@@ -101,5 +101,6 @@ export interface VideoJobData {
     backgroundMusicVolume?: number
     audioOverlap?: number
     backgroundColor?: string
+    imageStyle?: any
   }
 }

@@ -86,7 +86,7 @@ function msToAss(ms: number): string {
   const s = Math.floor(totalCs / 100) % 60
   const m = Math.floor(totalCs / 6000) % 60
   const h = Math.floor(totalCs / 360000)
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '00')}`
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
 }
 
 function hexToAssColor(hex: string, alpha = '00'): string {
@@ -101,8 +101,12 @@ function springKeyframes(
   from: number,
   to: number,
   durationMs: number,
-  opts: { stiffness?: number; damping?: number; mass?: number } = {}
+  opts: { stiffness?: number; damping?: number; mass?: number; threshold?: number } = {}
 ): Array<{ ms: number; value: number }> {
+  if (durationMs <= 0) {
+    return [{ ms: 0, value: to }]
+  }
+
   const { stiffness = 250, damping = 28, mass = 1 } = opts
   const frames: Array<{ ms: number; value: number }> = []
   const stepMs = 16
@@ -114,7 +118,9 @@ function springKeyframes(
     vel += (force / mass) * (stepMs / 1000)
     pos += vel * (stepMs / 1000)
     frames.push({ ms: t, value: pos })
-    if (Math.abs(pos - to) < 0.3 && Math.abs(vel) < 0.3) break
+
+    const threshold = opts.threshold ?? 0.3
+    if (Math.abs(pos - to) < threshold && Math.abs(vel) < threshold) break
   }
 
   if (frames.length > 0 && frames.at(-1)!.ms < durationMs) {
@@ -254,7 +260,18 @@ export class AssCaptionService {
     if (!this.enabled) {
       return ''
     }
-    const lines = this.buildLines(words)
+
+    // Fix Whisper overlaps: clamp duration to not bleed into the next word
+    const clampedWords = words.map((w, i) => {
+      const nextWord = words[i + 1]
+      let durationMs = w.durationMs
+      if (nextWord && w.startMs + durationMs > nextWord.startMs) {
+        durationMs = Math.max(0, nextWord.startMs - w.startMs)
+      }
+      return { ...w, durationMs }
+    })
+
+    const lines = this.buildLines(clampedWords)
     const header = this.buildHeader()
     const body = lines.map((line) => this.buildLineEvents(line)).join('\n')
     return `${header}\n${body}`
@@ -281,7 +298,9 @@ export class AssCaptionService {
       let shouldBreak = false
       // Immediate break on punctuation (period, exclamation, question mark, colon)
       if (hasStrongBreak) shouldBreak = true
-      // Break if the chunk is getting too long
+      // Break if we hit the configured wordsPerLine limit
+      else if (currentChunk.length >= this.wordsPerLine) shouldBreak = true
+      // Break if the chunk is getting too long (fallback character limit)
       else if (currentChars >= MAX_CHARS) shouldBreak = true
       // Break on pauses in narration (> 350ms)
       else if (pause > 350) shouldBreak = true
@@ -376,15 +395,9 @@ export class AssCaptionService {
     return `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}\\bord${this.borderSize}\\shad${this.shadowSize}}`
   }
 
-  private getStyleSpacingMultiplier(style: AssCaptionStyle): number {
-    // Previously these multipliers compensated for the inaccurate old estimator.
-    // With the per-glyph CHAR_ADV table they are no longer needed — keep at 1.
-    return 1
-  }
-
   private getEffectiveWordSpacing(): number {
     if (this.hasCustomWordSpacing) return this.wordSpacing
-    return Math.max(2, Math.round(this.wordSpacing * this.getStyleSpacingMultiplier(this.style)))
+    return Math.max(2, Math.round(this.wordSpacing))
   }
 
   private getBaseCharWidthRatio(fontFamily: string): number {
@@ -477,7 +490,34 @@ export class AssCaptionService {
     '`': 0.34,
     '^': 0.62,
     '*': 0.46,
-    $: 0.56
+    $: 0.56,
+    // Lowercase (calibrated at ~80% of uppercase height/width)
+    a: 0.54,
+    b: 0.54,
+    c: 0.5,
+    d: 0.54,
+    e: 0.54,
+    f: 0.32,
+    g: 0.54,
+    h: 0.54,
+    i: 0.22,
+    j: 0.22,
+    k: 0.5,
+    l: 0.22,
+    m: 0.82,
+    n: 0.54,
+    o: 0.54,
+    p: 0.54,
+    q: 0.54,
+    r: 0.36,
+    s: 0.46,
+    t: 0.34,
+    u: 0.54,
+    v: 0.5,
+    w: 0.72,
+    x: 0.5,
+    y: 0.5,
+    z: 0.46
   }
 
   private cleanWord(word: string): string {
@@ -488,9 +528,8 @@ export class AssCaptionService {
   }
 
   private estimateWordWidthPx(word: string, fontSize: number): number {
-    const upper = word.toUpperCase()
     let units = 0
-    for (const ch of upper) {
+    for (const ch of word) {
       units += AssCaptionService.CHAR_ADV[ch] ?? 0.6 // fallback = average
     }
     return Math.max(1, Math.round(units * fontSize * this.charWidthRatio))
@@ -515,7 +554,7 @@ WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,${this.fontFamily},${fs},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,${this.borderSize},${this.shadowSize},1,0,0,0,1
-Style: Pill,${this.fontFamily},${fs},&H00${assBlue.slice(2)},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,1,0,0,0,1
+Style: Pill,${this.fontFamily},${fs},${assBlue},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,1,0,0,0,1
 Style: Words,${this.fontFamily},${fs},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,${this.borderSize},${this.shadowSize},1,0,0,0,1
 
 [Events]
@@ -634,7 +673,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
           if (i < activeIdx) {
             return `{\\c${this.inactiveColor}\\bord${this.borderSize}\\shad${this.shadowSize}}${this.cleanWord(w.word)}`
           } else if (i === activeIdx) {
-            return `{\\c${this.highlightColor}\\bord${this.borderSize}\\shad${this.shadowSize}\\fad(${FADE_MS},0)}${this.cleanWord(w.word)}`
+            return `{\\c${this.highlightColor}\\bord${this.borderSize}\\shad${this.shadowSize}\\alpha&HFF&\\t(0,${FADE_MS},\\alpha&H00&)}${this.cleanWord(w.word)}`
           } else {
             return `{\\c${this.inactiveColor}\\alpha&HFF&\\bord${this.borderSize}\\shad${this.shadowSize}}${this.cleanWord(w.word)}`
           }
@@ -672,8 +711,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       const rampMs = Math.min(180, Math.round(totalMs * 0.3))
       const holdMs = totalMs - rampMs * 2
 
-      const up = springKeyframes(100, peak, rampMs, { stiffness: 320, damping: 22 })
-      const down = springKeyframes(peak, 100, rampMs, { stiffness: 320, damping: 22 })
+      const up = springKeyframes(100, peak, rampMs, { stiffness: 320, damping: 22, threshold: 0.8 })
+      const down = springKeyframes(peak, 100, rampMs, { stiffness: 320, damping: 22, threshold: 0.8 })
 
       const timeline: Array<{ ms: number; scale: number }> = [
         ...up.map((f) => ({ ms: f.ms, scale: Math.round(f.value) })),
@@ -707,6 +746,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
         // Layer 1: only the active word, positioned by layout estimate
         const layout = layouts[activeIdx]
+        if (!layout) continue
+
         events.push(
           `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
             `{\\an5\\pos(${layout.centerX},${layout.centerY})` +
@@ -734,6 +775,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
     line.words.forEach((activeWord, activeIdx) => {
       const layout = layouts[activeIdx]
+      if (!layout) return
+
       const fromY = layout.centerY - dropHeight
       const toY = layout.centerY
 
@@ -796,11 +839,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
     const pillWidths = layouts.map((l) => l.widthPx + PAD_X * 2)
 
     line.words.forEach((activeWord, activeIdx) => {
+      const layout = layouts[activeIdx]
+      if (!layout) return
+
       const wordStartMs = activeWord.startMs
       const wordEndMs = activeWord.startMs + activeWord.durationMs
 
-      const currLeft = pillLefts[activeIdx]
-      const currW = pillWidths[activeIdx]
+      const currLeft = pillLefts[activeIdx] ?? 0
+      const currW = pillWidths[activeIdx] ?? 0
       const prevLeft = activeIdx > 0 ? pillLefts[activeIdx - 1] : currLeft
       const prevW = activeIdx > 0 ? pillWidths[activeIdx - 1] : currW
 
@@ -819,6 +865,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         if (ticks.length > 0 && ticks.at(-1)! < maxMs) ticks.push(maxMs)
 
         const lerp = (frames: Array<{ ms: number; value: number }>, t: number) => {
+          if (!frames || frames.length === 0) return 0
           for (let i = frames.length - 1; i >= 0; i--) {
             if (frames[i].ms <= t) return frames[i].value
           }
@@ -850,18 +897,39 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
             `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
         )
       }
+    })
 
-      // Word text — still per-word so it aligns with the pill
-      layouts.forEach((wLayout, i) => {
-        const isActive = i === activeIdx
-        const color = isActive ? `{\\c${C_WHITE}}` : `{\\c${this.inactiveColor}}`
-        const bord = isActive ? 0 : this.borderSize
+    // Word text — O(N) optimization: render each word once with up to 3 segments
+    // to cover the entire line duration without N^2 event duplication.
+    layouts.forEach((wLayout, i) => {
+      const wordTiming = line.words[i]
+      const wordStartMs = wordTiming.startMs
+      const wordEndMs = wordStartMs + wordTiming.durationMs
+
+      const basePrefix = `{\\an5\\pos(${wLayout.centerX},${this.lineY})\\fs${this.fontSize}\\shad${this.shadowSize}}`
+      const activeColor = `{\\c${C_WHITE}\\bord0}`
+      const inactiveColor = `{\\c${this.inactiveColor}\\bord${this.borderSize}}`
+      const wordText = this.cleanWord(wLayout.word)
+
+      // 1. Before word is active (inactive style)
+      if (line.lineStartMs < wordStartMs) {
         events.push(
-          `Dialogue: 1,${msToAss(wordStartMs)},${msToAss(wordEndMs)},Words,,0,0,0,,` +
-            `{\\an5\\pos(${wLayout.centerX},${this.lineY})` +
-            `\\fs${this.fontSize}\\bord${bord}\\shad${this.shadowSize}}${color}${this.cleanWord(wLayout.word)}`
+          `Dialogue: 1,${msToAss(line.lineStartMs)},${msToAss(wordStartMs)},Words,,0,0,0,,` +
+            `${basePrefix}${inactiveColor}${wordText}`
         )
-      })
+      }
+      // 2. While word is active (highlight style)
+      events.push(
+        `Dialogue: 1,${msToAss(wordStartMs)},${msToAss(wordEndMs)},Words,,0,0,0,,` +
+          `${basePrefix}${activeColor}${wordText}`
+      )
+      // 3. After word is active (inactive style)
+      if (wordEndMs < line.lineEndMs) {
+        events.push(
+          `Dialogue: 1,${msToAss(wordEndMs)},${msToAss(line.lineEndMs)},Words,,0,0,0,,` +
+            `${basePrefix}${inactiveColor}${wordText}`
+        )
+      }
     })
 
     return events.join('\n')

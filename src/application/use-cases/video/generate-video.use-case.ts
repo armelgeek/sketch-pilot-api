@@ -88,7 +88,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         imageCostPerScene * estimatedScenes +
         CREDIT_COSTS.TTS_VOICE +
         CREDIT_COSTS.SUBTITLES +
-        exportCost
+        exportCost +
+        (options.promptId ? CREDIT_COSTS.STUDIO_PASS_SURCHARGE : 0)
 
       const credits = await creditsRepository.ensureUserCredits(userId)
       const sub = await creditsRepository.getActiveSubscription(userId)

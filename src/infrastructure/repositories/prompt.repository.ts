@@ -103,6 +103,19 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     formatting: config.formatting,
     outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2),
     instructions: config.instructions || [],
+
+    // NEW: Advanced Studio Specs
+    assetSystemInstruction: config.assetSystemInstruction,
+    assetPromptTemplate: config.assetPromptTemplate,
+    wordsPerSecondBase: config.wordsPerSecondBase,
+    wordsPerSecondFactors: config.wordsPerSecondFactors,
+    defaultFontSize: config.defaultFontSize,
+    defaultFontFamily: config.defaultFontFamily,
+    defaultBackgroundPrompt: config.defaultBackgroundPrompt,
+    defaultPoseId: config.defaultPoseId,
+    defaultPoseScale: config.defaultPoseScale,
+    defaultPosePosition: config.defaultPosePosition,
+
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }

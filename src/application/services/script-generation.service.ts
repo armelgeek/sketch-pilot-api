@@ -83,9 +83,15 @@ export class ScriptGenerationService {
       for (const sheet of script.characterSheets) {
         // Match visual model if not present
         if (!sheet.modelId && sheet.metadata) {
-          const model = await this.characterModelRepository.findByMetadata(sheet.metadata.gender, sheet.metadata.age)
-          if (model) {
-            sheet.modelId = model.id
+          const gender =
+            sheet.metadata.gender && sheet.metadata.gender !== 'unknown' ? sheet.metadata.gender : undefined
+          const age = sheet.metadata.age && sheet.metadata.age !== 'unknown' ? sheet.metadata.age : undefined
+
+          if (gender || age) {
+            const model = await this.characterModelRepository.findByMetadata(gender, age)
+            if (model) {
+              sheet.modelId = model.id
+            }
           }
         }
 

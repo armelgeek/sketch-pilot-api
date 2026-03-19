@@ -14,6 +14,7 @@ export interface ScriptValidationResult {
     timingAccuracy: number // 0-5
     visualConsistency: number // 0-5
     sceneBalance: number // 0-5
+    structuralPlanning: number // 0-5
   }
   recommendations: string[]
 }
@@ -36,7 +37,8 @@ export class ScriptValidator {
         narrativeCoherence: 0,
         timingAccuracy: 0,
         visualConsistency: 0,
-        sceneBalance: 0
+        sceneBalance: 0,
+        structuralPlanning: 0
       },
       recommendations: []
     }
@@ -72,13 +74,20 @@ export class ScriptValidator {
       result.warnings.push('Scene durations are unbalanced')
     }
 
+    // Check 6: Structural Planning (Studio Virtuel)
+    const planningIssues = this.checkStructuralPlanning(script)
+    result.metrics.structuralPlanning = 5 - planningIssues.critical.length - planningIssues.warnings.length * 0.5
+    result.criticalIssues.push(...planningIssues.critical)
+    result.warnings.push(...planningIssues.warnings)
+
     // Calculate total score from metrics (0-20)
     const avgMetrics =
       (result.metrics.narrativeCoherence +
         result.metrics.timingAccuracy +
         result.metrics.visualConsistency +
-        result.metrics.sceneBalance) /
-      4
+        result.metrics.sceneBalance +
+        result.metrics.structuralPlanning) /
+      5
     result.score = Math.round(avgMetrics * 4) // Scale 0-5 to 0-20
 
     // Count issues
@@ -367,12 +376,50 @@ export class ScriptValidator {
     return lines.join('\n')
   }
 
-  /**
-   * Render a score as a bar chart
-   */
   private renderScore(score: number): string {
-    const filled = Math.round(score)
+    const filled = Math.max(0, Math.min(5, Math.round(score)))
     const empty = 5 - filled
     return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`
+  }
+
+  /**
+   * Check structural planning (Global Plan, Artistic Style, Anchors)
+   */
+  private checkStructuralPlanning(script: CompleteVideoScript): { critical: string[]; warnings: string[] } {
+    const critical: string[] = []
+    const warnings: string[] = []
+    const plan = script.globalPlan
+
+    if (!plan) {
+      warnings.push('Missing Global Narrative Plan - planning may be suboptimal')
+      return { critical, warnings }
+    }
+
+    // Check Artistic Style
+    if (!plan.artisticStyle) {
+      warnings.push('Artistic Style is missing in the global plan')
+    } else {
+      if (!plan.artisticStyle.colorHarmonyStrategy) warnings.push('Art Director: Missing color harmony strategy')
+      if (!plan.artisticStyle.textureAndGrain) warnings.push('Art Director: Missing texture/grain directive')
+    }
+
+    // Check Callbacks & Foreshadowing
+    if (plan.callbacks && plan.callbacks.length > 0) {
+      plan.callbacks.forEach((c, i) => {
+        if (!c.originalSceneId || !c.callbackSceneId) {
+          warnings.push(`Callback ${i + 1}: Invalid scene references`)
+        }
+      })
+    }
+
+    // Check Visual Anchors in scenes
+    const scenesWithAnchors = script.scenes.filter((s) => s.visualAnchors && s.visualAnchors.length > 0).length
+    if (scenesWithAnchors < script.scenes.length * 0.5) {
+      warnings.push(
+        `Low visual anchor density: only ${scenesWithAnchors}/${script.scenes.length} scenes have power words`
+      )
+    }
+
+    return { critical, warnings }
   }
 }

@@ -158,17 +158,20 @@ export class PromptMaker {
    * for tutorials, explainers, documentaries, etc., not just narrative formats.
    */
   private buildCharacterInstructions(options: PromptMakerOptions): string {
+    // Rule enforced for both cast-defined and auto-identified characters.
+    const mandatoryRule = `\nMANDATORY RULE: Every scene MUST include at least one character (characterIds must never be empty). Even for conceptual, abstract, or transition scenes, a character must be present \u2014 shown reacting, observing, explaining, or pointing at the concept being illustrated. Never generate a scene with an empty cast.`
+
     if (options.characters && options.characters.length > 0) {
       const cast = options.characters
         .map((char) => `- ${char.name}${char.modelId ? ` (Model ID: ${char.modelId})` : ''}`)
         .join('\n')
-      return `CAST OF CHARACTERS (Mandatory):\n${cast}\n\nYou MUST use these specific Character Names and Model IDs in your script.`
+      return `CAST OF CHARACTERS (Mandatory):\n${cast}\n\nYou MUST use these specific Character Names and Model IDs in your script.${mandatoryRule}`
     }
 
     return `CHARACTER IDENTIFICATION:
 - Automatically identify the core characters relevant to this subject.
 - For each character, you MUST define their name, role, gender ("male", "female", or "unknown"), and age ("child", "youth", "senior", or "unknown").
-- These attributes MUST be returned in the \`metadata\` object for each item in the \`characterSheets\` array.`
+- These attributes MUST be returned in the \`metadata\` object for each item in the \`characterSheets\` array.${mandatoryRule}`
   }
 
   /**
@@ -230,7 +233,7 @@ export class PromptManager {
     return wordsPerSecondBase
   }
 
-  private getEffectiveSpec(options: VideoGenerationOptions): VideoTypeSpecification {
+  public getEffectiveSpec(options: VideoGenerationOptions): VideoTypeSpecification {
     if (options?.customSpec) {
       return options.customSpec
     }
@@ -331,11 +334,18 @@ export class PromptManager {
       ? `REFERENCE-DRIVEN MODE: Reference images provided are the ONLY visual source of truth. Match character identity, clothing, and artistic style 100%.`
       : ''
 
-    // Inject the reference mode notice as the first instruction so it
-    // takes precedence over all other spec instructions.
+    // Always anchor the visual style to prevent the model defaulting to
+    // photorealistic or sci-fi aesthetics, especially on abstract/conceptual scenes.
+    const styleAnchor = [
+      `VISUAL STYLE: Always render in a clean, flat 2D illustration style consistent with the spec's art direction.`,
+      `ABSTRACT SCENES: When there are no human characters, represent concepts through simple drawn diagrams, icons, arrows, labeled boxes, or symbolic illustrations — never photorealistic effects, 3D renders, neon distortion visuals, or cinematic VFX.`,
+      `NEVER generate: photorealistic photography, sci-fi particle effects, lens flares, or cinematic explosions unless explicitly required.`
+    ].join(' ')
+
+    // Inject both as the very first instructions so they take precedence.
     const imageSpec: VideoTypeSpecification = {
       ...spec,
-      instructions: [...(referenceMode ? [referenceMode] : []), ...(spec.instructions || [])]
+      instructions: [...(referenceMode ? [referenceMode] : []), styleAnchor, ...(spec.instructions || [])]
     }
 
     return new PromptMaker(imageSpec).buildSystemInstructions()
@@ -346,20 +356,23 @@ export class PromptManager {
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
     imageStyle?: { stylePrefix?: string; characterDescription?: string; qualityTags?: string[] },
-    memory?: SceneMemory
+    memory?: SceneMemory,
+    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan,
+    characterSheets?: import('../types/video-script.types').CharacterSheet[]
   ): ImagePrompt {
     const elements = this.extractSceneElements(scene)
     const stylePrefix = imageStyle?.stylePrefix ?? ''
     const qualityTags = imageStyle?.qualityTags ?? []
 
-    // ── Header ───────────────────────────────────────────────────────────
-    const header = [stylePrefix, aspectRatio].filter(Boolean).join(', ')
+    // ── Style Prefix (optional) ───────────────────────────────────────────
+    // Only include if explicitly provided — e.g. 'whiteboard animation style'
+    const styleLine = stylePrefix ? `[Style]: ${stylePrefix}` : ''
 
     // ── Location ─────────────────────────────────────────────────────────
     // When a locationId is established in memory, reuse its prompt for visual continuity.
     const memoryLocation = scene.locationId ? memory?.locations.get(scene.locationId) : undefined
     const rawBg = memoryLocation?.prompt ?? scene.background ?? this.spec?.defaultBackgroundPrompt ?? ''
-    const sanitizedBg = this.sanitizeForImageGen(rawBg, hasReferenceImages)
+    const sanitizedBg = this.sanitizeForImageGen(rawBg)
     const location = sanitizedBg ? `[Location]: ${sanitizedBg}` : ''
 
     // ── Lighting ──────────────────────────────────────────────────────────
@@ -367,66 +380,213 @@ export class PromptManager {
     const effectiveLighting = scene.lighting ?? (memory?.timeOfDay ? `${memory.timeOfDay} lighting` : '')
     const lighting = effectiveLighting ? `[Lighting]: ${effectiveLighting}` : ''
 
-    // ── Action ────────────────────────────────────────────────────────────
-    const baseCharacter = imageStyle?.characterDescription || ''
-    const characterVariant = scene.characterVariant ? ` (${scene.characterVariant})` : ''
-    const characterIdentity = `${baseCharacter}${characterVariant}`.trim()
-
+    // ── Subject / Action ─────────────────────────────────────────────────
+    // Build the scene core from imagePrompt (pre-generated by LLM) or from actions.
     let sceneCore: string
     if (scene.imagePrompt?.trim()) {
-      sceneCore = this.sanitizeForImageGen(scene.imagePrompt.trim(), hasReferenceImages)
+      sceneCore = this.sanitizeForImageGen(scene.imagePrompt.trim())
     } else {
-      const posePart = elements.pose ?? ''
-      const actionPart = elements.action && elements.action !== elements.pose ? elements.action : ''
       const progressivePart =
         scene.continueFromPrevious && scene.progressiveElements?.length ? scene.progressiveElements.join(', ') : ''
       sceneCore = this.sanitizeForImageGen(
-        [posePart, actionPart, progressivePart].filter(Boolean).join(', '),
-        hasReferenceImages
+        [elements.pose, elements.action !== elements.pose ? elements.action : '', progressivePart]
+          .filter(Boolean)
+          .join(', ')
       )
     }
 
-    const expressionPart = scene.expression ? ` ${scene.expression}.` : ''
-    const subjectPart =
-      characterIdentity && !sceneCore.toLowerCase().includes(characterIdentity.toLowerCase())
-        ? `${characterIdentity} — ${sceneCore}`
-        : sceneCore
+    // ── Multi-Character Casting Enforcement ──────────────────────
+    const allCharacterIds = Array.from(
+      new Set([...(scene.characterIds || []), ...(scene.speakingCharacterId ? [scene.speakingCharacterId] : [])])
+    ).filter(Boolean)
 
+    const characterDescriptions: string[] = []
+
+    for (const charId of allCharacterIds) {
+      const casting = characterSheets?.find((c) => c.id === charId || c.name === charId)
+      if (casting) {
+        const gender = casting.metadata?.gender && casting.metadata.gender !== 'unknown' ? casting.metadata.gender : ''
+        const age = casting.metadata?.age && casting.metadata.age !== 'unknown' ? casting.metadata.age : ''
+        const clothing = casting.appearance?.clothing || ''
+        const parts = [age, gender, clothing ? `wearing ${clothing}` : ''].filter(Boolean)
+
+        if (parts.length > 0) {
+          const desc = parts.join(' ').trim().toLowerCase()
+          characterDescriptions.push(`${charId} (${desc})`)
+        } else {
+          characterDescriptions.push(charId)
+        }
+      } else {
+        characterDescriptions.push(charId)
+      }
+    }
+
+    // Only prepend characterIdentity if it isn't already present in sceneCore.
+    const baseCharacter = imageStyle?.characterDescription || characterDescriptions.join(' and ')
+    const characterVariant = scene.characterVariant ? ` (${scene.characterVariant})` : ''
+    const characterIdentity = `${baseCharacter}${characterVariant}`.trim()
+
+    const identityAlreadyInCore = characterIdentity
+      ? sceneCore
+          .toLowerCase()
+          .split(/[\s,.()+\-–]+/)
+          .some((w) =>
+            characterIdentity
+              .toLowerCase()
+              .split(/[\s,]+/)
+              .includes(w)
+          )
+      : false
+
+    const subjectPart = characterIdentity && !identityAlreadyInCore ? `${characterIdentity} — ${sceneCore}` : sceneCore
+    const expressionPart = scene.expression ? ` ${scene.expression}.` : ''
     const action = `[Action]: ${subjectPart}${expressionPart}`
 
-    // ── Framing ───────────────────────────────────────────────────────────
-    // Merge scene props with memory-derived character props for continuity.
-    const sceneProps = scene.props ?? []
-    const memoryProps = this.resolveMemoryProps(scene, memory)
-    const effectiveProps = sceneProps.length > 0 ? sceneProps : memoryProps
-    const framingContent = [
+    // ── Framing (composition only) ────────────────────────────────────────
+    const framingParts = [
       scene.framing,
       scene.cameraType,
-      scene.eyelineMatch ? `eyeline ${scene.eyelineMatch.toLowerCase()}` : '',
-      effectiveProps.length ? `props: ${effectiveProps.join(', ')}` : ''
-    ]
-      .filter(Boolean)
-      .join(', ')
-    const framing = framingContent ? `[Framing]: ${framingContent}` : ''
+      scene.eyelineMatch ? `eyeline ${scene.eyelineMatch.toLowerCase()}` : ''
+    ].filter(Boolean)
+    const framing = framingParts.length ? `[Framing]: ${framingParts.join(', ')}` : ''
 
-    // ── Mood ──────────────────────────────────────────────────────────────
-    // Append memory-derived weather to mood when present and not already mentioned.
-    const weatherContext =
-      memory?.weather && !(scene.mood ?? '').toLowerCase().includes(memory.weather) ? memory.weather : ''
-    const moodContent = [scene.mood, weatherContext, ...qualityTags].filter(Boolean).join('. ')
+    // ── Props (accessories / objects) ─────────────────────────────────────
+    const sceneProps = scene.props
+    const memoryProps = this.resolveMemoryProps(scene, memory)
+    let effectiveProps: string[]
+    if (sceneProps === undefined) {
+      effectiveProps = memoryProps
+    } else if (sceneProps.length === 0) {
+      effectiveProps = []
+    } else {
+      effectiveProps = Array.from(new Set([...memoryProps, ...sceneProps]))
+    }
+    const props = effectiveProps.length ? `[Props]: ${effectiveProps.join(', ')}` : ''
+
+    // ── Mood (emotional tone) ─────────────────────────────────────────────
+    const moodContent = [scene.mood, ...qualityTags].filter(Boolean).join('. ')
     const mood = moodContent ? `[Mood]: ${moodContent}` : ''
 
+    // ── Global Narrative (Director's Plan) ────────────────────────────────
+    let directorCues = ''
+    if (globalPlan) {
+      const { visualArc, recurringSymbols, emotionalCurve } = globalPlan
+
+      // 1. Visual Arc (Evolution)
+      const arcCues = [
+        visualArc.lightingEvolution ? `Lighting Style: ${visualArc.lightingEvolution}` : '',
+        visualArc.colorPaletteShift ? `Color Palette: ${visualArc.colorPaletteShift}` : '',
+        visualArc.styleContinuity ? `Artistic Continuity: ${visualArc.styleContinuity}` : ''
+      ]
+        .filter(Boolean)
+        .join('. ')
+
+      // 2. Recurring Symbols
+      const symbolCues = recurringSymbols
+        ?.filter((sym) => {
+          if (!sym.scenes || sym.scenes.length === 0) return true
+          const match = sym.scenes.some(
+            (s) =>
+              s === scene.id || s === String(scene.sceneNumber) || s.replaceAll(/\D/g, '') === String(scene.sceneNumber)
+          )
+          return match
+        })
+        .map((sym) => `RECURRING SYMBOL: Include ${sym.element} (${sym.meaning})`)
+        .join('. ')
+
+      // 3. Emotional Curve (Atmosphere/Vibe)
+      // Approximate stage based on scene number vs estimated total (heuristic)
+      const stageIdx = Math.min(
+        emotionalCurve.length - 1,
+        Math.floor(((scene.sceneNumber || 1) / 10) * emotionalCurve.length)
+      )
+      const vibe = emotionalCurve[stageIdx]?.visualVibe ? `Visual Vibe: ${emotionalCurve[stageIdx].visualVibe}` : ''
+
+      // 4. Foreshadowing (Hints of the future)
+      const foreshadowCues = globalPlan.foreshadowing
+        ?.filter((f) =>
+          f.appearsInScenes.some(
+            (s) =>
+              s === scene.id || s === String(scene.sceneNumber) || s.replaceAll(/\D/g, '') === String(scene.sceneNumber)
+          )
+        )
+        .map((f) => `FORESHADOWING HINT: Subtly include ${f.element} (${f.hintDescription})`)
+        .join('. ')
+
+      // 5. Visual Storytelling (Silent-Ready)
+      const metaphorCues = globalPlan.visualStorytelling?.keyVisualMetaphors?.length
+        ? `VISUAL METAPHORS: Use ${globalPlan.visualStorytelling.keyVisualMetaphors.join(', ')} to reinforce the message visually.`
+        : ''
+      const clarityCue = globalPlan.visualStorytelling?.clarityStrategy
+        ? `CLARITY STRATEGY: ${globalPlan.visualStorytelling.clarityStrategy}`
+        : ''
+
+      // 6. Callbacks (Visual Echoes)
+      const callbackCues = globalPlan.callbacks
+        ?.filter((c) => {
+          const s = c.callbackSceneId
+          return (
+            s === scene.id || s === String(scene.sceneNumber) || s.replaceAll(/\D/g, '') === String(scene.sceneNumber)
+          )
+        })
+        .map(
+          (c) =>
+            `VISUAL CALLBACK: Reuse composition or element "${c.element}" from original scene ${c.originalSceneId}. Resonance: ${c.meaning}`
+        )
+        .join('. ')
+
+      // 7. Pacing (Global Rhythm)
+      const pacingCue = globalPlan.pacing
+        ? `PACING & MOVEMENT: ${globalPlan.pacing.cameraMovementStrategy}. TRANSITION STYLE: ${globalPlan.pacing.transitionPulse}.`
+        : ''
+
+      // 8. Art Director's Style (Visual Soul)
+      const artisticCue = globalPlan.artisticStyle
+        ? `ARTISTIC STYLE: Texture: ${globalPlan.artisticStyle.textureAndGrain}. Line Quality: ${globalPlan.artisticStyle.lineQuality}. Color Harmony: ${globalPlan.artisticStyle.colorHarmonyStrategy}.`
+        : ''
+
+      // 9. Visual Anchors (TEXT ANCHORING)
+      const anchorCues = scene.visualAnchors
+        ?.map(
+          (a) =>
+            `VISUAL TEXT ANCHOR: Draw the word or phrase "${a.text.toUpperCase()}" in the ${a.position} position of the scene. Style: ${a.style}. It should look integrated into the whiteboard drawing.`
+        )
+        .join('. ')
+
+      directorCues = [
+        arcCues,
+        symbolCues,
+        vibe,
+        foreshadowCues,
+        metaphorCues,
+        clarityCue,
+        callbackCues,
+        pacingCue,
+        artisticCue,
+        anchorCues
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+    const directorSection = directorCues ? `[Director's Plan]:\n${directorCues}` : ''
+
+    // ── Atmosphere (weather + time of day from memory) ────────────────────
+    const weatherContext =
+      memory?.weather && !(scene.mood ?? '').toLowerCase().includes(memory.weather) ? memory.weather : ''
+    const atmosphere = weatherContext ? `[Atmosphere]: ${weatherContext}` : ''
+
     // ── Assemble ──────────────────────────────────────────────────────────
-    const prompt = [header, location, lighting, action, framing, mood]
+    const prompt = [styleLine, directorSection, location, lighting, action, framing, props, mood, atmosphere]
       .filter((b) => b?.trim().length > 0)
       .join('\n')
+    const base = prompt
       .replaceAll(/,\s*,/g, ',')
       .replaceAll(/\s{2,}/g, ' ')
       .trim()
 
     return {
       sceneId: scene.id,
-      prompt,
+      prompt: base,
       elements: {
         pose: elements.pose,
         action: elements.action,
@@ -450,14 +610,18 @@ export class PromptManager {
         props.push(...memChar.currentProps)
       }
     }
-    return [...new Set(props)]
+    return props.filter((v, i, a) => a.indexOf(v) === i)
   }
 
   /**
    * Build animation instructions for a scene.
    * Fully Character-Agnostic.
    */
-  buildAnimationPrompt(scene: EnrichedScene, imageStyle?: { characterDescription?: string }): AnimationPrompt {
+  buildAnimationPrompt(
+    scene: EnrichedScene,
+    imageStyle?: { characterDescription?: string },
+    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan
+  ): AnimationPrompt {
     const movements: AnimationPrompt['movements'] = (scene.actions || []).map((a) => ({
       element: 'body',
       description: a || ''
@@ -479,23 +643,10 @@ export class PromptManager {
     return topic
   }
 
-  private sanitizeForImageGen(text: string, stripAllParentheses: boolean = false): string {
+  private sanitizeForImageGen(text: string): string {
     if (!text) return text
-    let s = text
-    s = s.replace(/^\d[\d.-]*s?:\s*/i, '')
-
-    if (stripAllParentheses) {
-      s = s.replaceAll(/\([^)]*\)/g, '')
-    } else {
-      let firstParen = true
-      s = s.replaceAll(/\([^)]{20,}\)/g, (match) => {
-        if (firstParen) {
-          firstParen = false
-          return match
-        }
-        return ''
-      })
-    }
+    // Remove leading timestamps like "2.5s: " or "3-5s: "
+    let s = text.replace(/^\d[\d.-]*s?:\s*/i, '')
     s = s
       .replaceAll(/,\s*,/g, ',')
       .replaceAll(/\s{2,}/g, ' ')
@@ -509,9 +660,12 @@ export class PromptManager {
       .map((a) => a.replace(/^\d+(\.\d+)?(-?\d+(\.\d+)?)?s:\s*/i, '').trim())
       .filter(Boolean)
 
+    if (actions.length === 0) return { pose: '', action: '' }
+    if (actions.length === 1) return { pose: actions[0], action: '' }
+    // Multiple actions: first is the pose/position, rest are actions
     return {
-      pose: actions[0] || '',
-      action: actions.length > 1 ? actions.join('. ') : actions[0] || ''
+      pose: actions[0],
+      action: actions.slice(1).join('. ')
     }
   }
 }

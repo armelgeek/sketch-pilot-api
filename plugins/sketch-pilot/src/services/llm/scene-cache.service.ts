@@ -1,10 +1,14 @@
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
+import * as fsPromises from 'node:fs/promises'
 import * as path from 'node:path'
 
 export class SceneCacheService {
   private readonly filePath: string
   private cache: Record<string, string> = {}
+  private saveTimeout: NodeJS.Timeout | null = null
+  private isSaving: boolean = false
+  private pendingSave: boolean = false
 
   constructor(dataDir?: string) {
     const rootDir = dataDir || path.join(process.cwd(), 'data')
@@ -27,11 +31,35 @@ export class SceneCacheService {
     }
   }
 
-  private saveCache(): void {
+  private triggerSave(): void {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout)
+    }
+
+    this.saveTimeout = setTimeout(() => {
+      this.executeSave()
+    }, 2000) // Debounce for 2 seconds
+  }
+
+  private async executeSave(): Promise<void> {
+    if (this.isSaving) {
+      this.pendingSave = true
+      return
+    }
+
+    this.isSaving = true
     try {
-      fs.writeFileSync(this.filePath, JSON.stringify(this.cache, null, 2), 'utf-8')
+      // Stringify can be heavy, but at least file I/O is offloaded to thread pool
+      const json = JSON.stringify(this.cache, null, 2)
+      await fsPromises.writeFile(this.filePath, json, 'utf-8')
     } catch (error) {
-      console.error(`[SceneCacheService] Error saving cache:`, error)
+      console.error(`[SceneCacheService] Error saving cache asynchronously:`, error)
+    } finally {
+      this.isSaving = false
+      if (this.pendingSave) {
+        this.pendingSave = false
+        this.triggerSave()
+      }
     }
   }
 
@@ -52,11 +80,11 @@ export class SceneCacheService {
   set(prompt: string, response: string, options?: any): void {
     const key = this.generateKey(prompt, options)
     this.cache[key] = response
-    this.saveCache()
+    this.triggerSave()
   }
 
   clear(): void {
     this.cache = {}
-    this.saveCache()
+    this.triggerSave()
   }
 }
