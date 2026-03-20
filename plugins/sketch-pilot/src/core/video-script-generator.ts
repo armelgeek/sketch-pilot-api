@@ -88,15 +88,8 @@ export class VideoScriptGenerator {
     baseScript.scenes.forEach((scene, idx) => {
       if (!scene.eyelineMatch) scene.eyelineMatch = 'center'
 
-      const startRatio = scene.timeRange.start / totalDuration
-      if (startRatio >= 0.3 && startRatio <= 0.5) {
-        scene.cameraAction = scene.cameraAction || {
-          type: 'zoom-in',
-          intensity: 'high',
-          duration: (scene.timeRange.end - scene.timeRange.start) * 0.5,
-          timestamp: 0
-        }
-      }
+      // Removed hardcoded Director's zoom-in (Phase 28.5)
+      // We now delegate camera action choices entirely to the AI via prompt.
     })
 
     // NEW: Artistic Identity Pass (Art Direction)

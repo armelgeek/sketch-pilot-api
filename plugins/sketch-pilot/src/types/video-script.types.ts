@@ -106,7 +106,7 @@ export type SoundEffect = z.infer<typeof soundEffectSchema>
  */
 export const cameraActionSchema = z.object({
   type: z
-    .enum(['zoom-in', 'zoom-out', 'shake', 'pan-left', 'pan-right', 'static'])
+    .enum(['zoom-in', 'zoom-out', 'shake', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'static'])
     .or(z.string().transform(() => 'static' as const))
     .default('static'),
   intensity: z.enum(['low', 'medium', 'high']).default('medium'),

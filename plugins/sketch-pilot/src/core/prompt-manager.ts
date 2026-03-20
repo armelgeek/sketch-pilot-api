@@ -246,16 +246,29 @@ export class PromptManager {
   /**
    * Build only the system instructions for script generation.
    */
+  /**
+   * Build only the system instructions for script generation.
+   */
   buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any): string {
     const spec = this.getEffectiveSpec(options)
-    const maker = new PromptMaker(spec)
+    const instructions = [...(spec.instructions || [])]
 
-    // Add specific instruction about words per second if needed
+    // 1. Narration Speed
     if (options && (options.wordsPerMinute || options.language || options.audioProvider)) {
       const wps = this.getWordsPerSecond(options)
-      maker.withInstructions([...(spec.instructions || []), `NARRATION SPEED: ${wps.toFixed(2)}`])
+      instructions.push(`NARRATION SPEED: ${wps.toFixed(2)}`)
     }
 
+    // 2. Gender Neutrality (Phase 28)
+    const isNeutralStyle =
+      (spec.name || '').toLowerCase().includes('whiteboard') || (spec.name || '').toLowerCase().includes('stick')
+    if (isNeutralStyle) {
+      instructions.push(
+        'GENDER NEUTRALITY: NEVER use gendered nouns (woman, man, girl, boy, lady, gentleman) or pronouns (he, she, his, her) in character sheets or scene descriptions. Use "Character", "Figure", or "Subject" and "they/them/their" instead.'
+      )
+    }
+
+    const maker = new PromptMaker(spec).withInstructions(instructions)
     return maker.buildSystemInstructions()
   }
 
@@ -331,7 +344,7 @@ export class PromptManager {
     if (!spec) return ''
 
     const referenceMode = hasReferenceImages
-      ? `REFERENCE-DRIVEN MODE: Reference images provided are the ONLY visual source of truth. Match character identity, clothing, and artistic style 100%.`
+      ? 'REFERENCE MODE (CRITICAL): You are provided with specific CHARACTER REFERENCE IMAGES. You MUST strictly copy the visual identity (face, hair style, distinctive clothing, and proportions) of the characters from these images. DO NOT invent new characters. DO NOT deviate from the characters shown in the references. The characters in your generation MUST BE RECOGNIZABLE as the same individuals from the reference images. Use the character names provided in the prompt to correctly map them to the corresponding visual reference.'
       : ''
 
     // Always anchor the visual style to prevent the model defaulting to
@@ -361,19 +374,36 @@ export class PromptManager {
     characterSheets?: import('../types/video-script.types').CharacterSheet[]
   ): ImagePrompt {
     const elements = this.extractSceneElements(scene)
-    const stylePrefix = imageStyle?.stylePrefix ?? ''
+    const stylePrefix = imageStyle?.stylePrefix ?? 'flat 2D illustration style'
     const qualityTags = imageStyle?.qualityTags ?? []
 
     // ── Style Prefix (optional) ───────────────────────────────────────────
     // Only include if explicitly provided — e.g. 'whiteboard animation style'
-    const styleLine = stylePrefix ? `[Style]: ${stylePrefix}` : ''
+    const isStickStyle =
+      stylePrefix?.toLowerCase().includes('stick') ||
+      stylePrefix?.toLowerCase().includes('whiteboard') ||
+      imageStyle?.characterDescription?.toLowerCase().includes('stick')
+
+    const stickStyleReinforcement = isStickStyle
+      ? 'STRICTLY Monochrome black and white, no colors, no shading, no shadows, no gradients, no volume, no 3D effects, flat 2D only, STRICTLY MINIMALIST, minimal line count, plenty of empty white space, ink on pure white background, '
+      : ''
+
+    const styleLine = stylePrefix ? `[Style]: ${stickStyleReinforcement}${stylePrefix}` : ''
 
     // ── Location ─────────────────────────────────────────────────────────
     // When a locationId is established in memory, reuse its prompt for visual continuity.
     const memoryLocation = scene.locationId ? memory?.locations.get(scene.locationId) : undefined
     const rawBg = memoryLocation?.prompt ?? scene.background ?? this.spec?.defaultBackgroundPrompt ?? ''
     const sanitizedBg = this.sanitizeForImageGen(rawBg)
-    const location = sanitizedBg ? `[Location]: ${sanitizedBg}` : ''
+    let locationStyle = imageStyle?.stylePrefix
+      ? `monochrome black and white ${imageStyle.stylePrefix}, no colors, no shading, no shadows, flat 2D lines, `
+      : ''
+
+    if (isStickStyle && !locationStyle.toLowerCase().includes('stick')) {
+      locationStyle += 'drawn in simplified whiteboard stick figure style, '
+    }
+
+    const location = sanitizedBg ? `[Location]: ${locationStyle}${sanitizedBg}` : ''
 
     // ── Lighting ──────────────────────────────────────────────────────────
     // Fall back to memory-derived time-of-day when the scene has no explicit lighting.
@@ -403,21 +433,34 @@ export class PromptManager {
     const characterDescriptions: string[] = []
 
     for (const charId of allCharacterIds) {
-      const casting = characterSheets?.find((c) => c.id === charId || c.name === charId)
+      const casting = characterSheets?.find(
+        (c) => c.id?.toLowerCase() === charId.toLowerCase() || c.name?.toLowerCase() === charId.toLowerCase()
+      )
       if (casting) {
-        const gender = casting.metadata?.gender && casting.metadata.gender !== 'unknown' ? casting.metadata.gender : ''
-        const age = casting.metadata?.age && casting.metadata.age !== 'unknown' ? casting.metadata.age : ''
-        const clothing = casting.appearance?.clothing || ''
-        const parts = [age, gender, clothing ? `wearing ${clothing}` : ''].filter(Boolean)
+        // V2 Phase 15: Removed explicit gender/age as per user feedback (causes confusion)
+        // We only inject clothing to maintain visual continuity without bias.
+        let clothing = casting.appearance?.clothing || ''
+
+        // Phase 28: Sanitize clothing from gendered words if it's a Stick/Whiteboard style
+        if (isStickStyle && clothing) {
+          clothing = clothing
+            .replaceAll(/\b(female|male|woman|man|girl|boy|lady|gentleman)\b/gi, 'person')
+            .replaceAll(/\b(women|men|girls|boys)\b/gi, 'people')
+        }
+
+        const parts = [clothing ? `wearing ${clothing}` : ''].filter(Boolean)
 
         if (parts.length > 0) {
           const desc = parts.join(' ').trim().toLowerCase()
-          characterDescriptions.push(`${charId} (${desc})`)
+          const referenceLink = hasReferenceImages ? ' [VISUAL IDENTITY FROM PROVIDED REFERENCES]' : ''
+          characterDescriptions.push(`${charId} (${desc})${referenceLink}`)
         } else {
-          characterDescriptions.push(charId)
+          const referenceLink = hasReferenceImages ? ' [VISUAL IDENTITY FROM PROVIDED REFERENCES]' : ''
+          characterDescriptions.push(`${charId}${referenceLink}`)
         }
       } else {
-        characterDescriptions.push(charId)
+        const referenceLink = hasReferenceImages ? ' [VISUAL IDENTITY FROM PROVIDED REFERENCES]' : ''
+        characterDescriptions.push(`${charId}${referenceLink}`)
       }
     }
 
@@ -440,7 +483,12 @@ export class PromptManager {
 
     const subjectPart = characterIdentity && !identityAlreadyInCore ? `${characterIdentity} — ${sceneCore}` : sceneCore
     const expressionPart = scene.expression ? ` ${scene.expression}.` : ''
-    const action = `[Action]: ${subjectPart}${expressionPart}`
+
+    // Force stick figure style on action if detected
+    const actionStyle = isStickStyle
+      ? 'monochrome black and white stick figure sketch, no colors, no shading, no shadows, flat 2D, '
+      : ''
+    const action = `[Action]: ${actionStyle}${subjectPart}${expressionPart}`
 
     // ── Framing (composition only) ────────────────────────────────────────
     const framingParts = [
@@ -545,14 +593,6 @@ export class PromptManager {
         ? `ARTISTIC STYLE: Texture: ${globalPlan.artisticStyle.textureAndGrain}. Line Quality: ${globalPlan.artisticStyle.lineQuality}. Color Harmony: ${globalPlan.artisticStyle.colorHarmonyStrategy}.`
         : ''
 
-      // 9. Visual Anchors (TEXT ANCHORING)
-      const anchorCues = scene.visualAnchors
-        ?.map(
-          (a) =>
-            `VISUAL TEXT ANCHOR: Draw the word or phrase "${a.text.toUpperCase()}" in the ${a.position} position of the scene. Style: ${a.style}. It should look integrated into the whiteboard drawing.`
-        )
-        .join('. ')
-
       directorCues = [
         arcCues,
         symbolCues,
@@ -562,8 +602,7 @@ export class PromptManager {
         clarityCue,
         callbackCues,
         pacingCue,
-        artisticCue,
-        anchorCues
+        artisticCue
       ]
         .filter(Boolean)
         .join('\n')

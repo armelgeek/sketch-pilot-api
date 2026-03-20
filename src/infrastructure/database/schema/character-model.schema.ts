@@ -10,6 +10,8 @@ export const characterModels = pgTable('character_models', {
   voiceId: text('voice_id'), // Associated voice preset ID
   description: text('description'), // The prompt or appearance details
   userId: text('user_id'), // Owner of the model (null for system models)
+  stylePrefix: text('style_prefix'), // e.g. "Clean Whiteboard illustration, monochrome black ink..."
+  artistPersona: text('artist_persona'), // e.g. "Whiteboard artist"
   isStandard: boolean('is_standard').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()

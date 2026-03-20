@@ -23,6 +23,8 @@ export interface VideoGenerationInput {
   userId?: string
   options?: Partial<VideoGenerationOptions>
   onProgress?: (progress: number, message: string) => Promise<void>
+  onTimingSync?: (script: any) => Promise<void>
+  onSceneGenerated?: (scene: any, script: any, index: number, progress: number) => Promise<void>
 }
 
 export class VideoGenerationService {
@@ -94,12 +96,23 @@ export class VideoGenerationService {
     // 1. Resolve Spec from DB
     const scriptSpec = await this.promptService.resolveSpec((options as any).promptId)
 
-    // 2. Resolve Voice if Character is provided and no voice specified
+    // 2. Resolve Character Styles and Voice
+    let artistPersona: string | undefined
+    let stylePrefix: string | undefined
     let effectiveVoiceId = options.kokoroVoicePreset as string | undefined
-    if (!effectiveVoiceId && options.characterModelId) {
+
+    if (options.characterModelId) {
       const charModel = await this.characterModelRepository.findById(options.characterModelId)
-      if (charModel?.voiceId) {
-        effectiveVoiceId = charModel.voiceId
+      if (charModel) {
+        if (!effectiveVoiceId && charModel.voiceId) {
+          effectiveVoiceId = charModel.voiceId
+        }
+        artistPersona = (charModel as any).stylePrefix || undefined
+        stylePrefix = (charModel as any).stylePrefix || undefined
+        // Wait! The field names might be different if I just updated the schema.
+        // Let's use the actual names I added: stylePrefix and artistPersona.
+        artistPersona = (charModel as any).artistPersona || undefined
+        stylePrefix = (charModel as any).stylePrefix || undefined
       }
     }
 
@@ -126,10 +139,11 @@ export class VideoGenerationService {
       cacheSystemPrompt: true
     }
 
-    // NanoBananaEngine constructor: (apiKey, styleSuffix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptSpecs?)
+    // NanoBananaEngine constructor: (apiKey, artistPersona?, stylePrefix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptSpecs?)
     return new NanoBananaEngine(
       apiKey,
-      undefined, // styleSuffix
+      artistPersona,
+      stylePrefix,
       undefined, // systemPrompt
       audioConfig,
       animationConfig,
@@ -153,7 +167,15 @@ export class VideoGenerationService {
 
     // In NanoBananaEngine, generateVideoFromTopic currently does not accept onProgress directly
     // Let's modify generateVideoFromTopic manually later. For now, we pass it down.
-    return await engine.generateVideoFromTopic(topic, options as VideoGenerationOptions, [], projectId, onProgress)
+    return await engine.generateVideoFromTopic(
+      topic,
+      options as VideoGenerationOptions,
+      [],
+      projectId,
+      onProgress,
+      input.onTimingSync,
+      input.onSceneGenerated
+    )
   }
 
   /**
@@ -165,7 +187,14 @@ export class VideoGenerationService {
   ): Promise<CompleteVideoPackage> {
     const { script, options = {}, projectId, onProgress } = input
     const engine = await this.buildEngine(options)
-    return await engine.generateVideoFromScript(script, options as VideoGenerationOptions, [], projectId, onProgress)
+    return await engine.generateVideoFromScript(
+      script,
+      options as VideoGenerationOptions,
+      [],
+      projectId,
+      onProgress,
+      input.onTimingSync
+    )
   }
 
   /**

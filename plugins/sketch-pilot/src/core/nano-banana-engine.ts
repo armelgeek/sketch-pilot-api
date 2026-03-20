@@ -75,12 +75,14 @@ export class NanoBananaEngine {
   private readonly animationConfig?: AnimationServiceConfig
   private readonly llmConfig?: LLMServiceConfig
   private readonly imageConfig?: ImageServiceConfig
-  private readonly styleSuffix?: string
+  private readonly artistPersona?: string
+  private readonly stylePrefix?: string
   private readonly transcriptionConfig?: TranscriptionConfig
 
   constructor(
     apiKey: string,
-    styleSuffix?: string,
+    artistPersona?: string,
+    stylePrefix?: string,
     systemPrompt?: string,
     audioConfig?: AudioServiceConfig,
     animationConfig?: AnimationServiceConfig,
@@ -94,7 +96,8 @@ export class NanoBananaEngine {
     this.animationConfig = animationConfig
     this.llmConfig = llmConfig
     this.imageConfig = imageConfig
-    this.styleSuffix = styleSuffix
+    this.artistPersona = artistPersona
+    this.stylePrefix = stylePrefix
     this.transcriptionConfig = transcriptionConfig
 
     this.currentTranscriptionConfig = transcriptionConfig || {
@@ -111,10 +114,22 @@ export class NanoBananaEngine {
         backgroundColor: '#F5F5F5'
       }
     )
-    this.systemPrompt = systemPrompt ?? this.promptManager.buildScriptCompletePrompt('', this.currentOptions)
+    this.systemPrompt =
+      systemPrompt ?? this.promptManager.buildScriptCompletePrompt(this.stylePrefix || '', this.currentOptions)
 
     this.currentImageProvider = imageConfig?.provider || 'gemini'
     this.currentLLMProvider = llmConfig?.provider || 'gemini'
+
+    // Inject character-specific style into imageStyle options so it flows into prompt building
+    if (this.stylePrefix) {
+      this.currentOptions = {
+        ...this.currentOptions,
+        imageStyle: {
+          ...(this.currentOptions.imageStyle ?? {}),
+          stylePrefix: this.stylePrefix
+        }
+      } as any
+    }
 
     this.sceneCache = new SceneCacheService()
 
@@ -185,7 +200,7 @@ export class NanoBananaEngine {
         this.imageConfig || {
           provider: this.currentImageProvider,
           apiKey: this.apiKey,
-          styleSuffix: this.styleSuffix,
+          styleSuffix: this.stylePrefix,
           systemPrompt: this.systemPrompt
         }
       )
@@ -266,26 +281,41 @@ export class NanoBananaEngine {
         if (sheetImagePrompt) {
           specificCharacterDescription = sheetImagePrompt
         } else {
-          let genderPrompt = ''
-          if (metadata?.gender === 'male') genderPrompt = 'male character, a man'
-          else if (metadata?.gender === 'female') genderPrompt = 'female character, a woman'
-
-          const age = metadata?.age && metadata.age !== 'unknown' ? metadata.age : ''
-
-          const identityParts = [age, genderPrompt, desc].filter(Boolean)
+          const identityParts = [desc].filter(Boolean)
           if (identityParts.length > 0) {
             specificCharacterDescription = `Subject (${identityParts.join(', ')})`
           }
         }
 
+        // PHASE 28: Sanitize log for user (remove gender if Stick/Whiteboard)
+        const isStickStyle =
+          globalStyle?.stylePrefix?.toLowerCase().includes('stick') ||
+          globalStyle?.stylePrefix?.toLowerCase().includes('whiteboard')
+
+        const debugGender = isStickStyle ? 'neutral' : (metadata?.gender ?? 'unknown')
+
         console.log(
-          `[NanoBanana] Scene ${scene.id} → character sheet: "${matchingSheet.name}" (${metadata?.gender ?? 'unknown'}) — desc: ${specificCharacterDescription.slice(0, 80)}…`
+          `[NanoBanana] Scene ${scene.id} → character sheet: "${matchingSheet.name}" (${debugGender}) — desc: ${specificCharacterDescription.slice(0, 80)}…`
         )
       }
     }
 
     // Safely combine the specific scene character description with the global style
     let finalCharacterDescription = specificCharacterDescription
+
+    // PHASE 28: Forcefully remove gendered keywords (Whiteboard/Stick animation only)
+    const isStickStyle =
+      globalStyle?.stylePrefix?.toLowerCase().includes('stick') ||
+      globalStyle?.stylePrefix?.toLowerCase().includes('whiteboard')
+
+    if (isStickStyle && finalCharacterDescription) {
+      finalCharacterDescription = finalCharacterDescription
+        .replaceAll(/\b(female|male|woman|man|girl|boy|lady|gentleman|young woman|young man)\b/gi, 'character')
+        .replaceAll(/\b(women|men|girls|boys)\b/gi, 'characters')
+        .replaceAll(/\b(she|he)\s+is\b/gi, 'the character is')
+        .replaceAll(/\b(her|his)\s+hair\b/gi, 'their hair')
+    }
+
     if (globalStyle.characterDescription) {
       finalCharacterDescription = finalCharacterDescription
         ? `${finalCharacterDescription} - ${globalStyle.characterDescription}`
@@ -350,67 +380,108 @@ export class NanoBananaEngine {
       console.log(`[NanoBanana] 🚀 Bypassing cache for scene ${scene.id} due to reprompt/force...`)
     }
 
-    try {
-      const quality =
-        this.currentOptions?.qualityMode === QualityMode.LOW_COST
-          ? 'ultra-low'
-          : this.currentOptions?.qualityMode === QualityMode.HIGH_QUALITY
-            ? 'high'
-            : 'medium'
+    const maxRetries = 5
+    let lastError: any
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const quality =
+          this.currentOptions?.qualityMode === QualityMode.LOW_COST
+            ? 'ultra-low'
+            : this.currentOptions?.qualityMode === QualityMode.HIGH_QUALITY
+              ? 'high'
+              : 'medium'
 
-      const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
+        const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
 
-      const startTime = Date.now()
-      const imageUrl = await this.imageService.generateImage(effectivePrompt, filename, {
-        aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-        referenceImages: baseImages,
-        systemInstruction
-      })
-
-      const duration = Date.now() - startTime
-      console.log(`[NanoBanana] ✓ Image generated in ${duration}ms for scene ${scene.id}`)
-
-      if (!bypassCache) {
-        this.sceneCache.set(effectivePrompt, imageUrl, {
-          sceneId: scene.id,
-          imageStyle: this.currentOptions?.imageStyle
+        const startTime = Date.now()
+        const imageUrl = await this.imageService.generateImage(effectivePrompt, filename, {
+          aspectRatio: this.currentOptions?.aspectRatio || '16:9',
+          referenceImages: baseImages,
+          systemInstruction
         })
-      }
-      return imageUrl
-    } catch (error: unknown) {
-      if (this.currentImageProvider !== 'gemini' && this.isNetworkError(error)) {
-        console.warn(`[NanoBanana] Network error with ${this.currentImageProvider}, falling back to Gemini...`)
-        try {
-          const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
-          const geminiService = ImageServiceFactory.create({
-            provider: 'gemini',
-            apiKey: this.apiKey
-          } as any)
-          const result = await geminiService.generateImage(fullPrompt, filename, {
-            quality: 'medium',
-            smartUpscale: true,
-            format: 'webp',
-            aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-            removeBackground: false,
-            skipTrim: true,
-            referenceImages: baseImages,
-            systemInstruction,
-            seed
-          })
-          this.sceneCache.set(fullPrompt, result, {
+
+        const duration = Date.now() - startTime
+        console.log(
+          `[NanoBanana] ✓ Image generated in ${duration}ms for scene ${scene.id} (Attempt ${attempt}/${maxRetries})`
+        )
+
+        if (!bypassCache) {
+          this.sceneCache.set(effectivePrompt, imageUrl, {
             sceneId: scene.id,
             imageStyle: this.currentOptions?.imageStyle
           })
-          return result
-        } catch (fallbackError: unknown) {
-          console.error(`[NanoBanana] Fallback to Gemini also failed:`, fallbackError)
-          throw fallbackError
+        }
+        return imageUrl
+      } catch (error: any) {
+        lastError = error
+        const isTimeout =
+          error.message?.toLowerCase().includes('timeout') || error.name?.toLowerCase().includes('timeout')
+        if (isTimeout && attempt < maxRetries) {
+          console.warn(
+            `[NanoBanana] ⚠ Image generation TIMEOUT for scene ${scene.id}. Retrying (${attempt}/${maxRetries})...`
+          )
+          continue
+        }
+        break // Break if not a timeout or final attempt
+      }
+    }
+
+    // ── FALLBACK CASCADE ───────────────────────────────────────────────────
+    const error = lastError
+    if (this.currentImageProvider !== 'gemini' && this.isNetworkError(error)) {
+      console.warn(`[NanoBanana] Network error with ${this.currentImageProvider}, falling back to Gemini...`)
+      try {
+        const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
+        const result = await geminiService.generateImage(fullPrompt, filename, {
+          quality: 'medium',
+          smartUpscale: true,
+          format: 'webp',
+          aspectRatio: this.currentOptions?.aspectRatio || '16:9',
+          referenceImages: baseImages,
+          systemInstruction
+        })
+        this.sceneCache.set(fullPrompt, result, {
+          sceneId: scene.id,
+          imageStyle: this.currentOptions?.imageStyle
+        })
+        return result
+      } catch (fallbackError: unknown) {
+        console.error(`[NanoBanana] Fallback to Gemini also failed:`, fallbackError)
+
+        // Stage 3 Fallback - Minimalist Safety Prompt
+        try {
+          console.warn(`[NanoBanana] Attempting STAGE 3 fallback (Safety Prompt)...`)
+          const safetyPrompt = `Minimalist whiteboard drawing, very simple sketch, clean lines on white background, neutral composition.`
+          const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
+          return await geminiService.generateImage(safetyPrompt, filename, {
+            aspectRatio: this.currentOptions?.aspectRatio || '16:9',
+            quality: 'low'
+          })
+        } catch (ultraError: any) {
+          console.error(`[NanoBanana] STAGE 3 fallback failed:`, ultraError.message)
+
+          // Stage 4 Fallback - HARDCODED Blank Image (Last Resort)
+          console.error(
+            `[NanoBanana] CRITICAL: All image APIs failed for scene ${scene.id}. Generating blank placeholder to prevent ship.`
+          )
+          const [width, height] = this.currentOptions?.aspectRatio === '9:16' ? [720, 1280] : [1280, 720]
+          await sharp({
+            create: {
+              width,
+              height,
+              channels: 3,
+              background: { r: 255, g: 255, b: 255 }
+            }
+          })
+            .webp()
+            .toFile(filename)
+          return filename
         }
       }
-
-      console.error(`[NanoBanana] Error generating image for scene ${scene.id}:`, error)
-      throw error
     }
+
+    console.error(`[NanoBanana] Final generation error for scene ${scene.id}:`, error?.message || error)
+    throw error
   }
 
   /**
@@ -477,6 +548,16 @@ export class NanoBananaEngine {
     const layers: any[] = []
     const sceneImage = 'scene.webp'
     const imagePath = path.join(targetDir, `scene.webp`)
+    const tempBgPath = path.join(targetDir, 'temp_bg.webp')
+
+    // Phase 28 : Forced Regeneration - If reprompting, delete existing images to ensure no stale cache is used
+    if (isReprompt) {
+      console.log(
+        `[NanoBanana] 🧨 Reprompting scene ${scene.id} — Forcing deletion of existing files to guarantee regeneration.`
+      )
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath)
+      if (fs.existsSync(tempBgPath)) fs.unlinkSync(tempBgPath)
+    }
 
     const effectiveBaseImages = [...baseImages]
     if (scene.continueFromPrevious && lastSceneImageBase64) {
@@ -485,7 +566,6 @@ export class NanoBananaEngine {
 
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
 
-    const tempBgPath = path.join(targetDir, 'temp_bg.webp')
     try {
       // Check if scene image already exists
       const finalImagePath = await this.generateImage(
@@ -504,14 +584,14 @@ export class NanoBananaEngine {
 
       const overlays: any[] = []
 
-      // 1. Onscreen text overlay
+      // 1. Onscreen text overlay (DISABLED per user request to avoid visual clutter)
+      /*
       if (scene.onscreenText) {
         const style = (scene as any).onscreenTextStyle || {}
         const globalStyle = this.currentOptions?.globalTextStyle || {}
         const sceneOverride = (this.currentOptions?.sceneStyles || {})[scene.id] || {}
 
         // Text renders ONLY when USER explicitly enables it via globalTextStyle or sceneStyles.
-        // The AI-generated scene-level onscreenTextStyle is intentionally ignored here.
         const textEnabled = globalStyle.enabled === true || sceneOverride.enabled === true
         if (textEnabled) {
           const text = scene.onscreenText
@@ -598,6 +678,7 @@ export class NanoBananaEngine {
           overlays.push({ input: Buffer.from(svgText), gravity: 'center' })
         }
       }
+      */
 
       // Final composition
       if (overlays.length > 0) {
@@ -610,6 +691,26 @@ export class NanoBananaEngine {
         `[NanoBanana] Composition failed for scene ${scene.id}:`,
         error instanceof Error ? error.message : error
       )
+
+      // Phase 28 : Ultimate Safety Net - Ensure imagePath exists so scene isn't skipped
+      if (!fs.existsSync(imagePath)) {
+        try {
+          console.warn(`[NanoBanana] ⚠ Emergency placeholder triggered for scene ${scene.id}`)
+          const [width, height] = this.currentOptions?.aspectRatio === '9:16' ? [720, 1280] : [1280, 720]
+          await sharp({
+            create: {
+              width,
+              height,
+              channels: 3,
+              background: { r: 255, g: 255, b: 255 }
+            }
+          })
+            .webp()
+            .toFile(imagePath)
+        } catch (placeholderError) {
+          console.error(`[NanoBanana] Critical: Failed to create emergency placeholder:`, placeholderError)
+        }
+      }
       throw error
     } finally {
       // Clean up temporary background file
@@ -929,6 +1030,12 @@ export class NanoBananaEngine {
     if (!fs.existsSync(outputPath)) {
       fs.mkdirSync(outputPath, { recursive: true })
     }
+
+    // Ensure scriptGenerator is initialized (needed for exportToMarkdown)
+    if (!this.scriptGenerator) {
+      this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+    }
+
     fs.writeFileSync(path.join(outputPath, 'script.json'), JSON.stringify(script, null, 2))
     fs.writeFileSync(path.join(outputPath, 'script.md'), this.scriptGenerator.exportToMarkdown(script))
   }
@@ -998,7 +1105,9 @@ PLAIN WHITE BACKGROUND.`
     options: Partial<VideoGenerationOptions> = {},
     baseImages: string[] = [],
     projectId?: string,
-    onProgress?: (progress: number, message: string) => Promise<void>
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    onTimingSync?: (script: CompleteVideoScript) => Promise<void>,
+    onSceneGenerated?: (scene: any, script: CompleteVideoScript, index: number, progress: number) => Promise<void>
   ): Promise<CompleteVideoPackage> {
     const validOptions = videoGenerationOptionsSchema.parse(options)
     this.currentOptions = validOptions
@@ -1016,7 +1125,15 @@ PLAIN WHITE BACKGROUND.`
       await onProgress(15, `Script generated. Starting asset generation...`)
     }
 
-    return this.generateVideoFromScript(script, options, baseImages, projectId, onProgress)
+    return this.generateVideoFromScript(
+      script,
+      options,
+      baseImages,
+      projectId,
+      onProgress,
+      onTimingSync,
+      onSceneGenerated
+    )
   }
 
   /**
@@ -1028,7 +1145,9 @@ PLAIN WHITE BACKGROUND.`
     options: Partial<VideoGenerationOptions> = {},
     baseImages: string[] = [],
     projectId?: string,
-    onProgress?: (progress: number, message: string) => Promise<void>
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    onTimingSync?: (script: CompleteVideoScript) => Promise<void>,
+    onSceneGenerated?: (scene: any, script: CompleteVideoScript, index: number, progress: number) => Promise<void>
   ): Promise<CompleteVideoPackage> {
     const startTime = Date.now()
     const validOptions = videoGenerationOptionsSchema.parse(options)
@@ -1094,9 +1213,9 @@ PLAIN WHITE BACKGROUND.`
         }
 
         if (model) {
-          characterReferenceMap.set(enrollment.name, [model.base64])
+          characterReferenceMap.set(enrollment.name.toLowerCase(), [model.base64])
           if (enrollment.modelId) {
-            characterReferenceMap.set(enrollment.modelId, [model.base64])
+            characterReferenceMap.set(enrollment.modelId.toLowerCase(), [model.base64])
           }
         }
       }
@@ -1141,11 +1260,11 @@ PLAIN WHITE BACKGROUND.`
 
       if (model) {
         console.log(`[NanoBanana] ✓ Matched "${charSheet.name}" to model: ${model.name}`)
-        characterReferenceMap.set(charSheet.name, [model.base64])
+        characterReferenceMap.set(charSheet.name.toLowerCase(), [model.base64])
         // Also key by internal IDs for robustness in scene mapping
-        if (charSheet.id) characterReferenceMap.set(charSheet.id, [model.base64])
+        if (charSheet.id) characterReferenceMap.set(charSheet.id.toLowerCase(), [model.base64])
         if (charSheet.modelId && charSheet.modelId !== 'none') {
-          characterReferenceMap.set(charSheet.modelId, [model.base64])
+          characterReferenceMap.set(charSheet.modelId.toLowerCase(), [model.base64])
         }
       } else {
         console.warn(`[NanoBanana] ⚠ No model match for "${charSheet.name}". Will generate fresh visuals.`)
@@ -1329,6 +1448,12 @@ PLAIN WHITE BACKGROUND.`
           )
         })
 
+        // Trigger timing sync callback if provided
+        if (onTimingSync) {
+          console.log(`[NanoBanana] Timing sync reached. Triggering callback for real-time update...`)
+          await onTimingSync(script)
+        }
+
         // Update total duration
         if (mappedTimings.length > 0) {
           script.totalDuration = mappedTimings.at(-1)!.end
@@ -1444,10 +1569,8 @@ PLAIN WHITE BACKGROUND.`
             const scene = script.scenes[idx]
             if (timing.wordTimings.length > 0) {
               ;(scene as any).globalWordTimings = timing.wordTimings
-              // Also update timeRange if it's still 0–0 (first generation)
-              if (!scene.timeRange || (scene.timeRange.start === 0 && scene.timeRange.end === 0)) {
-                scene.timeRange = { start: timing.start, end: timing.end }
-              }
+              // ALWAYS update timeRange with transcription ground truth
+              scene.timeRange = { start: timing.start, end: timing.end }
             }
           })
 
@@ -1458,6 +1581,12 @@ PLAIN WHITE BACKGROUND.`
           console.log(
             `[NanoBanana] ✓ Transcription complete — word timings injected into ${mappedTimings.length} scenes`
           )
+
+          // Trigger timing sync callback even in assembly-only mode
+          if (onTimingSync) {
+            console.log(`[NanoBanana-Assembly] Timing sync reached. Triggering callback...`)
+            await onTimingSync(script)
+          }
         } catch (error: any) {
           console.warn(
             `[NanoBanana] ⚠ Transcription failed, ASS captions will use scene text fallback: ${error.message}`
@@ -1478,9 +1607,13 @@ PLAIN WHITE BACKGROUND.`
 
     // --- SCENE COMPOSITION ---
     // Skip composition if we only want audio OR if visuals are already generated
-    const skipComposition = validOptions.generateOnlyAudio || validOptions.generateOnlyAssembly
+    // BUT ALWAYS allow composition if we are REPROMPTING a specific scene
+    const skipComposition =
+      (validOptions.generateOnlyAudio || validOptions.generateOnlyAssembly) && validOptions.repromptSceneIndex == null
     if (!skipComposition) {
       const startSceneIndex = validOptions.resumeFromSceneIndex ?? 0
+      const locationImageMap = new Map<string, string>()
+
       if (startSceneIndex > 0) {
         console.log(
           `[NanoBanana] Resuming scene generation from index ${startSceneIndex} (${script.scenes.length - startSceneIndex} scenes to generate)`
@@ -1490,11 +1623,25 @@ PLAIN WHITE BACKGROUND.`
       for (let i = startSceneIndex; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
 
-        if (validOptions.repromptSceneIndex !== undefined && validOptions.repromptSceneIndex !== i) {
+        // If we are only re-prompting a specific scene, skip others
+        // BUT we must still load the lastSceneImageBase64 from the preceding scene to maintain continuity if requested.
+        const repromptVal =
+          validOptions.repromptSceneIndex != null ? String(validOptions.repromptSceneIndex) : undefined
+        const isTargetScene =
+          repromptVal !== undefined &&
+          (repromptVal === String(i) || // 0-based match
+            repromptVal === String(i + 1) || // 1-based match
+            repromptVal === scene.id) // ID match
+
+        if (repromptVal !== undefined && !isTargetScene) {
           const expectedSceneDir = path.join(scenesDir, scene.id)
           const expectedImagePath = path.join(expectedSceneDir, 'scene.webp')
           if (fs.existsSync(expectedImagePath)) {
             lastSceneImageBase64 = fs.readFileSync(expectedImagePath).toString('base64')
+            // Also seed the location map from existing files during a skip/resume
+            if (scene.locationId && !locationImageMap.has(scene.locationId)) {
+              locationImageMap.set(scene.locationId, lastSceneImageBase64)
+            }
           }
           continue
         }
@@ -1507,62 +1654,103 @@ PLAIN WHITE BACKGROUND.`
         }
         console.log(`[NanoBanana] ${progressMessage} (${sceneProgress.toFixed(0)}%)`)
 
-        // Load previous scene image if this scene continues from it
-        if (scene.continueFromPrevious && i > 0 && !lastSceneImageBase64) {
-          const prevScene = script.scenes[i - 1]
-          const prevSceneDir = path.join(scenesDir, prevScene.id)
-          const prevImagePath = path.join(prevSceneDir, 'scene.webp')
-          if (fs.existsSync(prevImagePath)) {
-            lastSceneImageBase64 = fs.readFileSync(prevImagePath).toString('base64')
+        // Perform task execution (parallelized internally if needed)
+        await this.generationQueue.add(async () => {
+          const repromptVal =
+            validOptions.repromptSceneIndex != null ? String(validOptions.repromptSceneIndex) : undefined
+          const isReprompt =
+            repromptVal !== undefined &&
+            (repromptVal === String(i) || // 0-based match
+              repromptVal === String(i + 1) || // 1-based match
+              repromptVal === scene.id) // ID match
+
+          if (isReprompt) {
+            console.log(`[NanoBanana] 🎯 Target MATCHED for reprompt: Index=${i}, Value=${repromptVal}`)
           }
-        }
-        const sceneDir = path.join(scenesDir, scene.id)
-        if (!fs.existsSync(sceneDir)) {
-          fs.mkdirSync(sceneDir, { recursive: true })
-        }
 
-        // Determine scene-specific reference images based on characterIds
-        const sceneCharacterNames = scene.characterIds || []
-        const sceneBaseImages = [...baseImages]
-
-        if (sceneCharacterNames.length > 0) {
-          for (const charName of sceneCharacterNames) {
-            const refs = characterReferenceMap.get(charName)
-            if (refs) sceneBaseImages.push(...refs)
+          // Load previous scene image if this scene continues from it
+          if (scene.continueFromPrevious && i > 0 && !lastSceneImageBase64) {
+            const prevScene = script.scenes[i - 1]
+            const prevSceneDir = path.join(scenesDir, prevScene.id)
+            const prevImagePath = path.join(prevSceneDir, 'scene.webp')
+            if (fs.existsSync(prevImagePath)) {
+              lastSceneImageBase64 = fs.readFileSync(prevImagePath).toString('base64')
+            }
           }
-        } else if (scene.characterVariant) {
-          const refs = characterReferenceMap.get(scene.characterVariant)
-          if (refs) sceneBaseImages.push(...refs)
-        } else if (characterReferenceMap.has('standard')) {
-          sceneBaseImages.push(...characterReferenceMap.get('standard')!)
-        }
 
-        // Compose scene (generates background internally, then overlays text)
-        const isReprompt = validOptions.repromptSceneIndex === i
-        try {
-          // Initialize memory if not exists (minimal fallback)
-          const memory = (script as any).memory || { locations: new Map() }
-
-          await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt, script, memory)
-
-          // Keep track of the last generated image to allow for "Scene Continuation"
-          const lastImagePath = path.join(sceneDir, 'scene.webp')
-          if (fs.existsSync(lastImagePath)) {
-            lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
+          const sceneDir = path.join(scenesDir, scene.id)
+          if (!fs.existsSync(sceneDir)) {
+            fs.mkdirSync(sceneDir, { recursive: true })
           }
-        } catch (sceneError) {
-          console.error(`[NanoBanana] Failed to generate scene ${scene.id}, continuing to next scene...`, sceneError)
-        }
-      }
 
-      // Wait for all queued tasks (animations, etc.) to complete before assembly
-      await this.generationQueue.onIdle()
+          // Determine scene-specific reference images
+          const sceneCharacterNames = scene.characterIds || []
+          const sceneBaseImages: string[] = []
 
-      // Report progress after scene generation complete
-      if (onProgress) {
-        await onProgress(85, 'Scene generation complete, assembling video...')
+          // 1. High Priority: Characters (MANDATORY visual soul)
+          if (sceneCharacterNames.length > 0) {
+            for (const charName of sceneCharacterNames) {
+              const refs = characterReferenceMap.get(charName.toLowerCase())
+              if (refs) {
+                sceneBaseImages.push(...refs)
+              } else {
+                console.warn(`[NanoBanana] ⚠ Reference images NOT FOUND for character: ${charName}`)
+              }
+            }
+          } else if (scene.characterVariant && scene.characterVariant !== 'none') {
+            const vRefs = characterReferenceMap.get(scene.characterVariant.toLowerCase())
+            if (vRefs) sceneBaseImages.push(...vRefs)
+          } else if (characterReferenceMap.has('standard')) {
+            sceneBaseImages.push(...characterReferenceMap.get('standard')!)
+          }
+
+          // 2. Medium Priority: Global Style
+          sceneBaseImages.push(...baseImages)
+
+          // 3. Context/Anchor: Location
+          // We add this LAST so it acts as a background context rather than a subject reference.
+          // IMPORTANT: Skip location anchoring during manual REPROMPTS to allow the user to escape a bad style/DNA.
+          if (scene.locationId && !isReprompt) {
+            const locationRef = locationImageMap.get(scene.locationId)
+            if (locationRef) {
+              console.log(`[NanoBanana] ⚓ Anchoring background for ${scene.id} to location: ${scene.locationId}`)
+              sceneBaseImages.push(locationRef)
+            }
+          }
+
+          // Compose scene
+          try {
+            const memory = (script as any).memory || {
+              locations: new Map(),
+              characters: new Map(),
+              timeOfDay: '',
+              weather: ''
+            }
+
+            await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt, script, memory)
+            if (onSceneGenerated) {
+              console.log(`[NanoBanana] Scene ${i + 1} generated. Triggering visualization callback...`)
+              await onSceneGenerated(scene, script, i + 1, sceneProgress)
+            }
+
+            // Update continuity tracking
+            const lastImagePath = path.join(sceneDir, 'scene.webp')
+            if (fs.existsSync(lastImagePath)) {
+              lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
+              // Store this scene as the visual anchor for its locationId
+              if (scene.locationId && !locationImageMap.has(scene.locationId)) {
+                locationImageMap.set(scene.locationId, lastSceneImageBase64)
+              }
+            }
+          } catch (sceneError) {
+            console.error(`[NanoBanana] Failed to generate scene ${scene.id}:`, sceneError)
+          }
+        })
       }
     }
+
+    // Wait for all queued tasks to complete before assembly
+    await this.generationQueue.onIdle()
 
     // --- ASSEMBLE FINAL VIDEO ---
     const skipAssembly =
@@ -1688,7 +1876,7 @@ PLAIN WHITE BACKGROUND.`
     try {
       // Use ffmpeg concat demuxer with aresample to ensure clean timestamps
       await execAsync(
-        `ffmpeg -f concat -safe 0 -i "${listFile}" -af "aresample=async=1" -ac 2 -ar 44100 -y "${outputPath}"`
+        `ffmpeg -f concat -safe 0 -i "${listFile}" -af "aresample = async = 1" -ac 2 -ar 44100 -y "${outputPath} "`
       )
     } finally {
       if (fs.existsSync(listFile)) fs.unlinkSync(listFile)

@@ -32,7 +32,7 @@ export interface RemovalData {
   package?: any
 }
 
-const CHECKPOINT_PHASES = {
+export const CHECKPOINT_PHASES = {
   SCRIPT_GENERATION: 'script_generation',
   ASSET_GENERATION: 'asset_generation',
   NARRATION_GENERATION: 'narration_generation',

@@ -22,8 +22,8 @@ export class TimingMapper {
         // Treat hyphens as space separators (e.g., "ill-fitting" -> "ill fitting")
         .replaceAll('-', ' ')
         .toLowerCase()
-        .replaceAll("'", "'")
-        .replaceAll(/[^a-z0-9\s']/g, '')
+        // Support Unicode letters and numbers across languages (French, etc.)
+        .replaceAll(/[^\p{L}\p{N}\s']/gu, '')
         .replaceAll(/\s+/g, ' ')
         .trim()
     )
@@ -64,7 +64,7 @@ export class TimingMapper {
         let matchCount = 0
         let gapCount = 0
         const GAP_LIMIT = 8
-        const windowEnd = Math.min(i + Math.ceil(n * 1.5) + 5, transcribedWords.length)
+        const windowEnd = Math.min(i + Math.ceil(n * 1.5) + 10, transcribedWords.length) // Slightly wider window
 
         while (narIdx < n && wIdx < windowEnd) {
           const ww = this.normalize(transcribedWords[wIdx].word)
@@ -137,7 +137,8 @@ export class TimingMapper {
       } else {
         // End of script, use transcription end or a safe buffer
         const lastTranscribedEnd = transcribedWords.length > 0 ? transcribedWords.at(-1)!.end : 0
-        nextAnchorStart = Math.max(prevAnchorEnd + 5, lastTranscribedEnd)
+        // Reduced forced gap duration at the end (from +5s to +1s or transcription end)
+        nextAnchorStart = Math.max(prevAnchorEnd + 1, lastTranscribedEnd)
       }
 
       const totalGapDuration = Math.max(0.1, nextAnchorStart - prevAnchorEnd)
@@ -189,8 +190,8 @@ export class TimingMapper {
               : results[j + 1].start || lastWordEnd + 0.1 // Fallback
           results[j].end = Math.max(lastWordEnd + 0.1, nextSceneStart)
         } else {
-          // Last scene: add a small cushion
-          results[j].end = lastWordEnd + 1
+          // Last scene: reduced cushion from 1.0s to 0.3s for tighter ending
+          results[j].end = lastWordEnd + 0.3
         }
       }
       // If not an anchor, results[j].end was already estimated/distributed in Pass 2

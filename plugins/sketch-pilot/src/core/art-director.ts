@@ -37,6 +37,17 @@ export class ArtDirector {
   }
 
   private buildArtDirectorSystemPrompt(spec: VideoTypeSpecification): string {
+    const styleLower = spec.name?.toLowerCase() || ''
+    const isMinimalist =
+      styleLower.includes('whiteboard') ||
+      styleLower.includes('stick') ||
+      styleLower.includes('chalk') ||
+      styleLower.includes('monochrome')
+
+    const colorConstraint = isMinimalist
+      ? `IMPORTANT: The project style "${spec.name}" requires strict minimalism: "Monochrome Black and White only, ink on pure white background, no other colors, STRICTLY MINIMALIST, high white space, low line count".`
+      : ''
+
     return `## ROLE
 You are the Art Director for a premium video production. Your task is to establish a unique and consistent VISUAL IDENTITY for a ${spec.name} project.
 
@@ -45,6 +56,7 @@ Define the "Visual Soul" of the project:
 1. TEXTURE & GRAIN: The tactile quality of the image.
 2. LINE QUALITY: The personality of the drawing or edges.
 3. COLOR HARMONY: A specific color strategy that supports the tone.
+   ${colorConstraint}
 
 ## CONSTRAINTS
 - Stay consistent with the niche: ${spec.name}.

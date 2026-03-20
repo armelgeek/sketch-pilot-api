@@ -46,6 +46,10 @@ export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
       framing: 'String',
       background: 'String - Explicit background description including weather and time-of-day',
       lighting: 'String - Explicit lighting description (e.g., morning sun, neon, soft)',
+      cameraAction: {
+        type: 'zoom-in | zoom-out | pan-left | pan-right | pan-up | pan-down | static',
+        intensity: 'low | medium | high'
+      },
       props: ['String - Relevant props for this scene to track logically'],
       imagePrompt: '[action/metaphor]',
       animationPrompt: '...',

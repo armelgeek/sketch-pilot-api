@@ -917,7 +917,7 @@ export class VideoAssembler {
     }
 
     return {
-      zoomExpr: '',
+      zoomExpr: zoomPulses.length > 0 ? `+${zoomPulses.join('+')}` : '',
       brightExpr: brightFades.length > 0 ? `eq=brightness='${brightFades.join('+')}',` : ''
     }
   }
@@ -944,23 +944,32 @@ export class VideoAssembler {
 
       const reactive = this.buildAudioReactiveExpressions(wordTimings, duration)
 
-      let zBaseExpr = 'min(1.003^on,1.5)'
+      let zBaseExpr = '1.0+0.002*on' // Default: Slow, constant linear zoom
       let x = 'iw/2-(iw/zoom/2)'
-      const y = 'ih/2-(ih/zoom/2)'
+      let y = 'ih/2-(ih/zoom/2)'
 
       if (cameraAction) {
-        const intensity = cameraAction.intensity === 'high' ? 0.005 : cameraAction.intensity === 'low' ? 0.001 : 0.003
+        // Boosted intensity for more perceptible motion (0.003 default)
+        const intensity = cameraAction.intensity === 'high' ? 0.006 : cameraAction.intensity === 'low' ? 0.0015 : 0.003
 
         if (cameraAction.type === 'zoom-out') {
+          // Starts zoomed in (1.5) and zooms out to 1.0
           zBaseExpr = `max(1.5-${intensity}*on,1.0)`
         } else if (cameraAction.type === 'zoom-in') {
-          zBaseExpr = `min(1.0+${intensity}*on,1.5)`
+          // Starts at 1.0 and zooms in smoothly
+          zBaseExpr = `min(1.0+${intensity}*on,2.0)`
         } else if (cameraAction.type === 'pan-right') {
-          zBaseExpr = '1.3'
-          x = `(iw/2-(iw/zoom/2)) + (on*${intensity * 100})`
+          zBaseExpr = '1.3' // Fixed zoom level for panning
+          x = `(iw/2-(iw/zoom/2)) + (on*${intensity * 300})`
         } else if (cameraAction.type === 'pan-left') {
           zBaseExpr = '1.3'
-          x = `(iw/2-(iw/zoom/2)) - (on*${intensity * 100})`
+          x = `(iw/2-(iw/zoom/2)) - (on*${intensity * 300})`
+        } else if (cameraAction.type === 'pan-down') {
+          zBaseExpr = '1.3'
+          y = `(ih/2-(ih/zoom/2)) + (on*${intensity * 300})`
+        } else if (cameraAction.type === 'pan-up') {
+          zBaseExpr = '1.3'
+          y = `(ih/2-(ih/zoom/2)) - (on*${intensity * 300})`
         }
       }
 
@@ -968,7 +977,9 @@ export class VideoAssembler {
       const zExpr = `${zBaseExpr}${reactive.zoomExpr}`
 
       // Add the eq filter for brightness dips during pauses, followed by the responsive zoompan
-      const filterString = `scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s=${resolution}`
+      // We scale to 3x resolution BEFORE zoompan to gain sub-pixel precision for the crop.
+      // We also force fps=25 matching our output frame rate.
+      const filterString = `scale=${w * 3}:${h * 3}:force_original_aspect_ratio=increase,crop=${w * 3}:${h * 3},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s=${resolution}:fps=25`
 
       // Add keyword visual overlays
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])

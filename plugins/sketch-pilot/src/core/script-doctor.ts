@@ -59,8 +59,7 @@ Your job is to take a draft video script and refine it to sound authoritative, e
 Analyze the provided JSON script and improve:
 1. NARRATION: Use high-impact terminology relevant to ${spec.name}. Ensure the tone matches the "${spec.role}" persona.
 2. HOOK & CLIMAX: Sharpen the opening hook and the concluding summary to maximize engagement.
-3. VISUAL METAPHORS: Suggest better props or visual summaries that resonate with experts in this field.
-4. VISUAL ANCHORS (IMPORTANT): Identify 1-2 "Power Words" or short phrases (max 3 words) PER SCENE that should be VISUALLY ANCHORED/DRAWN in the scene to reinforce the message without audio.
+4. VISUAL PROPS: Suggest better props or visual summaries that resonate with experts in this field.
 
 ## CONSTRAINTS & SPECIFICATIONS
 - **Role**: ${spec.role}
@@ -88,7 +87,6 @@ JSON structure to maintain:
       "expression": "...", 
       "actions": [...], 
       "background": "...",
-      "visualAnchors": [{ "text": "WORD", "position": "top-left|top-right|bottom-left|bottom-right|center", "style": "hand-drawn|bold|chalk|marker" }],
       ... 
     }
   ],
