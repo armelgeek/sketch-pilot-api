@@ -21,6 +21,8 @@ const charModelSchema = z.object({
   voiceId: z.string().nullable(),
   description: z.string().nullable(),
   userId: z.string().nullable(),
+  stylePrefix: z.string().nullable().optional(),
+  artistPersona: z.string().nullable().optional(),
   isStandard: z.boolean().nullable(),
   createdAt: z.string().or(z.date()),
   updatedAt: z.string().or(z.date())
@@ -157,6 +159,8 @@ export class CharacterModelController implements Routes {
                   age: z.enum(['child', 'youth', 'senior', 'unknown']).default('unknown'),
                   voiceId: z.string().optional(),
                   description: z.string().optional(),
+                  stylePrefix: z.string().optional(),
+                  artistPersona: z.string().optional(),
                   isStandard: z.string().optional().openapi({ description: 'true/false' }),
                   image: z.instanceof(File).openapi({ description: 'Reference image file' })
                 })
@@ -183,6 +187,8 @@ export class CharacterModelController implements Routes {
           const age: string = formData.get('age') || 'unknown'
           const voiceId: string | null = formData.get('voiceId')
           const description: string | null = formData.get('description')
+          const stylePrefix: string | null = formData.get('stylePrefix')
+          const artistPersona: string | null = formData.get('artistPersona')
           const isStandardRaw: string | null = formData.get('isStandard')
           const file: File | null = formData.get('image')
 
@@ -212,6 +218,8 @@ export class CharacterModelController implements Routes {
             age,
             voiceId,
             description,
+            stylePrefix,
+            artistPersona,
             isStandard: isStandardRaw === 'true'
           })
 
@@ -243,6 +251,8 @@ export class CharacterModelController implements Routes {
                   age: z.enum(['child', 'youth', 'senior', 'unknown']).optional(),
                   voiceId: z.string().nullable().optional(),
                   description: z.string().nullable().optional(),
+                  stylePrefix: z.string().nullable().optional(),
+                  artistPersona: z.string().nullable().optional(),
                   isStandard: z.boolean().optional()
                 })
               }
