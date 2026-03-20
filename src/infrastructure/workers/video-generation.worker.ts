@@ -38,9 +38,10 @@ async function reportProgress(
   videoId: string,
   step: string,
   progress: number,
-  message: string
+  message: string,
+  metadata?: Record<string, any>
 ) {
-  const status = { step, progress, status: 'processing', videoId, message }
+  const status = { step, progress, status: 'processing', videoId, message, ...metadata }
   if (job.id) {
     jobProgressMap.set(job.id, status)
   }
@@ -193,8 +194,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           },
           onSceneGenerated: async (scene, script, index, progress) => {
             console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-            await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`)
             await uploadSceneImages(videoId, [scene], effectiveProjectId)
+            await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
+              sceneIndex: index,
+              scene
+            })
             await videoRepository.updateStatus(videoId, {
               script: script as any,
               scenes: script.scenes as any
@@ -225,8 +229,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           },
           onSceneGenerated: async (scene, script, index, progress) => {
             console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-            await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`)
             await uploadSceneImages(videoId, [scene], effectiveProjectId)
+            await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
+              sceneIndex: index,
+              scene
+            })
             await videoRepository.updateStatus(videoId, {
               script: script as any,
               scenes: script.scenes as any
@@ -252,8 +259,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         },
         onSceneGenerated: async (scene, script, index, progress) => {
           console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-          await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`)
           await uploadSceneImages(videoId, [scene], effectiveProjectId)
+          await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
+            sceneIndex: index,
+            scene
+          })
           await videoRepository.updateStatus(videoId, {
             script: script as any,
             scenes: script.scenes as any
