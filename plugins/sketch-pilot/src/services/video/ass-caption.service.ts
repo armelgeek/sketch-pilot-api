@@ -41,6 +41,7 @@ export type AssCaptionStyle =
   | 'typewriter'
   | 'karaoke'
   | 'remotion'
+  | 'hormozi'
 
 export interface AssCaptionConfig {
   enabled?: boolean
@@ -247,7 +248,9 @@ export class AssCaptionService {
             ? '#FFE135'
             : this.style === 'neon'
               ? '#00FFFF'
-              : '#FFFFFF'
+              : this.style === 'hormozi'
+                ? '#FFE135'
+                : '#FFFFFF'
 
     this.inactiveColor = hexToAssColor(config.inactiveColor ?? '#888888')
     this.highlightColor = hexToAssColor(config.highlightColor ?? defaultHighlight)
@@ -307,11 +310,27 @@ export class AssCaptionService {
 
       if (shouldBreak || i === words.length - 1) {
         if (currentChunk.length > 0) {
-          lines.push({
-            words: currentChunk,
-            lineStartMs: currentChunk[0]!.startMs,
-            lineEndMs: currentChunk.at(-1)!.startMs + currentChunk.at(-1)!.durationMs
-          })
+          // Special for Hormozi/Punchy styles: prefer even shorter lines
+          const isHormozi = this.style === 'hormozi'
+          const maxWords = isHormozi ? 3 : this.wordsPerLine
+
+          if (isHormozi && currentChunk.length > maxWords) {
+            // Split big chunks
+            for (let j = 0; j < currentChunk.length; j += maxWords) {
+              const miniChunk = currentChunk.slice(j, j + maxWords)
+              lines.push({
+                words: miniChunk,
+                lineStartMs: miniChunk[0]!.startMs,
+                lineEndMs: miniChunk.at(-1)!.startMs + miniChunk.at(-1)!.durationMs
+              })
+            }
+          } else {
+            lines.push({
+              words: currentChunk,
+              lineStartMs: currentChunk[0]!.startMs,
+              lineEndMs: currentChunk.at(-1)!.startMs + currentChunk.at(-1)!.durationMs
+            })
+          }
         }
         currentChunk = []
         currentChars = 0
@@ -575,6 +594,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         return this.buildNeonLine(line)
       case 'typewriter':
         return this.buildTypewriterLine(line)
+      case 'hormozi':
+        return this.buildHormoziLine(line)
       default:
         return this.buildColoredLine(line)
     }
@@ -812,6 +833,93 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
             `\\fs${this.fontSize}\\bord${this.borderSize}\\shad${this.shadowSize}` +
             `\\c${this.highlightColor}}${layout.word}`
         )
+      }
+    })
+
+    return events.join('\n')
+  }
+
+  // ── Style: hormozi ──────────────────────────────────────────────────────
+  //
+  // HIGH IMPACT: Rapid-fire words, dynamic scaling, high-contrast borders,
+  // and subtle "tilt" (rotation) to keep the viewer engaged.
+  //
+  // FIX STRATEGY: Two-layer spring-animated approach.
+  //   Layer 0: Inactive words on a single line (active word invisible).
+  //   Layer 1: Active word with SPRING scale (100 -> 130 -> 115) and slight tilt.
+
+  private buildHormoziLine(line: CaptionLine): string {
+    const layouts = this.computeLayout(line)
+    const events: string[] = []
+    const alignment = this.getAlignmentCode()
+    const x = this.getAlignedX()
+
+    const C_WHITE = hexToAssColor('#FFFFFF')
+    const BORD_SIZE = Math.round(this.borderSize * 1.5)
+    const SHAD_SIZE = Math.round(this.fontSize * 0.08)
+
+    line.words.forEach((activeWord, activeIdx) => {
+      const totalMs = activeWord.durationMs
+      const rampMs = Math.min(150, Math.round(totalMs * 0.4))
+
+      // Hormozi spring: aggressive 135% pop down to 110%
+      const scFrames = springKeyframes(100, 135, rampMs, { stiffness: 450, damping: 20 })
+      const rot = (activeIdx % 2 === 0 ? 1 : -1) * 2 // Alternating slight tilt
+
+      for (let f = 0; f < scFrames.length - 1; f++) {
+        const segStart = activeWord.startMs + scFrames[f].ms
+        const segEnd = activeWord.startMs + scFrames[f + 1].ms
+        if (segEnd <= segStart) continue
+
+        const sc = Math.round(scFrames[f].value)
+
+        // Layer 0: base line (inactive words)
+        const baseText = line.words
+          .map((w, i) => {
+            if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
+            return `{\\alpha&H00&\\c${C_WHITE}\\bord${BORD_SIZE}\\shad${SHAD_SIZE}}${w.word}`
+          })
+          .join(' ')
+
+        events.push(
+          `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
+            `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
+        )
+
+        // Layer 1: active word pop
+        const layout = layouts[activeIdx]
+        if (!layout) continue
+
+        events.push(
+          `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
+            `{\\an5\\pos(${layout.centerX},${layout.centerY})\\fs${this.fontSize}` +
+            `\\bord${BORD_SIZE}\\shad${SHAD_SIZE}\\c${this.highlightColor}\\fscx${sc}\\fscy${sc}\\frz${rot}}${layout.word}`
+        )
+      }
+
+      // Finish with hold at 110%
+      const holdStart = activeWord.startMs + rampMs
+      if (holdStart < activeWord.startMs + totalMs) {
+        const baseText = line.words
+          .map((w, i) => {
+            if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
+            return `{\\alpha&H00&\\c${C_WHITE}\\bord${BORD_SIZE}\\shad${SHAD_SIZE}}${w.word}`
+          })
+          .join(' ')
+
+        events.push(
+          `Dialogue: 0,${msToAss(holdStart)},${msToAss(activeWord.startMs + totalMs)},Words,,0,0,0,,` +
+            `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
+        )
+
+        const layout = layouts[activeIdx]
+        if (layout) {
+          events.push(
+            `Dialogue: 1,${msToAss(holdStart)},${msToAss(activeWord.startMs + totalMs)},Words,,0,0,0,,` +
+              `{\\an5\\pos(${layout.centerX},${layout.centerY})\\fs${this.fontSize}` +
+              `\\bord${BORD_SIZE}\\shad${SHAD_SIZE}\\c${this.highlightColor}\\fscx110\\fscy110\\frz${rot}}${layout.word}`
+          )
+        }
       }
     })
 

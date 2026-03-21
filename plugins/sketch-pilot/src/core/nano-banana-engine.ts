@@ -1,7 +1,5 @@
-import { exec } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { promisify } from 'node:util'
 import { GoogleGenAI } from '@google/genai'
 import axios from 'axios'
 import sharp from 'sharp'
@@ -28,9 +26,10 @@ import {
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import { getCharacterModelManager } from '../utils/character-models'
+import { runFfmpeg } from '../utils/ffmpeg-utils'
 import { TaskQueue } from '../utils/task-queue'
-import { TimingMapper } from '../utils/timing-mapper'
 
+import { TimingMapper } from '../utils/timing-mapper'
 import { PromptManager, type PromptManagerConfig } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
 import type { SceneMemory } from './scene-memory'
@@ -1885,17 +1884,28 @@ PLAIN WHITE BACKGROUND.`
   }
 
   private async stitchAudioFiles(filePaths: string[], outputPath: string): Promise<void> {
-    const execAsync = promisify(exec)
-
     const listFile = `${outputPath}.list.txt`
     const fileListContent = filePaths.map((p) => `file '${path.resolve(p)}'`).join('\n')
     fs.writeFileSync(listFile, fileListContent)
 
     try {
       // Use ffmpeg concat demuxer with aresample to ensure clean timestamps
-      await execAsync(
-        `ffmpeg -f concat -safe 0 -i "${listFile}" -af "aresample = async = 1" -ac 2 -ar 44100 -y "${outputPath} "`
-      )
+      await runFfmpeg([
+        '-f',
+        'concat',
+        '-safe',
+        '0',
+        '-i',
+        listFile,
+        '-af',
+        'aresample=async=1',
+        '-ac',
+        '2',
+        '-ar',
+        '44100',
+        '-y',
+        outputPath
+      ])
     } finally {
       if (fs.existsSync(listFile)) fs.unlinkSync(listFile)
     }

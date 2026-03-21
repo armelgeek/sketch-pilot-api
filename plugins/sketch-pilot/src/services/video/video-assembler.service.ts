@@ -69,334 +69,38 @@ export class VideoAssembler {
     const clips: string[] = []
     const transitions: (string | undefined)[] = []
 
-    for (let sceneIndex = 0; sceneIndex < script.scenes.length; sceneIndex++) {
-      const scene = script.scenes[sceneIndex]
-      const isLastScene = sceneIndex === script.scenes.length - 1
-      const sceneDir = path.join(scenesDir, scene.id)
-      const manifestPath = path.join(sceneDir, 'manifest.json')
+    const sceneTasks = script.scenes.map((_, i) => i)
+    const processedClips: string[] = Array.from({ length: script.scenes.length })
+    const processedTransitions: (string | undefined)[] = Array.from({ length: script.scenes.length })
 
-      // Read manifest first to get sceneImage filename
-      let sceneImageFilename = 'scene.webp' // Default to WebP
-      let aspectRatio = '16:9'
-      let cameraAction: any
-      let transitionToNext: string | undefined
-      let wordTimings: any[] = []
-      let manifestData: any = {}
-
-      if (fs.existsSync(manifestPath)) {
-        try {
-          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-          manifestData = manifest
-          sceneImageFilename = manifest.sceneImage || 'scene.webp'
-          aspectRatio = manifest.aspectRatio || '16:9'
-          cameraAction = manifest.cameraAction
-          transitionToNext = manifest.transitionToNext
-          wordTimings = manifest.wordTimings || []
-          const backgroundColor = manifest.backgroundColor || '#FFF'
-
-          // Update local context for this scene
-          ;(scene as any).backgroundColor = backgroundColor
-          ;(scene as any).wordTimings = wordTimings
-          if (manifest.globalWordTimings) {
-            ;(scene as any).globalWordTimings = manifest.globalWordTimings
-          }
-        } catch {
-          console.warn(`[VideoAssembler] Could not read manifest for scene ${scene.id}`)
-        }
-      }
-
-      const imagePath = path.join(sceneDir, sceneImageFilename)
-      const audioPath = path.join(sceneDir, 'narration.mp3')
-      const videoPath = path.join(sceneDir, 'animation.mp4')
-      const clipOutputPath = path.join(sceneDir, 'clip.mp4')
-
-      // Determine duration: Use audio duration if available, otherwise default
-      // If global audio is present, use the timeRange from the script
-      const scriptDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
-      const rawDuration = hasGlobalAudio ? scriptDuration : await this.getAudioDuration(audioPath).catch(() => 5)
-
-      // ── Dynamic Pacing Logic ──
-      // To maintain a "Regular Interval" between voices, startPadding must compensate for:
-      // 1. The tail padding of the previous scene (SCENE_PADDING_SECONDS)
-      // 2. The overlap duration of the transition between scenes
-
-      // Get transition that leads into this scene (from the previous scene)
-      const prevSceneIndex = sceneIndex - 1
-      let incomingTransitionDuration = 0
-      if (prevSceneIndex >= 0) {
-        const prevScene = script.scenes[prevSceneIndex]
-        const prevSceneDir = path.join(scenesDir, prevScene.id)
-        const prevManifestPath = path.join(prevSceneDir, 'manifest.json')
-        let prevTransitionType = 'fade' // Default fallback
-        if (fs.existsSync(prevManifestPath)) {
-          try {
-            const m = JSON.parse(fs.readFileSync(prevManifestPath, 'utf8'))
-            prevTransitionType = m.transitionToNext || 'fade'
-          } catch {}
-        }
-        const xt = this.getXfadeTransition(prevTransitionType)
-        // Unified 0.04s (1 frame) fallback for 'none'/'cut'
-        incomingTransitionDuration = xt ? xt.duration : 0.04
-      }
-
-      // ── Tension-Aware Pacing ──
-      // Scene tension (0–10) from the LLM modulates the lead-in silence.
-      // High tension = urgent, tight. Low tension = contemplative, wide.
-      const sceneTension: number = (scene as any).tension ?? 5
-
-      let tensionStartPadding: number
-      if (sceneTension <= 2) {
-        // Calm/silence — long contemplative pause
-        tensionStartPadding = 1 + Math.sin(sceneIndex) * 0.15 // 0.85–1.15s
-      } else if (sceneTension <= 4) {
-        // Building — gentle lead-in
-        tensionStartPadding = 0.7 + Math.sin(sceneIndex) * 0.1 // 0.60–0.80s
-      } else if (sceneTension <= 6) {
-        // Engaged — standard pacing
-        tensionStartPadding = 0.4 + Math.sin(sceneIndex) * 0.08 // 0.32–0.48s
-      } else if (sceneTension <= 8) {
-        // High stakes — tight, urgent
-        tensionStartPadding = 0.2 + Math.sin(sceneIndex) * 0.05 // 0.15–0.25s
-      } else {
-        // Peak drama — near-instant start
-        tensionStartPadding = 0.1
-      }
-
-      const startPadding = hasGlobalAudio
-        ? 0
-        : sceneIndex === 0
-          ? Math.max(tensionStartPadding, 0.6) // First scene always has at least 0.6s lead-in
-          : Math.max(tensionStartPadding - incomingTransitionDuration * 0.5, 0.08) // Reduce by half the transition overlap, min 80ms
-
-      const endPadding = hasGlobalAudio ? 0 : isLastScene ? 0 : SCENE_PADDING_SECONDS
-
-      let rawDurationWithPadding = startPadding + rawDuration + endPadding
-
-      // If using global audio, the clip must be lengthened by the transition overlap
-      // because `stitchClips` will subtract this overlap via xfade, and we need the
-      // net contribution of this scene to perfectly match `rawDuration` from TimingMapper.
-      if (hasGlobalAudio && sceneIndex > 0) {
-        rawDurationWithPadding += incomingTransitionDuration
-      }
-
-      // Frame-accurate duration matching (assuming 25fps)
-      const FPS = 25
-      const duration = Math.ceil(rawDurationWithPadding * FPS) / FPS
-
-      console.log(
-        `[VideoAssembler-Timing] Scene: ${sceneIndex} | tension: ${sceneTension} | transitionInDur: ${incomingTransitionDuration.toFixed(2)}s | startPad: ${startPadding.toFixed(2)}s | totalDuration: ${duration.toFixed(3)}s`
+    // Parallel processing with concurrency limit
+    const CONCURRENCY_LIMIT = 3
+    for (let i = 0; i < sceneTasks.length; i += CONCURRENCY_LIMIT) {
+      const chunk = sceneTasks.slice(i, i + CONCURRENCY_LIMIT)
+      await Promise.all(
+        chunk.map(async (sceneIndex) => {
+          const result = await this.processSceneClip(
+            sceneIndex,
+            script,
+            scenesDir,
+            animationMode,
+            globalOptions,
+            hasGlobalAudio
+          )
+          processedClips[sceneIndex] = result.clipPath
+          processedTransitions[sceneIndex] = result.transition
+        })
       )
-
-      try {
-        // ── Keyword Visuals Resolution ─────────────────────────────────────
-        const keywordVisualsJsonPath = path.join(sceneDir, 'keyword_visuals.json')
-        const processedKeywordVisuals: Array<{ imagePath: string; start: number; end: number }> = []
-
-        if (fs.existsSync(keywordVisualsJsonPath)) {
-          try {
-            const kvManifest = JSON.parse(fs.readFileSync(keywordVisualsJsonPath, 'utf8'))
-            for (const kv of kvManifest) {
-              const timing = this.getKeywordTiming(kv.keyword, wordTimings || [])
-              if (timing) {
-                processedKeywordVisuals.push({
-                  imagePath: kv.imagePath,
-                  start: timing.start + startPadding,
-                  end: timing.end + startPadding
-                })
-              }
-            }
-          } catch {
-            console.warn(`[VideoAssembler] Could not read keyword visuals for scene ${scene.id}`)
-          }
-        }
-
-        if (animationMode === 'ai' && fs.existsSync(videoPath)) {
-          // Transcode AI video to ensure compatibility and correct length
-          await this.processAiClip(videoPath, duration, clipOutputPath, aspectRatio, globalOptions.resolution)
-        } else if (animationMode === 'static' || animationMode === 'none') {
-          // Create static video from image (no panning, no animation)
-          await this.createStaticClip(
-            imagePath,
-            duration,
-            clipOutputPath,
-            aspectRatio,
-            globalOptions.resolution,
-            (scene as any).backgroundColor,
-            wordTimings,
-            processedKeywordVisuals
-          )
-        } else if (animationMode === 'composition') {
-          // Create layered composition video
-          if (manifestData.layers && manifestData.layers.length > 0) {
-            const layers = manifestData.layers.map((l: any) => ({
-              ...l,
-              path: path.join(sceneDir, l.path)
-            }))
-            const bgPath = path.join(sceneDir, manifestData.sceneImage)
-            await this.createComposedClip(
-              bgPath,
-              layers,
-              duration,
-              clipOutputPath,
-              aspectRatio,
-              globalOptions.resolution,
-              processedKeywordVisuals
-            )
-          } else {
-            // Fallback to panning if no layers found
-            await this.createPanningClip(
-              imagePath,
-              duration,
-              clipOutputPath,
-              aspectRatio,
-              globalOptions.resolution,
-              (scene as any).backgroundColor,
-              cameraAction,
-              wordTimings,
-              processedKeywordVisuals
-            )
-          }
-        } else {
-          // Create panning video from image (default for 'panning' mode)
-          await this.createPanningClip(
-            imagePath,
-            duration,
-            clipOutputPath,
-            aspectRatio,
-            globalOptions.resolution,
-            (scene as any).backgroundColor,
-            cameraAction,
-            wordTimings,
-            processedKeywordVisuals
-          )
-        }
-
-        // Add audio if it exists and wasn't already muxed (panning clip doesn't have audio)
-        // Actually, let's stitch audio later or mux it now.
-        // Better approach: Create a clip WITH audio.
-
-        let finalClip = clipOutputPath
-
-        // ── Advanced Multi-layer Audio Mixing ──
-        if (fs.existsSync(audioPath) || hasGlobalAudio) {
-          const mixedClipPath = path.join(sceneDir, 'clip_mixed.mp4')
-
-          // Resolve soundscape if specified in script
-          const soundscapeName = (scene as any).soundscape
-          const soundscapePath = soundscapeName ? this.ambientService.resolveSoundscape(soundscapeName) : null
-
-          // Collect sound effects for this scene
-          const soundEffects = (scene as any).soundEffects || []
-
-          await this.mixSceneAudio(
-            clipOutputPath,
-            audioPath,
-            soundscapePath,
-            soundEffects,
-            mixedClipPath,
-            duration,
-            startPadding,
-            sceneTension,
-            hasGlobalAudio, // skipNarration
-            globalOptions
-          )
-          finalClip = mixedClipPath
-        }
-
-        // 2. Apply camera action - DISABLED FOR NOW
-        // if (cameraAction && cameraAction.type !== 'static') {
-        //     const clipWithCameraPath = path.join(sceneDir, 'clip_with_camera.mp4');
-        //     try {
-        //         await this.applyCameraEffect(finalClip, cameraAction, clipWithCameraPath, aspectRatio, globalOptions.resolution);
-        //         if (fs.existsSync(clipWithCameraPath)) {
-        //             finalClip = clipWithCameraPath;
-        //         } else {
-        //             console.warn(`[VideoAssembler] Camera effect output not found, using original clip`);
-        //         }
-        //     } catch (camErr) {
-        //         console.warn(`[VideoAssembler] Camera effect failed, using original: ${camErr}`);
-        //     }
-        // }
-
-        // 3. Apply ASS captions if enabled and word timings exist
-        const useGlobalAss = !!globalOptions.globalAudioPath && globalOptions.assCaptions?.enabled !== false
-        const captionsEnabled = globalOptions.assCaptions?.enabled !== false
-
-        if (captionsEnabled && wordTimings.length > 0 && !useGlobalAss) {
-          const clipWithTextPath = path.join(sceneDir, 'clip_with_text.mp4')
-          try {
-            const atempoRate = this.getAtempoRate(sceneTension)
-
-            // Shift and Scale word timings
-            const shiftedWordTimings = wordTimings.map((w) => {
-              const start = (w.start || w.startMs / 1000) / atempoRate + startPadding
-              const duration = w.durationMs / 1000 / atempoRate
-              const end = start + duration
-
-              return {
-                ...w,
-                start,
-                end,
-                startMs: Math.round(start * 1000),
-                durationMs: Math.round(duration * 1000)
-              }
-            })
-
-            const resolution = this.getResolution(aspectRatio, globalOptions.resolution)
-            const [width, height] = resolution.split('x').map(Number)
-            const assService = new AssCaptionService(width, height, globalOptions.assCaptions)
-            const assContent = assService.buildASSFile(shiftedWordTimings)
-
-            const assPath = path.join(sceneDir, 'subtitles.ass')
-            fs.writeFileSync(assPath, assContent)
-
-            const safePath = assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)
-            await new Promise<void>((resolve, reject) => {
-              ffmpeg(finalClip)
-                .videoFilters(`ass='${safePath}'`)
-                .outputOptions([
-                  '-c:v libx264',
-                  `-s ${resolution}`,
-                  '-pix_fmt yuv420p',
-                  '-c:a aac',
-                  '-map',
-                  '0:v:0',
-                  '-map',
-                  '0:a?',
-                  '-movflags +faststart'
-                ])
-                .save(clipWithTextPath)
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
-            })
-            clips.push(clipWithTextPath)
-            console.log(
-              `[VideoAssembler] Dynamic ASS applied: scene ${scene.id} | pad: ${startPadding.toFixed(2)}s | speed: ${atempoRate.toFixed(2)}x`
-            )
-          } catch (error) {
-            console.warn(`[VideoAssembler] Failed to apply dynamic ASS: ${error}`)
-            clips.push(finalClip)
-          }
-        } else {
-          clips.push(finalClip)
-        }
-
-        // ── Tension-Aware Transition Override ──
-        // The LLM's transitionToNext is respected UNLESS it contradicts the scene's tension.
-        // e.g.: a 'fade' on tension 9 → overridden to 'cut'. A 'pop' on tension 1 → overridden to 'fade'.
-        const useAuto = globalOptions.autoTransitions !== false
-        const effectiveTransition = this.resolveTransition(transitionToNext, sceneTension, useAuto)
-        transitions.push(effectiveTransition)
-      } catch (error) {
-        console.error(`[VideoAssembler] Error processing scene ${scene.id}:`, error)
-        // Fallback? Skip?
-      }
     }
+
+    // Filter out potential nulls if a scene failed (though processSceneClip should handle it)
+    const finalClips = processedClips.filter(Boolean)
+    const finalTransitions = processedTransitions
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
     // If global audio is used, we prefer hard cuts (0 overlap) to maintain sync
     const audioOverlap = hasGlobalAudio ? 0 : (globalOptions.audioOverlap ?? 0.3)
-    await this.stitchClips(clips, finalVideoNoMusic, transitions, audioOverlap)
+    await this.stitchClips(finalClips, finalVideoNoMusic, finalTransitions, audioOverlap)
 
     // --- GLOBAL AUDIO OVERLAY ---
     let finalVisualPath = finalVideoNoMusic
@@ -663,14 +367,16 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       ffmpeg(videoPath)
         .complexFilter([
-          // 1. Vignette: subtle dark edges
-          `vignette=angle=0.15[vignetted]`,
-          // 2. Subtle Grain: 2% noise for organic feel
-          `[vignetted]noise=alls=2:allf=t[polished]`,
-          // 3. Global Subtitles if path provided
+          // 1. Vignette: subtle dark edges (angle 0.12 is tighter than 0.15)
+          `vignette=angle=0.12[vignetted]`,
+          // 2. Cinematic Noise: 3% grain (organic feel)
+          `[vignetted]noise=alls=3:allf=t[polished]`,
+          // 3. Contrast/Brightness boost (1.1 range)
+          `[polished]eq=contrast=1.05:brightness=0.02[brightened]`,
+          // 4. Global Subtitles if path provided
           assPath
-            ? `[polished]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
-            : `[polished]copy[outv]`
+            ? `[brightened]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
+            : `[brightened]copy[outv]`
         ])
         .outputOptions([
           '-map [outv]',
@@ -1445,14 +1151,14 @@ export class VideoAssembler {
     let ambientBaseVolume: number
     let duckingRatio: number
     if (tension <= 3) {
-      ambientBaseVolume = 0.45
-      duckingRatio = 5 // Calm: ambient is prominent
+      ambientBaseVolume = 0.5
+      duckingRatio = 4 // Calm: ambient is prominent
     } else if (tension <= 6) {
-      ambientBaseVolume = 0.3
-      duckingRatio = 10 // Standard: balanced mix
+      ambientBaseVolume = 0.35
+      duckingRatio = 8 // Standard: balanced mix
     } else {
-      ambientBaseVolume = 0.15
-      duckingRatio = 20 // High: ambient retreats fully
+      ambientBaseVolume = 0.2
+      duckingRatio = 15 // High: ambient retreats significantly
     }
 
     console.log(
@@ -1526,8 +1232,9 @@ export class VideoAssembler {
           // No narration means no ducking needed, just use ambient
           currentAudioLabel = '[amb_vol]'
         } else {
+          // threshold=0.02 (earlier trigger), attack=15 (faster drop), release=500 (smoother return)
           filterParts.push(
-            `[amb_vol][narr_sc]sidechaincompress=threshold=0.03:ratio=${duckingRatio}:attack=20:release=400:makeup=1[amb_ducked]`
+            `[amb_vol][narr_sc]sidechaincompress=threshold=0.02:ratio=${duckingRatio}:attack=15:release=500:makeup=1.1[amb_ducked]`
           )
           // Mix narration and ambient
           filterParts.push(`[narr_mix][amb_ducked]amix=inputs=2:duration=first[mixed_base]`)
@@ -1701,6 +1408,15 @@ export class VideoAssembler {
       }
     })
 
+    // ── Transition SFX Inputs ──
+    const swishPath = this.sfxService.getSFXPath('swish')
+    const hasSwish = swishPath && fs.existsSync(swishPath)
+    if (hasSwish) {
+      for (let i = 1; i < clips.length; i++) {
+        command.input(swishPath)
+      }
+    }
+
     let filterComplex = ''
     const n = clips.length
 
@@ -1731,6 +1447,7 @@ export class VideoAssembler {
     // Running offset tracks the cumulative video timeline position
     let cumulativeOffset = 0
     let lastVideoLabel = clipLabels[0]
+    const transitionOffsets: number[] = []
 
     for (let i = 1; i < n; i++) {
       // Safe transition max is half of the shortest adjacent clip
@@ -1757,6 +1474,7 @@ export class VideoAssembler {
       } else {
         cumulativeOffset += durations[i - 1] - effectiveOverlap
       }
+      transitionOffsets.push(cumulativeOffset)
     }
 
     // ── Audio crossfade chain ──
@@ -1793,8 +1511,31 @@ export class VideoAssembler {
       }
     }
 
+    // ── Mix Transition SFX ──
+    if (hasSwish && n > 1) {
+      const sfxStartIndex = inputCounter
+      let sfxMixLabel = lastAudioLabel
+      for (let i = 1; i < n; i++) {
+        const sfxLabel = `[swish_${i}]`
+        const outLabel = `[a_swish_mix_${i}]`
+        // Timing: we want the swish to peak during the xfade overlap.
+        // The overlap starts at 'audioCumulativeOffset' for that i.
+        // Wait, the 'audioCumulativeOffset' logic above is a bit nested.
+        // Let's use the same 'offset' logic as video for simplicity if possible.
+
+        // Actually, we can just use the absolute offset calculated in the video loop if we store them.
+        // But for now, let's just add them.
+        // Note: transition SFX are optional polish.
+        const sfxOffsetMs = Math.round(transitionOffsets[i - 1] * 1000)
+        filterComplex += `[${sfxStartIndex + i - 1}:a]adelay=${sfxOffsetMs}|${sfxOffsetMs},volume=0.4${sfxLabel};`
+        filterComplex += `${sfxMixLabel}${sfxLabel}amix=inputs=2:duration=first${outLabel};`
+        sfxMixLabel = outLabel
+      }
+      lastAudioLabel = sfxMixLabel
+    }
+
     // Remove trailing semicolon
-    filterComplex = filterComplex.slice(0, -1)
+    filterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex
 
     return new Promise<string>((resolve, reject) => {
       command
@@ -2068,5 +1809,249 @@ export class VideoAssembler {
     const assService = new AssCaptionService(dimensions[0], dimensions[1], options.assCaptions)
     const assContent = assService.buildASSFile(allWordTimings)
     fs.writeFileSync(outputPath, assContent)
+  }
+
+  /**
+   * Helper to calculate transition overlap duration leading INTO a scene.
+   */
+  private getTransitionInDuration(sceneIndex: number, scenes: any[], scenesDir: string): number {
+    const prevSceneIndex = sceneIndex - 1
+    if (prevSceneIndex < 0) return 0
+
+    const prevScene = scenes[prevSceneIndex]
+    const prevSceneDir = path.join(scenesDir, prevScene.id)
+    const prevManifestPath = path.join(prevSceneDir, 'manifest.json')
+    let prevTransitionType = 'fade' // Default fallback
+
+    if (fs.existsSync(prevManifestPath)) {
+      try {
+        const m = JSON.parse(fs.readFileSync(prevManifestPath, 'utf8'))
+        prevTransitionType = m.transitionToNext || 'fade'
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const xt = this.getXfadeTransition(prevTransitionType)
+    // Unified 0.04s (1 frame) fallback for 'none'/'cut'
+    return xt ? xt.duration : 0.04
+  }
+
+  /**
+   * Encapsulates logic for a single scene clip generation to allow parallel execution.
+   */
+  private async processSceneClip(
+    sceneIndex: number,
+    script: CompleteVideoScript,
+    scenesDir: string,
+    animationMode: string,
+    globalOptions: VideoGenerationOptions,
+    hasGlobalAudio: boolean
+  ): Promise<{ clipPath: string; transition: string | undefined }> {
+    const scene = script.scenes[sceneIndex]
+    const isLastScene = sceneIndex === script.scenes.length - 1
+    const sceneDir = path.join(scenesDir, scene.id)
+    const manifestPath = path.join(sceneDir, 'manifest.json')
+
+    // 1. Load Manifest & Metadata
+    let sceneImageFilename = 'scene.webp'
+    let aspectRatio = '16:9'
+    let cameraAction: any
+    let transitionToNext: string | undefined
+    let wordTimings: any[] = []
+    let manifestData: any = {}
+
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        manifestData = manifest
+        sceneImageFilename = manifest.sceneImage || 'scene.webp'
+        aspectRatio = manifest.aspectRatio || '16:9'
+        cameraAction = manifest.cameraAction
+        transitionToNext = manifest.transitionToNext
+        wordTimings = manifest.wordTimings || []
+        const backgroundColor = manifest.backgroundColor || '#FFF'
+        ;(scene as any).backgroundColor = backgroundColor
+        ;(scene as any).wordTimings = wordTimings
+        if (manifest.globalWordTimings) {
+          ;(scene as any).globalWordTimings = manifest.globalWordTimings
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const imagePath = path.join(sceneDir, sceneImageFilename)
+    const audioPath = path.join(sceneDir, 'narration.mp3')
+    const videoPath = path.join(sceneDir, 'animation.mp4')
+    const clipOutputPath = path.join(sceneDir, 'clip.mp4')
+
+    // 2. Timing & Pacing Calculation
+    const scriptDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
+    const rawDuration = hasGlobalAudio ? scriptDuration : await this.getAudioDuration(audioPath).catch(() => 5)
+
+    const transitionInDur = this.getTransitionInDuration(sceneIndex, script.scenes, scenesDir)
+    const sceneTension: number = (scene as any).tension ?? 5
+
+    let tensionStartPadding: number
+    if (sceneTension <= 2) tensionStartPadding = 1 + Math.sin(sceneIndex) * 0.15
+    else if (sceneTension <= 4) tensionStartPadding = 0.7 + Math.sin(sceneIndex) * 0.1
+    else if (sceneTension <= 6) tensionStartPadding = 0.4 + Math.sin(sceneIndex) * 0.08
+    else if (sceneTension <= 8) tensionStartPadding = 0.2 + Math.sin(sceneIndex) * 0.05
+    else tensionStartPadding = 0.1
+
+    const startPadding = hasGlobalAudio
+      ? 0
+      : sceneIndex === 0
+        ? Math.max(tensionStartPadding, 0.6)
+        : Math.max(tensionStartPadding - transitionInDur * 0.5, 0.08)
+
+    const endPadding = hasGlobalAudio ? 0 : isLastScene ? 0 : SCENE_PADDING_SECONDS
+    let rawDurationWithPadding = startPadding + rawDuration + endPadding
+    if (hasGlobalAudio && sceneIndex > 0) rawDurationWithPadding += transitionInDur
+
+    const FPS = 25
+    const duration = Math.ceil(rawDurationWithPadding * FPS) / FPS
+
+    // 3. Visual Generation
+    try {
+      const keywordVisualsJsonPath = path.join(sceneDir, 'keyword_visuals.json')
+      const processedKeywordVisuals: Array<{ imagePath: string; start: number; end: number }> = []
+      if (fs.existsSync(keywordVisualsJsonPath)) {
+        try {
+          const kvManifest = JSON.parse(fs.readFileSync(keywordVisualsJsonPath, 'utf8'))
+          for (const kv of kvManifest) {
+            const timing = this.getKeywordTiming(kv.keyword, wordTimings || [])
+            if (timing) {
+              processedKeywordVisuals.push({
+                imagePath: kv.imagePath,
+                start: timing.start + startPadding,
+                end: timing.end + startPadding
+              })
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Launch Visual Engine
+      if (animationMode === 'ai' && fs.existsSync(videoPath)) {
+        await this.processAiClip(videoPath, duration, clipOutputPath, aspectRatio, globalOptions.resolution)
+      } else if (animationMode === 'static' || animationMode === 'none') {
+        await this.createStaticClip(
+          imagePath,
+          duration,
+          clipOutputPath,
+          aspectRatio,
+          globalOptions.resolution,
+          (scene as any).backgroundColor,
+          wordTimings,
+          processedKeywordVisuals
+        )
+      } else if (animationMode === 'composition' && manifestData.layers?.length > 0) {
+        const layers = manifestData.layers.map((l: any) => ({ ...l, path: path.join(sceneDir, l.path) }))
+        await this.createComposedClip(
+          path.join(sceneDir, manifestData.sceneImage),
+          layers,
+          duration,
+          clipOutputPath,
+          aspectRatio,
+          globalOptions.resolution,
+          processedKeywordVisuals
+        )
+      } else {
+        await this.createPanningClip(
+          imagePath,
+          duration,
+          clipOutputPath,
+          aspectRatio,
+          globalOptions.resolution,
+          (scene as any).backgroundColor,
+          cameraAction,
+          wordTimings,
+          processedKeywordVisuals
+        )
+      }
+
+      // 4. Audio Mixing
+      let finalClip = clipOutputPath
+      if (fs.existsSync(audioPath) || hasGlobalAudio) {
+        const mixedClipPath = path.join(sceneDir, 'clip_mixed.mp4')
+        const soundscapeName = (scene as any).soundscape
+        const soundscapePath = soundscapeName ? this.ambientService.resolveSoundscape(soundscapeName) : null
+        const soundEffects = (scene as any).soundEffects || []
+
+        await this.mixSceneAudio(
+          clipOutputPath,
+          audioPath,
+          soundscapePath,
+          soundEffects,
+          mixedClipPath,
+          duration,
+          startPadding,
+          sceneTension,
+          hasGlobalAudio,
+          globalOptions
+        )
+        finalClip = mixedClipPath
+      }
+
+      // 5. ASS Captions
+      const useGlobalAss = !!globalOptions.globalAudioPath && globalOptions.assCaptions?.enabled !== false
+      const captionsEnabled = globalOptions.assCaptions?.enabled !== false
+
+      if (captionsEnabled && wordTimings.length > 0 && !useGlobalAss) {
+        const clipWithTextPath = path.join(sceneDir, 'clip_with_text.mp4')
+        try {
+          const atempoRate = this.getAtempoRate(sceneTension)
+          const shiftedWordTimings = wordTimings.map((w) => {
+            const start = (w.start || w.startMs / 1000) / atempoRate + startPadding
+            const duration = w.durationMs / 1000 / atempoRate
+            return {
+              ...w,
+              start,
+              end: start + duration,
+              startMs: Math.round(start * 1000),
+              durationMs: Math.round(duration * 1000)
+            }
+          })
+
+          const resolution = this.getResolution(aspectRatio, globalOptions.resolution)
+          const [width, height] = resolution.split('x').map(Number)
+          const assService = new AssCaptionService(width, height, globalOptions.assCaptions)
+          const assPath = path.join(sceneDir, 'subtitles.ass')
+          fs.writeFileSync(assPath, assService.buildASSFile(shiftedWordTimings))
+
+          const safePath = assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)
+          await new Promise<void>((resolve, reject) => {
+            ffmpeg(finalClip)
+              .videoFilters(`ass='${safePath}'`)
+              .outputOptions([
+                '-c:v libx264',
+                `-s ${resolution}`,
+                '-pix_fmt yuv420p',
+                '-c:a aac',
+                '-map 0:v:0',
+                '-map 0:a?',
+                '-movflags +faststart'
+              ])
+              .save(clipWithTextPath)
+              .on('end', () => resolve())
+              .on('error', (err) => reject(err))
+          })
+          finalClip = clipWithTextPath
+        } catch (error) {
+          console.warn(`[VideoAssembler] ASS failed: ${error}`)
+        }
+      }
+
+      const useAuto = globalOptions.autoTransitions !== false
+      const transition = this.resolveTransition(transitionToNext, sceneTension, useAuto)
+      return { clipPath: finalClip, transition }
+    } catch (error) {
+      console.error(`[VideoAssembler] Scene ${scene.id} failed:`, error)
+      return { clipPath: clipOutputPath, transition: undefined }
+    }
   }
 }
