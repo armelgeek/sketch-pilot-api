@@ -76,7 +76,7 @@ export class GenerateCharacterImageUseCase extends IUseCase<
       })
 
       // 4. Generate Image via VideoGenerationService
-      console.log(
+      console.info(
         `[GenerateCharacterImageUseCase] Generating character visual for ${characterId} with prompt: "${prompt}"...`
       )
       const imageBuffer = await videoGenerationService.generateCharacterImage(prompt, modelId)

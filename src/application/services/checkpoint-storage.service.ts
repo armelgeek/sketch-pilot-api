@@ -21,9 +21,9 @@ const checkpointCache = new Map<string, VideoCheckpoint>()
 
 export class CheckpointStorage {
   /**
-   * Load checkpoint from storage (file or memory)
+   * Load checkpoint from storage (file or memory or DB)
    */
-  load(videoId: string): VideoCheckpoint | null {
+  load(videoId: string, dbCheckpoint?: any): VideoCheckpoint | null {
     // Try memory first
     if (checkpointCache.has(videoId)) {
       return checkpointCache.get(videoId)!
@@ -38,7 +38,21 @@ export class CheckpointStorage {
         checkpointCache.set(videoId, checkpoint)
         return checkpoint
       } catch (error) {
-        console.warn(`[CheckpointStorage] Failed to load checkpoint for ${videoId}:`, error)
+        console.warn(`[CheckpointStorage] Failed to load disk checkpoint for ${videoId}:`, error)
+      }
+    }
+
+    // Try database fallback (if provided by worker)
+    if (dbCheckpoint) {
+      try {
+        const checkpoint = checkpointService.deserialize(
+          typeof dbCheckpoint === 'string' ? dbCheckpoint : JSON.stringify(dbCheckpoint)
+        )
+        console.info(`[CheckpointStorage] Restored checkpoint from database for ${videoId}`)
+        checkpointCache.set(videoId, checkpoint)
+        return checkpoint
+      } catch (error) {
+        console.warn(`[CheckpointStorage] Failed to deserialize DB checkpoint for ${videoId}:`, error)
       }
     }
 
@@ -46,18 +60,20 @@ export class CheckpointStorage {
   }
 
   /**
-   * Save checkpoint to storage
+   * Save checkpoint to storage.
+   * Returns serialized JSON string to allow database persistence by the caller.
    */
-  save(checkpoint: VideoCheckpoint): void {
+  save(checkpoint: VideoCheckpoint): string {
     checkpointCache.set(checkpoint.videoId, checkpoint)
 
+    const data = checkpointService.serialize(checkpoint)
     const filePath = this.getFilePath(checkpoint.videoId)
     try {
-      fs.writeFileSync(filePath, checkpointService.serialize(checkpoint), 'utf-8')
+      fs.writeFileSync(filePath, data, 'utf-8')
     } catch (error) {
       console.error(`[CheckpointStorage] Failed to save checkpoint for ${checkpoint.videoId}:`, error)
-      throw error
     }
+    return data
   }
 
   /**

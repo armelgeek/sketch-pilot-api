@@ -151,9 +151,10 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         id: videoId,
         userId,
         topic,
-        options: videoOptions,
+        options: { ...videoOptions, creditsUsed: totalCost, planConsumed, extraConsumed },
         language: options.language || 'en',
-        characterModelId: finalCharacterModelId
+        characterModelId: finalCharacterModelId,
+        creditsUsed: totalCost
       })
 
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })

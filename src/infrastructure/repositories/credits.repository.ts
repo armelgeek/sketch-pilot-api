@@ -158,4 +158,46 @@ export class CreditsRepository {
       createdAt: new Date()
     })
   }
+
+  /**
+   * Refund credits to the user.
+   */
+  async refundCredits(
+    userId: string,
+    amount: number,
+    videoId: string,
+    metadata: { planConsumed: number; extraConsumed: number }
+  ): Promise<void> {
+    const credits = await this.ensureUserCredits(userId)
+    if (!credits) return
+
+    // Refund plan credits by decrementing videosThisMonth
+    const newVideosThisMonth = Math.max(0, credits.videosThisMonth - metadata.planConsumed)
+
+    // Refund extra credits
+    const newExtraCredits = credits.extraCredits + metadata.extraConsumed
+
+    await db
+      .update(userCredits)
+      .set({
+        videosThisMonth: newVideosThisMonth,
+        extraCredits: newExtraCredits,
+        updatedAt: new Date()
+      })
+      .where(eq(userCredits.userId, userId))
+
+    // Record refund transaction
+    await this.addTransaction({
+      userId,
+      type: 'refund',
+      amount,
+      videoId,
+      metadata: {
+        ...metadata,
+        originalAmount: -amount,
+        reason: 'Job failed permanently'
+      }
+    })
+    console.info(`[CreditsRepository] Refunded ${amount} credits to user ${userId} for video ${videoId}`)
+  }
 }

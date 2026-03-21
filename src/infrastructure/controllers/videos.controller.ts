@@ -41,6 +41,64 @@ export class VideosController implements Routes {
   // Global registry for SSE streams mapped by JobId to prevent memory leaks from duplicate BullMQ listeners
   private sseStreamsByJobId = new Map<string, Set<(event: string, data: any) => void>>()
   private isGlobalQueueListenerInitialized = false
+  private pruningInterval: any = null
+
+  /**
+   * Safely cleanup and close all SSE streams for a specific Job ID or Video ID.
+   */
+  private cleanupJobStreams(jobId: string) {
+    const streams = this.sseStreamsByJobId.get(jobId)
+    if (streams && streams.size > 0) {
+      console.info(`[SSE] Force cleaning up ${streams.size} streams for job ${jobId}`)
+      for (const enqueue of streams) {
+        try {
+          // Send a final "done" event if appropriate? Or just close.
+          // For safety, we just let them disconnect naturally or trigger our cleanup
+          enqueue('error', { jobId, status: 'aborted', error: 'Connection closed (Job archived)' })
+        } catch {
+          // ignore
+        }
+      }
+      streams.clear()
+    }
+    this.sseStreamsByJobId.delete(jobId)
+  }
+
+  /**
+   * Periodically check the map for entries that should no longer be there.
+   */
+  private startPruningTask() {
+    if (this.pruningInterval) return
+    console.info('[SSE] Starting periodic SSE map pruning task (1 hour interval)')
+    this.pruningInterval = setInterval(
+      async () => {
+        const jobIds = Array.from(this.sseStreamsByJobId.keys())
+        if (jobIds.length === 0) return
+
+        console.info(`[SSE] Pruning check: ${jobIds.length} active jobs in map`)
+        for (const jobId of jobIds) {
+          try {
+            const video = await videoRepository.findByJobId(jobId)
+            // If job is finished in DB but still in Map, and NOBODY is connected, clean it up.
+            // Note: cleanupStreamResources already deletes keys when Set is empty.
+            // So if a key exists here, it means there is at least one listener in the Set.
+            const streams = this.sseStreamsByJobId.get(jobId)
+            if (
+              video &&
+              (video.status === 'completed' || video.status === 'failed' || video.status === 'cancelled') &&
+              streams
+            ) {
+              this.cleanupJobStreams(jobId)
+              console.info(`[SSE] Pruned finished job ${jobId} from map`)
+            }
+          } catch (error) {
+            console.error(`[SSE] Failed to prune job ${jobId}:`, error)
+          }
+        }
+      },
+      60 * 60 * 1000
+    ) // 1 hour
+  }
 
   private initGlobalQueueListener() {
     if (this.isGlobalQueueListenerInitialized) return
@@ -87,7 +145,20 @@ export class VideosController implements Routes {
         if (streams) {
           for (const enqueue of streams)
             enqueue('error', { jobId, status: 'failed', error: failedReason, retryable: true })
+
+          // Cleanup map after a small delay to ensure events are sent
+          setTimeout(() => this.cleanupJobStreams(jobId), 5000)
         }
+      })
+
+      queueEvents.on('stalled', ({ jobId }) => {
+        console.warn(`[SSE] Job ${jobId} STALLED. Cleaning up streams.`)
+        this.cleanupJobStreams(jobId)
+      })
+
+      queueEvents.on('removed', ({ jobId }) => {
+        console.info(`[SSE] Job ${jobId} REMOVED from queue. Cleaning up streams.`)
+        this.cleanupJobStreams(jobId)
       })
     } catch (error) {
       console.error('[SSE] Failed to init global queue events listener:', error)
@@ -346,6 +417,7 @@ export class VideosController implements Routes {
       const stream = new ReadableStream({
         start: (controller) => {
           this.initGlobalQueueListener()
+          this.startPruningTask()
           const encoder = new TextEncoder()
           let closed = false
 

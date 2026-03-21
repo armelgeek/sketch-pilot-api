@@ -44,7 +44,11 @@ const script = {
 
 const promptManager = new PromptManager()
 const memoryBuilder = new SceneMemoryBuilder()
-const memoryStates = memoryBuilder.buildTimeline(script.scenes as any)
+const memoryStates = (memoryBuilder as any).buildTimeline
+  ? (memoryBuilder as any).buildTimeline(script.scenes)
+  : (memoryBuilder as any).build
+    ? (memoryBuilder as any).build(script.scenes)
+    : []
 
 for (let i = 0; i < script.scenes.length; i++) {
   const scene = script.scenes[i]
@@ -66,6 +70,6 @@ for (let i = 0; i < script.scenes.length; i++) {
   }
 
   const result = promptManager.buildImagePrompt(scene as any, true, '16:9', styleParams as any, memory)
-  console.log(`\n--- SCENE ${i + 1}: ${scene.id} ---`)
-  console.log(result.prompt)
+  console.info(`\n--- SCENE ${i + 1}: ${scene.id} ---`)
+  console.info(result.prompt)
 }

@@ -22,7 +22,7 @@ export interface VideoGenerationInput {
   topic: string
   userId?: string
   options?: Partial<VideoGenerationOptions>
-  onProgress?: (progress: number, message: string) => Promise<void>
+  onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   onTimingSync?: (script: any) => Promise<void>
   onSceneGenerated?: (scene: any, script: any, index: number, progress: number) => Promise<void>
 }
@@ -51,7 +51,7 @@ export class VideoGenerationService {
         const age = identifier.age && identifier.age !== 'unknown' ? identifier.age : undefined
 
         if (gender || age) {
-          console.log(
+          console.info(
             `[VideoGenerationService] No model found for name "${identifier.name}". Trying metadata match: ${gender || 'any'}, ${age || 'any'}`
           )
           model = await this.characterModelRepository.findByMetadata(gender, age)

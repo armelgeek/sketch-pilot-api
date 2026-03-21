@@ -64,7 +64,7 @@ export class VideoScriptGenerator {
   async generateCompleteScript(
     topic: string,
     options: VideoGenerationOptions,
-    onProgress?: (progress: number, message: string) => Promise<void>
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   ): Promise<CompleteVideoScript> {
     console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
 
@@ -264,10 +264,17 @@ export class VideoScriptGenerator {
           `[VideoScriptGen] Scene ${idx + 1} has no characters — injecting primary character "${primaryCharId}" as observer.`
         )
         scene.characterIds = [primaryCharId]
-        // If no character variant set, leave it to the prompt manager to figure out
         if (!scene.characterVariant) {
           scene.characterVariant = primaryCharId
         }
+      }
+
+      // Phase 30: Minimize complexity by capping at 2 characters maximum unless specifically required.
+      if (scene.characterIds && scene.characterIds.length > 2) {
+        console.warn(
+          `[VideoScriptGen] Scene ${idx + 1} has too many characters (${scene.characterIds.length}); truncating to 2 for visual clarity.`
+        )
+        scene.characterIds = scene.characterIds.slice(0, 2)
       }
     })
   }

@@ -68,6 +68,24 @@ export class ScriptGenerationService {
       customSpec: spec
     })
 
+    // 2.5 Resolve specific character model if ID provided
+    if (options.characterModelId) {
+      const model = await this.characterModelRepository.findById(options.characterModelId)
+      if (model) {
+        // Inject as a pre-enrolled character to ensure PromptManager includes it in the prompt
+        // This ensures the AI knows the exact character name and presence requirements.
+        genOptions.characters = [
+          {
+            name: model.name,
+            modelId: model.id,
+            voiceId: model.voiceId || undefined,
+            stylePrefix: model.stylePrefix || undefined,
+            artistPersona: model.artistPersona || undefined
+          }
+        ]
+      }
+    }
+
     // 3. Initialize generator and run (using the SAME spec for both script and image)
     const promptManager = new PromptManager({
       scriptSpec: spec as any,
@@ -81,7 +99,7 @@ export class ScriptGenerationService {
       const allVoices = await this.assetsConfigRepository.getAllVoices()
 
       for (const sheet of script.characterSheets) {
-        // Match visual model if not present
+        // 1. Match visual model if not present (Best-fit by metadata)
         if (!sheet.modelId && sheet.metadata) {
           const gender =
             sheet.metadata.gender && sheet.metadata.gender !== 'unknown' ? sheet.metadata.gender : undefined
@@ -91,26 +109,38 @@ export class ScriptGenerationService {
             const model = await this.characterModelRepository.findByMetadata(gender, age)
             if (model) {
               sheet.modelId = model.id
+              sheet.stylePrefix = model.stylePrefix || undefined
+              sheet.artistPersona = model.artistPersona || undefined
             }
           }
         }
 
-        // AUTO-VOICE: Match voice preset by gender AND language if not present
+        // 2. AUTO-VOICE: Match voice preset by gender AND language if not present
         if (!sheet.voiceId && sheet.metadata?.gender) {
           const gender = sheet.metadata.gender.toLowerCase()
           const targetLang = (options.language || 'en').toLowerCase().split('-')[0]
 
-          // Try to find a voice matching both gender and language (prefix match, e.g., 'fr' matches 'fr-FR')
           const matchingVoice =
             allVoices.find((v) => {
               const voiceLang = v.language.toLowerCase().split('-')[0]
               return v.gender === gender && voiceLang === targetLang
-            }) ||
-            // Fallback to just gender if no language-specific voice is found
-            allVoices.find((v) => v.gender === gender)
+            }) || allVoices.find((v) => v.gender === gender)
 
           if (matchingVoice) {
             sheet.voiceId = matchingVoice.presetId
+          }
+        }
+
+        // 3. Sync attributes for pre-enrolled characters (matched by name)
+        // If the LLM generated a sheet for the main character we explicitly provided,
+        // override its metadata with the ground truth from the enrolled model.
+        if (options.characterModelId) {
+          const enrolled = genOptions.characters?.[0]
+          if (enrolled && sheet.name.toLowerCase() === enrolled.name.toLowerCase()) {
+            sheet.modelId = enrolled.modelId
+            sheet.stylePrefix = enrolled.stylePrefix
+            sheet.artistPersona = enrolled.artistPersona
+            if (enrolled.voiceId) sheet.voiceId = enrolled.voiceId
           }
         }
       }

@@ -356,10 +356,10 @@ export class NanoBananaEngine {
 
     let effectivePrompt = fullPrompt
     if (isAbstractScene) {
-      effectivePrompt = `FLAT 2D ILLUSTRATION STYLE. Simple, clean, diagrammatic.\n${fullPrompt}`
+      effectivePrompt = `${this.stylePrefix || 'FLAT 2D ILLUSTRATION STYLE'}. Simple, clean, diagrammatic.\n${fullPrompt}`
     }
 
-    const systemInstruction = this.promptManager.buildImageSystemInstruction(hasReferenceImages)
+    const systemInstruction = this.promptManager.buildImageSystemInstruction(hasReferenceImages, this.stylePrefix)
 
     if (!bypassCache) {
       const cachedResult = this.sceneCache.get(effectivePrompt, {
@@ -958,9 +958,15 @@ export class NanoBananaEngine {
   async generateStructuredScript(
     topic: string,
     options: Partial<VideoGenerationOptions> = {},
-    onProgress?: (progress: number, message: string) => Promise<void>
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   ): Promise<CompleteVideoScript> {
-    const validOptions = videoGenerationOptionsSchema.parse(options)
+    const validOptions = videoGenerationOptionsSchema.parse({
+      ...options,
+      imageStyle: {
+        ...(options.imageStyle ?? {}),
+        stylePrefix: options.imageStyle?.stylePrefix ?? this.stylePrefix
+      }
+    })
 
     // Dynamic LLM provider switching
     if (!this.scriptGenerator || validOptions.llmProvider !== this.currentLLMProvider) {
@@ -1105,7 +1111,7 @@ PLAIN WHITE BACKGROUND.`
     options: Partial<VideoGenerationOptions> = {},
     baseImages: string[] = [],
     projectId?: string,
-    onProgress?: (progress: number, message: string) => Promise<void>,
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>,
     onTimingSync?: (script: CompleteVideoScript) => Promise<void>,
     onSceneGenerated?: (scene: any, script: CompleteVideoScript, index: number, progress: number) => Promise<void>
   ): Promise<CompleteVideoPackage> {
@@ -1145,7 +1151,7 @@ PLAIN WHITE BACKGROUND.`
     options: Partial<VideoGenerationOptions> = {},
     baseImages: string[] = [],
     projectId?: string,
-    onProgress?: (progress: number, message: string) => Promise<void>,
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>,
     onTimingSync?: (script: CompleteVideoScript) => Promise<void>,
     onSceneGenerated?: (scene: any, script: CompleteVideoScript, index: number, progress: number) => Promise<void>
   ): Promise<CompleteVideoPackage> {
@@ -1646,11 +1652,23 @@ PLAIN WHITE BACKGROUND.`
           continue
         }
 
+        const expectedSceneDir = path.join(scenesDir, scene.id)
+        const expectedImagePath = path.join(expectedSceneDir, 'scene.webp')
+        if (fs.existsSync(expectedImagePath) && repromptVal === undefined) {
+          console.log(`[NanoBanana] Scene ${i + 1} already has an image, skipping generation to allow resumption...`)
+          lastSceneImageBase64 = fs.readFileSync(expectedImagePath).toString('base64')
+          // Also seed the location map from existing files during a skip/resume
+          if (scene.locationId && !locationImageMap.has(scene.locationId)) {
+            locationImageMap.set(scene.locationId, lastSceneImageBase64)
+          }
+          continue
+        }
+
         // Report progress for scene generation
         const sceneProgress = 15 + ((i - startSceneIndex) / script.scenes.length) * 70
         const progressMessage = `Generating scene ${i + 1}/${script.scenes.length}...`
         if (onProgress) {
-          await onProgress(sceneProgress, progressMessage)
+          await onProgress(sceneProgress, progressMessage, { currentSceneIndex: i })
         }
         console.log(`[NanoBanana] ${progressMessage} (${sceneProgress.toFixed(0)}%)`)
 

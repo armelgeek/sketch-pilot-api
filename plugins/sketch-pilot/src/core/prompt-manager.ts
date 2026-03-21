@@ -159,11 +159,19 @@ export class PromptMaker {
    */
   private buildCharacterInstructions(options: PromptMakerOptions): string {
     // Rule enforced for both cast-defined and auto-identified characters.
-    const mandatoryRule = `\nMANDATORY RULE: Every scene MUST include at least one character (characterIds must never be empty). Even for conceptual, abstract, or transition scenes, a character must be present \u2014 shown reacting, observing, explaining, or pointing at the concept being illustrated. Never generate a scene with an empty cast.`
+    const mandatoryRule = `\nMANDATORY RULE: Every scene MUST include at least one character (characterIds must never be empty). PREFER EXACTLY ONE CHARACTER per scene. Avoid background crowds, extra people, or irrelevant figures. Focus the visual on a single subject unless the narration explicitly requires more. Even for conceptual, abstract, or transition scenes, a character must be present \u2014 shown reacting, observing, explaining, or pointing at the concept being illustrated.`
 
     if (options.characters && options.characters.length > 0) {
       const cast = options.characters
-        .map((char) => `- ${char.name}${char.modelId ? ` (Model ID: ${char.modelId})` : ''}`)
+        .map((char) => {
+          let line = `- ${char.name}`
+          if (char.modelId) line += ` (Model ID: ${char.modelId})`
+          if (char.stylePrefix || char.artistPersona) {
+            const styles = [char.stylePrefix, char.artistPersona].filter(Boolean).join(', ')
+            line += ` [Visual Style: ${styles}]`
+          }
+          return line
+        })
         .join('\n')
       return `CAST OF CHARACTERS (Mandatory):\n${cast}\n\nYou MUST use these specific Character Names and Model IDs in your script.${mandatoryRule}`
     }
@@ -260,11 +268,20 @@ export class PromptManager {
     }
 
     // 2. Gender Neutrality (Phase 28)
+    // 2. Gender Neutrality (Phase 28)
     const isNeutralStyle =
       (spec.name || '').toLowerCase().includes('whiteboard') || (spec.name || '').toLowerCase().includes('stick')
     if (isNeutralStyle) {
       instructions.push(
         'GENDER NEUTRALITY: NEVER use gendered nouns (woman, man, girl, boy, lady, gentleman) or pronouns (he, she, his, her) in character sheets or scene descriptions. Use "Character", "Figure", or "Subject" and "they/them/their" instead.'
+      )
+    }
+
+    // 3. Visual Style (Phase 29)
+    const stylePrefix = options?.imageStyle?.stylePrefix
+    if (stylePrefix) {
+      instructions.push(
+        `VISUAL STYLE: The video MUST be written for a "${stylePrefix}" visual style. Describe scenes, backgrounds, and character actions in a way that is compatible with this style.`
       )
     }
 
@@ -289,7 +306,9 @@ export class PromptManager {
       audience: (options as any).audience || spec.audienceDefault,
       maxScenes: targetSceneCount,
       language: options.language,
-      characters: options.characters
+      characters:
+        options.characters ||
+        (options.characterModelId ? [{ name: 'Main Character', modelId: options.characterModelId }] : undefined)
     })
   }
 
@@ -339,7 +358,7 @@ export class PromptManager {
    * FIX: now delegates to PromptMaker.buildSystemInstructions() to avoid duplicating
    * assembly logic and to include all spec fields (role, task, goals…) consistently.
    */
-  buildImageSystemInstruction(hasReferenceImages: boolean): string {
+  buildImageSystemInstruction(hasReferenceImages: boolean, stylePrefix?: string): string {
     const spec = this.spec
     if (!spec) return ''
 
@@ -348,9 +367,10 @@ export class PromptManager {
       : ''
 
     // Always anchor the visual style to prevent the model defaulting to
-    // photorealistic or sci-fi aesthetics, especially on abstract/conceptual scenes.
+    // photorealistic or aesthetics that contradict the character's style.
     const styleAnchor = [
-      `VISUAL STYLE: Always render in a clean, flat 2D illustration style consistent with the spec's art direction.`,
+      `VISUAL STYLE: ${stylePrefix ? `The scene MUST be rendered in a "${stylePrefix}" style.` : "Always render in a clean, flat 2D illustration style consistent with the spec's art direction."}`,
+      `CINEMATIC COMPOSITION: Use the Rule of Thirds, Leading Lines, and plenty of Negative Space. Maintain a clean, professional "faceless animation" look.`,
       `ABSTRACT SCENES: When there are no human characters, represent concepts through simple drawn diagrams, icons, arrows, labeled boxes, or symbolic illustrations — never photorealistic effects, 3D renders, neon distortion visuals, or cinematic VFX.`,
       `NEVER generate: photorealistic photography, sci-fi particle effects, lens flares, or cinematic explosions unless explicitly required.`
     ].join(' ')
@@ -374,7 +394,7 @@ export class PromptManager {
     characterSheets?: import('../types/video-script.types').CharacterSheet[]
   ): ImagePrompt {
     const elements = this.extractSceneElements(scene)
-    const stylePrefix = imageStyle?.stylePrefix ?? 'flat 2D illustration style'
+    const stylePrefix = imageStyle?.stylePrefix || ''
     const qualityTags = imageStyle?.qualityTags ?? []
 
     // ── Style Prefix (optional) ───────────────────────────────────────────
@@ -448,10 +468,14 @@ export class PromptManager {
             .replaceAll(/\b(women|men|girls|boys)\b/gi, 'people')
         }
 
-        const parts = [clothing ? `wearing ${clothing}` : ''].filter(Boolean)
+        const parts = [
+          clothing ? `wearing ${clothing}` : '',
+          casting.stylePrefix ? `style: ${casting.stylePrefix}` : '',
+          casting.artistPersona ? `artist: ${casting.artistPersona}` : ''
+        ].filter(Boolean)
 
         if (parts.length > 0) {
-          const desc = parts.join(' ').trim().toLowerCase()
+          const desc = parts.join(', ').trim().toLowerCase()
           const referenceLink = hasReferenceImages ? ' [VISUAL IDENTITY FROM PROVIDED REFERENCES]' : ''
           characterDescriptions.push(`${charId} (${desc})${referenceLink}`)
         } else {

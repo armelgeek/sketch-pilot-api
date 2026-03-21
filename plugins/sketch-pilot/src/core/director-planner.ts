@@ -55,13 +55,16 @@ Analyze the provided narration and scene sequence to define:
 2. RECURRING SYMBOLS: Identification of 1 - 3 visual objects that should appear consistently as anchors.
 3. EMOTIONAL CURVE: Mapping the tension level and visual "vibe" across stages of the video.
 4. FORESHADOWING: Identify key future elements and suggest subtle hints to introduce in earlier scenes.
-5. VISUAL STORYTELLING (SILENT-READY): Define visual metaphors to represent abstract concepts.
+5. VISUAL STORYTELLING (SILENT-READY): Define powerful visual metaphors to represent abstract concepts. Avoid literalism.
 6. CALLBACKS (VISUAL ECHOES): Identify 1-2 opportunities to reuse a composition or object from an earlier scene in a later scene to show evolution or thematic resonance.
 7. PACING (RHYTHM): Define a global camera movement strategy and transition style that follows the emotional arc.
+8. PATTERN INTERRUPT: Identify 1-2 key moments (especially at the start) to use a highly unusual or symbolic 'Hook' to maintain viewer attention.
 
 ## CONSTRAINTS
-    - Be precise.Avoid generic descriptions.
-- The output MUST be a valid JSON object matching the requested schema.
+    - Be precise. Avoid generic descriptions.
+    - PREFER EXTREME CLOSE-UPS (ECU) for objects and symbols to create a 'faceless animation' look.
+    - Alternate framing every 1-2 scenes to maintain visual energy.
+    - The output MUST be a valid JSON object matching the requested schema.
 - Visual Vibe should describe textures, line styles, or energetic qualities.
 - SCENE REFERENCES: Use only the scene number (e.g. "1", "2") for all scene IDs or references in the JSON.
 

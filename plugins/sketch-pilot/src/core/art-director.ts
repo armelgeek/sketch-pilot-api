@@ -19,7 +19,7 @@ export class ArtDirector {
     const spec = this.promptManager.getEffectiveSpec(options)
     console.log(`[ArtDirector] Defining visual identity for: "${topic}"`)
 
-    const systemPrompt = this.buildArtDirectorSystemPrompt(spec)
+    const systemPrompt = this.buildArtDirectorSystemPrompt(spec, options)
     const userPrompt = this.buildArtDirectorUserPrompt(topic, narration)
 
     const response = await this.llmService.generateContent(userPrompt, systemPrompt, 'application/json')
@@ -36,16 +36,21 @@ export class ArtDirector {
     }
   }
 
-  private buildArtDirectorSystemPrompt(spec: VideoTypeSpecification): string {
+  private buildArtDirectorSystemPrompt(spec: VideoTypeSpecification, options: VideoGenerationOptions): string {
     const styleLower = spec.name?.toLowerCase() || ''
+    const stylePrefix = options?.imageStyle?.stylePrefix?.toLowerCase() || ''
     const isMinimalist =
       styleLower.includes('whiteboard') ||
       styleLower.includes('stick') ||
       styleLower.includes('chalk') ||
-      styleLower.includes('monochrome')
+      styleLower.includes('monochrome') ||
+      stylePrefix.includes('whiteboard') ||
+      stylePrefix.includes('stick') ||
+      stylePrefix.includes('chalk') ||
+      stylePrefix.includes('monochrome')
 
     const colorConstraint = isMinimalist
-      ? `IMPORTANT: The project style "${spec.name}" requires strict minimalism: "Monochrome Black and White only, ink on pure white background, no other colors, STRICTLY MINIMALIST, high white space, low line count".`
+      ? `IMPORTANT: The project style requirements include "${spec.name}" and "${stylePrefix}". Since this involves strict minimalism: "Monochrome Black and White only, ink on pure white background, no other colors, STRICTLY MINIMALIST, high white space, low line count".`
       : ''
 
     return `## ROLE

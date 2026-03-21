@@ -173,6 +173,8 @@ export const characterSheetSchema = z.object({
   referenceImageUrl: z.string().optional().describe('URL to a custom AI-generated reference image for this character'),
   imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation'),
   lockedPromptSegment: z.string().optional().describe('Base style DNA segment that stays fixed between generations'),
+  stylePrefix: z.string().optional().describe('Visual style prefix for this specific character'),
+  artistPersona: z.string().optional().describe('Artist persona or style handle (e.g. Studio Ghibli)'),
   generationVariants: z
     .array(
       z.object({
@@ -194,7 +196,9 @@ export type CharacterSheet = z.infer<typeof characterSheetSchema>
 export const characterEnrollmentSchema = z.object({
   name: z.string().describe('Name of the character (e.g. "Lily")'),
   modelId: z.string().optional().describe('ID of the character model to use'),
-  voiceId: z.string().optional().describe('ID of the voice to use for this character')
+  voiceId: z.string().optional().describe('ID of the voice to use for this character'),
+  stylePrefix: z.string().optional().describe('Visual style prefix for this character'),
+  artistPersona: z.string().optional().describe('Artist persona for this character')
 })
 
 export type CharacterEnrollment = z.infer<typeof characterEnrollmentSchema>
