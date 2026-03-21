@@ -358,7 +358,11 @@ export class NanoBananaEngine {
       effectivePrompt = `${this.stylePrefix || 'FLAT 2D ILLUSTRATION STYLE'}. Simple, clean, diagrammatic.\n${fullPrompt}`
     }
 
-    const systemInstruction = this.promptManager.buildImageSystemInstruction(hasReferenceImages, this.stylePrefix)
+    const systemInstruction = this.promptManager.buildImageSystemInstruction(
+      hasReferenceImages,
+      this.stylePrefix,
+      script?.globalPlan
+    )
 
     if (!bypassCache) {
       const cachedResult = this.sceneCache.get(effectivePrompt, {
