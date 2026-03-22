@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
+import { startEmailWorker } from '@/infrastructure/workers/email.worker'
 
 import { App } from './app'
 import {
@@ -39,6 +40,15 @@ if (process.env.ENABLE_VIDEO_WORKER !== 'false') {
   }
 }
 
+let emailWorker: any = null
+if (process.env.ENABLE_EMAIL_WORKER !== 'false') {
+  try {
+    emailWorker = startEmailWorker()
+  } catch (error) {
+    console.warn('[Server] Email worker could not start (Redis may not be available):', error)
+  }
+}
+
 // Handle graceful shutdown for workers
 const gracefulShutdown = async (signal: string) => {
   console.info(`\n[Server] Received ${signal}, shutting down gracefully...`)
@@ -48,6 +58,14 @@ const gracefulShutdown = async (signal: string) => {
       console.info('[Server] Video worker closed successfully.')
     } catch (error) {
       console.error('[Server] Error closing video worker:', error)
+    }
+  }
+  if (emailWorker) {
+    try {
+      await emailWorker.close()
+      console.info('[Server] Email worker closed successfully.')
+    } catch (error) {
+      console.error('[Server] Error closing email worker:', error)
     }
   }
   process.exit(0)
