@@ -145,29 +145,7 @@ export class PromptManager {
   }
 
   buildScriptCompletePrompt(topic: string, options: VideoGenerationOptions = {} as any): string {
-    const spec = this.getEffectiveSpec(options)
-    const instructions = [...(spec.instructions || [])]
-
-    // Add specific instruction about words per second if needed
-    if (options && (options.wordsPerMinute || options.language || options.audioProvider)) {
-      const wps = this.getWordsPerSecond(options)
-      instructions.push(`NARRATION SPEED: ${wps.toFixed(2)}`)
-    }
-
-    const effectiveDuration = this.getEffectiveDuration(options)
-    // FIX: replaced Math.ceil(effectiveDuration / 10) with computeSceneCount — single source of truth
-    const maxScenes = options.sceneCount ?? computeSceneCount(effectiveDuration)
-
-    const systemPrompt = this.buildSystemInstructions({ ...spec, instructions })
-    const userPrompt = this.buildUserData({
-      subject: topic || '',
-      duration: `${effectiveDuration} seconds`,
-      aspectRatio: options.aspectRatio || '16:9',
-      audience: (options as any).audience || spec.audienceDefault || 'General Audience',
-      language: options.language,
-      maxScenes
-    })
-
+    const { systemPrompt, userPrompt } = this.buildScriptGenerationPrompts(topic, options)
     return `${systemPrompt}\n\n${userPrompt}`
   }
 
