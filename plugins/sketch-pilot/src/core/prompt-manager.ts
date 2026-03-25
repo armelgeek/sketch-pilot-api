@@ -14,182 +14,6 @@ import type { AnimationPrompt, EnrichedScene, ImagePrompt, VideoGenerationOption
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
 import type { SceneMemory } from './scene-memory'
 
-export class PromptMaker {
-  private role: string = ''
-  private context: string = ''
-  private audienceDefault: string = ''
-  private task: string = ''
-  private goals: string[] = []
-  private structure: string = ''
-  private rules: string[] = []
-  private formatting: string = ''
-  private outputFormat: string = ''
-  private instructions: string[] = []
-
-  constructor(spec?: VideoTypeSpecification) {
-    if (spec) {
-      this.applySpecification(spec)
-    }
-  }
-
-  /**
-   * Applies a complete video specification to the maker.
-   */
-  public applySpecification(spec: VideoTypeSpecification): this {
-    this.role = spec.role
-    this.context = spec.context
-    this.audienceDefault = spec.audienceDefault
-    this.task = spec.task
-    this.goals = spec.goals
-    this.structure = spec.structure
-    this.rules = spec.rules
-    this.formatting = spec.formatting
-    this.outputFormat = spec.outputFormat
-    this.instructions = spec.instructions
-
-    return this
-  }
-
-  public withRole(role: string): this {
-    this.role = role
-    return this
-  }
-
-  public withContext(context: string): this {
-    this.context = context
-    return this
-  }
-
-  public withAudienceDefault(audience: string): this {
-    this.audienceDefault = audience
-    return this
-  }
-
-  public withTask(task: string): this {
-    this.task = task
-    return this
-  }
-
-  public withGoals(goals: string[]): this {
-    this.goals = goals
-    return this
-  }
-
-  public withStructure(structure: string): this {
-    this.structure = structure
-    return this
-  }
-
-  public withRules(rules: string[]): this {
-    this.rules = rules
-    return this
-  }
-
-  public withFormatting(formatting: string): this {
-    this.formatting = formatting
-    return this
-  }
-
-  public withOutputFormat(format: string): this {
-    this.outputFormat = format
-    return this
-  }
-
-  public withInstructions(instructions: string[]): this {
-    this.instructions = instructions
-    return this
-  }
-
-  // ─── Generation ──────────────────────────────────────────────────────────
-
-  /**
-   * Build only the high-level system instructions (Role, Context, Goals, Rules, etc.)
-   * Each section is labelled with a Markdown header so the LLM can clearly
-   * distinguish boundaries between blocks.
-   */
-  public buildSystemInstructions(): string {
-    const sections: string[] = []
-
-    if (this.role) sections.push(`## ROLE\n${this.role}`)
-
-    if (this.context) sections.push(`## CONTEXT\n${this.context}`)
-
-    if (this.task) sections.push(`## TASK\n${this.task}`)
-
-    if (this.goals?.length) sections.push(`## GOALS\n${this.goals.map((g) => `- ${g}`).join('\n')}`)
-
-    if (this.structure) sections.push(`## STRUCTURE\n${this.structure}`)
-
-    if (this.rules?.length) sections.push(`## RULES\n${this.rules.map((r) => `- ${r}`).join('\n')}`)
-
-    if (this.formatting) sections.push(`## FORMATTING\n${this.formatting}`)
-
-    if (this.outputFormat) sections.push(`## OUTPUT FORMAT\n${this.outputFormat}`)
-
-    if (this.instructions?.length)
-      sections.push(`## INSTRUCTIONS\n${this.instructions.map((i) => `- ${i}`).join('\n')}`)
-
-    return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
-  }
-
-  /**
-   * Build only the user data part (Subject, Duration, Audience)
-   */
-  public buildUserData(options: PromptMakerOptions): string {
-    const lines = [
-      `Subject: ${options.subject}`,
-      `Required Duration: ${options.duration}`,
-      `Required Scene Count: ${options.maxScenes}`,
-      `Aspect Ratio: ${options.aspectRatio}`,
-      `Audience: ${options.audience}`,
-      `Target Language: ${options.language || 'English'} (You MUST generate ALL narration, titles, and text in this language)`,
-      '',
-      this.buildCharacterInstructions(options)
-    ]
-
-    // FIX: filter out empty strings before joining to avoid orphan blank lines
-    return lines.filter(Boolean).join('\n')
-  }
-
-  /**
-   * Build specific instructions for character discovery if needed.
-   *
-   * FIX: replaced "this story" with "this subject" — neutral wording that works
-   * for tutorials, explainers, documentaries, etc., not just narrative formats.
-   */
-  private buildCharacterInstructions(options: PromptMakerOptions): string {
-    // Rule enforced for both cast-defined and auto-identified characters.
-    const mandatoryRule = `\nMANDATORY RULE: Every scene MUST include at least one character (characterIds must never be empty). PREFER EXACTLY ONE CHARACTER per scene. Avoid background crowds, extra people, or irrelevant figures. Focus the visual on a single subject unless the narration explicitly requires more. Even for conceptual, abstract, or transition scenes, a character must be present \u2014 shown reacting, observing, explaining, or pointing at the concept being illustrated.`
-
-    if (options.characters && options.characters.length > 0) {
-      const cast = options.characters
-        .map((char) => {
-          let line = `- ${char.name}`
-          if (char.modelId) line += ` (Model ID: ${char.modelId})`
-          if (char.stylePrefix || char.artistPersona) {
-            const styles = [char.stylePrefix, char.artistPersona].filter(Boolean).join(', ')
-            line += ` [Visual Style: ${styles}]`
-          }
-          return line
-        })
-        .join('\n')
-      return `CAST OF CHARACTERS (Mandatory):\n${cast}\n\nYou MUST use these specific Character Names and Model IDs in your script.${mandatoryRule}`
-    }
-
-    return `CHARACTER IDENTIFICATION:
-- Automatically identify the core characters relevant to this subject.
-- For each character, you MUST define their name, role, gender ("male", "female", or "unknown"), and age ("child", "youth", "senior", or "unknown").
-- These attributes MUST be returned in the \`metadata\` object for each item in the \`characterSheets\` array.${mandatoryRule}`
-  }
-
-  /**
-   * Build the complete combined prompt (System + User)
-   */
-  public build(options: PromptMakerOptions): string {
-    return `${this.buildSystemInstructions()}\n\n${this.buildUserData(options)}`
-  }
-}
-
 export interface PromptManagerConfig {
   backgroundColor?: string
   /**
@@ -285,8 +109,7 @@ export class PromptManager {
       )
     }
 
-    const maker = new PromptMaker(spec).withInstructions(instructions)
-    return maker.buildSystemInstructions()
+    return this.buildSystemInstructions({ ...spec, instructions })
   }
 
   /**
@@ -294,12 +117,11 @@ export class PromptManager {
    */
   buildScriptUserPrompt(topic: string, options: VideoGenerationOptions): string {
     const spec = this.getEffectiveSpec(options)
-    const maker = new PromptMaker(spec)
     const effectiveDuration = this.getEffectiveDuration(options)
     // FIX: use computeSceneCount as single source of truth (aligned with buildScriptCompletePrompt)
     const targetSceneCount = options.sceneCount ?? computeSceneCount(effectiveDuration)
 
-    return maker.buildUserData({
+    return this.buildUserData({
       subject: topic,
       duration: `${effectiveDuration} seconds`,
       aspectRatio: options.aspectRatio || '16:9',
@@ -324,19 +146,20 @@ export class PromptManager {
 
   buildScriptCompletePrompt(topic: string, options: VideoGenerationOptions = {} as any): string {
     const spec = this.getEffectiveSpec(options)
-    const maker = new PromptMaker(spec)
+    const instructions = [...(spec.instructions || [])]
 
     // Add specific instruction about words per second if needed
     if (options && (options.wordsPerMinute || options.language || options.audioProvider)) {
       const wps = this.getWordsPerSecond(options)
-      maker.withInstructions([...(spec.instructions || []), `NARRATION SPEED: ${wps.toFixed(2)}`])
+      instructions.push(`NARRATION SPEED: ${wps.toFixed(2)}`)
     }
 
     const effectiveDuration = this.getEffectiveDuration(options)
     // FIX: replaced Math.ceil(effectiveDuration / 10) with computeSceneCount — single source of truth
     const maxScenes = options.sceneCount ?? computeSceneCount(effectiveDuration)
 
-    return maker.build({
+    const systemPrompt = this.buildSystemInstructions({ ...spec, instructions })
+    const userPrompt = this.buildUserData({
       subject: topic || '',
       duration: `${effectiveDuration} seconds`,
       aspectRatio: options.aspectRatio || '16:9',
@@ -344,6 +167,8 @@ export class PromptManager {
       language: options.language,
       maxScenes
     })
+
+    return `${systemPrompt}\n\n${userPrompt}`
   }
 
   private getEffectiveDuration(options: VideoGenerationOptions): number {
@@ -403,7 +228,7 @@ export class PromptManager {
       ]
     }
 
-    return new PromptMaker(imageSpec).buildSystemInstructions()
+    return this.buildSystemInstructions(imageSpec)
   }
 
   buildImagePrompt(
@@ -688,5 +513,60 @@ export class PromptManager {
       pose: actions[0],
       action: actions.slice(1).join('. ')
     }
+  }
+
+  // ─── Private Builders (formerly PromptMaker) ──────────────────────────────
+
+  private buildSystemInstructions(spec: VideoTypeSpecification): string {
+    const sections: string[] = []
+
+    if (spec.role) sections.push(`## ROLE\n${spec.role}`)
+    if (spec.context) sections.push(`## CONTEXT\n${spec.context}`)
+    if (spec.task) sections.push(`## TASK\n${spec.task}`)
+    if (spec.goals?.length) sections.push(`## GOALS\n${spec.goals.map((g) => `- ${g}`).join('\n')}`)
+    if (spec.structure) sections.push(`## STRUCTURE\n${spec.structure}`)
+    if (spec.rules?.length) sections.push(`## RULES\n${spec.rules.map((r) => `- ${r}`).join('\n')}`)
+    if (spec.formatting) sections.push(`## FORMATTING\n${spec.formatting}`)
+    if (spec.outputFormat) sections.push(`## OUTPUT FORMAT\n${spec.outputFormat}`)
+    if (spec.instructions?.length)
+      sections.push(`## INSTRUCTIONS\n${spec.instructions.map((i) => `- ${i}`).join('\n')}`)
+
+    return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
+  }
+
+  private buildUserData(options: PromptMakerOptions): string {
+    const lines = [
+      `Subject: ${options.subject}`,
+      `Required Duration: ${options.duration}`,
+      `Required Scene Count: ${options.maxScenes}`,
+      `Aspect Ratio: ${options.aspectRatio}`,
+      `Audience: ${options.audience}`,
+      `Target Language: ${options.language || 'English'} (You MUST generate ALL narration, titles, and text in this language)`,
+      '',
+      this.buildCharacterInstructions(options)
+    ]
+
+    return lines.filter(Boolean).join('\n')
+  }
+
+  private buildCharacterInstructions(options: PromptMakerOptions): string {
+    const mandatoryRule = `\nMANDATORY RULE: Every scene MUST include at least one character (characterIds must never be empty). PREFER EXACTLY ONE CHARACTER per scene. Avoid background crowds, extra people, or irrelevant figures. Focus the visual on a single subject unless the narration explicitly requires more. Even for conceptual, abstract, or transition scenes, a character must be present — shown reacting, observing, explaining, or pointing at the concept being illustrated.`
+
+    if (options.characters && options.characters.length > 0) {
+      const cast = options.characters
+        .map((char) => {
+          let line = `- ${char.name}`
+          if (char.modelId) line += ` (Model ID: ${char.modelId})`
+          if (char.stylePrefix || char.artistPersona) {
+            const styles = [char.stylePrefix, char.artistPersona].filter(Boolean).join(', ')
+            line += ` [Visual Style: ${styles}]`
+          }
+          return line
+        })
+        .join('\n')
+      return `CAST OF CHARACTERS (Mandatory):\n${cast}\n\nYou MUST use these specific Character Names and Model IDs in your script.${mandatoryRule}`
+    }
+
+    return `CHARACTER IDENTIFICATION:\n- Automatically identify the core characters relevant to this subject.\n- For each character, you MUST define their name, role, gender ("male", "female", or "unknown"), and age ("child", "youth", "senior", or "unknown").\n- These attributes MUST be returned in the \`metadata\` object for each item in the \`characterSheets\` array.${mandatoryRule}`
   }
 }
