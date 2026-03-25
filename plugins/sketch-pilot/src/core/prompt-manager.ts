@@ -24,11 +24,11 @@ export interface PromptManagerConfig {
 }
 
 export class PromptManager {
-  private backgroundColor: string
+  private backgroundColor?: string
   private spec?: VideoTypeSpecification
 
   constructor(config: PromptManagerConfig = {}) {
-    this.backgroundColor = config.backgroundColor ?? '#F5F5F5'
+    this.backgroundColor = config.backgroundColor
     this.spec = config.scriptSpec
   }
 
@@ -308,6 +308,9 @@ export class PromptManager {
       isStickStyle && !stylePrefix.toLowerCase().includes('stick') ? 'minimalist whiteboard stick figure style' : ''
     const stylePart = [stylePrefix, reinforceStick].filter(Boolean).join(', ')
 
+    // 4. Resolve Director Cues (Consolidation - Phase 31)
+    const directorCuesPart = this.resolveDirectorCues(scene, globalPlan)
+
     // Build natural paragraph
     const paragraph = [
       actionPart,
@@ -316,6 +319,7 @@ export class PromptManager {
       lightingPart || weatherContext || moodContent
         ? `with ${[lightingPart, weatherContext, moodContent].filter(Boolean).join(', ')}`
         : '',
+      directorCuesPart,
       framing,
       stylePart
     ]
@@ -338,7 +342,11 @@ export class PromptManager {
         action: elements.action,
         expression: scene.expression,
         props: effectiveProps,
-        background: this.resolveLocation(scene, memory).rawBg || this.backgroundColor
+        background:
+          this.resolveLocation(scene, memory).rawBg ||
+          this.backgroundColor ||
+          this.spec?.defaultBackgroundPrompt ||
+          'white'
       }
     }
   }
@@ -352,10 +360,9 @@ export class PromptManager {
 
   private resolveStyleLine(isStickStyle: boolean, stylePrefix?: string): string {
     if (!stylePrefix) return ''
-    const reinforcement = isStickStyle
-      ? 'monochrome black and white, no colors or shading, flat 2D lines with minimal detail and plenty of white space, '
-      : ''
-    return `${reinforcement}${stylePrefix}`
+    // Removed hardcoded "monochrome black and white" (Phase 31.5)
+    // We now trust the globalPlan.artisticStyle or the LLM Refinement to determine color/texture.
+    return stylePrefix
   }
 
   private resolveLocation(
@@ -444,7 +451,13 @@ export class PromptManager {
             .replaceAll(/\b(women|men|girls|boys)\b/gi, 'people')
         }
 
+        const metadata = (casting as any).metadata
+        const gender = metadata?.gender && metadata.gender !== 'unknown' ? metadata.gender : ''
+        const age = metadata?.age && metadata.age !== 'unknown' ? metadata.age : ''
+
         const parts = [
+          gender,
+          age,
           clothing ? `wearing ${clothing}` : '',
           casting.stylePrefix ? `style: ${casting.stylePrefix}` : '',
           casting.artistPersona ? `artist: ${casting.artistPersona}` : ''

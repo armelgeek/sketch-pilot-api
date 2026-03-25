@@ -1117,15 +1117,14 @@ RULES:
         {
           aspectRatio: '1:1',
           referenceImages: existingBaseImages,
-          systemInstruction: `You are creating a CHARACTER REFERENCE SHEET. 
-Output a 2x2 grid. 
+          systemInstruction: `You are creating a character reference sheet displayed as a 2x2 grid. 
 ${
   uniqueCharacters.length > 1
-    ? `Include all characters: ${uniqueCharacters.join(', ')}. Each should have at least one full-body and one clear face shot.`
-    : 'Include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
+    ? `Please include all characters: ${uniqueCharacters.join(', ')}. Each character should have at least one full-body and one clear face shot.`
+    : 'Please include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
 }
 ${styleCue}
-PLAIN WHITE BACKGROUND.`
+Ensure the character is isolated on a simple, neutral, and uniform solid background suitable for the requested style.`
         }
       )
 
