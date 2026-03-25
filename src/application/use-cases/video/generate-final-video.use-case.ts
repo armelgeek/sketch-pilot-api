@@ -85,7 +85,7 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
 
       // 5. Enqueue the BullMQ job
       const jobId = crypto.randomUUID()
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         jobId,
         status: 'queued',
         progress: 10,

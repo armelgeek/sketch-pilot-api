@@ -22,7 +22,8 @@ export class GeminiLLMService implements LLMService {
         config: {
           systemInstruction,
           responseMimeType: (responseMimeType as any) || 'text/plain',
-          temperature: 0.8
+          temperature: 0.8,
+          maxOutputTokens: 8192
         }
       })
 

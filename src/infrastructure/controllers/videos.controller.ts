@@ -1,4 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { checkpointService } from '@/application/services/video-checkpoint.service'
+import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { ChooseBackgroundMusicUseCase } from '@/application/use-cases/video/choose-background-music.use-case'
 import { ChooseVoiceoverUseCase } from '@/application/use-cases/video/choose-voiceover.use-case'
 import { ConfigureBrandingUseCase } from '@/application/use-cases/video/configure-branding.use-case'
@@ -34,6 +36,7 @@ const configureBrandingUseCase = new ConfigureBrandingUseCase()
 const generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
 const suggestTopicsUseCase = new SuggestTopicsUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
+const videoGenerationService = new VideoGenerationService()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -661,16 +664,16 @@ export class VideosController implements Routes {
       }
     )
 
-    // POST /v1/videos/jobs/:jobId/cancel
+    // POST /v1/videos/:id/cancel
     this.controller.openapi(
       createRoute({
         method: 'post',
-        path: '/v1/videos/jobs/{jobId}/cancel',
+        path: '/v1/videos/{id}/cancel',
         tags: ['Videos'],
         summary: 'Cancel a video generation job',
         security: [{ Bearer: [] }],
         request: {
-          params: z.object({ jobId: z.string() })
+          params: z.object({ id: z.string() })
         },
         responses: {
           200: {
@@ -695,24 +698,218 @@ export class VideosController implements Routes {
         const user = c.get('user')
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
-        const { jobId } = c.req.valid('param')
-        const video = await videoRepository.findByJobId(jobId)
-        if (!video || video.userId !== user.id) return c.json({ error: 'Job not found' }, 404)
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+        // 1. Stop if running in this engine instance
+        await videoGenerationService.stopGeneration(video.id)
 
-        // Try to remove from BullMQ queue
+        // 2. Try to remove from BullMQ queue
         try {
           const queue = getVideoQueue()
-          const job = await queue.getJob(jobId)
-          if (job) {
-            await job.remove()
+          if (video.jobId) {
+            const job = await queue.getJob(video.jobId)
+            if (job) {
+              await job.remove()
+            }
           }
         } catch (error) {
           console.error('Failed to remove job from queue:', error)
         }
 
-        await videoRepository.updateStatus(video.id, { status: 'cancelled' })
+        // 3. Update DB status (stopGeneration already does this, but for safety)
+        await videoRepository.update(video.id, { status: 'cancelled' })
 
-        return c.json({ jobId, status: 'cancelled' })
+        return c.json({ videoId: video.id, status: 'draft' })
+      }
+    )
+
+    // POST /v1/videos/:id/restart
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/restart',
+        tags: ['Videos'],
+        summary: 'Restart a video generation job',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Job restarted',
+            content: {
+              'application/json': {
+                schema: z.object({ jobId: z.string(), status: z.string() })
+              }
+            }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+
+        // Trigger restart
+        // We need the original options. We might need to fetch them from DB or use the ones in the video record
+        const options = video.options || {}
+        const topic = video.topic
+
+        // This handles stopping, clearing checkpoint, and re-enqueuing (if using generateVideo)
+        // Wait, generateVideo in service enqueues immediately?
+        // No, generateVideo in service runs it. UseCase enqueues.
+        // Let's use a new UseCase or just call the service and handle BullMQ here.
+
+        // Actually, let's just use regenerateVideoUseCase if it fits,
+        // but restart specifically means "from scratch".
+
+        const queue = getVideoQueue()
+        await videoGenerationService.stopGeneration(video.id)
+
+        // Ensure starting from scratch by deleting checkpoint
+        await checkpointService.deleteCheckpoint(video.id)
+
+        // Re-enqueue
+        const newJob = await queue.add(
+          'generate-video',
+          {
+            videoId: video.id,
+            topic,
+            options,
+            userId: user.id
+          },
+          { jobId: video.id, removeOnComplete: true }
+        )
+
+        return c.json({ jobId: newJob.id, status: 'restarted' })
+      }
+    )
+
+    // POST /v1/videos/:id/rescript
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/rescript',
+        tags: ['Videos'],
+        summary: 'Rescript a video generation job (delete script and start over)',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Job rescripted',
+            content: {
+              'application/json': {
+                schema: z.object({ jobId: z.string(), status: z.string() })
+              }
+            }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+
+        const queue = getVideoQueue()
+        // Stop, clear script, clear checkpoint
+        await videoGenerationService.stopGeneration(video.id)
+        await checkpointService.deleteCheckpoint(video.id)
+        await videoRepository.update(video.id, { script: null } as any)
+
+        // Re-enqueue
+        const newJob = await queue.add(
+          'generate-video',
+          {
+            videoId: video.id,
+            topic: video.topic,
+            options: video.options,
+            userId: user.id
+          },
+          { jobId: video.id, removeOnComplete: true }
+        )
+
+        return c.json({ jobId: newJob.id, status: 'rescripted' })
+      }
+    )
+
+    // POST /v1/videos/:id/scenes/insert
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/scenes/insert',
+        tags: ['Videos'],
+        summary: 'Insert a new scene with AI-generated visual prompts',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  index: z.number().int().min(0),
+                  narration: z.string().min(1)
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Scene inserted',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), script: z.any() })
+              }
+            }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { index, narration } = c.req.valid('json')
+
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+
+        const updatedScript = await videoGenerationService.insertScene(id, index, narration)
+
+        return c.json({ success: true, script: updatedScript })
       }
     )
 

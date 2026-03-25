@@ -62,7 +62,7 @@ export class ConfigureBrandingUseCase {
       branding: updatedBrandingConfig
     }
 
-    const updatedVideo = await this.videoRepository.updateStatus(videoId, {
+    const updatedVideo = await this.videoRepository.update(videoId, {
       options: updatedOptions as any
     })
 

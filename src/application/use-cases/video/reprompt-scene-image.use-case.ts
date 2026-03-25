@@ -76,7 +76,7 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
         }
       }
 
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         jobId,
         status: 'queued',
         progress: 10,

@@ -23,8 +23,8 @@ export class GeminiImageService implements ImageService {
   /**
    * Maximum internal retries for NO_IMAGE responses before giving up.
    */
-  private static readonly NO_IMAGE_MAX_RETRIES = 7
-  private static readonly NO_IMAGE_BASE_DELAY_MS = 10000
+  private static readonly NO_IMAGE_MAX_RETRIES = 1
+  private static readonly NO_IMAGE_BASE_DELAY_MS = 1000
 
   async generateImage(
     prompt: string,
@@ -52,26 +52,24 @@ export class GeminiImageService implements ImageService {
     const mimeType = fileFormat === 'webp' ? 'image/webp' : 'image/png'
 
     for (let attempt = 0; attempt <= GeminiImageService.NO_IMAGE_MAX_RETRIES; attempt++) {
-      // On retries, progressively simplify the prompt to avoid content policy conflicts
-      const currentPrompt = attempt === 0 ? originalPrompt : this.simplifyPrompt(originalPrompt, attempt)
+      const currentPrompt = originalPrompt
 
-      const contents: any[] = []
+      const parts: any[] = []
 
       if (baseImages.length > 0) {
-        contents.push({
+        parts.push({
           text: 'REFERENCE IMAGES: Use the following images as the ABSOLUTE SOURCE OF TRUTH for character identity, clothing, and artistic style. All generated scenes must remain 100% consistent with these models.'
         })
         baseImages.forEach((raw) => {
-          // Safety check: Strip Data URI prefix if present
-          const data = raw.replace(/^data:image\/[a-z]+;base64,/, '')
+          const data = raw.includes('base64,') ? raw.split('base64,')[1].trim() : raw.trim()
           let refMimeType = 'image/jpeg'
           if (data.startsWith('iVBORw0KGgo')) refMimeType = 'image/png'
           else if (data.startsWith('UklGR')) refMimeType = 'image/webp'
-          contents.push({ inlineData: { mimeType: refMimeType, data } })
+          parts.push({ inlineData: { mimeType: refMimeType, data } })
         })
       }
 
-      contents.push({ text: currentPrompt })
+      parts.push({ text: `FINAL IMAGE PROMPT: ${this.sanitizePrompt(currentPrompt)}` })
 
       try {
         if (attempt === 0) {
@@ -81,10 +79,7 @@ export class GeminiImageService implements ImageService {
             `[GeminiImage] Aspect Ratio: ${geminiAspectRatio}, Format: ${fileFormat}, Quality: ${options.quality || this.defaultQuality}`
           )
         } else {
-          console.log(
-            `[GeminiImage] Retry ${attempt}/${GeminiImageService.NO_IMAGE_MAX_RETRIES} with simplified prompt...`
-          )
-          console.log(`[GeminiImage] Simplified Prompt: ${currentPrompt}`)
+          console.log(`[GeminiImage] Retry ${attempt}/${GeminiImageService.NO_IMAGE_MAX_RETRIES}...`)
         }
 
         // Map high-level quality to numeric values if needed, otherwise rely on model default
@@ -93,18 +88,20 @@ export class GeminiImageService implements ImageService {
 
         const response = await this.client.models.generateContent({
           model: this.modelId,
-          contents,
+          contents: [{ role: 'user', parts }],
           config: {
             responseModalities: ['IMAGE'],
             systemInstruction: attempt < 2 ? dynamicSystemInstruction : undefined, // Drop system instruction on last retries
             imageConfig: {
-              aspectRatio: geminiAspectRatio
+              aspectRatio: geminiAspectRatio,
+              seed: options.seed
             },
             safetySettings: [
               { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE }
             ]
           } as any
         })
@@ -143,16 +140,18 @@ export class GeminiImageService implements ImageService {
         }
 
         // If we got here, no image data was returned
-        if (attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES) {
+        const isSafetyBlock = finishReason === 'SAFETY' || finishReason === 'BLOCKLIST'
+        if (attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES && !isSafetyBlock) {
           const delay = GeminiImageService.NO_IMAGE_BASE_DELAY_MS * 2 ** attempt
           console.warn(
-            `[GeminiImage] ⚠ NO_IMAGE (finish: ${finishReason}). Retrying in ${(delay / 1000).toFixed(1)}s with simplified prompt...`
+            `[GeminiImage] ⚠ NO_IMAGE (finish: ${finishReason}). Retrying in ${(delay / 1000).toFixed(1)}s...`
           )
           await new Promise((resolve) => setTimeout(resolve, delay))
         } else {
-          console.warn(
-            `[GeminiImage] ❌ NO_IMAGE after ${GeminiImageService.NO_IMAGE_MAX_RETRIES} retries. Returning empty string.`
-          )
+          const failMsg = isSafetyBlock
+            ? `BLOCKED (${finishReason})`
+            : `MAX RETRIES (${GeminiImageService.NO_IMAGE_MAX_RETRIES})`
+          console.warn(`[GeminiImage] ❌ Failed to generate image: ${failMsg}. Returning empty string.`)
         }
       } catch (error) {
         // Real errors (network, auth, etc.) should not be retried here — let the outer queue handle them
@@ -165,55 +164,6 @@ export class GeminiImageService implements ImageService {
     return ''
   }
 
-  /**
-   * Progressively simplify a prompt to resolve NO_IMAGE responses.
-   *
-   * Level 1: Remove quoted text labels (e.g., 'Comfort Zone', "dollar")
-   *          that conflict with "no text" instructions
-   * Level 2: Also strip parenthetical descriptions, duplicate character descriptions,
-   *          and shorten the prompt significantly
-   * Level 3: Reduce to bare essentials
-   */
-  private simplifyPrompt(prompt: string, level: number): string {
-    let simplified = prompt
-
-    if (level >= 1) {
-      // Remove single-quoted and double-quoted text labels
-      simplified = simplified.replaceAll(/'[^']{1,50}'/g, '')
-      simplified = simplified.replaceAll(/"[^"]{1,50}"/g, '')
-      // Remove text/speech/thought bubble references
-
-      // Keep only first parenthetical character description
-      let firstParen = true
-      simplified = simplified.replaceAll(/\([^)]{20,}\)/g, (match) => {
-        if (firstParen) {
-          firstParen = false
-          return match
-        }
-        return ''
-      })
-    }
-
-    if (level >= 2) {
-      // Remove ALL parenthetical descriptions
-      simplified = simplified.replaceAll(/\([^)]*\)/g, '')
-    }
-
-    if (level >= 3) {
-      // Bare essentials: first 150 chars + quality tags
-      const qualityTags =
-        'consistent outfits, flat lighting, medium outlines, full frame edge-to-edge, pure solid flat background, no text, no speech bubbles, no vignette, no rounded corners, no borders, exactly 2 arms, exactly 2 legs, normal human anatomy, NO EXTRA LIMBS'
-      const core = simplified.slice(0, 150).replace(/,\s*$/, '')
-      simplified = `${core}, ${qualityTags}.`
-    }
-
-    // Collapse artifacts
-    return simplified
-      .replaceAll(/,\s*,/g, ',')
-      .replaceAll(/\s{2,}/g, ' ')
-      .trim()
-  }
-
   private getResolution(aspectRatio: string): string {
     switch (aspectRatio) {
       case '9:16':
@@ -224,5 +174,19 @@ export class GeminiImageService implements ImageService {
       default:
         return '1280x720'
     }
+  }
+
+  /**
+   * Sanitizes the prompt to avoid common safety filter triggers in Imagen 3.
+   */
+  private sanitizePrompt(prompt: string): string {
+    return prompt
+      .replaceAll(/\bsketch\b/gi, 'illustration')
+      .replaceAll(/\bsketches\b/gi, 'illustrations')
+      .replaceAll(/\bmonochrome\b/gi, 'black and white ink line art')
+      .replaceAll(/\bpencil\b/gi, 'clean ink')
+      .replaceAll(/\bshading\b/gi, 'clean minimalist areas')
+      .replaceAll(/\s{2,}/g, ' ')
+      .trim()
   }
 }

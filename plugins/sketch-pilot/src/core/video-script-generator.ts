@@ -1,4 +1,3 @@
-/* eslint-disable no-control-regex */
 import {
   completeVideoScriptSchema,
   MIN_SCENE_DURATION,
@@ -11,12 +10,9 @@ import {
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import type { LLMService } from '../services/llm'
-import { ArtDirector } from './art-director'
-import { DirectorPlanner } from './director-planner'
 import { PromptGenerator } from './prompt-generator'
 import { PromptManager } from './prompt-manager'
 import { SceneMemoryBuilder } from './scene-memory'
-import { ScriptDoctor } from './script-doctor'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,23 +28,20 @@ type RawScene = Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'> & {
 // ─── VideoScriptGenerator ────────────────────────────────────────────────────
 
 /**
- * Video script generator using Gemini AI
+ * Video script generator using Gemini AI.
+ * [PHASE 9 - UNIFIED AGENT]: Single-pass generation.
+ * ScriptDoctor, ArtDirector, DirectorPlanner responsibilities are now embedded
+ * in the PromptManager system prompt, removing 3 separate LLM round-trips.
  */
 export class VideoScriptGenerator {
   private readonly llmService: LLMService
   private readonly promptGenerator: PromptGenerator
-  private readonly directorPlanner: DirectorPlanner
-  private readonly scriptDoctor: ScriptDoctor
-  private readonly artDirector: ArtDirector
   readonly promptManager: PromptManager
 
   constructor(llmService: LLMService, promptManager?: PromptManager) {
     this.llmService = llmService
     this.promptManager = promptManager ?? new PromptManager()
     this.promptGenerator = new PromptGenerator(this.promptManager)
-    this.directorPlanner = new DirectorPlanner(this.llmService, this.promptManager)
-    this.scriptDoctor = new ScriptDoctor(this.llmService, this.promptManager)
-    this.artDirector = new ArtDirector(this.llmService, this.promptManager)
   }
 
   /**
@@ -60,61 +53,35 @@ export class VideoScriptGenerator {
 
   /**
    * Generate a complete video script from a topic.
+   * [PHASE 9 - UNIFIED AGENT]: Single LLM call. ScriptDoctor, ArtDirector, DirectorPlanner are
+   * now embedded in the initial prompt. The LLM returns everything in one JSON blob.
    */
   async generateCompleteScript(
     topic: string,
     options: VideoGenerationOptions,
     onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   ): Promise<CompleteVideoScript> {
-    console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
+    console.log(`[VideoScriptGen] Generating unified script for topic: "${topic}"`)
 
-    if (onProgress) await onProgress(1, 'Studio: Planning initial structure...')
-    let baseScript = await this.generateVideoStructure(topic, options)
+    if (onProgress) await onProgress(5, 'Studio: Generating complete script in one pass...')
+    const baseScript = await this.generateVideoStructure(topic, options)
 
-    // NEW: Niche Expertise Pass (Script Doctoring)
-    if (onProgress) await onProgress(5, `ScriptDoctor: Analyzing "${topic}" specialized niche...`)
-    console.log(`[VideoScriptGen] Starting ScriptDoctor refinement for topic: "${topic}"...`)
-    baseScript = await this.scriptDoctor.doctorScript(topic, baseScript, options)
-
-    // NEW: Director Pass (Two-Pass Stage)
+    // Extract globalPlan and artisticStyle directly from the single LLM response
     const characterSheets: CharacterSheet[] = baseScript.characterSheets || []
+    const globalPlan: GlobalNarrativePlan | undefined = (baseScript as any).globalPlan
+    const artisticStyle = (baseScript as any).artisticStyle
 
-    // Enforce eyelineMatch default and progressive zoom-in for revelation area
-    const totalDuration = baseScript.scenes.reduce((acc, s) => {
-      const end = s.timeRange?.end
-      return typeof end === 'number' ? Math.max(acc, end) : acc
-    }, 0)
-
-    baseScript.scenes.forEach((scene, idx) => {
-      if (!scene.eyelineMatch) scene.eyelineMatch = 'center'
-
-      // Removed hardcoded Director's zoom-in (Phase 28.5)
-      // We now delegate camera action choices entirely to the AI via prompt.
-    })
-
-    // NEW: Artistic Identity Pass (Art Direction)
-    if (onProgress) await onProgress(10, 'Art Director: Defining visual soul and brand identity...')
-    console.log(`[VideoScriptGen] Starting ArtDirector for visual identity...`)
-    const artisticStyle = await this.artDirector.defineVisualIdentity(topic, baseScript.fullNarration, options)
-
-    // NEW: Director Pass (Two-Pass Stage)
-    if (onProgress) await onProgress(15, 'Director: Plotting narrative arc and camera pacing...')
-    console.log('[VideoScriptGen] Starting Director Pass (Global Planning)...')
-    const globalPlan = await this.directorPlanner.planGlobalExecution(
-      topic,
-      baseScript.fullNarration,
-      baseScript.scenes,
-      characterSheets,
-      options
-    )
-
-    // Merge Art Director's style into the global plan
-    if (globalPlan) {
+    // Merge artisticStyle into globalPlan if both are present
+    if (globalPlan && artisticStyle) {
       globalPlan.artisticStyle = artisticStyle
     }
 
-    // NEW: Layout Pass removed per user request
+    // Set default eyelineMatch
+    baseScript.scenes.forEach((scene) => {
+      if (!scene.eyelineMatch) scene.eyelineMatch = 'center'
+    })
 
+    if (onProgress) await onProgress(30, 'Studio: Enriching scenes with visual prompts...')
     const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets, globalPlan)
 
     let actualTotal = enrichedScenes.reduce((acc, s) => {
@@ -213,24 +180,91 @@ export class VideoScriptGenerator {
 
   /**
    * Parse and clean a raw LLM text response into a JS object.
+   * Includes an emergency "repair" pass for truncated responses.
    */
   private parseJsonResponse(text: unknown): any {
     if (typeof text === 'object') return text
 
-    const cleaned = (text as string)
+    const rawText = text as string
+    const cleaned = rawText
       .replaceAll(/```json\n?|\n?```/g, '')
       .replace(/^\uFEFF/, '')
+      // eslint-disable-next-line no-control-regex
       .replaceAll(/[\u0000-\u0008\v\f\u000E-\u001F\u007F]/g, '')
-      .replaceAll(/,\s*([\]}])/g, '$1')
       .trim()
 
+    // 1. Try standard parse
     try {
       return JSON.parse(cleaned)
     } catch {
+      // 2. Try extracting JSON block via regex
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-      if (jsonMatch) return JSON.parse(jsonMatch[0])
-      throw new Error(`JSON parsing failed — could not extract valid object from LLM response`)
+      if (jsonMatch) {
+        try {
+          return JSON.parse(jsonMatch[0])
+        } catch {
+          // Fall through to repair
+        }
+      }
+
+      // 3. Last Resort: Emergency Bracket Repair (for truncated responses)
+      console.warn('[VideoScriptGen] 🛠 JSON parsing failed; attempting emergency repair...')
+      try {
+        const repaired = this.repairJson(cleaned)
+        return JSON.parse(repaired)
+      } catch (repairError) {
+        throw new Error(
+          `JSON parsing failed even after repair attempt — response was likely too corrupted. Original error: ${repairError}`
+        )
+      }
     }
+  }
+
+  /**
+   * Self-healing JSON parser for truncated LLM outputs.
+   * Balances braces and brackets and removes trailing debris.
+   */
+  private repairJson(json: string): string {
+    let repaired = json.trim()
+
+    // Remove any trailing non-JSON characters (like "Note: ...")
+    // but keep characters that might be part of an unclosed string or object
+    // Actually, it's safer to count what's missing.
+
+    const stack: string[] = []
+    let inString = false
+    let escaped = false
+
+    for (const char of repaired) {
+      if (char === '"' && !escaped) {
+        inString = !inString
+      }
+
+      if (!inString) {
+        if (char === '{' || char === '[') {
+          stack.push(char === '{' ? '}' : ']')
+        } else if ((char === '}' || char === ']') && stack.length > 0 && stack.at(-1) === char) {
+          stack.pop()
+        }
+      }
+
+      escaped = char === '\\' && !escaped
+    }
+
+    // If we are still inside a string, close it
+    if (inString) {
+      repaired += '"'
+    }
+
+    // Remove any trailing comma before closing (common in truncated LLM output)
+    repaired = repaired.replace(/,\s*$/, '')
+
+    // Close all remaining brackets in reverse order
+    while (stack.length > 0) {
+      repaired += stack.pop()
+    }
+
+    return repaired
   }
 
   // ─── Private: Post-processing ─────────────────────────────────────────────
@@ -333,7 +367,7 @@ export class VideoScriptGenerator {
    * Assign and validate timeRange for every scene, then rescale if the total
    * falls outside [minDuration, maxDuration].
    */
-  private assignTimeRanges(scenes: RawScene[], options: VideoGenerationOptions): RawScene[] {
+  public assignTimeRanges(scenes: RawScene[], options: VideoGenerationOptions): RawScene[] {
     const targetTotal = options.duration ?? options.maxDuration ?? 30
     const maxScene = typeof options.maxSceneDuration === 'number' ? options.maxSceneDuration : Number.POSITIVE_INFINITY
     const minScene = MIN_SCENE_DURATION
@@ -525,6 +559,65 @@ export class VideoScriptGenerator {
     })
   }
 
+  /**
+   * Enrich a single narration string into a full EnrichedScene using global context.
+   */
+  async enrichSceneFromNarration(
+    narration: string,
+    scriptContext: CompleteVideoScript,
+    sceneNumber: number
+  ): Promise<EnrichedScene> {
+    console.log(`[VideoScriptGen] Enriching single narration for scene ${sceneNumber}...`)
+
+    const systemPrompt = `## ROLE
+You are a Screenwriter and Art Director.
+## TASK
+Turn a single narration line into a detailed visual scene description following the provided artistic style and characters.
+## OUTPUT FORMAT
+Return ONLY a JSON object:
+{
+  "summary": "Brief visual summary",
+  "actions": ["Character does something"],
+  "expression": "Facial expression",
+  "background": "Environment description",
+  "mood": "Emotional tone",
+  "framing": "Shot type (e.g. medium-shot)",
+  "lighting": "Lighting type",
+  "props": ["Key objects"],
+  "imagePrompt": "Literal 1-2 sentence visual description for image generation.",
+  "characterIds": ["ID from character list"]
+}
+
+## ARTISTIC STYLE
+${JSON.stringify(scriptContext.globalPlan?.artisticStyle || {})}
+
+## CHARACTERS
+${JSON.stringify(scriptContext.characterSheets || [])}
+`
+    const userPrompt = `Narration: "${narration}"`
+
+    const text = await this.llmService.generateContent(userPrompt, systemPrompt, 'application/json')
+    const parsed = this.parseJsonResponse(text)
+
+    // Ensure required fields
+    const rawScene: RawScene = {
+      ...parsed,
+      narration,
+      sceneNumber,
+      id: `scene-manual-${Date.now()}`
+    }
+
+    // Use existing enrichScenes logic (single-scene array) to get full imagePrompt consistency
+    const enriched = await this.enrichScenes(
+      [rawScene],
+      { aspectRatio: scriptContext.aspectRatio } as any,
+      scriptContext.characterSheets || [],
+      scriptContext.globalPlan
+    )
+
+    return enriched[0]
+  }
+
   // ─── Public: Export ───────────────────────────────────────────────────────
 
   /**
@@ -608,5 +701,18 @@ export class VideoScriptGenerator {
     }
 
     return lines.join('\n')
+  }
+
+  /**
+   * Export only the optimized image prompts as a simplified JSON array.
+   * Useful for manual testing in external tools like Gemini/Midjourney.
+   */
+  exportPromptsToJson(script: CompleteVideoScript): string {
+    const prompts = script.scenes.map((scene) => ({
+      scene: scene.sceneNumber,
+      id: scene.id,
+      prompt: scene.imagePrompt
+    }))
+    return JSON.stringify(prompts, null, 2)
   }
 }

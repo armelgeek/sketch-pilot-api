@@ -30,7 +30,7 @@ export class UpdateVideoUseCase extends IUseCase<UpdateVideoParams, UpdateVideoR
       }
 
       // 2. Update the video
-      const updatedVideo = await videoRepository.updateStatus(videoId, data)
+      const updatedVideo = await videoRepository.update(videoId, data)
 
       return {
         success: true,

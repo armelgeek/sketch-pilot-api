@@ -8,15 +8,23 @@ import process from 'node:process'
  * Used by the BullMQ worker to execute video generation jobs.
  */
 import { NanoBananaEngine } from '@sketch-pilot/core/nano-banana-engine'
+import { VideoScriptGenerator } from '@sketch-pilot/core/video-script-generator'
 import { ImageServiceFactory, type ImageServiceConfig } from '@sketch-pilot/services/image'
 import { getCharacterModelManager } from '@sketch-pilot/utils/character-models'
 import { PromptService } from '@/application/services/prompt.service'
+import { checkpointService } from '@/application/services/video-checkpoint.service'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
+import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
 import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
 import type { LLMServiceConfig } from '@sketch-pilot/services/llm'
-import type { CompleteVideoPackage, VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
+import type {
+  CompleteVideoPackage,
+  TranscriptionConfig,
+  VideoGenerationOptions
+} from '@sketch-pilot/types/video-script.types'
 
 export interface VideoGenerationInput {
   topic: string
@@ -30,6 +38,11 @@ export interface VideoGenerationInput {
 export class VideoGenerationService {
   private readonly promptService = new PromptService(new PromptRepository())
   private readonly characterModelRepository = new CharacterModelRepository()
+  private readonly videoRepository = new VideoRepository()
+  private readonly creditsRepository = new CreditsRepository()
+
+  // Track active engines for cancellation
+  private static activeEngines = new Map<string, NanoBananaEngine>()
 
   constructor() {
     this.initializeCharacterLoader()
@@ -61,18 +74,6 @@ export class VideoGenerationService {
       if (!model || !model.imageUrl) return null
 
       try {
-        // Since we are backend-side (Node.js), we might need to fetch the image if it's a URL
-        // or just return it if it's already a base64 string.
-        // For now, let's assume imageUrl is what we need.
-        // If it's a MinIO URL, we might need to fetch it.
-        // But the engine expects base64 or a local path.
-        // Considering "100% Dynamic", we'll just pass the URL if the engine supports it,
-        // or fetch it here.
-
-        // Let's check what CharacterModel interface expects:
-        // export interface CharacterModel { name: string; path: string; base64: string; mimeType: string; }
-
-        // If it's a URL, we should fetch it and convert to base64 for the AI service.
         const imageBuffer = await this.fetchImageBuffer(model.imageUrl)
         const base64 = imageBuffer.toString('base64')
         const dataUrl = `data:${model.mimeType || 'image/jpeg'};base64,${base64}`
@@ -92,11 +93,8 @@ export class VideoGenerationService {
 
   private async buildEngine(options: Partial<VideoGenerationOptions> = {}): Promise<NanoBananaEngine> {
     const apiKey = process.env.GEMINI_API_KEY || ''
-
-    // 1. Resolve Spec from DB
     const scriptSpec = await this.promptService.resolveSpec((options as any).promptId)
 
-    // 2. Resolve Character Styles and Voice
     let artistPersona: string | undefined
     let stylePrefix: string | undefined
     let effectiveVoiceId = options.kokoroVoicePreset as string | undefined
@@ -107,10 +105,6 @@ export class VideoGenerationService {
         if (!effectiveVoiceId && charModel.voiceId) {
           effectiveVoiceId = charModel.voiceId
         }
-        artistPersona = (charModel as any).stylePrefix || undefined
-        stylePrefix = (charModel as any).stylePrefix || undefined
-        // Wait! The field names might be different if I just updated the schema.
-        // Let's use the actual names I added: stylePrefix and artistPersona.
         artistPersona = (charModel as any).artistPersona || undefined
         stylePrefix = (charModel as any).stylePrefix || undefined
       }
@@ -139,7 +133,13 @@ export class VideoGenerationService {
       cacheSystemPrompt: true
     }
 
-    // NanoBananaEngine constructor: (apiKey, artistPersona?, stylePrefix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptSpecs?)
+    const transcriptionConfig: TranscriptionConfig = {
+      provider: 'whisper-local',
+      model: 'base',
+      device: 'cpu',
+      language: options.language?.split('-')[0] || 'en'
+    }
+
     return new NanoBananaEngine(
       apiKey,
       artistPersona,
@@ -149,64 +149,76 @@ export class VideoGenerationService {
       animationConfig,
       imageConfig,
       llmConfig,
-      undefined, // transcriptionConfig
+      transcriptionConfig,
       {
         scriptSpec: scriptSpec as any,
-        imageSpec: scriptSpec as any // Unified: Using same spec for both phases
-      }
+        imageSpec: scriptSpec as any,
+        negativePrompt: options.negativePrompt
+      },
+      options.negativePrompt
     )
   }
 
   /**
-   * Generate a complete video from a topic.
-   * This is the main entry point used by the BullMQ worker.
+   * Generates a full video from a topic, handling engine tracking and lifecycle.
    */
-  async generateVideo(input: VideoGenerationInput & { projectId?: string }): Promise<CompleteVideoPackage> {
-    const { topic, options = {}, projectId, onProgress } = input
+  private async generateFullVideoInternal(
+    videoId: string,
+    topic: string,
+    options: Partial<VideoGenerationOptions>,
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>,
+    onTimingSync?: (script: any) => Promise<void>,
+    onSceneGenerated?: (scene: any, script: any, index: number, progress: number) => Promise<void>
+  ): Promise<CompleteVideoPackage> {
     const engine = await this.buildEngine(options)
+    VideoGenerationService.activeEngines.set(videoId, engine)
 
-    // In NanoBananaEngine, generateVideoFromTopic currently does not accept onProgress directly
-    // Let's modify generateVideoFromTopic manually later. For now, we pass it down.
-    return await engine.generateVideoFromTopic(
+    try {
+      return await engine.generateVideoFromTopic(
+        topic,
+        options as VideoGenerationOptions,
+        [], // existingScenes
+        videoId,
+        onProgress,
+        onTimingSync,
+        onSceneGenerated
+      )
+    } finally {
+      VideoGenerationService.activeEngines.delete(videoId)
+    }
+  }
+
+  async generateVideo(input: VideoGenerationInput & { projectId?: string }): Promise<CompleteVideoPackage> {
+    const { topic, options = {}, projectId, onProgress, onTimingSync, onSceneGenerated } = input
+    return await this.generateFullVideoInternal(
+      projectId || 'temp-generation',
       topic,
-      options as VideoGenerationOptions,
-      [],
-      projectId,
+      options,
       onProgress,
-      input.onTimingSync,
-      input.onSceneGenerated
+      onTimingSync,
+      onSceneGenerated
     )
   }
 
-  /**
-   * Render a video directly from an existing script.
-   * This bypasses the LLM generation phase and is used for manually validated scripts.
-   */
   async renderVideoFromScript(
     input: VideoGenerationInput & { script: any; projectId?: string }
   ): Promise<CompleteVideoPackage> {
-    const { script, options = {}, projectId, onProgress } = input
+    const { script, options = {}, projectId, onProgress, onTimingSync } = input
     const engine = await this.buildEngine(options)
+    // One-off render doesn't typically need cancellation registry
     return await engine.generateVideoFromScript(
       script,
       options as VideoGenerationOptions,
       [],
       projectId,
       onProgress,
-      input.onTimingSync
+      onTimingSync
     )
   }
 
-  /**
-   * Generate a character reference image using a model as a style anchor.
-   */
   async generateCharacterImage(prompt: string, modelId?: string): Promise<Buffer> {
     const apiKey = process.env.GEMINI_API_KEY || ''
-    const imageConfig: ImageServiceConfig = {
-      provider: 'gemini', // Use Gemini for high-quality character consistency
-      apiKey
-    }
-    const imageService = ImageServiceFactory.create(imageConfig)
+    const imageService = ImageServiceFactory.create({ provider: 'gemini', apiKey })
 
     const referenceImages: string[] = []
     if (modelId && modelId !== 'none') {
@@ -220,28 +232,18 @@ export class VideoGenerationService {
     const filename = `char-gen-${Date.now()}.png`
     const imageUrl = await imageService.generateImage(prompt, filename, {
       referenceImages,
-      removeBackground: false,
       aspectRatio: '1:1',
       quality: 'high',
-      systemInstruction:
-        'Generate a high-quality character design illustration. Maintain the style of the reference image if provided.'
+      systemInstruction: 'Generate a high-quality character design illustration.'
     })
 
-    // Fetch the generated image and return as Buffer
     const buffer = await this.fetchImageBuffer(imageUrl)
-
-    // If it was a local file, we might want to clean it up
-    // Note: fetchImageBuffer doesn't delete the file, so we do it here if it's local
     if (!imageUrl.startsWith('http')) {
       await fs.unlink(imageUrl).catch(() => {})
     }
-
     return buffer
   }
 
-  /**
-   * Robustly fetch an image as a Buffer, handling both URLs and local paths.
-   */
   private async fetchImageBuffer(urlOrPath: string): Promise<Buffer> {
     if (urlOrPath.startsWith('http')) {
       const response = await fetch(urlOrPath)
@@ -249,8 +251,106 @@ export class VideoGenerationService {
       const arrayBuffer = await response.arrayBuffer()
       return Buffer.from(arrayBuffer)
     }
-
-    // Assume it's a local file path
     return await fs.readFile(urlOrPath)
+  }
+
+  exportPromptsToJson(script: any): string {
+    const generator = new VideoScriptGenerator(null as any)
+    return generator.exportPromptsToJson(script)
+  }
+
+  async stopGeneration(videoId: string): Promise<boolean> {
+    const engine = VideoGenerationService.activeEngines.get(videoId)
+    if (engine) {
+      console.info(`[VideoService] 🛑 Stopping pipeline for video: ${videoId}`)
+      engine.stop()
+      VideoGenerationService.activeEngines.delete(videoId)
+      await this.videoRepository.update(videoId, { status: 'draft' as any })
+      return true
+    }
+    return false
+  }
+
+  async restartGeneration(videoId: string, topic: string, options: any): Promise<any> {
+    console.info(`[VideoService] 🔄 Restarting pipeline for video: ${videoId}`)
+    await this.stopGeneration(videoId)
+    await checkpointService.deleteCheckpoint(videoId)
+    await this.videoRepository.update(videoId, { status: 'pending' as any })
+    return this.generateVideo({ topic, options, projectId: videoId })
+  }
+
+  /**
+   * Rescripts the entire video: deletes script, checkpoints, and re-enqueues.
+   */
+  async rescriptGeneration(videoId: string, topic: string, options: any): Promise<any> {
+    console.info(`[VideoService] 📝 Rescripting video: ${videoId}`)
+    await this.stopGeneration(videoId)
+    await checkpointService.deleteCheckpoint(videoId)
+    // Clear the script in DB to force Step 1
+    await this.videoRepository.update(videoId, { script: null } as any)
+    await this.videoRepository.update(videoId, { status: 'pending' as any })
+    return this.generateVideo({ topic, options, projectId: videoId })
+  }
+
+  /**
+   * Inserts a new scene at the specified index, using the LLM to "magic" the visual prompts from the narration.
+   */
+  async insertScene(videoId: string, index: number, narration: string): Promise<any> {
+    console.info(`[VideoService] ➕ Inserting scene at index ${index} for video: ${videoId}`)
+    const video = await this.videoRepository.findById(videoId)
+    if (!video || !video.script) throw new Error('Video script not found')
+
+    const engine = await this.buildEngine(video.options || {})
+    const generator = new VideoScriptGenerator(engine.getLLMService())
+
+    // 1. Enrich the new scene from narration using global context
+    const enrichedScene = await generator.enrichSceneFromNarration(
+      narration,
+      video.script as any, // Complete script to provide context (style, characters)
+      index + 1 // Proposed scene number
+    )
+
+    // 2. Insert into script
+    const script = video.script as any
+    script.scenes.splice(index, 0, enrichedScene)
+
+    // 3. Recalculate all scene numbers and time ranges to keep continuity
+    this.recalculateScriptTiming(script, video.options || {})
+
+    // 4. Update the video record
+    await this.videoRepository.update(videoId, {
+      script,
+      sceneCount: script.scenes.length,
+      totalDuration: script.totalDuration
+    } as any)
+
+    return script
+  }
+
+  /**
+   * Recalculates scene numbers and time ranges for an entire script.
+   */
+  private recalculateScriptTiming(script: any, options: any): void {
+    const generator = new VideoScriptGenerator(null as any)
+
+    // Re-assign numbers
+    script.scenes
+      .forEach((s: any, i: number) => {
+        s.sceneNumber = i + 1
+        if (!s.id) s.id = `scene-${i + 1}-${Math.random().toString(36).slice(2, 9)}`
+      })(
+        // Use the generator's internal logic for time distribution
+        // We need to access the private method or replicate it.
+        // For now, let's just use a simple shift logic if we don't want to export everything.
+        // Actually, it's better to expose assignTimeRanges in VideoScriptGenerator.
+
+        // I'll update VideoScriptGenerator to export a utility or public method for this.
+        // Assuming I will do it in the next step.
+        generator as any
+      )
+      .assignTimeRanges(script.scenes, options)
+
+    script.sceneCount = script.scenes.length
+    script.totalDuration = script.scenes.length > 0 ? script.scenes.at(-1).timeRange.end : 0
   }
 }

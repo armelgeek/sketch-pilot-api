@@ -48,18 +48,24 @@ export class ConfigureCaptionsUseCase {
     const currentOptions: VideoGenerationOptions = (video.options || {}) as VideoGenerationOptions
 
     // Merge existing captions config with the new partial config
-    const currentCaptionsConfig = currentOptions.assCaptions || {}
-    const updatedCaptionsConfig: AssCaptionConfig = {
+    const currentCaptionsConfig: Partial<AssCaptionConfig> = (currentOptions.assCaptions ||
+      {}) as Partial<AssCaptionConfig>
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const updatedCaptionsConfig = {
+      style: 'colored',
+      fontFamily: 'Arial',
+      position: 'bottom',
+      highlightColor: '#FFFFFF',
       ...currentCaptionsConfig,
       ...validConfig
-    }
+    } as AssCaptionConfig
 
     const updatedOptions: Partial<VideoGenerationOptions> = {
       ...currentOptions,
       assCaptions: updatedCaptionsConfig
     }
 
-    const updatedVideo = await this.videoRepository.updateStatus(videoId, {
+    const updatedVideo = await this.videoRepository.update(videoId, {
       options: updatedOptions as any
     })
 

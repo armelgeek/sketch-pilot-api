@@ -157,7 +157,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         creditsUsed: totalCost
       })
 
-      await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
+      await videoRepository.update(videoId, { jobId, status: 'queued' })
 
       // Enqueue the BullMQ job
       // Fix 3: Use videoId as BullMQ jobId for automatic deduplication.

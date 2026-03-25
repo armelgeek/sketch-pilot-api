@@ -39,9 +39,7 @@ export class GenerateNarrationUseCase extends IUseCase<GenerateNarrationParams, 
 
       // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
-      const spec = await promptService.resolveSpec({
-        name: videoOptions.videoType
-      })
+      const spec = await promptService.resolveSpec(videoOptions.videoType)
 
       // 3. Calculate & Check Credits (TTS + Subtitles only)
       const totalCost = CREDIT_COSTS.TTS_VOICE + CREDIT_COSTS.SUBTITLES
@@ -83,7 +81,7 @@ export class GenerateNarrationUseCase extends IUseCase<GenerateNarrationParams, 
 
       // 4. Update the video record status
       const jobId = crypto.randomUUID()
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         jobId,
         status: 'queued',
         progress: 10,

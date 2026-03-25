@@ -49,7 +49,7 @@ export class ChooseBackgroundMusicUseCase {
       backgroundMusic: validTrackId
     }
 
-    const updatedVideo = await videoRepository.updateStatus(videoId, {
+    const updatedVideo = await videoRepository.update(videoId, {
       options: updatedOptions as any
     })
 

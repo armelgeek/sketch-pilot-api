@@ -54,6 +54,21 @@ export class NanoBananaEngine {
   private scriptGenerator: VideoScriptGenerator
   readonly promptManager: PromptManager
   private readonly generationQueue: TaskQueue
+  private readonly sceneCache: SceneCacheService
+  private stopped = false
+
+  public stop(): void {
+    this.stopped = true
+    this.generationQueue.cancelAll()
+    console.warn('[NanoBanana] 🛑 Stop signal received. Aborting operations...')
+  }
+
+  private checkStopped(): void {
+    if (this.stopped) {
+      throw new Error('Video generation stopped by user')
+    }
+  }
+
   private _audioService?: AudioService
   private _transcriptionService?: TranscriptionService
   private _animationService?: AnimationService
@@ -66,7 +81,12 @@ export class NanoBananaEngine {
   private currentAssCaptionConfig?: AssCaptionConfig
   private currentKokoroVoicePreset: KokoroVoicePreset = KokoroVoicePreset.AF_HEART
 
-  private readonly sceneCache: SceneCacheService
+  public getLLMService(): LLMService {
+    if (!this._llmService) {
+      this._llmService = LLMServiceFactory.create(this.llmConfig!)
+    }
+    return this._llmService
+  }
 
   // Store config for service re-initialization
   private readonly apiKey: string
@@ -88,7 +108,8 @@ export class NanoBananaEngine {
     imageConfig?: ImageServiceConfig,
     llmConfig?: LLMServiceConfig,
     transcriptionConfig?: TranscriptionConfig,
-    promptSpecs?: PromptManagerConfig
+    promptSpecs?: PromptManagerConfig,
+    negativePrompt?: string
   ) {
     this.apiKey = apiKey
     this.audioConfig = audioConfig
@@ -110,7 +131,8 @@ export class NanoBananaEngine {
 
     this.promptManager = new PromptManager(
       promptSpecs || {
-        backgroundColor: '#F5F5F5'
+        backgroundColor: '#F5F5F5',
+        negativePrompt
       }
     )
     this.systemPrompt =
@@ -335,6 +357,7 @@ export class NanoBananaEngine {
     bypassCache: boolean = false,
     memory?: SceneMemory
   ): Promise<string> {
+    this.checkStopped()
     const hasReferenceImages = baseImages.length > 0
     const sceneImageStyle = this.getSceneImageStyle(scene, script)
     const { prompt: fullPrompt } = this.promptManager.buildImagePrompt(
@@ -386,6 +409,7 @@ export class NanoBananaEngine {
     const maxRetries = 5
     let lastError: any
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      this.checkStopped()
       try {
         const quality =
           this.currentOptions?.qualityMode === QualityMode.LOW_COST
@@ -400,7 +424,9 @@ export class NanoBananaEngine {
         const imageUrl = await this.imageService.generateImage(effectivePrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: baseImages,
-          systemInstruction
+          systemInstruction,
+          quality,
+          seed
         })
 
         const duration = Date.now() - startTime
@@ -434,6 +460,7 @@ export class NanoBananaEngine {
     if (this.currentImageProvider !== 'gemini' && this.isNetworkError(error)) {
       console.warn(`[NanoBanana] Network error with ${this.currentImageProvider}, falling back to Gemini...`)
       try {
+        this.checkStopped()
         const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
         const result = await geminiService.generateImage(fullPrompt, filename, {
           quality: 'medium',
@@ -453,6 +480,7 @@ export class NanoBananaEngine {
 
         // Stage 3 Fallback - Minimalist Safety Prompt
         try {
+          this.checkStopped()
           console.warn(`[NanoBanana] Attempting STAGE 3 fallback (Safety Prompt)...`)
           const safetyPrompt = `Minimalist whiteboard drawing, very simple sketch, clean lines on white background, neutral composition.`
           const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
@@ -492,6 +520,7 @@ export class NanoBananaEngine {
    * The thumbnail is resized to a maximum width of 320px while preserving aspect ratio.
    */
   private async generateThumbnail(imagePath: string, thumbnailPath: string): Promise<void> {
+    this.checkStopped()
     if (!fs.existsSync(imagePath)) {
       console.warn(`[NanoBanana] Cannot create thumbnail: source image not found at ${imagePath}`)
       return
@@ -536,6 +565,7 @@ export class NanoBananaEngine {
     script?: CompleteVideoScript,
     memory?: SceneMemory
   ): Promise<void> {
+    this.checkStopped()
     console.log(`\n--- Composing Scene: ${scene.id} ---`)
     const options = this.currentOptions || ({} as any)
     const animationMode = options.animationMode || 'static'
@@ -698,6 +728,7 @@ export class NanoBananaEngine {
       // Phase 28 : Ultimate Safety Net - Ensure imagePath exists so scene isn't skipped
       if (!fs.existsSync(imagePath)) {
         try {
+          this.checkStopped()
           console.warn(`[NanoBanana] ⚠ Emergency placeholder triggered for scene ${scene.id}`)
           const [width, height] = this.currentOptions?.aspectRatio === '9:16' ? [720, 1280] : [1280, 720]
           await sharp({
@@ -757,6 +788,7 @@ export class NanoBananaEngine {
       hasVideo = true // We assume true for manifest since generation is queued and required
       await this.generationQueue.add(
         async () => {
+          this.checkStopped()
           try {
             await this.animationService.animateImage(
               path.join(targetDir, sceneImage),
@@ -848,6 +880,7 @@ export class NanoBananaEngine {
     targetDir: string,
     script?: CompleteVideoScript
   ): Promise<void> {
+    this.checkStopped()
     console.log(`\n--- Regenerating Scene Image: ${scene.id} ---`)
     const imagePath = path.join(targetDir, 'scene.webp')
 
@@ -858,7 +891,10 @@ export class NanoBananaEngine {
     // Pass script so getSceneImageStyle can resolve the correct character sheet
     // (gender, appearance) even during re-generation.
     await this.generationQueue.add(
-      () => this.generateImage(scene, baseImages, imagePath, script),
+      () => {
+        this.checkStopped()
+        return this.generateImage(scene, baseImages, imagePath, script)
+      },
       `Scene ${scene.id} Image Regeneration`,
       this.currentImageProvider
     )
@@ -873,6 +909,7 @@ export class NanoBananaEngine {
    * Useful for re-syncing an existing project directory before assembly.
    */
   async syncTimings(projectDir: string): Promise<void> {
+    this.checkStopped()
     const scriptPath = path.join(projectDir, 'script.json')
     const globalAudioPath = path.join(projectDir, 'narration.mp3')
 

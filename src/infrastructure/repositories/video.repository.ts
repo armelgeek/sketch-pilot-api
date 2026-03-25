@@ -62,7 +62,7 @@ export class VideoRepository {
     return video || null
   }
 
-  async updateStatus(
+  async update(
     id: string,
     data: {
       status?: string

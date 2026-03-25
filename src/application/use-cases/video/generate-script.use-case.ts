@@ -75,8 +75,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         status: 'draft',
         progress: 100,
         options,
-        genre: options.videoGenre,
-        type: options.videoType,
+
         language: options.language || 'en',
         script,
         scenes: script.scenes,

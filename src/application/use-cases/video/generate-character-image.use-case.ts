@@ -121,7 +121,7 @@ export class GenerateCharacterImageUseCase extends IUseCase<
         characterSheets
       }
 
-      await videoRepository.updateStatus(videoId, { script: updatedScript })
+      await videoRepository.update(videoId, { script: updatedScript })
 
       return {
         success: true,

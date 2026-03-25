@@ -134,7 +134,7 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
       const jobId = crypto.randomUUID()
 
       // Reset the existing video record in-place (no new record created)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         jobId,
         status: 'queued',
         progress: 0,

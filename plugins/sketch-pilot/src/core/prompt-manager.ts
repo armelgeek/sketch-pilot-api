@@ -199,15 +199,18 @@ export interface PromptManagerConfig {
   scriptSpec?: VideoTypeSpecification
   /** @deprecated use scriptSpec */
   imageSpec?: VideoTypeSpecification
+  negativePrompt?: string
 }
 
 export class PromptManager {
   private backgroundColor: string
+  private negativePrompt?: string
   private spec?: VideoTypeSpecification
 
   constructor(config: PromptManagerConfig = {}) {
     this.backgroundColor = config.backgroundColor ?? '#F5F5F5'
     this.spec = config.scriptSpec || config.imageSpec
+    this.negativePrompt = config.negativePrompt
   }
 
   setBackgroundColor(color: string): void {
@@ -259,7 +262,13 @@ export class PromptManager {
    */
   buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any): string {
     const spec = this.getEffectiveSpec(options)
-    const instructions = [...(spec.instructions || [])]
+    const negativeConstraints = this.negativePrompt ? `NEGATIVE PROMPT: ${this.negativePrompt}` : ''
+
+    const instructions: string[] = [
+      ...(spec.instructions || []),
+      'Strictly follow the style and composition rules.',
+      negativeConstraints
+    ].filter(Boolean) as string[] // Filter out empty strings from negativeConstraints
 
     // 1. Narration Speed
     if (options && (options.wordsPerMinute || options.language || options.audioProvider)) {
@@ -267,8 +276,7 @@ export class PromptManager {
       instructions.push(`NARRATION SPEED: ${wps.toFixed(2)}`)
     }
 
-    // 2. Gender Neutrality (Phase 28)
-    // 2. Gender Neutrality (Phase 28)
+    // 2. Gender Neutrality
     const isNeutralStyle =
       (spec.name || '').toLowerCase().includes('whiteboard') || (spec.name || '').toLowerCase().includes('stick')
     if (isNeutralStyle) {
@@ -285,21 +293,44 @@ export class PromptManager {
       )
     }
 
+    // 4. Logical Continuity & VISUAL MINIMALISM (Phase 11 Refined)
+    instructions.push(
+      'VISUAL MINIMALISM: Every image must be clean and simple. Focus on 2D whiteboard-style line art. ' +
+        'Avoid mathematical formulas, complex charts, or fine background textures. ' +
+        'Represent data through simple objects (like coins or cubes) rather than graphs.'
+    )
+
+    // 5. VISUAL COMPOSITION & CHARACTER SAFETY (Phase 11 Refined)
+    instructions.push(
+      'VISUAL COMPOSITION: Keep scenes clear with a maximum of 2 characters. ' +
+        'Avoid overlapping elements by maintaining generous white space. ' +
+        'Use only front-facing, eye-level perspectives to ensure clarity. ' +
+        'STRICTLY NO TEXT: Never include text, labels, or captions in the drawings.'
+    )
+
+    // 6. Narration & Organization — Tailored but simple
+    instructions.push(
+      'NARRATION STYLE (CRITICAL): The spoken language MUST be extremely simple, direct, and universally comprehensible. ' +
+        'Write as if speaking to a complete beginner. Avoid all jargon, overly complex vocabulary, and philosophical abstractions. ' +
+        'Follow the provided STRUCTURE section strictly, but express those ideas using the simplest, most accessible language possible.'
+    )
+
     const maker = new PromptMaker(spec).withInstructions(instructions)
     return maker.buildSystemInstructions()
   }
 
   /**
    * Build only the user data part for script generation.
+   * [PHASE 9 - UNIFIED AGENT]: The output JSON now includes `globalPlan` and `artisticStyle`
+   * so a single LLM call replaces ScriptDoctor + ArtDirector + DirectorPlanner passes.
    */
   buildScriptUserPrompt(topic: string, options: VideoGenerationOptions): string {
     const spec = this.getEffectiveSpec(options)
     const maker = new PromptMaker(spec)
     const effectiveDuration = this.getEffectiveDuration(options)
-    // FIX: use computeSceneCount as single source of truth (aligned with buildScriptCompletePrompt)
     const targetSceneCount = options.sceneCount ?? computeSceneCount(effectiveDuration)
 
-    return maker.buildUserData({
+    const userData = maker.buildUserData({
       subject: topic,
       duration: `${effectiveDuration} seconds`,
       aspectRatio: options.aspectRatio || '16:9',
@@ -310,6 +341,68 @@ export class PromptManager {
         options.characters ||
         (options.characterModelId ? [{ name: 'Main Character', modelId: options.characterModelId }] : undefined)
     })
+
+    const unifiedOutputInstructions = `
+
+## UNIFIED OUTPUT (Single JSON Object)
+
+You are an expert Screenwriter, Art Director, and Film Director all in one.
+Produce ONE complete JSON object. Ensure image descriptions are VISUALLY MINIMALIST (no text, no formulas, no clutter) but NARRATIVELY COMPLETE (describe the subject, their action, the environment, and ALL key props clearly).
+
+JSON structure:
+{
+  "scenes": [
+    {
+      "id": "scene-1",
+      "summary": "Brief summary",
+      "narration": "The spoken text.",
+      "imagePrompt": "Simple, literal 1-2 sentence visual description.",
+      "background": "Simple background",
+      "characterIds": ["char_id"],
+      "actions": ["action"],
+      "mood": "calm",
+      "framing": "medium-shot",
+      "lighting": "soft daylight",
+      "props": ["prop"],
+      "soundEffects": []
+    }
+  ],
+  "titles": ["Main Title"],
+  "fullNarration": "Complete narration text...",
+  "theme": "core theme",
+  "backgroundMusic": "calm ambient",
+  "characterSheets": [
+    {
+      "id": "char_id",
+      "name": "Character Name",
+      "role": "protagonist",
+      "appearance": { "clothing": "simple description" },
+      "stylePrefix": "${options.imageStyle?.stylePrefix || 'flat 2D illustration'}"
+    }
+  ],
+  "artisticStyle": {
+    "textureAndGrain": "clean minimal",
+    "lineQuality": "simple monochrome lines",
+    "colorHarmonyStrategy": "monochrome"
+  },
+  "globalPlan": {
+    "visualArc": { "lightingEvolution": "...", "colorPaletteShift": "...", "styleContinuity": "..." },
+    "recurringSymbols": [{ "element": "symbol", "meaning": "...", "scenes": ["1"] }],
+    "emotionalCurve": [{ "stage": "opening", "tension": 3, "visualVibe": "calm" }],
+    "foreshadowing": [
+      { "element": "object", "appearsInScenes": ["1"], "payoffSceneId": "5", "hintDescription": "..." }
+    ],
+    "visualStorytelling": { "keyVisualMetaphors": ["simple metaphor"], "clarityStrategy": "literal" },
+    "callbacks": [
+      { "element": "object", "originalSceneId": "1", "callbackSceneId": "5", "meaning": "..." }
+    ],
+    "pacing": { "cameraMovementStrategy": "static cuts", "transitionPulse": "smooth" }
+  }
+}
+
+CRITICAL: Output ONLY the raw JSON. No markdown fences, no explanations.`
+
+    return `${userData}\n${unifiedOutputInstructions}`
   }
 
   buildScriptGenerationPrompts(
@@ -367,12 +460,15 @@ export class PromptManager {
     if (!spec) return ''
 
     const referenceMode = hasReferenceImages
-      ? 'REFERENCE MODE (CRITICAL): You are provided with specific CHARACTER REFERENCE IMAGES. You MUST strictly copy the visual identity (face, hair style, distinctive clothing, and proportions) of the characters from these images. DO NOT invent new characters. DO NOT deviate from the characters shown in the references.'
+      ? 'Character Reference Mode: You are provided with specific reference images. Strictly maintain the visual identity (face, hair style, clothing, and proportions) of the characters shown. Do not invent new characters or deviate from these models.'
       : ''
 
     const styleAnchor = [
-      `VISUAL STYLE: ${stylePrefix ? `The scene MUST be rendered in a "${stylePrefix}" style.` : 'Always render in a clean, flat 2D illustration style.'}`,
-      `CINEMATIC COMPOSITION: Use the Rule of Thirds and Negative Space. Maintain a clean, professional "faceless animation" look.`
+      `${stylePrefix ? `Visual Style: The scene must be rendered in a "${stylePrefix}" style.` : 'Style: Always render in a clean, flat 2D whiteboard illustration style.'}`,
+      'Cinematic Composition: Use the rule of thirds and negative space to maintain a professional "faceless animation" look.',
+      'Visual Concept: Keep the scene concept literal, logical, and extremely simple. Avoid abstract or surreal imagery to ensure the scenario is immediately readable.',
+      'Simplicity: Focus on clean 2D line art, clear subjects, and pure white backgrounds. Avoid all visual clutter, detailed textures, or text within the image.',
+      'Strict Adherence: Your primary goal is to accurately depict EVERY object, action, and subject mentioned in the user prompt. Do not take creative liberties that omit requested elements. If an object is specified, it must be clearly visible in the scene.'
     ].join(' ')
 
     // ── Global Narrative (Relocated from Prompt to System) ────────────────
@@ -387,11 +483,15 @@ export class PromptManager {
         ? `${artisticStyle.textureAndGrain}. ${artisticStyle.lineQuality}. ${artisticStyle.colorHarmonyStrategy}.`
         : ''
 
-      globalDirectorCues = `GLOBAL NARRATIVE PLAN:
-- VISUAL ARC: ${arc}
-- EMOTIONAL CURVE: ${vibe}
-- ARTISTIC STYLE: ${art}`
+      globalDirectorCues = `Global Narrative Plan:
+- Visual Arc: ${arc}
+- Emotional Curve: ${vibe}
+- Artistic Style: ${art}`
     }
+
+    const negativeConstraints = this.negativePrompt
+      ? `Negative Constraints (DO NOT INCLUDE): ${this.negativePrompt}`
+      : ''
 
     const imageSpec: VideoTypeSpecification = {
       ...spec,
@@ -427,10 +527,12 @@ export class PromptManager {
       imageStyle?.characterDescription?.toLowerCase().includes('stick')
 
     const stickStyleReinforcement = isStickStyle
-      ? 'STRICTLY Monochrome black and white, no colors, no shading, no shadows, no gradients, no volume, no 3D effects, flat 2D only, STRICTLY MINIMALIST, minimal line count, plenty of empty white space, ink on pure white background, '
-      : ''
+      ? 'A simple 2D whiteboard animation using clean black lines on a pure white background. ' +
+        'Ensure characters have exactly two arms and two legs, centered and properly proportioned. ' +
+        'Maintain clear white space between all elements with no text, shading, or 3D effects.'
+      : 'Simple whiteboard illustration with clean black lines and no shading. No text.'
 
-    const styleLine = stylePrefix ? `[Style]: ${stickStyleReinforcement}${stylePrefix}` : ''
+    const styleLine = stylePrefix ? `This illustration is rendered in a ${stylePrefix.toLowerCase()} style.` : ''
 
     // ── Location ─────────────────────────────────────────────────────────
     // When a locationId is established in memory, reuse its prompt for visual continuity.
@@ -445,12 +547,14 @@ export class PromptManager {
       locationStyle += 'drawn in simplified whiteboard stick figure style, '
     }
 
-    const location = sanitizedBg ? `Loc: ${locationStyle}${sanitizedBg}` : ''
+    const location = sanitizedBg
+      ? `The scene takes place in a ${sanitizedBg.toLowerCase().endsWith('.') ? sanitizedBg.slice(0, -1) : sanitizedBg}.`
+      : ''
 
     // ── Lighting ──────────────────────────────────────────────────────────
     // Fall back to memory-derived time-of-day when the scene has no explicit lighting.
     const effectiveLighting = scene.lighting ?? (memory?.timeOfDay ? `${memory.timeOfDay} lighting` : '')
-    const lighting = effectiveLighting ? `Light: ${effectiveLighting}` : ''
+    const lighting = effectiveLighting ? `The scene is illuminated by ${effectiveLighting.toLowerCase()}.` : ''
 
     // ── Subject / Action ─────────────────────────────────────────────────
     // Build the scene core from imagePrompt (pre-generated by LLM) or from actions.
@@ -530,17 +634,17 @@ export class PromptManager {
     const subjectPart = characterIdentity && !identityAlreadyInCore ? `${characterIdentity} — ${sceneCore}` : sceneCore
     const expressionPart = scene.expression ? ` ${scene.expression}.` : ''
 
-    // Force stick figure style on action if detected
-    const actionStyle = isStickStyle ? 'monochrome stick figure, ' : ''
-    const action = `Action: ${actionStyle}${subjectPart}${expressionPart}`
+    // Force illustration style on action if detected
+    const actionStyle = isStickStyle ? 'A clean black and white illustration ' : ''
+    const action = `${actionStyle}${subjectPart}${expressionPart}`
 
     // ── Framing (composition only) ────────────────────────────────────────
     const framingParts = [
       scene.framing,
-      scene.cameraType,
-      scene.eyelineMatch ? `eyeline ${scene.eyelineMatch.toLowerCase()}` : ''
+      scene.cameraType === 'static' ? 'static perspective' : scene.cameraType,
+      scene.eyelineMatch ? `eyeline looking ${scene.eyelineMatch.toLowerCase()}` : ''
     ].filter(Boolean)
-    const framing = framingParts.length ? `Cam: ${framingParts.join(', ')}` : ''
+    const framing = framingParts.length ? `The shot has a ${framingParts.join(' and ')}.` : ''
 
     // ── Props (accessories / objects) ─────────────────────────────────────
     const sceneProps = scene.props
@@ -553,11 +657,11 @@ export class PromptManager {
     } else {
       effectiveProps = Array.from(new Set([...memoryProps, ...sceneProps]))
     }
-    const props = effectiveProps.length ? `Props: ${effectiveProps.join(', ')}` : ''
+    const props = effectiveProps.length ? `Essential elements to clearly include: ${effectiveProps.join(', ')}.` : ''
 
     // ── Mood (emotional tone) ─────────────────────────────────────────────
     const moodContent = [scene.mood, ...qualityTags].filter(Boolean).join('. ')
-    const mood = moodContent ? `Mood: ${moodContent}` : ''
+    const mood = moodContent ? `The overall mood is ${moodContent}.` : ''
 
     // ── Global Narrative (Director's Plan - ULTRA MINIMAL) ────────────────
     let directorCues = ''
@@ -581,29 +685,51 @@ export class PromptManager {
         return match
       })
 
-      directorCues = [metaphor ? `Metaphor: ${metaphor}` : '', symbol ? `Symb: ${symbol.element}` : '']
+      directorCues = [
+        metaphor ? `This scene embodies the visual metaphor of ${metaphor.toLowerCase()}.` : '',
+        symbol
+          ? `The ${symbol.element.toLowerCase()} appears here as a recurring symbol of ${symbol.meaning.toLowerCase()}.`
+          : ''
+      ]
         .filter(Boolean)
-        .join(', ')
+        .join(' ')
     }
-    const directorSection = directorCues ? `Dir: ${directorCues}` : ''
+    const directorSection = directorCues ? `${directorCues}` : ''
 
     // ── Atmosphere (weather + time of day from memory) ────────────────────
     const weatherContext =
       memory?.weather && !(scene.mood ?? '').toLowerCase().includes(memory.weather) ? memory.weather : ''
-    const atmosphere = weatherContext ? `Atmos: ${weatherContext}` : ''
+    const atmosphere = weatherContext ? `Atmosphere: ${weatherContext}.` : ''
 
-    // ── Assemble ──────────────────────────────────────────────────────────
-    // V4: Extreme Shortness (Keyword only, no fluff)
-    // We sanitize sceneCore one last time to remove redundant labels.
-    const cleanAction = action.replace(
-      /^Action:\s*(Action:\s*|Illustrating\.\.\s*|Whiteboard illustration:\s*)*/i,
-      'Action: '
-    )
+    // We sanitize sceneCore one last time to remove REDUNDANT prefixes.
+    const cleanAction = action
+      .replace(/^(Action:|Illustrating\.\.|Whiteboard illustration:)\s*/i, '')
+      .replace(/^A A monochrome/i, 'A monochrome') // Fix double "A" if present
+      .trim()
 
-    const prompt = [styleLine, cleanAction, props, location, framing, lighting, atmosphere, directorSection, mood]
+    // ── Descriptive Paragraph Assembly ──────────────────────────────────────
+    const promptParts = [
+      styleLine,
+      cleanAction
+        ? cleanAction.charAt(0).toUpperCase() + cleanAction.slice(1) + (cleanAction.endsWith('.') ? '' : '.')
+        : '',
+      stickStyleReinforcement,
+      location,
+      atmosphere,
+      props,
+      framing,
+      lighting,
+      mood,
+      directorSection,
+      this.buildComplexityDirective(scene.visualDensity),
+      scene.negativePrompt ? `Negative Constraints (AVOID AT ALL COSTS): ${scene.negativePrompt}` : '',
+      'Final Precision Note: Ensure every mentioned element is clearly depicted. No extra subjects.'
+    ]
       .filter((b) => b?.trim().length > 0)
-      .join('. ')
-    const base = prompt.replaceAll(/,\s*,/g, ',').replaceAll(/\s{2,}/g, ' ')
+      .map((s) => s.trim().replace(/\.+$/, '.')) // Ensure single dot at end
+
+    const prompt = promptParts.join(' ')
+    const base = prompt.replaceAll(/\s{2,}/g, ' ').trim()
 
     return {
       sceneId: scene.id,
@@ -640,17 +766,46 @@ export class PromptManager {
    */
   buildAnimationPrompt(
     scene: EnrichedScene,
-    imageStyle?: { characterDescription?: string },
+    imageStyle?: { stylePrefix?: string; characterDescription?: string },
     globalPlan?: import('../types/video-script.types').GlobalNarrativePlan
   ): AnimationPrompt {
+    const stylePrefix = imageStyle?.stylePrefix || ''
+    const styleLine = stylePrefix ? `The animation follows a ${stylePrefix.toLowerCase()} visual style.` : ''
+
     const movements: AnimationPrompt['movements'] = (scene.actions || []).map((a) => ({
       element: 'body',
       description: a || ''
     }))
 
-    const instructions = movements.map((m) => m.description).join('. ')
+    const actions = movements
+      .map((m) => m.description)
+      .filter(Boolean)
+      .join('. ')
+    const cleanActions = actions
+      ? actions.charAt(0).toUpperCase() + actions.slice(1) + (actions.endsWith('.') ? '' : '.')
+      : ''
 
-    return { sceneId: scene.id, instructions, movements }
+    let camera = ''
+    if (scene.cameraType) {
+      if (scene.cameraType.toLowerCase() === 'static') {
+        camera = 'The camera remains static.'
+      } else {
+        camera = `The camera moves with a ${scene.cameraType.toLowerCase()} motion.`
+      }
+    }
+
+    const mood = scene.mood ? `The scene has a ${scene.mood.toLowerCase()} vibe.` : ''
+
+    const anatomyReinforcement =
+      'Maintain simple, anatomically correct figures with exactly two arms and two legs. Ensure there is no text or writing in the scene.'
+
+    const instructions = [styleLine, anatomyReinforcement, cleanActions, camera, mood]
+      .filter((b) => b?.trim().length > 0)
+      .map((s) => s.trim().replace(/\.+$/, '.'))
+      .join(' ')
+    const finalInstructions = instructions.replaceAll(/\s{2,}/g, ' ').trim()
+
+    return { sceneId: scene.id, instructions: finalInstructions, movements }
   }
 
   /**
@@ -688,5 +843,18 @@ export class PromptManager {
       pose: actions[0],
       action: actions.slice(1).join('. ')
     }
+  }
+
+  /**
+   * Builds a directive based on scene visual density.
+   */
+  private buildComplexityDirective(density?: 'low' | 'medium' | 'high'): string {
+    if (density === 'low') {
+      return 'Visual Complexity: Ultra-minimalist. Maximum white space and extremely simple shapes.'
+    }
+    if (density === 'high') {
+      return 'Visual Complexity: Highly detailed illustration with intricate background elements and professional textures.'
+    }
+    return ''
   }
 }

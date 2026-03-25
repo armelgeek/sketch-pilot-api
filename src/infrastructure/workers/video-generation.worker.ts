@@ -6,11 +6,11 @@ import { Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
+import { redisConnectionOptions, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { CompleteVideoPackage } from '@/domain/types/video-script.types'
-import type { VideoJobData } from '@/infrastructure/config/queue.config'
 
 /**
  * FIXED Video Generation Worker
@@ -110,7 +110,7 @@ async function initializeCheckpoint(videoId: string, jobId: string, dbCheckpoint
     checkpoint = checkpointService.initializeCheckpoint(videoId, jobId)
     const serialized = checkpointStorage.save(checkpoint)
     // Update DB with the initial checkpoint
-    await videoRepository.updateStatus(videoId, {
+    await videoRepository.update(videoId, {
       options: { ...(dbCheckpoint ? { _checkpoint: serialized } : {}), _checkpoint: serialized }
     })
   } else {
@@ -158,7 +158,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     effectiveProjectId = (videoRecord.options as any)?.localProjectId
     if (!effectiveProjectId) {
       effectiveProjectId = `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         options: { ...((videoRecord.options as any) || {}), localProjectId: effectiveProjectId }
       })
     }
@@ -193,7 +193,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             await reportProgress(job, videoId, 'rendering', Math.round(15 + (p / 100) * 70), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
-            await videoRepository.updateStatus(videoId, {
+            await videoRepository.update(videoId, {
               script: syncedScript as any,
               scenes: syncedScript.scenes as any
             })
@@ -205,18 +205,18 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
               currentSceneIndex: index - 1, // Store 0-based index for frontend
               scene
             })
-            await videoRepository.updateStatus(videoId, {
+            await videoRepository.update(videoId, {
               script: script as any,
               scenes: script.scenes as any
             })
           }
         })
         if (pkg.script && options.repromptSceneIndex === undefined) {
-          await videoRepository.updateStatus(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
+          await videoRepository.update(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
         }
         checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
         const serialized = checkpointStorage.save(checkpoint)
-        await videoRepository.updateStatus(videoId, {
+        await videoRepository.update(videoId, {
           options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
         })
       } else {
@@ -231,7 +231,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             await reportProgress(job, videoId, 'rendering', Math.round(15 + (p / 100) * 70), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
-            await videoRepository.updateStatus(videoId, {
+            await videoRepository.update(videoId, {
               script: syncedScript as any,
               scenes: syncedScript.scenes as any
             })
@@ -243,7 +243,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
               currentSceneIndex: index - 1, // Store 0-based index for frontend
               scene
             })
-            await videoRepository.updateStatus(videoId, {
+            await videoRepository.update(videoId, {
               script: script as any,
               scenes: script.scenes as any
             })
@@ -261,7 +261,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           await reportProgress(job, videoId, 'asset_generation', Math.round(25 + (p / 100) * 60), m, meta),
         onTimingSync: async (syncedScript) => {
           console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
-          await videoRepository.updateStatus(videoId, {
+          await videoRepository.update(videoId, {
             script: syncedScript as any,
             scenes: syncedScript.scenes as any
           })
@@ -273,7 +273,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             currentSceneIndex: index - 1, // Store 0-based index for frontend
             scene
           })
-          await videoRepository.updateStatus(videoId, {
+          await videoRepository.update(videoId, {
             script: script as any,
             scenes: script.scenes as any
           })
@@ -281,19 +281,42 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       if (pkg.script) {
         if (pkg.script.scenes) await uploadSceneImages(videoId, pkg.script.scenes, pkg.outputPath)
-        await videoRepository.updateStatus(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
+
+        // Phase 12: Export optimized prompts for manual testing
+        try {
+          const promptsJson = videoGenerationService.exportPromptsToJson(pkg.script)
+          const promptsPath = path.join(pkg.outputPath, 'prompts.json')
+          await fsPromises.writeFile(promptsPath, promptsJson)
+          console.info(`[VideoWorker] Exported prompts to: ${promptsPath}`)
+
+          const promptsUrl = await uploadFile(`videos/${videoId}/prompts.json`, promptsPath, 'application/json')
+          console.info(`[VideoWorker] Uploaded prompts to MinIO: ${promptsUrl}`)
+
+          await reportProgress(job, videoId, 'script_generation_complete', 100, 'Script and prompts ready', {
+            promptsUrl
+          })
+
+          await videoRepository.update(videoId, {
+            script: pkg.script as any,
+            scenes: pkg.script.scenes as any,
+            options: { ...((videoRecord.options as any) || {}), promptsUrl }
+          })
+        } catch (exportError) {
+          console.error(`[VideoWorker] Failed to export/upload prompts.json:`, exportError)
+          await videoRepository.update(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
+        }
       }
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       const serialized = checkpointStorage.save(checkpoint)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
 
       if (genOptions.scriptOnly) {
-        await videoRepository.updateStatus(videoId, { status: 'draft', progress: 100, currentStep: 'done' })
+        await videoRepository.update(videoId, { status: 'draft', progress: 100, currentStep: 'done' })
         checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
         const serialized = checkpointStorage.save(checkpoint)
-        await videoRepository.updateStatus(videoId, {
+        await videoRepository.update(videoId, {
           options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
         })
         await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
@@ -329,7 +352,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           )
         : undefined
 
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         status: 'narration_generated',
         progress: 100,
         narrationUrl,
@@ -338,7 +361,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
       const serialized = checkpointStorage.save(checkpoint)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
       await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId, narrationUrl })
@@ -354,7 +377,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       // Sync script column too
       if (pkg.script) pkg.script.scenes = updatedScenes
 
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         status: 'scenes_generated',
         progress: 100,
         scenes: updatedScenes as any,
@@ -363,7 +386,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
       const serialized = checkpointStorage.save(checkpoint)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
       await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
@@ -407,10 +430,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         console.info(`[VideoWorker] Video thumbnail updated for ${videoId} (Scene 0 reprompt)`)
       }
 
-      await videoRepository.updateStatus(videoId, updatePayload)
+      await videoRepository.update(videoId, updatePayload)
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
       const serialized = checkpointStorage.save(checkpoint)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
       await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
@@ -432,7 +455,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         : undefined
 
       const duration = Math.round(pkg.script?.totalDuration ?? DEFAULT_VIDEO_DURATION)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         status: 'completed',
         progress: 100,
         currentStep: 'done',
@@ -446,7 +469,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
       const serialized = checkpointStorage.save(checkpoint)
-      await videoRepository.updateStatus(videoId, {
+      await videoRepository.update(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
       await job.updateProgress({
@@ -463,7 +486,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const msg = error instanceof Error ? error.message : 'Job failed'
     console.error(`[VideoWorker] Error during job ${job.id}:`, error)
     const isLast = job.attemptsMade >= (job.opts.attempts || 1)
-    if (isLast) await videoRepository.updateStatus(videoId, { status: 'failed', errorMessage: msg })
+    if (isLast) await videoRepository.update(videoId, { status: 'failed', errorMessage: msg })
     throw error
   } finally {
     // 8. Dynamic Cleanup Logic
@@ -499,12 +522,9 @@ export function startVideoGenerationWorker(): Worker<VideoJobData> {
       await processVideoJob(job)
     },
     {
-      connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: Number.parseInt(process.env.REDIS_PORT || '6379', 10)
-      },
-      concurrency: Number.parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '4', 10),
-      lockDuration: 20 * 60 * 1000 // Increased lock duration for long renders
+      connection: redisConnectionOptions,
+      concurrency: Number.parseInt(process.env.VIDEO_WORKER_CONCURRENCY || '2', 10),
+      lockDuration: 30 * 60 * 1000 // 30 minutes for long renders
     }
   )
 

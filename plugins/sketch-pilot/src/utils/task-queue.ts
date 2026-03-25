@@ -206,6 +206,20 @@ export class TaskQueue {
   }
 
   /**
+   * Aborts all pending tasks in the queue and rejects their promises.
+   */
+  public cancelAll(): void {
+    const error = new Error('Task cancelled')
+    while (this.queue.length > 0) {
+      const item = this.queue.shift()
+      if (item) {
+        item.reject(error)
+      }
+    }
+    console.warn(`[Queue] 🛑 Cancelled all pending tasks (${this.queue.length} remaining).`)
+  }
+
+  /**
    * Get snapshot of current queue state
    */
   getStats() {

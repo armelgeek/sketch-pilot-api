@@ -416,7 +416,8 @@ export const enrichedSceneSchema = z.object({
     .optional()
     .describe('Key terms to be visually integrated/drawn into the whiteboard scene'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
-  thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
+  thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene'),
+  negativePrompt: z.string().optional().describe('Specific elements to EXCLUDE from this scene.')
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
@@ -947,7 +948,8 @@ export const videoGenerationOptionsSchema = z
     scenePoseStyles: z
       .record(z.string(), poseStyleSchema.partial())
       .optional()
-      .describe('Per-scene pose styling overrides.')
+      .describe('Per-scene pose styling overrides.'),
+    negativePrompt: z.string().optional().describe('Global elements to EXCLUDE from all images.')
   })
   .transform((opts) => {
     // Determine the effective range for the video duration

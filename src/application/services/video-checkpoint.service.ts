@@ -5,6 +5,8 @@
  * Checkpoints track which phases have been completed and their artifacts.
  */
 
+import { redisClient } from '@/infrastructure/config/queue.config'
+
 export interface CheckpointPhase {
   name: string
   completed: boolean
@@ -175,6 +177,15 @@ export class VideoCheckpointService {
       percentage: Math.round((completed.length / phases.length) * 100),
       completedPhases: completed.map((p) => p.name)
     }
+  }
+
+  /**
+   * Delete a checkpoint for a video (Force Restart)
+   */
+  async deleteCheckpoint(videoId: string): Promise<void> {
+    const key = this.getCheckpointKey(videoId)
+    await redisClient.del(key)
+    console.info(`[Checkpoint] 🗑 Deleted checkpoint for video: ${videoId}`)
   }
 }
 
