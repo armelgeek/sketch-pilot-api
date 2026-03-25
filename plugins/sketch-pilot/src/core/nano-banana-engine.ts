@@ -382,8 +382,8 @@ export class NanoBananaEngine {
 
         const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
 
-        // AI-driven prompt humanization (Phase 30)
-        const refinedPrompt = await this.refinePrompt(effectivePrompt, 'image', sceneImageStyle)
+        // Using the high-quality natural language prompt directly from PromptManager
+        const refinedPrompt = effectivePrompt
 
         const startTime = Date.now()
         const imageUrl = await this.imageService.generateImage(refinedPrompt, filename, {
@@ -494,51 +494,6 @@ export class NanoBananaEngine {
     } catch (error) {
       console.warn(`[NanoBanana] Failed to create thumbnail: ${error}`)
     }
-  }
-
-  /**
-   * Refines a technical concatenated prompt into a natural, vivid, and human-like paragraph
-   * using an LLM. This ensures the generator (Image or Video) receives high-quality natural language.
-   */
-  private async refinePrompt(
-    technicalPrompt: string,
-    type: 'image' | 'video',
-    style?: { stylePrefix?: string }
-  ): Promise<string> {
-    // Skip refinement for very simple prompts or if no LLM service is available
-    if (!this.llmService || technicalPrompt.length < 10) return technicalPrompt
-
-    try {
-      const typeLabel = type === 'image' ? 'image generator' : 'video/animation generator'
-      const focus =
-        type === 'image'
-          ? 'cinematic composition, lighting, and visual texture'
-          : 'fluid movement, physics, and character performance'
-
-      const systemInstruction = `You are a professional visual prompt engineer for high-end ${typeLabel}s like Flux, Midjourney, Kling, or Luma.
-
-TASK:
-Rewrite the technical description provided by the user into a single, cohesive, vivid, and natural-sounding paragraph.
-
-RULES:
-1. Maintain ALL specific details: characters, actions, locations, props, and framing.
-2. ENHANCE the ${focus}.
-3. ADAPT the tone to the requested style: ${style?.stylePrefix || 'cinematic illustration'}.
-4. Output ONLY the refined paragraph. No meta-commentary, no labels like "Prompt:", no quotes.
-5. Trust the model's ability to understand natural language. Avoid technical shorthand.`
-
-      const response = await this.llmService.generateContent(technicalPrompt, systemInstruction)
-
-      const refined = response.trim().replaceAll(/^["']|["']$/g, '')
-      if (refined && refined.length > 10) {
-        console.log(`[NanoBanana] ✨ Humanized ${type} prompt: "${refined.slice(0, 100)}..."`)
-        return refined
-      }
-    } catch (error) {
-      console.warn(`[NanoBanana] ⚠ ${type} prompt refinement failed, using technical version:`, error)
-    }
-
-    return technicalPrompt
   }
 
   /**
@@ -792,7 +747,7 @@ RULES:
       await this.generationQueue.add(
         async () => {
           try {
-            const refinedVideoPrompt = await this.refinePrompt(scene.animationPrompt!, 'video')
+            const refinedVideoPrompt = scene.animationPrompt!
 
             await this.animationService.animateImage(
               path.join(targetDir, sceneImage),

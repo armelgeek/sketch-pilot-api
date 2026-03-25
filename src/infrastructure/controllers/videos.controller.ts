@@ -702,17 +702,23 @@ export class VideosController implements Routes {
         const video = await videoRepository.findByIdAndUserId(id, user.id)
         if (!video) return c.json({ error: 'Video not found' }, 404)
 
-        // Try to remove from BullMQ queue
+        // Signal worker to stop via Redis
+        await videoGenerationService.stopGeneration(video.id)
+
+        // Try to remove from BullMQ queue IF NOT active
         try {
           if (video.jobId) {
             const queue = getVideoQueue()
             const job = await queue.getJob(video.jobId)
             if (job) {
-              await job.remove()
+              const state = await job.getState()
+              if (state !== 'active') {
+                await job.remove()
+              }
             }
           }
         } catch (error) {
-          console.error('Failed to remove job from queue:', error)
+          console.warn(`[VideosController] ⚠ Could not remove job ${video.jobId} from queue (it may be locked):`, error)
         }
 
         await videoRepository.updateStatus(video.id, { status: 'cancelled' })

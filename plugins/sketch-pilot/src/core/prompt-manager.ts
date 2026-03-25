@@ -113,7 +113,8 @@ export class PromptManager {
       '4. PACING (RHYTHM): Define a global camera movement strategy and transition style.',
       '5. ARTISTIC IDENTITY: Define the "Visual Soul" (Texture, Line Quality, Color Harmony Strategy).',
       '6. PATTERN INTERRUPT: Identify key moments for a strong visual "Hook" to grab attention.',
-      '7. IMMERSIVE NARRATION: Characters (like the narrator or protagonists) should be addressed or referred to by name in the narration when appropriate to enhance continuity and immersion.'
+      '7. IMMERSIVE NARRATION: Characters (like the narrator or protagonists) should be addressed or referred to by name in the narration when appropriate to enhance continuity and immersion.',
+      '8. PLAIN LANGUAGE & CLARITY: The target audience is non-experts. The narration must be direct, pedagogical, and easy to understand. Avoid complex terminology or abstract metaphors in the spoken narration. Use "Explain Like I\'m Five" (ELI5) principles: keep sentences simple and focused on clarity.'
     )
 
     const fullSpec = { ...spec, instructions }
@@ -143,7 +144,13 @@ export class PromptManager {
       "id": "string",
       "name": "string",
       "role": "string",
-      "appearance": { "description": "string", "clothing": "string" },
+      "appearance": { 
+        "description": "string", 
+        "clothing": "string",
+        "accessories": ["string"],
+        "colorPalette": ["string"],
+        "uniqueIdentifiers": ["string"]
+      },
       "expressions": ["string"],
       "metadata": { "gender": "male|female|unknown", "age": "child|youth|senior|unknown" },
       "imagePrompt": "string"
@@ -162,7 +169,7 @@ export class PromptManager {
       "contextType": "string",
       "eyelineMatch": "string",
       "poseStyle": { "position": "string", "scale": 1 },
-      "cameraAction": { "type": "string", "intensity": "string" },
+      "cameraAction": { "type": "string", "intensity": "low|medium|high" },
       "transitionToNext": "string"
     }
   ],
@@ -411,10 +418,13 @@ export class PromptManager {
       )
     })
 
-    const cues = [metaphor ? `Metaphor: ${metaphor}` : '', symbol ? `Symb: ${symbol.element}` : '']
+    const cues = [
+      metaphor ? `incorporating the visual metaphor of ${metaphor.toLowerCase()}` : '',
+      symbol ? `featuring the recurring symbol of ${symbol.element.toLowerCase()}` : ''
+    ]
       .filter(Boolean)
-      .join(', ')
-    return cues ? `Dir: ${cues}` : ''
+      .join(' and ')
+    return cues ? `The scene is ${cues}.` : ''
   }
 
   private resolveActionAndSubject(
@@ -456,22 +466,22 @@ export class PromptManager {
         const gender = metadata?.gender && metadata.gender !== 'unknown' ? metadata.gender : ''
         const age = metadata?.age && metadata.age !== 'unknown' ? metadata.age : ''
 
-        const parts = [
-          gender,
-          age,
-          clothing ? `wearing ${clothing}` : '',
-          casting.stylePrefix ? `style: ${casting.stylePrefix}` : '',
-          casting.artistPersona ? `artist: ${casting.artistPersona}` : ''
-        ].filter(Boolean)
+        const innerParts = [gender, age, clothing ? `wearing ${clothing}` : ''].filter(Boolean)
 
-        if (parts.length > 0) charDesc += ` (${parts.join(', ').trim().toLowerCase()})`
+        if (innerParts.length > 0) charDesc += `, a ${innerParts.join(' ').trim().toLowerCase()}`
+
+        if (casting.stylePrefix || casting.artistPersona) {
+          const styles = [casting.stylePrefix, casting.artistPersona].filter(Boolean).join(', ')
+          charDesc += `, rendered in ${styles} style`
+        }
       }
       // Omitted meta-brackets like [VISUAL IDENTITY FROM PROVIDED REFERENCES] to avoid confusing the model
       characterDescriptions.push(charDesc)
     }
 
     const baseCharacter = imageStyle?.characterDescription || characterDescriptions.join(' and ')
-    const characterIdentity = `${baseCharacter}${scene.characterVariant ? ` (${scene.characterVariant})` : ''}`.trim()
+    const characterIdentity =
+      `${baseCharacter}${scene.characterVariant ? `, variant: ${scene.characterVariant}` : ''}`.trim()
 
     // Integrate subject with action
     const identityAlreadyInCore =

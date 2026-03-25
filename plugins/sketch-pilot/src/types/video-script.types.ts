@@ -109,7 +109,18 @@ export const cameraActionSchema = z.object({
     .enum(['zoom-in', 'zoom-out', 'shake', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'static'])
     .or(z.string().transform(() => 'static' as const))
     .default('static'),
-  intensity: z.enum(['low', 'medium', 'high']).default('medium'),
+  intensity: z
+    .enum(['low', 'medium', 'high'])
+    .or(
+      z.string().transform((val) => {
+        const lower = val.toLowerCase()
+        if (['subtle', 'gentle', 'slow', 'low'].includes(lower)) return 'low' as const
+        if (['quick', 'fast', 'strong', 'peak', 'extreme', 'high', 'intense'].includes(lower)) return 'high' as const
+        if (['moderate', 'standard', 'medium'].includes(lower)) return 'medium' as const
+        return 'medium' as const
+      })
+    )
+    .default('medium'),
   duration: z.number().optional().describe('Duration of the effect in seconds'),
   timestamp: z.number().default(0).describe('Start time relative to scene start')
 })
@@ -155,11 +166,11 @@ export const characterSheetSchema = z.object({
   name: z.string(),
   role: z.string().describe('Role in the story'),
   appearance: z.object({
-    description: z.string().describe('Base style (Round head, stick limbs, etc.)'),
-    clothing: z.string(),
-    accessories: z.array(z.string()),
-    colorPalette: z.array(z.string()),
-    uniqueIdentifiers: z.array(z.string())
+    description: z.string().default('').describe('Base style (Round head, stick limbs, etc.)'),
+    clothing: z.string().default(''),
+    accessories: z.array(z.string()).default([]),
+    colorPalette: z.array(z.string()).default([]),
+    uniqueIdentifiers: z.array(z.string()).default([])
   }),
   expressions: z.array(z.string()).describe('List of primary expressions for this character'),
   metadata: z
