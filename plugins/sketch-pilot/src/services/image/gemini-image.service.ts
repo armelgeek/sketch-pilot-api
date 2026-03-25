@@ -53,7 +53,7 @@ export class GeminiImageService implements ImageService {
 
     for (let attempt = 0; attempt <= GeminiImageService.NO_IMAGE_MAX_RETRIES; attempt++) {
       // On retries, progressively simplify the prompt to avoid content policy conflicts
-      const currentPrompt = attempt === 0 ? originalPrompt : this.simplifyPrompt(originalPrompt, attempt)
+      const currentPrompt = originalPrompt
 
       const contents: any[] = []
 
@@ -146,7 +146,7 @@ export class GeminiImageService implements ImageService {
         if (attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES) {
           const delay = GeminiImageService.NO_IMAGE_BASE_DELAY_MS * 2 ** attempt
           console.warn(
-            `[GeminiImage] ⚠ NO_IMAGE (finish: ${finishReason}). Retrying in ${(delay / 1000).toFixed(1)}s with simplified prompt...`
+            `[GeminiImage] ⚠ NO_IMAGE (finish: ${finishReason}). Retrying in ${(delay / 1000).toFixed(1)}s...`
           )
           await new Promise((resolve) => setTimeout(resolve, delay))
         } else {
@@ -163,55 +163,6 @@ export class GeminiImageService implements ImageService {
     }
 
     return ''
-  }
-
-  /**
-   * Progressively simplify a prompt to resolve NO_IMAGE responses.
-   *
-   * Level 1: Remove quoted text labels (e.g., 'Comfort Zone', "dollar")
-   *          that conflict with "no text" instructions
-   * Level 2: Also strip parenthetical descriptions, duplicate character descriptions,
-   *          and shorten the prompt significantly
-   * Level 3: Reduce to bare essentials
-   */
-  private simplifyPrompt(prompt: string, level: number): string {
-    let simplified = prompt
-
-    if (level >= 1) {
-      // Remove single-quoted and double-quoted text labels
-      simplified = simplified.replaceAll(/'[^']{1,50}'/g, '')
-      simplified = simplified.replaceAll(/"[^"]{1,50}"/g, '')
-      // Remove text/speech/thought bubble references
-
-      // Keep only first parenthetical character description
-      let firstParen = true
-      simplified = simplified.replaceAll(/\([^)]{20,}\)/g, (match) => {
-        if (firstParen) {
-          firstParen = false
-          return match
-        }
-        return ''
-      })
-    }
-
-    if (level >= 2) {
-      // Remove ALL parenthetical descriptions
-      simplified = simplified.replaceAll(/\([^)]*\)/g, '')
-    }
-
-    if (level >= 3) {
-      // Bare essentials: first 150 chars + quality tags
-      const qualityTags =
-        'consistent outfits, flat lighting, medium outlines, full frame edge-to-edge, pure solid flat background, no text, no speech bubbles, no vignette, no rounded corners, no borders, exactly 2 arms, exactly 2 legs, normal human anatomy, NO EXTRA LIMBS'
-      const core = simplified.slice(0, 150).replace(/,\s*$/, '')
-      simplified = `${core}, ${qualityTags}.`
-    }
-
-    // Collapse artifacts
-    return simplified
-      .replaceAll(/,\s*,/g, ',')
-      .replaceAll(/\s{2,}/g, ' ')
-      .trim()
   }
 
   private getResolution(aspectRatio: string): string {

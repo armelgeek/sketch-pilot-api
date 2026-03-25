@@ -112,7 +112,8 @@ export class PromptManager {
       '3. VISUAL STORYTELLING: Define powerful visual metaphors to represent abstract concepts. Avoid literalism.',
       '4. PACING (RHYTHM): Define a global camera movement strategy and transition style.',
       '5. ARTISTIC IDENTITY: Define the "Visual Soul" (Texture, Line Quality, Color Harmony Strategy).',
-      '6. PATTERN INTERRUPT: Identify key moments for a strong visual "Hook" to grab attention.'
+      '6. PATTERN INTERRUPT: Identify key moments for a strong visual "Hook" to grab attention.',
+      '7. IMMERSIVE NARRATION: Characters (like the narrator or protagonists) should be addressed or referred to by name in the narration when appropriate to enhance continuity and immersion.'
     )
 
     const fullSpec = { ...spec, instructions }

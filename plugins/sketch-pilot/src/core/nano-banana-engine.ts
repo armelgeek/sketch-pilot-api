@@ -1086,62 +1086,6 @@ RULES:
   }
 
   /**
-   * Generates a "Character Bible" (Scene 0) Grid to anchor visual consistency.
-   * This generates a single square grid with multi-angle reference shots.
-   */
-  async generateCharacterBible(
-    script: CompleteVideoScript,
-    projectDir: string,
-    existingBaseImages: string[] = []
-  ): Promise<string[]> {
-    console.log(`\n[NanoBanana] --- Generating Character Bible (Scene 0) ---`)
-
-    // Gather all unique character variants from the script
-    const uniqueCharacters = Array.from(
-      new Set(script.scenes.map((s) => s.characterVariant).filter(Boolean) as string[])
-    )
-
-    if (uniqueCharacters.length === 0) {
-      uniqueCharacters.push('standard')
-    }
-
-    const artisticStyle = script.globalPlan?.artisticStyle
-    const styleCue = artisticStyle
-      ? `Visual Style: Texture: ${artisticStyle.textureAndGrain}. Line Quality: ${artisticStyle.lineQuality}. Color Harmony: ${artisticStyle.colorHarmonyStrategy}.`
-      : ''
-
-    try {
-      const bibleImageUrl = await this.imageService.generateImage(
-        `CHARACTER BIBLE: Consistent ${uniqueCharacters.join(', ')} design. ${styleCue}`,
-        path.join(projectDir, 'character_bible.webp'),
-        {
-          aspectRatio: '1:1',
-          referenceImages: existingBaseImages,
-          systemInstruction: `You are creating a character reference sheet displayed as a 2x2 grid. 
-${
-  uniqueCharacters.length > 1
-    ? `Please include all characters: ${uniqueCharacters.join(', ')}. Each character should have at least one full-body and one clear face shot.`
-    : 'Please include: 1. Full body front, 2. Dynamic pose, 3. Face close-up, 4. Side profile.'
-}
-${styleCue}
-Ensure the character is isolated on a simple, neutral, and uniform solid background suitable for the requested style.`
-        }
-      )
-
-      if (fs.existsSync(bibleImageUrl)) {
-        console.log(`[NanoBanana] ✓ Character Bible generated: ${bibleImageUrl}`)
-        const buffer = fs.readFileSync(bibleImageUrl)
-        const biblePath = path.join(projectDir, 'character_bible.webp')
-        fs.writeFileSync(biblePath, buffer)
-        return [buffer.toString('base64')]
-      }
-    } catch (error) {
-      console.warn(`[NanoBanana] ⚠ Failed to generate Character Bible, falling back to existing models.`, error)
-    }
-    return []
-  }
-
-  /**
    * Generate complete video from topic.
    */
   async generateVideoFromTopic(
@@ -1315,12 +1259,26 @@ Ensure the character is isolated on a simple, neutral, and uniform solid backgro
       }
     }
 
-    // 3. Fallback for single model (Legacy Support)
+    // 3. Fallback for single model or provided base images (Refined Phase 31)
+    // If we have only 1 character in the script and user provided 1+ base images,
+    // we MUST use them as the source of truth for that character.
+    if (scriptCharacters.length === 1 && baseImages.length > 0) {
+      const charName = scriptCharacters[0].name.toLowerCase()
+      console.log(`[NanoBanana] 🎯 Single character detected: Mapping base images to "${charName}"`)
+      characterReferenceMap.set(charName, baseImages)
+      if (scriptCharacters[0].id) characterReferenceMap.set(scriptCharacters[0].id.toLowerCase(), baseImages)
+    }
+
     if (validOptions.characterModelId && characterReferenceMap.size === 0) {
       const model = await characterModelManager.loadCharacterModelById(validOptions.characterModelId)
       if (model) {
         characterReferenceMap.set('standard', [model.base64])
       }
+    }
+
+    if (characterReferenceMap.size === 0 && baseImages.length > 0) {
+      console.log(`[NanoBanana] Using provided base images as global visual reference.`)
+      characterReferenceMap.set('standard', baseImages)
     }
 
     if (characterReferenceMap.size > 0) {
