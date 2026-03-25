@@ -153,8 +153,7 @@ export class VideoGenerationService {
       llmConfig,
       undefined, // transcriptionConfig
       {
-        scriptSpec: scriptSpec as any,
-        imageSpec: scriptSpec as any // Unified: Using same spec for both phases
+        scriptSpec: scriptSpec as any
       }
     )
   }

@@ -113,8 +113,7 @@ export class NanoBananaEngine {
         backgroundColor: '#F5F5F5'
       }
     )
-    this.systemPrompt =
-      systemPrompt ?? this.promptManager.buildScriptCompletePrompt(this.stylePrefix || '', this.currentOptions)
+    this.systemPrompt = systemPrompt ?? ''
 
     this.currentImageProvider = imageConfig?.provider || 'gemini'
     this.currentLLMProvider = llmConfig?.provider || 'gemini'

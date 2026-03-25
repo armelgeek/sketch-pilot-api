@@ -88,8 +88,7 @@ export class ScriptGenerationService {
 
     // 3. Initialize generator and run (using the SAME spec for both script and image)
     const promptManager = new PromptManager({
-      scriptSpec: spec as any,
-      imageSpec: spec as any
+      scriptSpec: spec as any
     })
     const generator = new VideoScriptGenerator(llmService, promptManager)
     const script = await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)
