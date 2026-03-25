@@ -104,7 +104,76 @@ export class PromptManager {
       )
     }
 
-    return this.buildSystemInstructions({ ...spec, instructions })
+    // 4. Director & Art Direction Integration (One-Pass Consolidation - Phase 31)
+    instructions.push(
+      'DIRECTOR PLAN: Analyze the narrative arc to define a global visual strategy.',
+      '1. THE VISUAL ARC: Lighting and color palette must evolve to support the emotional tone.',
+      '2. RECURRING SYMBOLS: Identification of 1-3 visual objects that should appear consistently as anchors.',
+      '3. VISUAL STORYTELLING: Define powerful visual metaphors to represent abstract concepts. Avoid literalism.',
+      '4. PACING (RHYTHM): Define a global camera movement strategy and transition style.',
+      '5. ARTISTIC IDENTITY: Define the "Visual Soul" (Texture, Line Quality, Color Harmony Strategy).',
+      '6. PATTERN INTERRUPT: Identify key moments for a strong visual "Hook" to grab attention.'
+    )
+
+    const fullSpec = { ...spec, instructions }
+    const consolidatedOutputFormat = this.getConsolidatedOutputFormat(spec.outputFormat)
+
+    return this.buildSystemInstructions({
+      ...fullSpec,
+      outputFormat: consolidatedOutputFormat
+    })
+  }
+
+  /**
+   * Refines the output format to include global narrative planning and artistic style.
+   * Avoids fragile regex replacements.
+   */
+  private getConsolidatedOutputFormat(baseFormat?: string): string {
+    if (!baseFormat || !baseFormat.includes('{')) return baseFormat || ''
+
+    // Define the full consolidated schema structure
+    return `{
+  "titles": ["string"],
+  "fullNarration": "string",
+  "theme": "string",
+  "backgroundMusic": "string",
+  "characterSheets": [
+    {
+      "id": "string",
+      "name": "string",
+      "role": "string",
+      "appearance": { "description": "string", "clothing": "string" },
+      "expressions": ["string"],
+      "metadata": { "gender": "male|female|unknown", "age": "child|youth|senior|unknown" },
+      "imagePrompt": "string"
+    }
+  ],
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "summary": "string",
+      "narration": "string",
+      "characterIds": ["string"],
+      "characterVariant": "string",
+      "expression": "string",
+      "actions": ["string"],
+      "props": ["string"],
+      "contextType": "string",
+      "eyelineMatch": "string",
+      "poseStyle": { "position": "string", "scale": 1 },
+      "cameraAction": { "type": "string", "intensity": "string" },
+      "transitionToNext": "string"
+    }
+  ],
+  "globalPlan": {
+    "visualArc": { "lightingEvolution": "string", "colorPaletteShift": "string", "styleContinuity": "string" },
+    "recurringSymbols": [{ "element": "string", "meaning": "string", "scenes": ["string"] }],
+    "emotionalCurve": [{ "stage": "string", "tension": 0, "visualVibe": "string" }],
+    "visualStorytelling": { "keyVisualMetaphors": ["string"], "clarityStrategy": "string" },
+    "artisticStyle": { "textureAndGrain": "string", "lineQuality": "string", "colorHarmonyStrategy": "string" },
+    "pacing": { "cameraMovementStrategy": "string", "transitionPulse": "string" }
+  }
+}`
   }
 
   /**

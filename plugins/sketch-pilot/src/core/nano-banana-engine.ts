@@ -301,19 +301,6 @@ export class NanoBananaEngine {
     // Safely combine the specific scene character description with the global style
     let finalCharacterDescription = specificCharacterDescription
 
-    // PHASE 28: Forcefully remove gendered keywords (Whiteboard/Stick animation only)
-    const isStickStyle =
-      globalStyle?.stylePrefix?.toLowerCase().includes('stick') ||
-      globalStyle?.stylePrefix?.toLowerCase().includes('whiteboard')
-
-    if (isStickStyle && finalCharacterDescription) {
-      finalCharacterDescription = finalCharacterDescription
-        .replaceAll(/\b(female|male|woman|man|girl|boy|lady|gentleman|young woman|young man)\b/gi, 'character')
-        .replaceAll(/\b(women|men|girls|boys)\b/gi, 'characters')
-        .replaceAll(/\b(she|he)\s+is\b/gi, 'the character is')
-        .replaceAll(/\b(her|his)\s+hair\b/gi, 'their hair')
-    }
-
     if (globalStyle.characterDescription) {
       finalCharacterDescription = finalCharacterDescription
         ? `${finalCharacterDescription} - ${globalStyle.characterDescription}`

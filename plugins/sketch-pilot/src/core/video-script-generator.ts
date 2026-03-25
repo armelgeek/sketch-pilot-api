@@ -11,12 +11,9 @@ import {
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import type { LLMService } from '../services/llm'
-import { ArtDirector } from './art-director'
-import { DirectorPlanner } from './director-planner'
 import { PromptGenerator } from './prompt-generator'
 import { PromptManager } from './prompt-manager'
 import { SceneMemoryBuilder } from './scene-memory'
-import { ScriptDoctor } from './script-doctor'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,18 +34,12 @@ type RawScene = Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'> & {
 export class VideoScriptGenerator {
   private readonly llmService: LLMService
   private readonly promptGenerator: PromptGenerator
-  private readonly directorPlanner: DirectorPlanner
-  private readonly scriptDoctor: ScriptDoctor
-  private readonly artDirector: ArtDirector
   readonly promptManager: PromptManager
 
   constructor(llmService: LLMService, promptManager?: PromptManager) {
     this.llmService = llmService
     this.promptManager = promptManager ?? new PromptManager()
     this.promptGenerator = new PromptGenerator(this.promptManager)
-    this.directorPlanner = new DirectorPlanner(this.llmService, this.promptManager)
-    this.scriptDoctor = new ScriptDoctor(this.llmService, this.promptManager)
-    this.artDirector = new ArtDirector(this.llmService, this.promptManager)
   }
 
   /**
@@ -69,51 +60,12 @@ export class VideoScriptGenerator {
     console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
 
     if (onProgress) await onProgress(1, 'Studio: Planning initial structure...')
-    let baseScript = await this.generateVideoStructure(topic, options)
+    const baseScript = await this.generateVideoStructure(topic, options)
 
-    // NEW: Niche Expertise Pass (Script Doctoring)
-    if (onProgress) await onProgress(5, `ScriptDoctor: Analyzing "${topic}" specialized niche...`)
-    console.log(`[VideoScriptGen] Starting ScriptDoctor refinement for topic: "${topic}"...`)
-    baseScript = await this.scriptDoctor.doctorScript(topic, baseScript, options)
-
-    // NEW: Director Pass (Two-Pass Stage)
     const characterSheets: CharacterSheet[] = baseScript.characterSheets || []
 
-    // Enforce eyelineMatch default and progressive zoom-in for revelation area
-    const totalDuration = baseScript.scenes.reduce((acc, s) => {
-      const end = s.timeRange?.end
-      return typeof end === 'number' ? Math.max(acc, end) : acc
-    }, 0)
-
-    baseScript.scenes.forEach((scene, idx) => {
-      if (!scene.eyelineMatch) scene.eyelineMatch = 'center'
-
-      // Removed hardcoded Director's zoom-in (Phase 28.5)
-      // We now delegate camera action choices entirely to the AI via prompt.
-    })
-
-    // NEW: Artistic Identity Pass (Art Direction)
-    if (onProgress) await onProgress(10, 'Art Director: Defining visual soul and brand identity...')
-    console.log(`[VideoScriptGen] Starting ArtDirector for visual identity...`)
-    const artisticStyle = await this.artDirector.defineVisualIdentity(topic, baseScript.fullNarration, options)
-
-    // NEW: Director Pass (Two-Pass Stage)
-    if (onProgress) await onProgress(15, 'Director: Plotting narrative arc and camera pacing...')
-    console.log('[VideoScriptGen] Starting Director Pass (Global Planning)...')
-    const globalPlan = await this.directorPlanner.planGlobalExecution(
-      topic,
-      baseScript.fullNarration,
-      baseScript.scenes,
-      characterSheets,
-      options
-    )
-
-    // Merge Art Director's style into the global plan
-    if (globalPlan) {
-      globalPlan.artisticStyle = artisticStyle
-    }
-
-    // NEW: Layout Pass removed per user request
+    // Global Plan (Phase 31: Consolidated in baseScript)
+    const globalPlan = baseScript.globalPlan
 
     const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets, globalPlan)
 
@@ -166,6 +118,7 @@ export class VideoScriptGenerator {
     scenes: RawScene[]
     characterSheets?: CharacterSheet[]
     backgroundMusic?: string
+    globalPlan?: any
   }> {
     const { systemPrompt, userPrompt } = this.promptManager.buildScriptGenerationPrompts(topic, options)
 
