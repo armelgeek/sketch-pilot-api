@@ -99,6 +99,15 @@ export class VideoRepository {
     return video
   }
 
+  async update(id: string, data: Partial<typeof videos.$inferInsert>) {
+    const [video] = await db
+      .update(videos)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(videos.id, id))
+      .returning()
+    return video
+  }
+
   async listByUser(userId: string, filters: VideoFilters) {
     const { page = 1, limit = 20, status, search, sort } = filters
     const offset = (page - 1) * limit

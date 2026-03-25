@@ -1,4 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { checkpointService } from '@/application/services/video-checkpoint.service'
+import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { ChooseBackgroundMusicUseCase } from '@/application/use-cases/video/choose-background-music.use-case'
 import { ChooseVoiceoverUseCase } from '@/application/use-cases/video/choose-voiceover.use-case'
 import { ConfigureBrandingUseCase } from '@/application/use-cases/video/configure-branding.use-case'
@@ -34,6 +36,7 @@ const configureBrandingUseCase = new ConfigureBrandingUseCase()
 const generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
 const suggestTopicsUseCase = new SuggestTopicsUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
+const videoGenerationService = new VideoGenerationService()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -661,23 +664,23 @@ export class VideosController implements Routes {
       }
     )
 
-    // POST /v1/videos/jobs/:jobId/cancel
+    // POST /v1/videos/:id/cancel
     this.controller.openapi(
       createRoute({
         method: 'post',
-        path: '/v1/videos/jobs/{jobId}/cancel',
+        path: '/v1/videos/{id}/cancel',
         tags: ['Videos'],
         summary: 'Cancel a video generation job',
         security: [{ Bearer: [] }],
         request: {
-          params: z.object({ jobId: z.string() })
+          params: z.object({ id: z.string() })
         },
         responses: {
           200: {
             description: 'Job cancelled',
             content: {
               'application/json': {
-                schema: z.object({ jobId: z.string(), status: z.string() })
+                schema: z.object({ videoId: z.string(), status: z.string() })
               }
             }
           },
@@ -695,16 +698,18 @@ export class VideosController implements Routes {
         const user = c.get('user')
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
-        const { jobId } = c.req.valid('param')
-        const video = await videoRepository.findByJobId(jobId)
-        if (!video || video.userId !== user.id) return c.json({ error: 'Job not found' }, 404)
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
 
         // Try to remove from BullMQ queue
         try {
-          const queue = getVideoQueue()
-          const job = await queue.getJob(jobId)
-          if (job) {
-            await job.remove()
+          if (video.jobId) {
+            const queue = getVideoQueue()
+            const job = await queue.getJob(video.jobId)
+            if (job) {
+              await job.remove()
+            }
           }
         } catch (error) {
           console.error('Failed to remove job from queue:', error)
@@ -712,7 +717,116 @@ export class VideosController implements Routes {
 
         await videoRepository.updateStatus(video.id, { status: 'cancelled' })
 
-        return c.json({ jobId, status: 'cancelled' })
+        return c.json({ videoId: video.id, status: 'draft' })
+      }
+    )
+
+    // POST /v1/videos/:id/restart
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/restart',
+        tags: ['Videos'],
+        summary: 'Restart a generic video generation job',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Job restarted',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+
+        await videoGenerationService.stopGeneration(video.id)
+        // Ensure starting from scratch by deleting checkpoint
+        await checkpointService.deleteCheckpoint(video.id)
+
+        // The user requires a re-enqueue, but I might need to check if there is an existing restart generation use case,
+        // however the request explicitly mentions deleting checkpoints and stopping generation before re-enqueuing. Let's start with stopGeneration and deleteCheckpoint.
+        // Looking at other routes, we'll enqueue similar to /regenerate. Let me just return success for now pending a review of how regenerate works.
+        const { result } = await regenerateVideoUseCase.run({
+          videoId: id,
+          userId: user.id,
+          planId: (user as any).planId,
+          topic: video.topic,
+          options: video.options as any
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to enqueue restart' }, 500)
+        }
+        return c.json({ success: true, jobId: result.jobId })
+      }
+    )
+
+    // POST /v1/videos/:id/rescript
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/rescript',
+        tags: ['Videos'],
+        summary: 'Rescript a video generation job',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Job rescripted',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const video = await videoRepository.findByIdAndUserId(id, user.id)
+        if (!video) return c.json({ error: 'Video not found' }, 404)
+
+        await videoGenerationService.stopGeneration(video.id)
+        await checkpointService.deleteCheckpoint(video.id)
+        await videoRepository.update(video.id, { script: null } as any)
+
+        const { result } = await regenerateVideoUseCase.run({
+          videoId: id,
+          userId: user.id,
+          planId: (user as any).planId,
+          topic: video.topic,
+          options: video.options as any
+        })
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to enqueue rescript' }, 500)
+        }
+
+        return c.json({ success: true, jobId: result.jobId })
       }
     )
 

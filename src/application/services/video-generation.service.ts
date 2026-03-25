@@ -11,6 +11,7 @@ import { NanoBananaEngine } from '@sketch-pilot/core/nano-banana-engine'
 import { ImageServiceFactory, type ImageServiceConfig } from '@sketch-pilot/services/image'
 import { getCharacterModelManager } from '@sketch-pilot/utils/character-models'
 import { PromptService } from '@/application/services/prompt.service'
+import { redisClient } from '@/infrastructure/config/queue.config'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
@@ -19,6 +20,7 @@ import type { LLMServiceConfig } from '@sketch-pilot/services/llm'
 import type { CompleteVideoPackage, VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 
 export interface VideoGenerationInput {
+  videoId?: string
   topic: string
   userId?: string
   options?: Partial<VideoGenerationOptions>
@@ -162,8 +164,21 @@ export class VideoGenerationService {
    * This is the main entry point used by the BullMQ worker.
    */
   async generateVideo(input: VideoGenerationInput & { projectId?: string }): Promise<CompleteVideoPackage> {
-    const { topic, options = {}, projectId, onProgress } = input
+    const { topic, options = {}, projectId, onProgress, videoId } = input
     const engine = await this.buildEngine(options)
+
+    const wrappedOnProgress = async (progress: number, message: string, metadata?: Record<string, any>) => {
+      if (videoId) {
+        const isCancelled = await redisClient.get(`cancel-video-${videoId}`)
+        if (isCancelled) {
+          console.warn(`[VideoGenerationService] Aborting generation for video ${videoId}`)
+          throw new Error('Generation cancelled by user')
+        }
+      }
+      if (onProgress) {
+        await onProgress(progress, message, metadata)
+      }
+    }
 
     // In NanoBananaEngine, generateVideoFromTopic currently does not accept onProgress directly
     // Let's modify generateVideoFromTopic manually later. For now, we pass it down.
@@ -172,7 +187,7 @@ export class VideoGenerationService {
       options as VideoGenerationOptions,
       [],
       projectId,
-      onProgress,
+      wrappedOnProgress,
       input.onTimingSync,
       input.onSceneGenerated
     )
@@ -185,16 +200,40 @@ export class VideoGenerationService {
   async renderVideoFromScript(
     input: VideoGenerationInput & { script: any; projectId?: string }
   ): Promise<CompleteVideoPackage> {
-    const { script, options = {}, projectId, onProgress } = input
+    const { script, options = {}, projectId, onProgress, videoId } = input
     const engine = await this.buildEngine(options)
+
+    const wrappedOnProgress = async (progress: number, message: string, metadata?: Record<string, any>) => {
+      if (videoId) {
+        const isCancelled = await redisClient.get(`cancel-video-${videoId}`)
+        if (isCancelled) {
+          console.warn(`[VideoGenerationService] Aborting rendering for video ${videoId}`)
+          throw new Error('Generation cancelled by user')
+        }
+      }
+      if (onProgress) {
+        await onProgress(progress, message, metadata)
+      }
+    }
+
     return await engine.generateVideoFromScript(
       script,
       options as VideoGenerationOptions,
       [],
       projectId,
-      onProgress,
+      wrappedOnProgress,
       input.onTimingSync
     )
+  }
+
+  /**
+   * Stop an ongoing video generation.
+   * This might involve calling a cancellation method on the engine or cleaning up.
+   */
+  async stopGeneration(videoId: string): Promise<void> {
+    const key = `cancel-video-${videoId}`
+    await redisClient.set(key, 'true', 'EX', 3600) // 1 hour TTL
+    console.info(`[VideoGenerationService] Marked video ${videoId} for cancellation`)
   }
 
   /**

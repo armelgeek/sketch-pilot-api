@@ -184,6 +184,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       if (!skipScript) {
         await reportProgress(job, videoId, 'rendering', 15, 'Rendering video...')
         pkg = await videoGenerationService.renderVideoFromScript({
+          videoId,
           topic,
           userId,
           script: videoRecord.script as any,
@@ -222,6 +223,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       } else {
         console.info(`[VideoWorker] Skipping script generation phase (already completed)`)
         pkg = await videoGenerationService.renderVideoFromScript({
+          videoId,
           topic,
           userId,
           script: videoRecord.script as any,
@@ -253,6 +255,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     } else if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
       await reportProgress(job, videoId, 'script_generation', 10, 'Generating script...')
       pkg = await videoGenerationService.generateVideo({
+        videoId,
         topic,
         userId,
         options: genOptions,
