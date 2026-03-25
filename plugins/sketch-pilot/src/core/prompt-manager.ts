@@ -92,7 +92,7 @@ export class PromptManager {
     // 2. Gender Neutrality (Phase 28)
     if (this.isNeutralVisuals(undefined, undefined, spec.name)) {
       instructions.push(
-        'GENDER NEUTRALITY: NEVER use gendered nouns (woman, man, girl, boy, lady, gentleman) or pronouns (he, she, his, her) in character sheets or scene descriptions. Use "Character", "Figure", or "Subject" and "they/them/their" instead.'
+        'Gender neutrality: Use gender-neutral nouns (character, figure, subject) and pronouns (they/them/their) instead of gendered ones (man, woman, he, she).'
       )
     }
 
@@ -100,7 +100,7 @@ export class PromptManager {
     const stylePrefix = options?.imageStyle?.stylePrefix
     if (stylePrefix) {
       instructions.push(
-        `VISUAL STYLE: The video MUST be written for a "${stylePrefix}" visual style. Describe scenes, backgrounds, and character actions in a way that is compatible with this style.`
+        `Visual style consistency: The script should be tailored for a "${stylePrefix}" visual style. Ensure all scene descriptions and actions are compatible with this aesthetic.`
       )
     }
 
@@ -162,12 +162,12 @@ export class PromptManager {
     if (!spec) return ''
 
     const referenceMode = hasReferenceImages
-      ? 'REFERENCE MODE (CRITICAL): You are provided with specific CHARACTER REFERENCE IMAGES. You MUST strictly copy the visual identity (face, hair style, distinctive clothing, and proportions) of the characters from these images. DO NOT invent new characters. DO NOT deviate from the characters shown in the references.'
+      ? 'Character identity: You are provided with character reference images. Strictly maintain the visual identity (face, hair, clothing, proportions) of the characters shown. Do not invent variations or new characters.'
       : ''
 
     const styleAnchor = [
-      `VISUAL STYLE: ${stylePrefix ? `The scene MUST be rendered in a "${stylePrefix}" style.` : 'Always render in a clean, flat 2D illustration style.'}`,
-      `CINEMATIC COMPOSITION: Use the Rule of Thirds and Negative Space. Maintain a clean, professional "faceless animation" look.`
+      `Visual style: ${stylePrefix ? `Render the scene in a ${stylePrefix} style.` : 'Use a clean, flat 2D illustration style.'}`,
+      `Cinematic composition: Apply the rule of thirds and effective use of negative space for a professional "faceless animation" aesthetic.`
     ].join(' ')
 
     // ── Global Narrative (Relocated from Prompt to System) ────────────────
@@ -177,15 +177,15 @@ export class PromptManager {
       const arc = [visualArc.lightingEvolution, visualArc.colorPaletteShift, visualArc.styleContinuity]
         .filter(Boolean)
         .join('. ')
-      const vibe = emotionalCurve?.map((e) => e.visualVibe).join(' → ')
+      const vibe = emotionalCurve?.map((e) => e.visualVibe).join(' leading to ')
       const art = artisticStyle
-        ? `${artisticStyle.textureAndGrain}. ${artisticStyle.lineQuality}. ${artisticStyle.colorHarmonyStrategy}.`
+        ? `${artisticStyle.textureAndGrain}. ${artisticStyle.lineQuality}. ${artisticStyle.colorHarmonyStrategy}`
         : ''
 
-      globalDirectorCues = `GLOBAL NARRATIVE PLAN:
-- VISUAL ARC: ${arc}
-- EMOTIONAL CURVE: ${vibe}
-- ARTISTIC STYLE: ${art}`
+      globalDirectorCues = `Global narrative plan:
+- Visual arc: ${arc}
+- Emotional curve: ${vibe}
+- Artistic style: ${art}`
     }
 
     const imageSpec: VideoTypeSpecification = {
@@ -284,9 +284,9 @@ export class PromptManager {
   private resolveStyleLine(isStickStyle: boolean, stylePrefix?: string): string {
     if (!stylePrefix) return ''
     const reinforcement = isStickStyle
-      ? 'STRICTLY Monochrome black and white, no colors, no shading, no shadows, no gradients, no volume, no 3D effects, flat 2D only, STRICTLY MINIMALIST, minimal line count, plenty of empty white space, ink on pure white background, '
+      ? 'monochrome black and white, no colors or shading, flat 2D lines with minimal detail and plenty of white space, '
       : ''
-    return `[Style]: ${reinforcement}${stylePrefix}`
+    return `${reinforcement}${stylePrefix}`
   }
 
   private resolveLocation(
@@ -488,7 +488,7 @@ export class PromptManager {
       `Required Scene Count: ${options.maxScenes}`,
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
-      `Target Language: ${options.language || 'English'} (You MUST generate ALL narration, titles, and text in this language)`,
+      `Target Language: ${options.language || 'English'} (Generate all narration, titles, and onscreen text specifically in this language)`,
       '',
       this.buildCharacterInstructions(options)
     ]
