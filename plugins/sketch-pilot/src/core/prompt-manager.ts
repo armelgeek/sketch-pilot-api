@@ -89,22 +89,7 @@ export class PromptManager {
       instructions.push(`NARRATION SPEED: ${wps.toFixed(2)}`)
     }
 
-    // 2. Gender Neutrality (Phase 28)
-    if (this.isNeutralVisuals(undefined, undefined, spec.name)) {
-      instructions.push(
-        'Gender neutrality: Use gender-neutral nouns (character, figure, subject) and pronouns (they/them/their) instead of gendered ones (man, woman, he, she).'
-      )
-    }
-
-    // 3. Visual Style (Phase 29)
-    const stylePrefix = options?.imageStyle?.stylePrefix
-    if (stylePrefix) {
-      instructions.push(
-        `Visual style consistency: The script should be tailored for a "${stylePrefix}" visual style. Ensure all scene descriptions and actions are compatible with this aesthetic.`
-      )
-    }
-
-    // 4. Director & Art Direction Integration (One-Pass Consolidation - Phase 31)
+    // 3. Director & Art Direction Integration (One-Pass Consolidation - Phase 31)
     instructions.push(
       'DIRECTOR PLAN: Analyze the narrative arc to define a global visual strategy.',
       '1. THE VISUAL ARC: Lighting and color palette must evolve to support the emotional tone.',
@@ -114,7 +99,10 @@ export class PromptManager {
       '5. ARTISTIC IDENTITY: Define the "Visual Soul" (Texture, Line Quality, Color Harmony Strategy).',
       '6. PATTERN INTERRUPT: Identify key moments for a strong visual "Hook" to grab attention.',
       '7. IMMERSIVE NARRATION: Characters (like the narrator or protagonists) should be addressed or referred to by name in the narration when appropriate to enhance continuity and immersion.',
-      '8. PLAIN LANGUAGE & CLARITY: The target audience is non-experts. The narration must be direct, pedagogical, and easy to understand. Avoid complex terminology or abstract metaphors in the spoken narration. Use "Explain Like I\'m Five" (ELI5) principles: keep sentences simple and focused on clarity.'
+      '8. PLAIN LANGUAGE & CLARITY: The target audience is non-experts. The narration must be direct, pedagogical, and easy to understand. Avoid complex terminology or abstract metaphors in the spoken narration. Use "Explain Like I\'m Five" (ELI5) principles: keep sentences simple and focused on clarity.',
+      '9. VISUAL LOGIC & CONTINUITY: Scenes must follow a logical visual progression. If the narration refers to the same moment, keep the character in the same environment. Ensure actions are physically consistent and transitions feel natural. Avoid arbitrary location jumps unless the narration explicitly implies a change in setting.',
+      "10. LOCATION PERSISTENCE: If the input prompt defines locations with specific IDs (e.g., LOC-01, LOC-02), you MUST use these exact IDs in the scene's locationId field to ensure visual memory works correctly.",
+      '11. NAME CONSISTENCY: You MUST use the exact names provided for characters. These names are the unique keys for the @Name visual system.'
     )
 
     const fullSpec = { ...spec, instructions }
@@ -141,7 +129,7 @@ export class PromptManager {
   "backgroundMusic": "string",
   "characterSheets": [
     {
-      "id": "string",
+      "id": "string (descriptive unique ID, e.g. 'lily')",
       "name": "string",
       "role": "string",
       "appearance": { 
@@ -159,28 +147,24 @@ export class PromptManager {
   "scenes": [
     {
       "sceneNumber": 1,
-      "summary": "string",
-      "narration": "string",
-      "characterIds": ["string"],
-      "characterVariant": "string",
-      "expression": "string",
-      "actions": ["string"],
-      "props": ["string"],
-      "contextType": "string",
-      "eyelineMatch": "string",
+      "timestamp": 0,
+      "narration": "string (the spoken text)",
+      "summary": "string (brief visual summary)",
+      "imagePrompt": "string (MINIMALIST visual description. One clear, simple sentence centered on the character(s) from the characterSheets performing the main action. Use the @Name syntax for characters (e.g., '@Lily is sitting'). Do NOT describe their physical traits or clothing as they are already known. MANDATORY: Include the character's location (e.g. '@Lily in an office'). Mandatory minimalist background following the characterSheet style.)",
+      "animationPrompt": "string (specific movement/performance instructions)",
+      "characterIds": ["string (IDs from the characterSheets)"],
+      "speakingCharacterId": "string (the ID of the character currently speaking, e.g. 'lily')",
+      "onscreenText": "string (text overlay on screen)",
       "poseStyle": { "position": "string", "scale": 1 },
       "cameraAction": { "type": "string", "intensity": "low|medium|high" },
       "transitionToNext": "string"
     }
   ],
-  "globalPlan": {
-    "visualArc": { "lightingEvolution": "string", "colorPaletteShift": "string", "styleContinuity": "string" },
-    "recurringSymbols": [{ "element": "string", "meaning": "string", "scenes": ["string"] }],
-    "emotionalCurve": [{ "stage": "string", "tension": 0, "visualVibe": "string" }],
-    "visualStorytelling": { "keyVisualMetaphors": ["string"], "clarityStrategy": "string" },
-    "artisticStyle": { "textureAndGrain": "string", "lineQuality": "string", "colorHarmonyStrategy": "string" },
-    "pacing": { "cameraMovementStrategy": "string", "transitionPulse": "string" }
-  }
+  "instructions": [
+    "1. For each scene, accurately identify the speaker via 'speakingCharacterId'. It MUST exactly match an ID from 'characterSheets'.",
+    "2. Ensure the @Name in 'imagePrompt' belongs to the 'speakingCharacterId' if that character is the one talking."
+  ]
+}
 }`
   }
 
@@ -232,47 +216,33 @@ export class PromptManager {
    */
   buildImageSystemInstruction(
     hasReferenceImages: boolean,
-    stylePrefix?: string,
-    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan
+    characterSheets?: import('../types/video-script.types').CharacterSheet[]
   ): string {
     const spec = this.spec
     if (!spec) return ''
+
+    let characterContext = ''
+    if (characterSheets && characterSheets.length > 0) {
+      const sheets = characterSheets
+        .map((s) => `- @${s.name}: ${s.appearance.description}${s.role ? ` (Role: ${s.role})` : ''}`)
+        .join('\n')
+      characterContext = `CHARACTER PROFILES (Absolute visual reference for @Name syntax):\n${sheets}`
+    }
 
     const referenceMode = hasReferenceImages
       ? 'Character identity: You are provided with character reference images. Strictly maintain the visual identity (face, hair, clothing, proportions) of the characters shown. Do not invent variations or new characters.'
       : ''
 
-    const styleAnchor = [
-      `Visual style: ${stylePrefix ? `Render the scene in a ${stylePrefix} style.` : 'Use a clean, flat 2D illustration style.'}`,
-      `Cinematic composition: Apply the rule of thirds and effective use of negative space for a professional "faceless animation" aesthetic.`
-    ].join(' ')
-
-    // ── Global Narrative (Relocated from Prompt to System) ────────────────
-    let globalDirectorCues = ''
-    if (globalPlan) {
-      const { visualArc, emotionalCurve, artisticStyle } = globalPlan
-      const arc = [visualArc.lightingEvolution, visualArc.colorPaletteShift, visualArc.styleContinuity]
-        .filter(Boolean)
-        .join('. ')
-      const vibe = emotionalCurve?.map((e) => e.visualVibe).join(' leading to ')
-      const art = artisticStyle
-        ? `${artisticStyle.textureAndGrain}. ${artisticStyle.lineQuality}. ${artisticStyle.colorHarmonyStrategy}`
-        : ''
-
-      globalDirectorCues = `Global narrative plan:
-- Visual arc: ${arc}
-- Emotional curve: ${vibe}
-- Artistic style: ${art}`
-    }
+    const styleAnchor = 'Cinematic composition: Apply the rule of thirds and effective use of negative space.'
 
     const imageSpec: VideoTypeSpecification = {
       ...spec,
       instructions: [
         ...(referenceMode ? [referenceMode] : []),
         styleAnchor,
-        ...(globalDirectorCues ? [globalDirectorCues] : []),
-        ...(spec.instructions || [])
-      ]
+        ...(spec.instructions || []),
+        characterContext
+      ].filter(Boolean)
     }
 
     return this.buildSystemInstructions(imageSpec)
@@ -282,277 +252,75 @@ export class PromptManager {
     scene: EnrichedScene,
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
-    imageStyle?: { stylePrefix?: string; characterDescription?: string; qualityTags?: string[] },
+    imageStyle?: { stylePrefix?: string; characterDescription?: string },
     memory?: SceneMemory,
-    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan,
     characterSheets?: import('../types/video-script.types').CharacterSheet[]
   ): ImagePrompt {
-    const isStickStyle = this.isNeutralVisuals(imageStyle?.stylePrefix, imageStyle?.characterDescription)
-    const elements = this.extractSceneElements(scene)
+    // 1. Core prompt is exactly what the LLM wrote
+    let paragraph = (scene.imagePrompt || scene.summary || '').trim()
 
-    // 1. Resolve Subject and Core Action
-    const actionPart = this.resolveActionAndSubject(scene, isStickStyle, characterSheets, imageStyle)
-
-    // 2. Resolve Environment & Setup
-    const { locationPart, rawBg } = this.resolveLocation(scene, memory, isStickStyle, imageStyle?.stylePrefix)
-    const effectiveProps = this.resolveSceneProps(scene, memory)
-    const propsPart = effectiveProps.length ? `featuring ${effectiveProps.join(', ')}` : ''
-
-    // 3. Resolve Atmosphere & Cinematography
-    const lightingPart = scene.lighting ?? (memory?.timeOfDay ? `${memory.timeOfDay} lighting` : '')
-    const weatherContext =
-      memory?.weather && !(scene.mood ?? '').toLowerCase().includes(memory.weather) ? memory.weather : ''
-    const moodContent = [scene.mood, ...(imageStyle?.qualityTags ?? [])].filter(Boolean).join(', ')
-    const framingParts = [
-      scene.framing,
-      scene.cameraType,
-      scene.eyelineMatch ? `eyeline ${scene.eyelineMatch.toLowerCase()}` : ''
-    ].filter(Boolean)
-    const framing = framingParts.length ? `shot as ${framingParts.join(', ')}` : ''
-
-    // 4. Style Prefix (Integrated smoothly)
-    const stylePrefix = imageStyle?.stylePrefix ? `in ${imageStyle.stylePrefix} style` : ''
-    const reinforceStick =
-      isStickStyle && !stylePrefix.toLowerCase().includes('stick') ? 'minimalist whiteboard stick figure style' : ''
-    const stylePart = [stylePrefix, reinforceStick].filter(Boolean).join(', ')
-
-    // 4. Resolve Director Cues (Consolidation - Phase 31)
-    const directorCuesPart = this.resolveDirectorCues(scene, globalPlan)
-
-    // Build natural paragraph
-    const paragraph = [
-      actionPart,
-      locationPart ? `in ${locationPart}` : '',
-      propsPart,
-      lightingPart || weatherContext || moodContent
-        ? `with ${[lightingPart, weatherContext, moodContent].filter(Boolean).join(', ')}`
-        : '',
-      directorCuesPart,
-      framing,
-      stylePart
-    ]
-      .filter((b) => b.trim().length > 0)
-      .join(', ')
-
-    // Cleanup grammar
-    const finalPrompt = `${paragraph
-      .replaceAll(/,\s*,/g, ',')
-      .replaceAll(/\s{2,}/g, ' ')
-      .replaceAll(', with ,', ' with')
-      .replaceAll(', in ,', ' in')
-      .trim()}.`
-
-    return {
-      sceneId: scene.id,
-      prompt: finalPrompt,
-      elements: {
-        pose: elements.pose,
-        action: elements.action,
-        expression: scene.expression,
-        props: effectiveProps,
-        background:
-          this.resolveLocation(scene, memory).rawBg ||
-          this.backgroundColor ||
-          this.spec?.defaultBackgroundPrompt ||
-          'white'
-      }
-    }
-  }
-
-  // ─── Image Prompt Refactored Helpers ─────────────────────────────────────
-
-  private isNeutralVisuals(stylePrefix?: string, charDesc?: string, specName?: string): boolean {
-    const regex = /\b(stick|stickfigure|whiteboard)\b/i
-    return regex.test(stylePrefix || '') || regex.test(charDesc || '') || regex.test(specName || '')
-  }
-
-  private resolveStyleLine(isStickStyle: boolean, stylePrefix?: string): string {
-    if (!stylePrefix) return ''
-    // Removed hardcoded "monochrome black and white" (Phase 31.5)
-    // We now trust the globalPlan.artisticStyle or the LLM Refinement to determine color/texture.
-    return stylePrefix
-  }
-
-  private resolveLocation(
-    scene: EnrichedScene,
-    memory?: SceneMemory,
-    isStickStyle?: boolean,
-    stylePrefix?: string
-  ): { locationPart: string; rawBg: string } {
-    const memoryLocation = scene.locationId ? memory?.locations.get(scene.locationId) : undefined
-    const rawBg = memoryLocation?.prompt ?? scene.background ?? this.spec?.defaultBackgroundPrompt ?? ''
-    return {
-      locationPart: this.sanitizeForImageGen(rawBg).toLowerCase(),
-      rawBg
-    }
-  }
-
-  private resolveSceneProps(scene: EnrichedScene, memory?: SceneMemory): string[] {
-    const sceneProps = scene.props
-    const memoryProps = this.resolveMemoryProps(scene, memory)
-
-    if (sceneProps === undefined) return memoryProps
-    if (sceneProps.length === 0) return []
-    return Array.from(new Set([...memoryProps, ...sceneProps]))
-  }
-
-  private resolveDirectorCues(
-    scene: EnrichedScene,
-    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan
-  ): string {
-    if (!globalPlan) return ''
-
-    const sceneContext = `${scene.summary} ${(scene.actions || []).join(' ')}`.toLowerCase()
-    const metaphor = (globalPlan.visualStorytelling?.keyVisualMetaphors || []).find((m) => {
-      const words = m
-        .toLowerCase()
-        .split(/[\s/"':()]+/)
-        .filter((w) => w.length > 4)
-      return words.some((w) => sceneContext.includes(w))
-    })
-
-    const symbol = globalPlan.recurringSymbols?.find((sym) => {
-      return sym.scenes?.some(
-        (s) =>
-          s === scene.id || s === String(scene.sceneNumber) || s.replaceAll(/\D/g, '') === String(scene.sceneNumber)
-      )
-    })
-
-    const cues = [
-      metaphor ? `incorporating the visual metaphor of ${metaphor.toLowerCase()}` : '',
-      symbol ? `featuring the recurring symbol of ${symbol.element.toLowerCase()}` : ''
-    ]
-      .filter(Boolean)
-      .join(' and ')
-    return cues ? `The scene is ${cues}.` : ''
-  }
-
-  private resolveActionAndSubject(
-    scene: EnrichedScene,
-    isStickStyle: boolean,
-    characterSheets?: import('../types/video-script.types').CharacterSheet[],
-    imageStyle?: { characterDescription?: string }
-  ): string {
-    const elements = this.extractSceneElements(scene)
-
-    // Core action from AI prompt
-    const sceneCore = scene.imagePrompt?.trim()
-      ? this.sanitizeForImageGen(scene.imagePrompt.trim())
-      : this.sanitizeForImageGen(
-          [elements.pose, elements.action !== elements.pose ? elements.action : ''].filter(Boolean).join(' ')
-        )
-
-    // Characters definition
+    // 2. Character Enrichment (Coherence Fallback)
+    // If the AI prompt is too short or doesn't mention characters, we add them
     const allCharacterIds = Array.from(
       new Set([...(scene.characterIds || []), ...(scene.speakingCharacterId ? [scene.speakingCharacterId] : [])])
     ).filter(Boolean)
-    const characterDescriptions: string[] = []
 
     for (const charId of allCharacterIds) {
       const casting = characterSheets?.find(
         (c) => c.id?.toLowerCase() === charId.toLowerCase() || c.name?.toLowerCase() === charId.toLowerCase()
       )
-      let charDesc = charId
 
       if (casting) {
-        let clothing = casting.appearance?.clothing || ''
-        if (isStickStyle && clothing) {
-          clothing = clothing
-            .replaceAll(/\b(female|male|woman|man|girl|boy|lady|gentleman)\b/gi, 'person')
-            .replaceAll(/\b(women|men|girls|boys)\b/gi, 'people')
-        }
-
-        const metadata = (casting as any).metadata
-        const gender = metadata?.gender && metadata.gender !== 'unknown' ? metadata.gender : ''
-        const age = metadata?.age && metadata.age !== 'unknown' ? metadata.age : ''
-
-        const innerParts = [gender, age, clothing ? `wearing ${clothing}` : ''].filter(Boolean)
-
-        if (innerParts.length > 0) charDesc += `, a ${innerParts.join(' ').trim().toLowerCase()}`
-
-        if (casting.stylePrefix || casting.artistPersona) {
-          const styles = [casting.stylePrefix, casting.artistPersona].filter(Boolean).join(', ')
-          charDesc += `, rendered in ${styles} style`
+        const nameInPrompt = `@${casting.name.toLowerCase()}`
+        if (!paragraph.toLowerCase().includes(nameInPrompt)) {
+          // If the name is already there without @, prefix it
+          const escapedName = casting.name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
+          const re = new RegExp(`\\b${escapedName}\\b`, 'gi')
+          if (re.test(paragraph)) {
+            paragraph = paragraph.replace(re, `@${casting.name}`)
+          } else {
+            // Otherwise append it
+            paragraph += ` Featuring @${casting.name}.`
+          }
         }
       }
-      // Omitted meta-brackets like [VISUAL IDENTITY FROM PROVIDED REFERENCES] to avoid confusing the model
-      characterDescriptions.push(charDesc)
     }
 
-    const baseCharacter = imageStyle?.characterDescription || characterDescriptions.join(' and ')
-    const characterIdentity =
-      `${baseCharacter}${scene.characterVariant ? `, variant: ${scene.characterVariant}` : ''}`.trim()
-
-    // Integrate subject with action
-    const identityAlreadyInCore =
-      characterIdentity && sceneCore.toLowerCase().includes(characterIdentity.toLowerCase().split(' ')[0])
-    let combined = characterIdentity && !identityAlreadyInCore ? `${characterIdentity} is ${sceneCore}` : sceneCore
-
-    if (scene.expression) combined += `, looking ${scene.expression}`
-
-    // Clean up typical AI prefixes
-    return combined.replace(/^(Action:\s*|Illustrating\.\.\s*|Whiteboard illustration:\s*)/i, '')
-  }
-
-  /**
-   * Resolve props from scene memory for characters present in this scene.
-   * Returns merged props from all characters in memory that appear in this scene.
-   */
-  private resolveMemoryProps(scene: EnrichedScene, memory?: SceneMemory): string[] {
-    if (!memory || !scene.characterIds || scene.characterIds.length === 0) return []
-    const props: string[] = []
-    for (const charId of scene.characterIds) {
-      const memChar = memory.characters.get(charId)
-      if (memChar?.currentProps.length) {
-        props.push(...memChar.currentProps)
+    // 3. Location Memory (Coherence Fallback)
+    if (scene.locationId && memory?.locations.has(scene.locationId)) {
+      const location = memory.locations.get(scene.locationId)
+      if (location && !paragraph.toLowerCase().includes(location.prompt.toLowerCase().slice(0, 20))) {
+        paragraph += `,${location.prompt}.`
       }
     }
-    return props.filter((v, i, a) => a.indexOf(v) === i)
+
+    // 4. Cleanup grammar
+    const finalPrompt = paragraph
+      .replaceAll(/,\s*,/g, ',')
+      .replaceAll(/\s{2,}/g, ' ')
+      .trim()
+      .replace(/([^.!?])$/, '$1.')
+
+    return {
+      sceneId: scene.id,
+      prompt: finalPrompt
+    }
   }
 
   /**
    * Build animation instructions for a scene.
    * Fully Character-Agnostic.
    */
-  buildAnimationPrompt(
-    scene: EnrichedScene,
-    imageStyle?: { characterDescription?: string },
-    globalPlan?: import('../types/video-script.types').GlobalNarrativePlan
-  ): AnimationPrompt {
-    const movements: AnimationPrompt['movements'] = (scene.actions || []).map((a) => ({
-      element: 'body',
-      description: a || ''
-    }))
-
-    const instructions = movements.map((m) => m.description).join('. ')
+  buildAnimationPrompt(scene: EnrichedScene, imageStyle?: { characterDescription?: string }): AnimationPrompt {
+    const instructions = scene.animationPrompt || ''
+    const movements: AnimationPrompt['movements'] = [
+      {
+        element: 'body',
+        description: instructions
+      }
+    ]
 
     return { sceneId: scene.id, instructions, movements }
-  }
-
-  private sanitizeForImageGen(text: string): string {
-    if (!text) return text
-    // Remove leading timestamps like "2.5s: " or "3-5s: "
-    let s = text.replace(/^\d[\d.-]*s?:\s*/i, '')
-    s = s
-      .replaceAll(/,\s*,/g, ',')
-      .replaceAll(/\s{2,}/g, ' ')
-      .replaceAll(/\s+\./g, '.')
-      .trim()
-    return s
-  }
-
-  private extractSceneElements(scene: EnrichedScene): { pose: string; action: string } {
-    const actions = (scene.actions || [])
-      .map((a) => a.replace(/^\d+(\.\d+)?(-?\d+(\.\d+)?)?s:\s*/i, '').trim())
-      .filter(Boolean)
-
-    if (actions.length === 0) return { pose: '', action: '' }
-    if (actions.length === 1) return { pose: actions[0], action: '' }
-    // Multiple actions: first is the pose/position, rest are actions
-    return {
-      pose: actions[0],
-      action: actions.slice(1).join('. ')
-    }
   }
 
   // ─── Private Builders (formerly PromptMaker) ──────────────────────────────
@@ -595,16 +363,16 @@ export class PromptManager {
         .map((char) => {
           let line = `- ${char.name}`
           if (char.modelId) line += ` (Model ID: ${char.modelId})`
-          if (char.stylePrefix || char.artistPersona) {
-            const styles = [char.stylePrefix, char.artistPersona].filter(Boolean).join(', ')
-            line += ` [Visual Style: ${styles}]`
+          if (char.appearance) {
+            const desc = [char.appearance.description, char.appearance.clothing].filter(Boolean).join(', ')
+            if (desc) line += ` [Appearance: ${desc}]`
           }
           return line
         })
         .join('\n')
-      return `CAST OF CHARACTERS:\n${cast}\n\nYou must use these specific Character Names and Model IDs in your script.`
+      return `CAST OF CHARACTERS:\n${cast}\n\nCRITICAL CONSTRAINTS:\n1. Every imagePrompt MUST be a single MINIMALIST sentence featuring the character(s) above as the main subject.\n2. Always use the @Name syntax to reference characters (e.g., '@Lily').\n3. Do NOT describe the characters' base appearance (hair, eyes, skin, clothing) in the imagePrompt; strictly use @Name.\n4. The character's current location MUST be explicitly mentioned (e.g. '@Lily in the kitchen').\n5. Focus on the character's simple action. No complex compositions.\n6. NAME CONSISTENCY: You MUST use the exact names provided in the CAST above. Do NOT use nicknames, synonyms, or generic terms.`
     }
 
-    return `CHARACTER IDENTIFICATION:\n- Automatically identify the core characters relevant to this subject.\n- For each character, define their name, role, gender ("male", "female", or "unknown"), and age ("child", "youth", "senior", or "unknown").\n- These attributes must be returned in the \`metadata\` object for each item in the \`characterSheets\` array.`
+    return `CHARACTER IDENTIFICATION:\n- Automatically identify the core characters relevant to this subject.\n- For each character, define their name, role, and a descriptive ID (e.g. 'lily').\n- The Character Sheet acts as the visual and persona anchor for the entire video.\n- These attributes must be returned in the \`characterSheets\` array.`
   }
 }

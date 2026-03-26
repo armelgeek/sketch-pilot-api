@@ -39,9 +39,7 @@ export class GenerateScenesUseCase extends IUseCase<GenerateScenesParams, Genera
 
       // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
-      const spec = await promptService.resolveSpec({
-        name: videoOptions.videoType
-      })
+      const spec = await promptService.resolveSpec(videoOptions.videoType)
 
       // 3. Calculate & Check Credits (Images only)
       const numScenes = (video.script as any)?.scenes?.length || 0

@@ -38,9 +38,7 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
 
       // 2. Resolve Spec from DB
       const videoOptions = (video.options as any) || {}
-      const spec = await promptService.resolveSpec({
-        name: videoOptions.videoType
-      })
+      const spec = await promptService.resolveSpec(videoOptions.videoType)
 
       // 2. Calculate & Check Credits
       const plan = planId || 'free'
@@ -111,7 +109,6 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
         options: {
           duration: videoOptions.maxDuration,
           sceneCount: videoOptions.sceneCount,
-          style: videoOptions.style,
           videoType: videoOptions.videoType,
           videoGenre: videoOptions.videoGenre,
           language: videoOptions.language,

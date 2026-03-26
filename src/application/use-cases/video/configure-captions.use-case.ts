@@ -48,8 +48,12 @@ export class ConfigureCaptionsUseCase {
     const currentOptions: VideoGenerationOptions = (video.options || {}) as VideoGenerationOptions
 
     // Merge existing captions config with the new partial config
-    const currentCaptionsConfig = currentOptions.assCaptions || {}
+    const currentCaptionsConfig: Partial<AssCaptionConfig> = currentOptions.assCaptions || {}
     const updatedCaptionsConfig: AssCaptionConfig = {
+      style: 'colored',
+      fontFamily: 'Montserrat',
+      position: 'bottom',
+      highlightColor: '#FFE135',
       ...currentCaptionsConfig,
       ...validConfig
     }

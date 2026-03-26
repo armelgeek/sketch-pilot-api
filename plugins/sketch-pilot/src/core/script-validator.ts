@@ -156,27 +156,6 @@ export class ScriptValidator {
       if (!scene.narration || scene.narration.trim().length < 5) {
         critical.push(`${sceneLabel}: Missing or too short narration`)
       }
-
-      // Check for minimum scene duration
-      const duration = (scene.timeRange?.end || 0) - (scene.timeRange?.start || 0)
-      if (duration < MIN_SCENE_DURATION) {
-        warnings.push(`${sceneLabel}: Duration ${duration.toFixed(1)}s is below minimum ${MIN_SCENE_DURATION}s`)
-      }
-
-      // Check for redundant props
-      if (scene.props && scene.props.length > 3) {
-        warnings.push(`${sceneLabel}: More than 3 props (${scene.props.length}) - may clutter visuals`)
-      }
-
-      // Check for missing expression
-      if (!scene.expression) {
-        warnings.push(`${sceneLabel}: Missing character expression`)
-      }
-
-      // Check for invalid actions
-      if (!scene.actions || scene.actions.length === 0) {
-        warnings.push(`${sceneLabel}: No character actions defined`)
-      }
     })
 
     return { critical, warnings }
@@ -240,30 +219,6 @@ export class ScriptValidator {
     const variants = new Set(scenes.map((s) => s.characterVariant))
     if (variants.size > 2) {
       score -= 1 // Too many character variants
-    }
-
-    // Check props continuity (should reuse some)
-    const allProps = new Set<string>()
-    let propReuse = 0
-    for (const scene of scenes) {
-      if (scene.props) {
-        for (const prop of scene.props) {
-          if (allProps.has(prop)) {
-            propReuse++
-          }
-          allProps.add(prop)
-        }
-      }
-    }
-
-    if (allProps.size > 0 && propReuse === 0) {
-      score -= 1 // No prop reuse across scenes
-    }
-
-    // Check expression variety
-    const expressions = new Set(scenes.map((s) => s.expression?.toLowerCase()).filter(Boolean))
-    if (expressions.size < 2 && scenes.length > 3) {
-      score -= 0.5 // Too little expression variety
     }
 
     return Math.max(0, Math.round(score * 10) / 10)
@@ -388,29 +343,6 @@ export class ScriptValidator {
   private checkStructuralPlanning(script: CompleteVideoScript): { critical: string[]; warnings: string[] } {
     const critical: string[] = []
     const warnings: string[] = []
-    const plan = script.globalPlan
-
-    if (!plan) {
-      warnings.push('Missing Global Narrative Plan - planning may be suboptimal')
-      return { critical, warnings }
-    }
-
-    // Check Artistic Style
-    if (!plan.artisticStyle) {
-      warnings.push('Artistic Style is missing in the global plan')
-    } else {
-      if (!plan.artisticStyle.colorHarmonyStrategy) warnings.push('Art Director: Missing color harmony strategy')
-      if (!plan.artisticStyle.textureAndGrain) warnings.push('Art Director: Missing texture/grain directive')
-    }
-
-    // Check Callbacks & Foreshadowing
-    if (plan.callbacks && plan.callbacks.length > 0) {
-      plan.callbacks.forEach((c, i) => {
-        if (!c.originalSceneId || !c.callbackSceneId) {
-          warnings.push(`Callback ${i + 1}: Invalid scene references`)
-        }
-      })
-    }
 
     // Check Visual Anchors in scenes
     const scenesWithAnchors = script.scenes.filter((s) => s.visualAnchors && s.visualAnchors.length > 0).length

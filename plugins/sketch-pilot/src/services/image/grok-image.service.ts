@@ -24,11 +24,12 @@ export class GrokImageService implements ImageService {
       aspectRatio?: string
       removeBackground?: boolean
       skipTrim?: boolean
-      referenceImages?: string[]
+      referenceImages?: (string | { name?: string; data: string })[]
       systemInstruction?: string
       quality?: 'ultra-low' | 'low' | 'medium' | 'high'
       smartUpscale?: boolean
       format?: 'png' | 'webp'
+      characterSheets?: any[]
       seed?: number
     } = {}
   ): Promise<string> {

@@ -99,22 +99,12 @@ export class VideoGenerationService {
     const scriptSpec = await this.promptService.resolveSpec((options as any).promptId)
 
     // 2. Resolve Character Styles and Voice
-    let artistPersona: string | undefined
-    let stylePrefix: string | undefined
     let effectiveVoiceId = options.kokoroVoicePreset as string | undefined
 
     if (options.characterModelId) {
       const charModel = await this.characterModelRepository.findById(options.characterModelId)
-      if (charModel) {
-        if (!effectiveVoiceId && charModel.voiceId) {
-          effectiveVoiceId = charModel.voiceId
-        }
-        artistPersona = (charModel as any).stylePrefix || undefined
-        stylePrefix = (charModel as any).stylePrefix || undefined
-        // Wait! The field names might be different if I just updated the schema.
-        // Let's use the actual names I added: stylePrefix and artistPersona.
-        artistPersona = (charModel as any).artistPersona || undefined
-        stylePrefix = (charModel as any).stylePrefix || undefined
+      if (charModel && !effectiveVoiceId && charModel.voiceId) {
+        effectiveVoiceId = charModel.voiceId
       }
     }
 
@@ -141,11 +131,9 @@ export class VideoGenerationService {
       cacheSystemPrompt: true
     }
 
-    // NanoBananaEngine constructor: (apiKey, artistPersona?, stylePrefix?, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptSpecs?)
+    // NanoBananaEngine constructor: (apiKey, systemPrompt?, audioConfig?, animationConfig?, imageConfig?, llmConfig?, transcriptionConfig?, promptSpecs?)
     return new NanoBananaEngine(
       apiKey,
-      artistPersona,
-      stylePrefix,
       undefined, // systemPrompt
       audioConfig,
       animationConfig,

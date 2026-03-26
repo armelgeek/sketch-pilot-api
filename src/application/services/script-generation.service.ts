@@ -79,8 +79,10 @@ export class ScriptGenerationService {
             name: model.name,
             modelId: model.id,
             voiceId: model.voiceId || undefined,
-            stylePrefix: model.stylePrefix || undefined,
-            artistPersona: model.artistPersona || undefined
+            appearance: {
+              description: (model as any).description || undefined,
+              clothing: (model as any).clothing || undefined
+            }
           }
         ]
       }
@@ -108,8 +110,6 @@ export class ScriptGenerationService {
             const model = await this.characterModelRepository.findByMetadata(gender, age)
             if (model) {
               sheet.modelId = model.id
-              sheet.stylePrefix = model.stylePrefix || undefined
-              sheet.artistPersona = model.artistPersona || undefined
             }
           }
         }
@@ -137,8 +137,13 @@ export class ScriptGenerationService {
           const enrolled = genOptions.characters?.[0]
           if (enrolled && sheet.name.toLowerCase() === enrolled.name.toLowerCase()) {
             sheet.modelId = enrolled.modelId
-            sheet.stylePrefix = enrolled.stylePrefix
-            sheet.artistPersona = enrolled.artistPersona
+            if (enrolled.appearance) {
+              sheet.appearance = {
+                ...sheet.appearance,
+                description: enrolled.appearance.description || sheet.appearance.description,
+                clothing: enrolled.appearance.clothing || sheet.appearance.clothing
+              }
+            }
             if (enrolled.voiceId) sheet.voiceId = enrolled.voiceId
           }
         }

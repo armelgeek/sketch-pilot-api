@@ -10,7 +10,7 @@ export interface ImageService {
       aspectRatio?: string
       removeBackground?: boolean
       skipTrim?: boolean
-      referenceImages?: string[]
+      referenceImages?: (string | { name?: string; data: string })[]
       systemInstruction?: string
       /** Quality level: 'ultra-low' (20%→20x cheaper, 'low' (40%)→10x cheaper, 'medium' (60%), 'high' (100%=default) */
       quality?: 'ultra-low' | 'low' | 'medium' | 'high'
@@ -19,6 +19,7 @@ export interface ImageService {
       /** Output format: 'png' (default) or 'webp' (30% smaller, faster) */
       format?: 'png' | 'webp'
       /** Deterministic seed for reproducible generation (ensures consistency) */
+      characterSheets?: any[]
       seed?: number
     }
   ) => Promise<string>

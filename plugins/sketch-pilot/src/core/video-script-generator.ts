@@ -6,7 +6,6 @@ import {
   type CharacterSheet,
   type CompleteVideoScript,
   type EnrichedScene,
-  type GlobalNarrativePlan,
   type SceneContextType,
   type VideoGenerationOptions
 } from '../types/video-script.types'
@@ -64,10 +63,7 @@ export class VideoScriptGenerator {
 
     const characterSheets: CharacterSheet[] = baseScript.characterSheets || []
 
-    // Global Plan (Phase 31: Consolidated in baseScript)
-    const globalPlan = baseScript.globalPlan
-
-    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets, globalPlan)
+    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets)
 
     let actualTotal = enrichedScenes.reduce((acc, s) => {
       const end = s.timeRange?.end
@@ -91,7 +87,6 @@ export class VideoScriptGenerator {
       scenes: enrichedScenes,
       aspectRatio: options.aspectRatio || '16:9',
       backgroundMusic: baseScript.backgroundMusic,
-      globalPlan,
       globalAudio: options.globalAudioPath
     }
 
@@ -118,7 +113,6 @@ export class VideoScriptGenerator {
     scenes: RawScene[]
     characterSheets?: CharacterSheet[]
     backgroundMusic?: string
-    globalPlan?: any
   }> {
     const { systemPrompt, userPrompt } = this.promptManager.buildScriptGenerationPrompts(topic, options)
 
@@ -194,9 +188,7 @@ export class VideoScriptGenerator {
    */
   private postProcessScenes(scenes: RawScene[], characterSheets: CharacterSheet[]): RawScene[] {
     this.enforceCharacterPresence(scenes, characterSheets)
-    this.truncateExcessiveProps(scenes)
     this.deduplicateNarration(scenes)
-    this.assignSoundEffectIds(scenes)
     this.ensureRequiredFields(scenes)
     return scenes
   }
@@ -232,16 +224,6 @@ export class VideoScriptGenerator {
     })
   }
 
-  /** Cap props at 3 per scene to avoid visual overload. */
-  private truncateExcessiveProps(scenes: RawScene[]): void {
-    scenes.forEach((scene, idx) => {
-      if (scene.props && Array.isArray(scene.props) && scene.props.length > 3) {
-        console.warn(`[VideoScriptGen] Scene ${idx + 1} has more than 3 props; truncating.`)
-        scene.props = scene.props.slice(0, 3)
-      }
-    })
-  }
-
   /** Clear narration that is identical to the previous scene. */
   private deduplicateNarration(scenes: RawScene[]): void {
     scenes.forEach((scene, idx) => {
@@ -256,27 +238,9 @@ export class VideoScriptGenerator {
     })
   }
 
-  /** Ensure every sound effect has a unique ID. */
-  private assignSoundEffectIds(scenes: RawScene[]): void {
-    scenes.forEach((scene, idx) => {
-      if (scene.soundEffects && Array.isArray(scene.soundEffects)) {
-        scene.soundEffects.forEach((sfx, sfxIdx) => {
-          if (!sfx.id) {
-            sfx.id = `sfx-${scene.sceneNumber || idx + 1}-${sfxIdx + 1}-${Math.random().toString(36).slice(2, 9)}`
-          }
-        })
-      }
-    })
-  }
-
-  /**
-   * Ensure required fields for EnrichedScene are present with defaults.
-   */
   private ensureRequiredFields(scenes: RawScene[]): void {
     scenes.forEach((scene) => {
       if (!scene.narration) scene.narration = ''
-      if (!scene.actions) scene.actions = []
-      if (!scene.expression) scene.expression = 'neutral'
     })
   }
 
@@ -399,10 +363,9 @@ export class VideoScriptGenerator {
   private async enrichScenes(
     baseScenes: RawScene[],
     options: VideoGenerationOptions,
-    characterSheets: CharacterSheet[],
-    globalPlan?: GlobalNarrativePlan
+    characterSheets: CharacterSheet[]
   ): Promise<EnrichedScene[]> {
-    console.log(`[VideoScriptGen] Enriching ${baseScenes.length} scenes with prompts and global plan...`)
+    console.log(`[VideoScriptGen] Enriching ${baseScenes.length} scenes with prompts...`)
 
     const aspectRatio = options.aspectRatio || '16:9'
     const imageStyle = options.imageStyle
@@ -426,8 +389,6 @@ export class VideoScriptGenerator {
     // First pass: resolve all scenes so SceneMemoryBuilder works with resolved names
     const resolvedScenes = baseScenes.map((scene) => ({
       ...scene,
-      actions: (scene.actions || []).map((a) => resolveCharacters(a)),
-      expression: resolveCharacters(scene.expression || ''),
       summary: resolveCharacters(scene.summary || ''),
       narration: resolveCharacters(scene.narration || ''),
       background: resolveCharacters(scene.background || ''),
@@ -461,14 +422,13 @@ export class VideoScriptGenerator {
         aspectRatio,
         imageStyle,
         sceneMemory,
-        globalPlan
+        characterSheets
       )
 
       const animationPromptText =
         resolvedScene.animationPrompt != null
           ? resolveCharacters(resolvedScene.animationPrompt)
-          : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle, globalPlan)
-              .instructions
+          : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
 
       return {
         ...resolvedScene,
@@ -528,23 +488,13 @@ export class VideoScriptGenerator {
     script.scenes.forEach((scene) => {
       lines.push(
         `### Scene ${scene.sceneNumber} [${formatTime(scene.timeRange.start)} - ${formatTime(scene.timeRange.end)}]`,
-        `- **Narration:** *"${scene.narration}"*`,
-        `- **Expression:** ${scene.expression}`
+        `- **Narration:** *"${scene.narration}"*`
       )
-
-      if (scene.actions && scene.actions.length > 0) {
-        lines.push(`- **Actions:**`)
-        scene.actions.forEach((action) => lines.push(`  - ${action}`))
-      }
 
       if (scene.poseStyle) {
         const pos = scene.poseStyle.position || 'center'
         const scale = scene.poseStyle.scale || 1
         lines.push(`- **Pose Layout:** ${pos} (scale ${scale})`)
-      }
-
-      if (scene.props && scene.props.length > 0) {
-        lines.push(`- **Props:** ${scene.props.join(', ')}`)
       }
 
       lines.push(

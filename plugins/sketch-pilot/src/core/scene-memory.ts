@@ -4,10 +4,9 @@ import type { CharacterSheet, CompleteVideoScript, EnrichedScene } from '../type
  * Minimum scene fields required by SceneMemoryBuilder.
  * Using a structural subtype avoids forcing callers to cast partially-built scenes.
  */
-export type SceneMemoryInput = Pick<EnrichedScene, 'id' | 'expression' | 'characterIds' | 'props'> & {
+export type SceneMemoryInput = Pick<EnrichedScene, 'id' | 'characterIds'> & {
   locationId?: string | null
   background?: string | null
-  lighting?: string | null
 }
 
 /**
@@ -45,8 +44,8 @@ export interface SceneMemoryCharacter {
  * memory.locations.get("train-station")
  * // => { prompt: "Paris train station, stone arches, glass roof...", referenceImageId: "scene-2" }
  *
- * // Character "Alex" carries a backpack from scene 1 through scene 9
- * memory.characters.get("Alex")
+ * // Character "Lily" carries a backpack from scene 1 through scene 9
+ * memory.characters.get("Lily")
  * // => { ..., currentProps: ["backpack"], currentEmotion: "focused" }
  */
 export interface SceneMemory {
@@ -128,7 +127,6 @@ export class SceneMemoryBuilder {
   public processScene(scene: SceneMemoryInput, memory: SceneMemory, charDescriptionMap: Map<string, string>): void {
     this.processLocation(scene, memory)
     this.processCharacters(scene, memory, charDescriptionMap)
-    this.processTemporalContext(scene, memory)
   }
 
   /**
@@ -169,51 +167,9 @@ export class SceneMemoryBuilder {
         memory.characters.set(charId, {
           description,
           referenceImageId: scene.id,
-          currentProps: scene.props ?? [],
-          currentEmotion: scene.expression ?? ''
+          currentProps: [],
+          currentEmotion: ''
         })
-      } else {
-        // Later appearance — update current props and emotion
-        if (scene.props !== undefined) {
-          existing.currentProps = scene.props
-        }
-        if (scene.expression !== undefined && scene.expression !== null) {
-          existing.currentEmotion = scene.expression
-        }
-      }
-    }
-  }
-
-  /**
-   * Extract time-of-day and weather from scene metadata.
-   * Only records the first values encountered to maintain narrative consistency.
-   */
-  private processTemporalContext(scene: SceneMemoryInput, memory: SceneMemory): void {
-    if (!memory.timeOfDay) {
-      const lighting = (scene.lighting ?? '').toLowerCase()
-      if (lighting.includes('morning') || lighting.includes('dawn') || lighting.includes('sunrise')) {
-        memory.timeOfDay = 'morning'
-      } else if (lighting.includes('noon') || lighting.includes('midday') || lighting.includes('afternoon')) {
-        memory.timeOfDay = 'afternoon'
-      } else if (lighting.includes('evening') || lighting.includes('sunset') || lighting.includes('dusk')) {
-        memory.timeOfDay = 'evening'
-      } else if (lighting.includes('night') || lighting.includes('midnight')) {
-        memory.timeOfDay = 'night'
-      }
-    }
-
-    if (!memory.weather) {
-      const bg = (scene.background ?? '').toLowerCase()
-      if (bg.includes('rain') || bg.includes('rainy')) {
-        memory.weather = 'rainy'
-      } else if (bg.includes('snow') || bg.includes('snowy')) {
-        memory.weather = 'snowy'
-      } else if (bg.includes('sunny') || bg.includes('clear sky')) {
-        memory.weather = 'sunny'
-      } else if (bg.includes('cloud') || bg.includes('overcast')) {
-        memory.weather = 'cloudy'
-      } else if (bg.includes('fog') || bg.includes('mist')) {
-        memory.weather = 'foggy'
       }
     }
   }

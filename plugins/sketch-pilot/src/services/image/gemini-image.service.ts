@@ -1,6 +1,5 @@
 import * as fs from 'node:fs'
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai'
-import sharp from 'sharp'
 import type { ImageService, ImageServiceConfig } from './index'
 
 /**
@@ -33,23 +32,19 @@ export class GeminiImageService implements ImageService {
       aspectRatio?: string
       removeBackground?: boolean
       skipTrim?: boolean
-      referenceImages?: string[]
+      referenceImages?: (string | { name?: string; data: string })[]
       systemInstruction?: string
       quality?: 'ultra-low' | 'low' | 'medium' | 'high'
       smartUpscale?: boolean
       format?: 'png' | 'webp'
+      characterSheets?: any[]
       seed?: number
     } = {}
   ): Promise<string> {
     const baseImages = options.referenceImages || []
-    const bgConstraint = options.removeBackground
-      ? 'Isolated on a solid pure #FFFFFF white background. No shadows, no gradients.'
-      : ''
-    const originalPrompt = `${prompt} ${bgConstraint} ${this.styleSuffix}`.trim()
-    const dynamicSystemInstruction = options.systemInstruction || this.systemPrompt
+    const originalPrompt = `${prompt}`
     const geminiAspectRatio = options.aspectRatio || '16:9'
     const fileFormat = options.format || 'png'
-    const mimeType = fileFormat === 'webp' ? 'image/webp' : 'image/png'
 
     for (let attempt = 0; attempt <= GeminiImageService.NO_IMAGE_MAX_RETRIES; attempt++) {
       // On retries, progressively simplify the prompt to avoid content policy conflicts
@@ -57,11 +52,28 @@ export class GeminiImageService implements ImageService {
 
       const contents: any[] = []
 
+      if (options.characterSheets && options.characterSheets.length > 0) {
+        const sheetsText = options.characterSheets
+          .map((s: any) => `- @${s.name}: ${s.appearance?.description || ''} ${s.role ? `(${s.role})` : ''}`)
+          .join('\n')
+        contents.push({
+          text: `CHARACTER PROFILES (Absolute reference for @Name syntax):\n${sheetsText}`
+        })
+      }
+
       if (baseImages.length > 0) {
         contents.push({
-          text: 'REFERENCE IMAGES: Use the following images as the ABSOLUTE SOURCE OF TRUTH for character identity, clothing, and artistic style. All generated scenes must remain 100% consistent with these models.'
+          text: 'REFERENCE IMAGES: Use the following images as the ABSOLUTE SOURCE OF TRUTH for character identity, clothing, and artistic style. All generated scenes must remain 100% consistent with these models. If a name is provided before an image, it refers to that specific character.'
         })
-        baseImages.forEach((raw) => {
+        baseImages.forEach((img) => {
+          const isObject = typeof img === 'object'
+          const name = isObject ? img.name : undefined
+          const raw = isObject ? (img as any).data : (img as string)
+
+          if (name) {
+            contents.push({ text: `NAME: @${name}` })
+          }
+
           // Safety check: Strip Data URI prefix if present
           const data = raw.replace(/^data:image\/[a-z]+;base64,/, '')
           let refMimeType = 'image/jpeg'
@@ -84,7 +96,6 @@ export class GeminiImageService implements ImageService {
           console.log(
             `[GeminiImage] Retry ${attempt}/${GeminiImageService.NO_IMAGE_MAX_RETRIES} with simplified prompt...`
           )
-          console.log(`[GeminiImage] Simplified Prompt: ${currentPrompt}`)
         }
 
         // Map high-level quality to numeric values if needed, otherwise rely on model default
@@ -96,7 +107,6 @@ export class GeminiImageService implements ImageService {
           contents,
           config: {
             responseModalities: ['IMAGE'],
-            systemInstruction: attempt < 2 ? dynamicSystemInstruction : undefined, // Drop system instruction on last retries
             imageConfig: {
               aspectRatio: geminiAspectRatio
             },
@@ -121,19 +131,7 @@ export class GeminiImageService implements ImageService {
             if (part.inlineData?.data) {
               const buffer = Buffer.from(part.inlineData.data, 'base64')
 
-              // Post-process: resize to exact aspect ratio dimensions
-              const targetRes = this.getResolution(geminiAspectRatio)
-              const [width, height] = targetRes.split('x').map(Number)
-
-              console.log(`[GeminiImage] Resizing generated image to ${targetRes}...`)
-              const finalBuffer = await sharp(buffer)
-                .resize(width, height, {
-                  fit: 'cover',
-                  position: 'center'
-                })
-                .toBuffer()
-
-              fs.writeFileSync(filename, finalBuffer)
+              fs.writeFileSync(filename, buffer)
               console.log(
                 `[GeminiImage] ✅ Saved image to ${filename}${attempt > 0 ? ` (after ${attempt} retries)` : ''}`
               )
@@ -163,17 +161,5 @@ export class GeminiImageService implements ImageService {
     }
 
     return ''
-  }
-
-  private getResolution(aspectRatio: string): string {
-    switch (aspectRatio) {
-      case '9:16':
-        return '720x1280'
-      case '1:1':
-        return '1080x1080'
-      case '16:9':
-      default:
-        return '1280x720'
-    }
   }
 }

@@ -184,8 +184,7 @@ export const characterSheetSchema = z.object({
   referenceImageUrl: z.string().optional().describe('URL to a custom AI-generated reference image for this character'),
   imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation'),
   lockedPromptSegment: z.string().optional().describe('Base style DNA segment that stays fixed between generations'),
-  stylePrefix: z.string().optional().describe('Visual style prefix for this specific character'),
-  artistPersona: z.string().optional().describe('Artist persona or style handle (e.g. Studio Ghibli)'),
+  referenceImagesBase64: z.array(z.string()).optional().describe('Direct base64 image strings for character reference'),
   generationVariants: z
     .array(
       z.object({
@@ -208,8 +207,12 @@ export const characterEnrollmentSchema = z.object({
   name: z.string().describe('Name of the character (e.g. "Lily")'),
   modelId: z.string().optional().describe('ID of the character model to use'),
   voiceId: z.string().optional().describe('ID of the voice to use for this character'),
-  stylePrefix: z.string().optional().describe('Visual style prefix for this character'),
-  artistPersona: z.string().optional().describe('Artist persona for this character')
+  appearance: z
+    .object({
+      description: z.string().optional(),
+      clothing: z.string().optional()
+    })
+    .optional()
 })
 
 export type CharacterEnrollment = z.infer<typeof characterEnrollmentSchema>
@@ -272,14 +275,19 @@ export const enrichedSceneSchema = z.object({
   sceneNumber: z.number().int().positive(),
   timeRange: timeRangeSchema,
   duration: z.number().optional().describe('Scene duration in seconds (aim for 10-12s)'),
-  timestamp: z.number().optional().describe('Start timestamp of the scene'),
+  timestamp: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((val) => (typeof val === 'string' ? parseFloat(val) : val))
+    .describe('Start timestamp of the scene'),
   summary: z.string().optional().describe('Concise summary of identifying actions in the scene'),
   narration: z.string().describe('Main narrative text for the scene'),
-  actions: z.array(z.string()).describe('List of physical actions the character performs'),
-  expression: z.string().describe('Facial expression and emotional state'),
-  characterIds: z.array(z.string()).optional().describe('List of character IDs present in the scene'),
+  characterIds: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((val) => (typeof val === 'string' ? [val] : val))
+    .describe('List of character IDs present in the scene'),
   speakingCharacterId: z.string().optional().describe('ID of the character currently speaking/narrating'),
-  speechBubble: z.string().nullish().describe('Text for speech bubble dialogue (if any)'),
   onscreenText: z
     .string()
     .nullish()
@@ -295,16 +303,6 @@ export const enrichedSceneSchema = z.object({
   onscreenTextStyle: onscreenTextStyleSchema
     .optional()
     .describe('Styling for onscreenText. Supports keyword coloring, multi-line, and positioning.'),
-  eyelineMatch: z
-    .enum(['left', 'right', 'up', 'down', 'center', 'forward'])
-    .catch('center')
-    .optional()
-    .describe('Direction in which the character is looking, used for eyeline match continuity'),
-  props: z.array(z.string()).optional().describe('Optional props or objects in the scene'),
-  mood: z.string().nullish().describe('Overall emotional tone or atmosphere of the scene'),
-  cameraType: z.string().nullish().describe('Type of camera movement or static shot'),
-  framing: z.string().nullish().describe('Cinematic framing (e.g., Close-up, Wide, Medium)'),
-  lighting: z.string().nullish().describe('Lighting description (e.g., Warm sunset, Harsh office light)'),
   background: z.string().nullish().describe('Background description'),
   locationId: z
     .string()
@@ -313,52 +311,11 @@ export const enrichedSceneSchema = z.object({
       'Unique identifier for the location of this scene (e.g. "train-station", "office"). ' +
         'Scenes sharing the same locationId reuse the same visual background for consistency.'
     ),
-  imagePrompt: z
-    .string()
-    .describe('Concise, single-string image generation prompt (e.g. 2D vector style, character action, 16:9)'),
-  animationPrompt: z.string().describe('Animation instructions for movement'),
-  visualDensity: z
-    .enum(['low', 'medium', 'high'])
-    .default('medium')
-    .describe('Visual complexity: low (text only), medium (standard), high (busy/detailed)'),
-  // we accept arbitrary strings and normalize them into the allowed enum values; this prevents
-  // a bad value from the LLM from crashing the zod validation later on.  synonyms such as
-  // 'hook' or 'revelation' are mapped to sensible defaults.
-  contextType: z
-    .string()
-    .optional()
-    .transform((val) => {
-      if (!val) return undefined
-      const lower = val.toLowerCase()
-      const valid: SceneContextType[] = [
-        'quick-list',
-        'transition',
-        'story',
-        'explanation',
-        'detailed-breakdown',
-        'conclusion'
-      ]
-      const map: Record<string, SceneContextType> = {
-        hook: 'story',
-        revelation: 'explanation',
-        intro: 'transition',
-        outro: 'conclusion'
-      }
-      if (valid.includes(lower as SceneContextType)) {
-        return lower as SceneContextType
-      }
-      if (map[lower]) {
-        return map[lower]
-      }
-      return undefined
-    })
-    .describe('Scene purpose label used for duration estimation'),
+  imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
+  animationPrompt: z.string().optional().describe('Animation instructions for movement'),
   characterVariant: characterVariantSchema.nullish().describe('Special variant of the character'),
   backgroundColor: hexColorSchema.optional().describe('Background color for this specific scene'),
   // Dynamism fields
-  soundEffects: z.array(soundEffectSchema).optional().describe('List of sound effects for this scene'),
-  soundscape: z.string().optional().describe('Ambient background soundscape (e.g., office, forest, crowd)'),
-  cameraAction: cameraActionSchema.optional().describe('Camera movement for this scene'),
   transitionToNext: transitionTypeSchema.optional().describe('Transition to the next scene'),
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),
   pauseAfter: z.number().default(0.1).describe('Specific silence duration after narration ends (in seconds)'),
@@ -381,20 +338,6 @@ export const enrichedSceneSchema = z.object({
       'ID of a pre-generated pose for the character (e.g. STAND, RUN). Use NONE for scenes without a character (text-only or abstract).'
     ),
   poseStyle: poseStyleSchema.optional().describe('Custom positioning and scaling for the character pose.'),
-  tension: z
-    .number()
-    .min(0)
-    .max(10)
-    .default(5)
-    .describe(
-      'Emotional tension score 0-10 (0=calm/silence, 10=peak drama). Drives TTS speed, music intensity, and transition type.'
-    ),
-  progressiveElements: z
-    .array(z.string())
-    .optional()
-    .describe(
-      'New visual elements to ADD on top of the previous scene frame (only when continueFromPrevious is true). Example: ["email icon floating", "settings gear"]'
-    ),
   keywordVisuals: z
     .array(
       z.object({
@@ -431,88 +374,6 @@ export const enrichedSceneSchema = z.object({
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
-
-/**
- * Global Narrative Plan for the Director Pass.
- * Defines the visual and emotional arc across the entire video.
- */
-export const globalNarrativePlanSchema = z.object({
-  visualArc: z.object({
-    lightingEvolution: z.string().describe('How lighting changes from start to end (e.g. "bright to moody")'),
-    colorPaletteShift: z.string().describe('How colors evolve (e.g. "saturated to monochrome")'),
-    styleContinuity: z.string().describe('Key visual elements to maintain (e.g. "minimalist lines", "soft watercolor")')
-  }),
-  recurringSymbols: z
-    .array(
-      z.object({
-        element: z.string().describe('The object/symbol (e.g. "Red Umbrella")'),
-        meaning: z.string().describe('What it represents'),
-        scenes: z.array(z.string()).describe('Scene IDs or descriptors where it must appear')
-      })
-    )
-    .optional(),
-  emotionalCurve: z
-    .array(
-      z.object({
-        stage: z.string(),
-        tension: z.number().min(0).max(10),
-        visualVibe: z.string().describe('How the visual style reflects the tension')
-      })
-    )
-    .describe('Emotional arc mapping to visual vibe'),
-  foreshadowing: z
-    .array(
-      z.object({
-        element: z.string().describe('The object or hint to introduce early'),
-        appearsInScenes: z.array(z.string()).describe('Scene IDs or indices where it should appear as a hint'),
-        payoffSceneId: z.string().describe('The scene ID where this element becomes critical'),
-        hintDescription: z
-          .string()
-          .describe('How to subtly show it (e.g. "blurry in background", "on a distant shelf")')
-      })
-    )
-    .optional()
-    .describe('Elements introduced early to prepare for later payoffs'),
-  visualStorytelling: z
-    .object({
-      keyVisualMetaphors: z.array(z.string()).describe('Visual metaphors to represent abstract concepts'),
-      clarityStrategy: z.string().describe('Strategy to ensure the message is understood without audio')
-    })
-    .optional()
-    .describe('Directives to make the video understandable without sound'),
-  callbacks: z
-    .array(
-      z.object({
-        element: z.string().describe('The object or composition to reuse'),
-        originalSceneId: z.string().describe('Where it first appeared'),
-        callbackSceneId: z.string().describe('Where it reappears to show evolution'),
-        meaning: z.string().describe('The resonance or change being highlighted')
-      })
-    )
-    .optional()
-    .describe('Visual references to previous scenes to show evolution or memory'),
-  pacing: z
-    .object({
-      cameraMovementStrategy: z.string().describe('Global camera movement style (static, dynamic, shaky)'),
-      transitionPulse: z
-        .string()
-        .describe('How transitions should follow the emotional arc (e.g. "rapid cuts", "slow fades")')
-    })
-    .optional()
-    .describe('Global rhythm and movement directives'),
-  artisticStyle: z
-    .object({
-      textureAndGrain: z.string().describe('Visual texture (e.g. "rough paper", "clean digital", "soft grain")'),
-      lineQuality: z.string().describe('Line style (e.g. "tapered ink", "uniform charcoal", "fuzzy pencil")'),
-      colorHarmonyStrategy: z
-        .string()
-        .describe('Strategy for color consistency (e.g. "triadic brights", "analogous blues")')
-    })
-    .optional()
-    .describe('Directives from the Art Director for visual consistency')
-})
-
-export type GlobalNarrativePlan = z.infer<typeof globalNarrativePlanSchema>
 
 /**
  * Context types used by the scene-duration model.
@@ -587,9 +448,6 @@ export const completeVideoScriptSchema = z.object({
     .optional()
     .describe('Suggested mood/genre for background music'),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('16:9').describe('Aspect ratio of the video'),
-  globalPlan: globalNarrativePlanSchema
-    .optional()
-    .describe('Global narrative and visual strategy from the Director Pass'),
   globalAudio: z.string().optional().describe('Path to the global audio narration file if used')
 })
 
@@ -993,14 +851,7 @@ export const imagePromptSchema = z.object({
     .string()
     .describe(
       'Concise, single-string prompt (Crayon Capital style by default) including aspect ratio suffix at the end'
-    ),
-  elements: z.object({
-    pose: z.string(),
-    action: z.string(),
-    expression: z.string(),
-    props: z.array(z.string()).optional(),
-    background: z.string().default('plain white').describe('Description of the background or environment')
-  })
+    )
 })
 
 export type ImagePrompt = z.infer<typeof imagePromptSchema>

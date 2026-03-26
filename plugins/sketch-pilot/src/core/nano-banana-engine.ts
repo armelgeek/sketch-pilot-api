@@ -74,14 +74,10 @@ export class NanoBananaEngine {
   private readonly animationConfig?: AnimationServiceConfig
   private readonly llmConfig?: LLMServiceConfig
   private readonly imageConfig?: ImageServiceConfig
-  private readonly artistPersona?: string
-  private readonly stylePrefix?: string
   private readonly transcriptionConfig?: TranscriptionConfig
 
   constructor(
     apiKey: string,
-    artistPersona?: string,
-    stylePrefix?: string,
     systemPrompt?: string,
     audioConfig?: AudioServiceConfig,
     animationConfig?: AnimationServiceConfig,
@@ -95,8 +91,6 @@ export class NanoBananaEngine {
     this.animationConfig = animationConfig
     this.llmConfig = llmConfig
     this.imageConfig = imageConfig
-    this.artistPersona = artistPersona
-    this.stylePrefix = stylePrefix
     this.transcriptionConfig = transcriptionConfig
 
     this.currentTranscriptionConfig = transcriptionConfig || {
@@ -117,17 +111,6 @@ export class NanoBananaEngine {
 
     this.currentImageProvider = imageConfig?.provider || 'gemini'
     this.currentLLMProvider = llmConfig?.provider || 'gemini'
-
-    // Inject character-specific style into imageStyle options so it flows into prompt building
-    if (this.stylePrefix) {
-      this.currentOptions = {
-        ...this.currentOptions,
-        imageStyle: {
-          ...(this.currentOptions.imageStyle ?? {}),
-          stylePrefix: this.stylePrefix
-        }
-      } as any
-    }
 
     this.sceneCache = new SceneCacheService()
 
@@ -198,7 +181,6 @@ export class NanoBananaEngine {
         this.imageConfig || {
           provider: this.currentImageProvider,
           apiKey: this.apiKey,
-          styleSuffix: this.stylePrefix,
           systemPrompt: this.systemPrompt
         }
       )
@@ -315,7 +297,7 @@ export class NanoBananaEngine {
 
   async generateImage(
     scene: EnrichedScene,
-    baseImages: string[],
+    baseImages: (string | { name?: string; data: string })[],
     filename: string,
     script?: CompleteVideoScript,
     bypassCache: boolean = false,
@@ -329,29 +311,16 @@ export class NanoBananaEngine {
       this.currentOptions?.aspectRatio || '16:9',
       sceneImageStyle,
       memory,
-      script?.globalPlan,
       script?.characterSheets
     )
 
-    // Guard: abstract scenes (no characters) must stay on-style.
-    const isAbstractScene =
-      (!scene.characterIds || scene.characterIds.length === 0) &&
-      (!scene.characterVariant || scene.characterVariant === 'none') &&
-      !script?.characterSheets?.length
-
-    let effectivePrompt = fullPrompt
-    if (isAbstractScene) {
-      effectivePrompt = `${this.stylePrefix || 'FLAT 2D ILLUSTRATION STYLE'}. Simple, clean, diagrammatic.\n${fullPrompt}`
-    }
-
     const systemInstruction = this.promptManager.buildImageSystemInstruction(
       hasReferenceImages,
-      this.stylePrefix,
-      script?.globalPlan
+      script?.characterSheets
     )
 
     if (!bypassCache) {
-      const cachedResult = this.sceneCache.get(effectivePrompt, {
+      const cachedResult = this.sceneCache.get(fullPrompt, {
         sceneId: scene.id,
         imageStyle: this.currentOptions?.imageStyle
       })
@@ -383,13 +352,14 @@ export class NanoBananaEngine {
         const seed = parseInt(scene.id.replaceAll(/\D/g, '').slice(0, 10) || '12345', 10)
 
         // Using the high-quality natural language prompt directly from PromptManager
-        const refinedPrompt = effectivePrompt
+        const refinedPrompt = fullPrompt
 
         const startTime = Date.now()
         const imageUrl = await this.imageService.generateImage(refinedPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: baseImages,
-          systemInstruction
+          systemInstruction,
+          characterSheets: script?.characterSheets
         })
 
         const duration = Date.now() - startTime
@@ -398,7 +368,7 @@ export class NanoBananaEngine {
         )
 
         if (!bypassCache) {
-          this.sceneCache.set(effectivePrompt, imageUrl, {
+          this.sceneCache.set(fullPrompt, imageUrl, {
             sceneId: scene.id,
             imageStyle: this.currentOptions?.imageStyle
           })
@@ -430,7 +400,8 @@ export class NanoBananaEngine {
           format: 'webp',
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: baseImages,
-          systemInstruction
+          systemInstruction,
+          characterSheets: script?.characterSheets
         })
         this.sceneCache.set(fullPrompt, result, {
           sceneId: scene.id,
@@ -447,7 +418,8 @@ export class NanoBananaEngine {
           const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
           return await geminiService.generateImage(safetyPrompt, filename, {
             aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-            quality: 'low'
+            quality: 'low',
+            characterSheets: script?.characterSheets
           })
         } catch (ultraError: any) {
           console.error(`[NanoBanana] STAGE 3 fallback failed:`, ultraError.message)
@@ -518,7 +490,7 @@ export class NanoBananaEngine {
    */
   async composeScene(
     scene: EnrichedScene,
-    baseImages: string[],
+    baseImages: (string | { name?: string; data: string })[],
     targetDir: string,
     lastSceneImageBase64?: string,
     isReprompt: boolean = false,
@@ -780,14 +752,12 @@ export class NanoBananaEngine {
       panningEffect:
         animationMode === 'panning'
           ? {
-              type: scene.cameraAction?.type || 'zoom-in',
-              intensity: scene.cameraAction?.intensity || 'medium',
+              type: 'zoom-in',
+              intensity: 'medium',
               duration: totalDuration
             }
           : undefined,
       aspectRatio,
-      soundEffects: scene.soundEffects,
-      cameraAction: scene.cameraAction,
       transitionToNext: scene.transitionToNext,
       backgroundColor: scene.backgroundColor || options.backgroundColor || '#FFFFFF',
       pauseBefore: (scene as any).pauseBefore,
@@ -835,7 +805,7 @@ export class NanoBananaEngine {
    */
   async regenerateSceneImage(
     scene: EnrichedScene,
-    baseImages: string[],
+    baseImages: (string | { name?: string; data: string })[],
     targetDir: string,
     script?: CompleteVideoScript
   ): Promise<void> {
@@ -955,11 +925,7 @@ export class NanoBananaEngine {
     onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   ): Promise<CompleteVideoScript> {
     const validOptions = videoGenerationOptionsSchema.parse({
-      ...options,
-      imageStyle: {
-        ...(options.imageStyle ?? {}),
-        stylePrefix: options.imageStyle?.stylePrefix ?? this.stylePrefix
-      }
+      ...options
     })
 
     // Dynamic LLM provider switching
@@ -1171,7 +1137,18 @@ export class NanoBananaEngine {
 
       console.log(`[NanoBanana] Resolving reference for script character: ${charSheet.name}`)
 
-      // A. Custom Reference Image (User Refined)
+      // A. Direct Base64 References (Priority 1)
+      if ((charSheet as any).referenceImagesBase64 && (charSheet as any).referenceImagesBase64.length > 0) {
+        console.log(
+          `[NanoBanana] Using ${(charSheet as any).referenceImagesBase64.length} direct Base64 reference(s) for ${charSheet.name}`
+        )
+        const refs = (charSheet as any).referenceImagesBase64
+        characterReferenceMap.set(charSheet.name.toLowerCase(), refs)
+        if (charSheet.id) characterReferenceMap.set(charSheet.id.toLowerCase(), refs)
+        continue
+      }
+
+      // B. Custom Reference Image (User Refined - Priority 2)
       if (charSheet.referenceImageUrl) {
         try {
           console.log(
@@ -1654,21 +1631,21 @@ export class NanoBananaEngine {
 
           // Determine scene-specific reference images
           const sceneCharacterNames = scene.characterIds || []
-          const sceneBaseImages: string[] = []
+          const sceneBaseImages: (string | { name: string; data: string })[] = []
 
           // 1. High Priority: Characters (MANDATORY visual soul)
           if (sceneCharacterNames.length > 0) {
             for (const charName of sceneCharacterNames) {
               const refs = characterReferenceMap.get(charName.toLowerCase())
               if (refs) {
-                sceneBaseImages.push(...refs)
+                sceneBaseImages.push(...refs.map((r) => ({ name: charName, data: r })))
               } else {
                 console.warn(`[NanoBanana] ⚠ Reference images NOT FOUND for character: ${charName}`)
               }
             }
           } else if (scene.characterVariant && scene.characterVariant !== 'none') {
             const vRefs = characterReferenceMap.get(scene.characterVariant.toLowerCase())
-            if (vRefs) sceneBaseImages.push(...vRefs)
+            if (vRefs) sceneBaseImages.push(...vRefs.map((r) => ({ name: scene.characterVariant!, data: r })))
           } else if (characterReferenceMap.has('standard')) {
             sceneBaseImages.push(...characterReferenceMap.get('standard')!)
           }
