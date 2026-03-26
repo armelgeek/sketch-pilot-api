@@ -17,13 +17,6 @@ export class PromptGenerator {
   }
 
   /**
-   * Set the background color for prompts
-   */
-  setBackgroundColor(color: string) {
-    this.manager.setBackgroundColor(color)
-  }
-
-  /**
    * Generate a single-string image prompt for a scene in the configured visual style.
    * When hasReferenceImages is true, reference image backgrounds are preserved.
    * @param aspectRatio - The aspect ratio string to append (e.g. '16:9', '9:16', '1:1')

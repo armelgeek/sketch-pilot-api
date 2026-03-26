@@ -20,10 +20,7 @@ export const VideoTypeSpecificationSchema = z.object({
   wordsPerSecondFactors: z.record(z.number()).optional(),
   defaultFontSize: z.number().optional(),
   defaultFontFamily: z.string().optional(),
-  defaultBackgroundPrompt: z.string().optional(),
-  defaultPoseId: z.string().optional(),
-  defaultPoseScale: z.number().optional(),
-  defaultPosePosition: z.string().optional()
+  defaultBackgroundPrompt: z.string().optional()
 })
 
 export const PromptSchema = VideoTypeSpecificationSchema.extend({

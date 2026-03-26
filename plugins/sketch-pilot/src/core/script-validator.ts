@@ -74,20 +74,13 @@ export class ScriptValidator {
       result.warnings.push('Scene durations are unbalanced')
     }
 
-    // Check 6: Structural Planning (Studio Virtuel)
-    const planningIssues = this.checkStructuralPlanning(script)
-    result.metrics.structuralPlanning = 5 - planningIssues.critical.length - planningIssues.warnings.length * 0.5
-    result.criticalIssues.push(...planningIssues.critical)
-    result.warnings.push(...planningIssues.warnings)
-
     // Calculate total score from metrics (0-20)
     const avgMetrics =
       (result.metrics.narrativeCoherence +
         result.metrics.timingAccuracy +
         result.metrics.visualConsistency +
-        result.metrics.sceneBalance +
-        result.metrics.structuralPlanning) /
-      5
+        result.metrics.sceneBalance) /
+      4
     result.score = Math.round(avgMetrics * 4) // Scale 0-5 to 0-20
 
     // Count issues
@@ -335,23 +328,5 @@ export class ScriptValidator {
     const filled = Math.max(0, Math.min(5, Math.round(score)))
     const empty = 5 - filled
     return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`
-  }
-
-  /**
-   * Check structural planning (Global Plan, Artistic Style, Anchors)
-   */
-  private checkStructuralPlanning(script: CompleteVideoScript): { critical: string[]; warnings: string[] } {
-    const critical: string[] = []
-    const warnings: string[] = []
-
-    // Check Visual Anchors in scenes
-    const scenesWithAnchors = script.scenes.filter((s) => s.visualAnchors && s.visualAnchors.length > 0).length
-    if (scenesWithAnchors < script.scenes.length * 0.5) {
-      warnings.push(
-        `Low visual anchor density: only ${scenesWithAnchors}/${script.scenes.length} scenes have power words`
-      )
-    }
-
-    return { critical, warnings }
   }
 }

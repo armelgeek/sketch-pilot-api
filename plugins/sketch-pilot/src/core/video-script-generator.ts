@@ -42,13 +42,6 @@ export class VideoScriptGenerator {
   }
 
   /**
-   * Convenience setter — forwards to PromptManager.
-   */
-  setBackgroundColor(color: string): void {
-    this.promptManager.setBackgroundColor(color)
-  }
-
-  /**
    * Generate a complete video script from a topic.
    */
   async generateCompleteScript(
@@ -87,7 +80,10 @@ export class VideoScriptGenerator {
       scenes: enrichedScenes,
       aspectRatio: options.aspectRatio || '16:9',
       backgroundMusic: baseScript.backgroundMusic,
-      globalAudio: options.globalAudioPath
+      globalAudio: options.globalAudioPath,
+      topic: baseScript.topic,
+      audience: baseScript.audience,
+      emotionalArc: baseScript.emotionalArc
     }
 
     try {
@@ -110,6 +106,9 @@ export class VideoScriptGenerator {
     titles: string[]
     fullNarration: string
     theme?: string
+    topic?: string
+    audience?: string
+    emotionalArc?: string[]
     scenes: RawScene[]
     characterSheets?: CharacterSheet[]
     backgroundMusic?: string
@@ -391,7 +390,6 @@ export class VideoScriptGenerator {
       ...scene,
       summary: resolveCharacters(scene.summary || ''),
       narration: resolveCharacters(scene.narration || ''),
-      background: resolveCharacters(scene.background || ''),
       characterIds: (scene.characterIds || []).map((id) => charMap[id] || id),
       speakingCharacterId: scene.speakingCharacterId
         ? charMap[scene.speakingCharacterId] || scene.speakingCharacterId
@@ -490,12 +488,6 @@ export class VideoScriptGenerator {
         `### Scene ${scene.sceneNumber} [${formatTime(scene.timeRange.start)} - ${formatTime(scene.timeRange.end)}]`,
         `- **Narration:** *"${scene.narration}"*`
       )
-
-      if (scene.poseStyle) {
-        const pos = scene.poseStyle.position || 'center'
-        const scale = scene.poseStyle.scale || 1
-        lines.push(`- **Pose Layout:** ${pos} (scale ${scale})`)
-      }
 
       lines.push(
         '\n#### AI Production Prompts',

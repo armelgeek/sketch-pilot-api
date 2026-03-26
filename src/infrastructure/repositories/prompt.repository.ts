@@ -30,60 +30,17 @@ export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
   scenes: [
     {
       sceneNumber: 'Integer',
-      locationId: 'String - Identifier to reuse locations across scenes',
-      timeRange: { start: 'Float', end: 'Float' },
-      duration: 'Float',
-      timestamp: 'Float',
-      summary: 'String',
-      narration: 'String',
-      actions: ['String'],
-      expression: 'String',
-      characterIds: ['String'],
+      locationId: "String - Identifier to reuse locations across scenes (e.g. 'office', 'forest')",
+      duration: 'Float (seconds)',
+      timestamp: 'Float (seconds)',
+      summary: 'String (brief description)',
+      narration: 'String (spoken text)',
+      characterIds: ['String (IDs from characterSheets)'],
       speakingCharacterId: 'String',
-      speechBubble: 'String',
-      mood: 'String',
-      cameraType: 'String',
-      framing: 'String',
-      background: 'String - Explicit background description including weather and time-of-day',
-      lighting: 'String - Explicit lighting description (e.g., morning sun, neon, soft)',
-      cameraAction: {
-        type: 'zoom-in | zoom-out | pan-left | pan-right | pan-up | pan-down | static',
-        intensity: 'low | medium | high'
-      },
-      props: ['String - Relevant props for this scene to track logically'],
-      imagePrompt: '[action/metaphor]',
-      animationPrompt: '...',
-      transitionToNext: 'fade | slide-left | zoom-in | wipe | swish',
-      tension: 5,
-      characterVariant: 'Optional character skin name',
+      imagePrompt: 'String (DETAILED visual description including characters and background)',
+      animationPrompt: 'String (movement instructions)',
       continueFromPrevious: false,
-      visualSource: 'local',
-      poseId: 'NONE | STAND | WALK | RUN | TYPE | EXHAUSTED | ...',
-      poseStyle: {
-        position: 'left | center | right | custom',
-        x: 50,
-        y: 50,
-        scale: 1
-      },
-      onscreenText: 'The primary large overlay text',
-      onscreenTextSuggestions: [
-        'Concise version',
-        'Action-oriented version',
-        'Question-based version',
-        'Keyword-heavy version'
-      ],
-      onscreenTextStyle: {
-        enabled: true,
-        color: '#000000',
-        fontFamily: 'sans-serif',
-        fontSize: 58,
-        fontWeight: 'bold',
-        maxWordsPerLine: 6,
-        highlightWords: [{ word: 'specificword', color: '#FF0000' }]
-      },
-      anchorDetail: 'String',
-      soundEffects: [{ type: 'pop | whoosh | swish | ding | jump', timestamp: 1.5, volume: 0.8 }],
-      soundscape: 'String'
+      visualSource: 'local'
     }
   ]
 }
@@ -113,12 +70,7 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     assetPromptTemplate: config.assetPromptTemplate,
     wordsPerSecondBase: config.wordsPerSecondBase,
     wordsPerSecondFactors: config.wordsPerSecondFactors,
-    defaultFontSize: config.defaultFontSize,
-    defaultFontFamily: config.defaultFontFamily,
     defaultBackgroundPrompt: config.defaultBackgroundPrompt,
-    defaultPoseId: config.defaultPoseId,
-    defaultPoseScale: config.defaultPoseScale,
-    defaultPosePosition: config.defaultPosePosition,
 
     createdAt: row.createdAt,
     updatedAt: row.updatedAt

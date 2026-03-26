@@ -49,7 +49,6 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     aspectRatio: options.aspectRatio,
     resolution: options.resolution,
     imageStyle: options.imageStyle,
-    globalTextStyle: options.globalTextStyle,
     promptSections: options.promptSections
   }
 }

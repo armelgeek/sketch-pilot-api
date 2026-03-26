@@ -218,56 +218,6 @@ export const characterEnrollmentSchema = z.object({
 export type CharacterEnrollment = z.infer<typeof characterEnrollmentSchema>
 
 /**
- * Styling for onscreenText overlay.
- * Supports keyword coloring, multi-line wrapping, and positioning.
- */
-export const onscreenTextStyleSchema = z.object({
-  enabled: z.boolean().default(false).describe('Whether to actually display the onscreenText.'),
-  color: hexColorSchema.describe('Default text color (hex)'),
-  fontFamily: z.string().default('sans-serif').describe('Font family name'),
-  fontSize: z
-    .number()
-    .min(1)
-    .max(500)
-    .optional()
-    .describe('Font size in pixels. If omitted, auto-calculated from canvas height (~8%).'),
-  fontWeight: z.enum(['normal', 'bold', 'bolder']).default('bold').describe('Font weight'),
-  maxWordsPerLine: z.number().default(6).describe('Maximum words per line before wrapping to next line'),
-  position: z
-    .enum(['top', 'bottom', 'center', 'custom'])
-    .default('center')
-    .describe('Text vertical position. "custom" uses x/y.'),
-  x: z.number().optional().describe('Custom X position (0-100% of width) when position is "custom"'),
-  y: z.number().optional().describe('Custom Y position (0-100% of height) when position is "custom"'),
-  highlightWords: z
-    .array(
-      z.object({
-        word: z.string().describe('The exact word or phrase to highlight'),
-        color: hexColorSchema
-          .optional()
-          .describe('Highlight color (hex). If omitted, uses highlightColor or textColor.')
-      })
-    )
-    .optional()
-    .describe('Words to render in a different color for emphasis'),
-  highlightColor: hexColorSchema.optional().describe('Default highlight color for this style block.')
-})
-
-export type OnscreenTextStyle = z.infer<typeof onscreenTextStyleSchema>
-
-/**
- * Styling for character pose.
- */
-export const poseStyleSchema = z.object({
-  position: z.enum(['left', 'center', 'right', 'custom']).default('center').describe('Character horizontal position.'),
-  x: z.number().optional().describe('Custom X position (0-100% of width) when position is "custom"'),
-  y: z.number().optional().describe('Custom Y position (0-100% of height) when position is "custom"'),
-  scale: z.number().default(1).describe('Scale factor for the character (1.0 = standard height ~80% of canvas)')
-})
-
-export type PoseStyle = z.infer<typeof poseStyleSchema>
-
-/**
  * Enriched scene with all details needed for generation
  */
 export const enrichedSceneSchema = z.object({
@@ -288,22 +238,6 @@ export const enrichedSceneSchema = z.object({
     .transform((val) => (typeof val === 'string' ? [val] : val))
     .describe('List of character IDs present in the scene'),
   speakingCharacterId: z.string().optional().describe('ID of the character currently speaking/narrating'),
-  onscreenText: z
-    .string()
-    .nullish()
-    .describe(
-      'The primary text to display as a large overlay on the screen (e.g. titles, keywords). When poseId is NONE, this is the main visual element.'
-    ),
-  onscreenTextSuggestions: z
-    .array(z.string())
-    .optional()
-    .describe(
-      'A list of 3-5 alternative text suggestions for this scene, allowing the user to choose or customize the overlay.'
-    ),
-  onscreenTextStyle: onscreenTextStyleSchema
-    .optional()
-    .describe('Styling for onscreenText. Supports keyword coloring, multi-line, and positioning.'),
-  background: z.string().nullish().describe('Background description'),
   locationId: z
     .string()
     .optional()
@@ -314,7 +248,6 @@ export const enrichedSceneSchema = z.object({
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
   animationPrompt: z.string().optional().describe('Animation instructions for movement'),
   characterVariant: characterVariantSchema.nullish().describe('Special variant of the character'),
-  backgroundColor: hexColorSchema.optional().describe('Background color for this specific scene'),
   // Dynamism fields
   transitionToNext: transitionTypeSchema.optional().describe('Transition to the next scene'),
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),
@@ -323,52 +256,6 @@ export const enrichedSceneSchema = z.object({
     .boolean()
     .default(false)
     .describe('If true, this scene reuses the visual background of the previous scene for perfect continuity'),
-  visualMode: z
-    .enum(['standard'])
-    .default('standard')
-    .describe('Visual generation mode. Standard only (text-only is deprecated).'),
-  visualSource: z
-    .enum(['local'])
-    .default('local')
-    .describe('Visual source: Stickman/Whiteboard composition (100% local, no AI generation)'),
-  poseId: z
-    .string()
-    .optional()
-    .describe(
-      'ID of a pre-generated pose for the character (e.g. STAND, RUN). Use NONE for scenes without a character (text-only or abstract).'
-    ),
-  poseStyle: poseStyleSchema.optional().describe('Custom positioning and scaling for the character pose.'),
-  keywordVisuals: z
-    .array(
-      z.object({
-        keyword: z.string().describe('The exact word or phrase in the narration that triggers a visual swap'),
-        imagePrompt: z
-          .string()
-          .describe(
-            'Image prompt for the new visual to display when this keyword is spoken. Same style as main imagePrompt.'
-          )
-      })
-    )
-    .optional()
-    .describe(
-      'List of keyword-to-visual mappings. When the narrator says a keyword, the scene visual swaps to a new image for the duration of that word/phrase, then returns to default.'
-    ),
-  visualAnchors: z
-    .array(
-      z.object({
-        text: z.string().describe('The word or phrase to be drawn/anchored in the scene'),
-        position: z
-          .enum(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'])
-          .default('top-left')
-          .describe('Where to anchor the text visually'),
-        style: z
-          .enum(['hand-drawn', 'bold', 'chalk', 'marker'])
-          .default('hand-drawn')
-          .describe('Visual style of the anchored text')
-      })
-    )
-    .optional()
-    .describe('Key terms to be visually integrated/drawn into the whiteboard scene'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
 })
@@ -430,6 +317,9 @@ export function computeAudioCoverage(videoDuration: number, audioDuration: numbe
 export const completeVideoScriptSchema = z.object({
   titles: z.array(z.string()).describe('A list of proposed titles for the video (propose at least 3)'),
   theme: z.string().optional(),
+  topic: z.string().optional().describe('The primary topic or subject of the video'),
+  audience: z.string().optional().describe('The target audience for the video'),
+  emotionalArc: z.array(z.string()).optional().describe('A list of emotional stages or narrative beats for the video'),
   fullNarration: z
     .string()
     .describe(
@@ -507,7 +397,6 @@ export const textOverlayConfigSchema = z.object({
   position: textPositionSchema.default('bottom').describe('Position of text overlay'),
   fontSize: z.number().min(1).default(48).describe('Font size in pixels'),
   fontColor: hexColorSchema.describe('Text color'),
-  backgroundColor: z.string().default('black@0.6').describe('Background color with transparency'),
   fontFamily: z.string().default('Arial').describe('Font family'),
   maxCharsPerLine: z.number().default(40).describe('Maximum characters per line before wrapping'),
   style: z
@@ -696,7 +585,6 @@ export const videoGenerationOptionsSchema = z
     proEncoding: proEncodingConfigSchema.optional().describe('Advanced encoding parameters'),
     assCaptions: assCaptionConfigSchema.optional().describe('ASS caption configuration for video subtitles'),
     transcription: transcriptionConfigSchema.optional().describe('Transcription service configuration'),
-    backgroundColor: hexColorSchema.describe('Global background color for the video'),
     imageProvider: z.enum(['gemini', 'grok']).default('gemini').describe('Provider for image generation'),
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),
@@ -798,25 +686,7 @@ export const videoGenerationOptionsSchema = z
           .describe('Static quality/style tokens appended to every image prompt')
       })
       .optional()
-      .describe('Configuration for the visual style of generated image prompts'),
-    globalTextStyle: onscreenTextStyleSchema
-      .partial()
-      .optional()
-      .describe('Global text styling configuration that applies to all scenes after script generation.'),
-    sceneStyles: z
-      .record(z.string(), onscreenTextStyleSchema.partial())
-      .optional()
-      .describe(
-        'Per-scene text styling overrides, mapping scene IDs to style objects. Applied after script generation.'
-      ),
-    globalPoseStyle: poseStyleSchema
-      .partial()
-      .optional()
-      .describe('Global pose styling configuration that applies to all scenes after script generation.'),
-    scenePoseStyles: z
-      .record(z.string(), poseStyleSchema.partial())
-      .optional()
-      .describe('Per-scene pose styling overrides.')
+      .describe('Configuration for the visual style of generated image prompts')
   })
   .transform((opts) => {
     // Determine the effective range for the video duration

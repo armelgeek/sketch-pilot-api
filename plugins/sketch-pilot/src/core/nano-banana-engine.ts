@@ -59,7 +59,13 @@ export class NanoBananaEngine {
   private _animationService?: AnimationService
   private _imageService?: ImageService
   private _llmService?: LLMService
-  private currentOptions: VideoGenerationOptions = videoGenerationOptionsSchema.parse({})
+  private currentOptions: VideoGenerationOptions = videoGenerationOptionsSchema.parse({
+    aspectRatio: '16:9',
+    qualityMode: QualityMode.STANDARD,
+    sceneCount: 3,
+    minDuration: 30,
+    maxDuration: 60
+  })
   private currentImageProvider: ImageProvider = 'gemini'
   private currentLLMProvider: LLMProvider = 'gemini'
   private currentTranscriptionConfig?: TranscriptionConfig
@@ -102,11 +108,7 @@ export class NanoBananaEngine {
 
     this.client = new GoogleGenAI({ apiKey })
 
-    this.promptManager = new PromptManager(
-      promptSpecs || {
-        backgroundColor: '#F5F5F5'
-      }
-    )
+    this.promptManager = new PromptManager(promptSpecs)
     this.systemPrompt = systemPrompt ?? ''
 
     this.currentImageProvider = imageConfig?.provider || 'gemini'
@@ -548,102 +550,6 @@ export class NanoBananaEngine {
 
       const overlays: any[] = []
 
-      // 1. Onscreen text overlay (DISABLED per user request to avoid visual clutter)
-      /*
-      if (scene.onscreenText) {
-        const style = (scene as any).onscreenTextStyle || {}
-        const globalStyle = this.currentOptions?.globalTextStyle || {}
-        const sceneOverride = (this.currentOptions?.sceneStyles || {})[scene.id] || {}
-
-        // Text renders ONLY when USER explicitly enables it via globalTextStyle or sceneStyles.
-        const textEnabled = globalStyle.enabled === true || sceneOverride.enabled === true
-        if (textEnabled) {
-          const text = scene.onscreenText
-          const textColor = sceneOverride.color || style.color || globalStyle.color || '#000000'
-          const fontFamily = sceneOverride.fontFamily || style.fontFamily || globalStyle.fontFamily || 'sans-serif'
-          const fontSize = sceneOverride.fontSize || style.fontSize || globalStyle.fontSize || Math.round(height * 0.08)
-          const fontWeight = sceneOverride.fontWeight || style.fontWeight || globalStyle.fontWeight || 'bold'
-          const maxWordsPerLine =
-            sceneOverride.maxWordsPerLine || style.maxWordsPerLine || globalStyle.maxWordsPerLine || 6
-          const highlightWords: Array<{ word: string; color: string }> =
-            sceneOverride.highlightWords || style.highlightWords || []
-          const globalHighlightColor = sceneOverride.highlightColor || globalStyle.highlightColor
-
-          // Determine Y position and X anchor center in pixels
-          let baseY: number
-          let centerX: number
-
-          const position = style.position || globalStyle.position
-          const x = style.x ?? globalStyle.x
-          const y = style.y ?? globalStyle.y
-
-          if (position === 'custom' && x !== undefined && y !== undefined) {
-            centerX = (x / 100) * width
-            baseY = (y / 100) * height
-          } else {
-            centerX = width / 2
-            const pos = position || 'top'
-
-            if (pos === 'top') baseY = height * 0.15
-            else if (pos === 'bottom') baseY = height * 0.85
-            else baseY = height * 0.45 // center
-          }
-
-          // Split text into lines based on maxWordsPerLine
-          const words = text.split(/\s+/)
-          const lines: string[][] = []
-          for (let i = 0; i < words.length; i += maxWordsPerLine) {
-            lines.push(words.slice(i, i + maxWordsPerLine))
-          }
-
-          // Build highlight lookup (case-insensitive)
-          const highlightMap = new Map<string, string>()
-          for (const hw of highlightWords) {
-            highlightMap.set(hw.word.toLowerCase(), hw.color || globalHighlightColor || textColor)
-          }
-
-          // Build SVG with multi-line tspans and per-word coloring
-          const lineHeight = fontSize * 1.3
-          const totalTextHeight = lines.length * lineHeight
-          const startY = baseY - totalTextHeight / 2 + lineHeight / 2
-
-          let textElements = ''
-          lines.forEach((lineWords, lineIdx) => {
-            const y = startY + lineIdx * lineHeight
-            const tspans = lineWords
-              .map((w, wIdx) => {
-                const cleanWord = w.replaceAll(/[.,!?;:]/g, '')
-                const hlColor = highlightMap.get(cleanWord.toLowerCase())
-                const fill = hlColor || textColor
-                // Escape special XML characters
-                const escaped = w.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-                // Add space before word (except first word)
-                const spacer = wIdx > 0 ? ' ' : ''
-                return `${spacer}<tspan fill="${fill}">${escaped}</tspan>`
-              })
-              .join('')
-            textElements += `<text xml:space="preserve" x="${centerX}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${fontFamily}">${tspans}</text>\n`
-          })
-
-          // Add a semi-transparent backing rectangle for readability (especially on AI backgrounds)
-          const padding = 20
-          const rectWidth = width * 0.9
-          const rectHeight = totalTextHeight + padding * 2
-          const rectX = centerX - rectWidth / 2
-          const rectY = startY - lineHeight / 2 - padding
-
-          const backingRect = `<rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="rgba(255,255,255,0.7)" rx="15" />`
-
-          const svgText = `<svg width="${width}" height="${height}">
-              ${backingRect}
-              ${textElements}
-            </svg>`
-
-          overlays.push({ input: Buffer.from(svgText), gravity: 'center' })
-        }
-      }
-      */
-
       // Final composition
       if (overlays.length > 0) {
         await composition.composite(overlays).webp().toFile(imagePath)
@@ -759,11 +665,8 @@ export class NanoBananaEngine {
           : undefined,
       aspectRatio,
       transitionToNext: scene.transitionToNext,
-      backgroundColor: scene.backgroundColor || options.backgroundColor || '#FFFFFF',
       pauseBefore: (scene as any).pauseBefore,
-      pauseAfter: (scene as any).pauseAfter,
-      onscreenText: scene.onscreenText,
-      visualMode: scene.visualMode
+      pauseAfter: (scene as any).pauseAfter
     }
 
     // Store both relative and global word timings if available
@@ -1095,11 +998,6 @@ export class NanoBananaEngine {
         apiKey: process.env.HUGGING_FACE_TOKEN || this.apiKey,
         kokoroVoicePreset: this.currentKokoroVoicePreset
       })
-    }
-
-    // Set background color from options
-    if (validOptions.backgroundColor) {
-      this.promptManager.setBackgroundColor(validOptions.backgroundColor)
     }
 
     console.log(`\n=== GENERATING VIDEO FROM SCRIPT ===`)

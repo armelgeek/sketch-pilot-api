@@ -28,10 +28,15 @@ export interface VideoTypeSpecification {
 
   // Optional advanced storytelling attributes
   narrativeVoice?: {
-    person: string
     tone: string
-    pacing: string
-    forbidden: string[]
+    register: string
+    openingPattern?: string
+    sectionPattern?: string
+    closingPattern?: string
+    forbiddenPatterns?: string[]
+    // Keep legacy fields for compatibility if needed, but prioritize new ones
+    person?: string
+    pacing?: string
   }
   anchorTechniques?: string[]
   emotionalArc?: Record<string, { label: string; tension: string; mood: string }>

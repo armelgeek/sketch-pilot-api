@@ -15,7 +15,6 @@ import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.
 import type { SceneMemory } from './scene-memory'
 
 export interface PromptManagerConfig {
-  backgroundColor?: string
   /**
    * Primary specification used for both script and image generation.
    * If provided, this prompt record will drive the entire video personality.
@@ -24,16 +23,10 @@ export interface PromptManagerConfig {
 }
 
 export class PromptManager {
-  private backgroundColor?: string
   private spec?: VideoTypeSpecification
 
   constructor(config: PromptManagerConfig = {}) {
-    this.backgroundColor = config.backgroundColor
     this.spec = config.scriptSpec
-  }
-
-  setBackgroundColor(color: string): void {
-    this.backgroundColor = color
   }
 
   /**
@@ -108,10 +101,25 @@ export class PromptManager {
     const fullSpec = { ...spec, instructions }
     const consolidatedOutputFormat = this.getConsolidatedOutputFormat(spec.outputFormat)
 
-    return this.buildSystemInstructions({
-      ...fullSpec,
-      outputFormat: consolidatedOutputFormat
-    })
+    // 4. Inject Goals and Rules from Spec (Phase 32)
+    const goals = spec.goals?.length ? `## GOALS\n${spec.goals.map((g) => `- ${g}`).join('\n')}` : ''
+    const rules = spec.rules?.length ? `## RULES\n${spec.rules.map((r) => `- ${r}`).join('\n')}` : ''
+    const context = spec.context ? `## CONTEXT\n${spec.context}` : ''
+
+    const scriptInstruction = [
+      context,
+      goals,
+      rules,
+      '---',
+      this.buildSystemInstructions({
+        ...fullSpec,
+        outputFormat: consolidatedOutputFormat
+      })
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    return scriptInstruction
   }
 
   /**
@@ -123,6 +131,9 @@ export class PromptManager {
 
     // Define the full consolidated schema structure
     return `{
+  "topic": "string",
+  "audience": "string",
+  "emotionalArc": ["string"],
   "titles": ["string"],
   "fullNarration": "string",
   "theme": "string",
@@ -150,12 +161,13 @@ export class PromptManager {
       "timestamp": 0,
       "narration": "string (the spoken text)",
       "summary": "string (brief visual summary)",
-      "imagePrompt": "string (MINIMALIST visual description. One clear, simple sentence centered on the character(s) from the characterSheets performing the main action. Use the @Name syntax for characters (e.g., '@Lily is sitting'). Do NOT describe their physical traits or clothing as they are already known. MANDATORY: Include the character's location (e.g. '@Lily in an office'). Mandatory minimalist background following the characterSheet style.)",
+      "imagePrompt": "string (MINIMALIST visual description. One clear, simple sentence centered on the character(s) from the characterSheets AND their environment. MANDATORY: Prioritize a POIGNANT VISUAL METAPHOR or a PATTERN INTERRUPT to represent abstract concepts. Avoid literalism. Always use the @Name syntax for characters and describe the background NATURALLY within the same sentence (e.g., '@Lily sitting in a cluttered, sunlit office').)",
       "animationPrompt": "string (specific movement/performance instructions)",
       "characterIds": ["string (IDs from the characterSheets)"],
       "speakingCharacterId": "string (the ID of the character currently speaking, e.g. 'lily')",
-      "onscreenText": "string (text overlay on screen)",
-      "poseStyle": { "position": "string", "scale": 1 },
+      "locationId": "string (reusable identifier, e.g. 'office', 'forest')",
+      "continueFromPrevious": false,
+      "visualSource": "local",
       "cameraAction": { "type": "string", "intensity": "low|medium|high" },
       "transitionToNext": "string"
     }
@@ -233,7 +245,8 @@ export class PromptManager {
       ? 'Character identity: You are provided with character reference images. Strictly maintain the visual identity (face, hair, clothing, proportions) of the characters shown. Do not invent variations or new characters.'
       : ''
 
-    const styleAnchor = 'Cinematic composition: Apply the rule of thirds and effective use of negative space.'
+    const styleAnchor =
+      'Cinematic composition: Use extreme close-ups for emotional impact, medium shots for action, and wide shots for context. Apply the rule of thirds and heavy use of negative space to drive focus. Visualize abstract concepts through surrealism and visual metaphors rather than literal representations.'
 
     const imageSpec: VideoTypeSpecification = {
       ...spec,
@@ -286,11 +299,15 @@ export class PromptManager {
       }
     }
 
-    // 3. Location Memory (Coherence Fallback)
-    if (scene.locationId && memory?.locations.has(scene.locationId)) {
-      const location = memory.locations.get(scene.locationId)
-      if (location && !paragraph.toLowerCase().includes(location.prompt.toLowerCase().slice(0, 20))) {
-        paragraph += `,${location.prompt}.`
+    // 3. Location Enrichment (Visibility Fallback)
+    if (scene.locationId && !paragraph.toLowerCase().includes(scene.locationId.toLowerCase())) {
+      // Also check memory for descriptive location prompt
+      const memorized = memory?.locations.get(scene.locationId)
+      if (memorized && !paragraph.toLowerCase().includes(memorized.prompt.toLowerCase().slice(0, 20))) {
+        paragraph += `, in ${memorized.prompt}.`
+      } else {
+        // Fallback to locationId if no memory, but ideally we want natural text
+        paragraph += ` at ${scene.locationId}.`
       }
     }
 
