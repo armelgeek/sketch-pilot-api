@@ -15,12 +15,18 @@ type SuggestTopicsParams = {
     themeName?: string
     themeDescription?: string
     goals?: string[]
+    duration?: number
   }
+}
+
+type VideoIdea = {
+  title: string
+  script: string
 }
 
 type SuggestTopicsResponse = {
   success: boolean
-  topics?: string[]
+  topics?: VideoIdea[]
   error?: string
   insufficientCredits?: boolean
 }
@@ -82,24 +88,44 @@ export class SuggestTopicsUseCase extends IUseCase<SuggestTopicsParams, SuggestT
       const themeDescription = options.themeDescription || ''
       const goals = options.goals && options.goals.length > 0 ? options.goals.join(', ') : ''
 
-      const prompt = `Crée 3 idées de sujets de vidéos courtes (format ${options.aspectRatio || '9:16'}) basées sur le thème suivant :
+      const videoDuration = options.duration || 60
+      // Scale Center points relative to video duration
+      const pointCount =
+        videoDuration <= 15 ? '2 à 3' : videoDuration <= 30 ? '3 à 5' : videoDuration <= 60 ? '5 à 7' : '8 à 10'
+
+      const prompt = `Génère 3 idées de scripts complets de vidéos YouTube/Shorts (format ${options.aspectRatio || '9:16'}, durée cible : ${videoDuration} secondes) basées sur le thème suivant :
       Nom du Thème : "${themeName}"
       Description du Thème : "${themeDescription}"
       Objectifs/Concept : "${goals}"
       Type de Contenu : "${type}"
       Genre : "${genre}"
       Langue : ${language}
-      
+
       Instructions CRITIQUES :
-      1. Les sujets doivent être parfaitement alignés avec l'univers et le style du thème "${themeName}".
-      2. Le ton doit correspondre au genre "${genre}".
-      3. **INTERDICTION FORMELLE** : Ne reprends JAMAIS de termes techniques, noms de fichiers ou identifiants internes comme "${themeName}", "Narrative System", "Prompt", "Template" ou "System" dans les titres suggérés. Ces noms sont des métadonnées techniques.
-      4. À la place, utilise les "Objectifs/Concept" (${goals}) et la "Description" (${themeDescription}) pour créer des titres qui parlent aux humains.
-      5. Sois créatif, accrocheur (format Shorts/TikTok/Reels) et varie les angles d'approche.
-      
-      Renvoie UNIQUEMENT un tableau JSON de 3 chaînes de caractères.
-      Chaque chaîne doit être un titre ou sujet "prêt à l'emploi".
-      Exemple: ["Comment survivre à la fin du monde", "3 secrets pour un café parfait", "L'histoire oubliée de la Lune"]`
+      1. Chaque idée doit avoir un titre accrocheur et un script complet rédigé.
+      2. Le script doit être structuré en 3 parties : Intro (2-3 phrases d'accroche), Center (exactement ${pointCount} points clés avec explications selon la durée de ${videoDuration}s), Outro (conclusion mémorable de 2-3 phrases).
+      3. Le ton doit correspondre au genre "${genre}" et à l'univers du thème "${themeName}".
+      4. **INTERDICTION FORMELLE** : Ne reprends JAMAIS de termes techniques internes comme "${themeName}", "Narrative System", "Prompt", "Template" ou "System" dans les titres ou le script.
+      5. Utilise les "Objectifs/Concept" (${goals}) et la "Description" (${themeDescription}) pour créer un contenu humain, concret et engageant.
+      6. Varie les angles d'approche entre les 3 idées (ex: liste pratique, histoire vraie, paradoxe psychologique, etc.).
+      7. **FORMAT TEXTE BRUT UNIQUEMENT** : N'utilise AUCUNE syntaxe Markdown (pas de ##, pas de *, pas de -, pas de _). Utilise uniquement du texte brut avec des sauts de ligne.
+
+      Formate chaque script ainsi (texte brut, pas de Markdown) :
+      Intro
+      [2-3 phrases d'introduction accrocheuses]
+
+      Center
+      Point 1 : [titre du point]
+        [Explication concrète sur 1-2 lignes]
+
+      Point 2 : [titre du point]
+        [Explication concrète sur 1-2 lignes]
+
+      Outro
+      [2-3 phrases de conclusion mémorables]
+
+      Renvoie UNIQUEMENT un tableau JSON valide de 3 objets avec cette structure exacte :
+      [{ "title": "Titre accrocheur", "script": "Intro\n...\n\nCenter\nPoint 1 : ...\n  ...\n\nOutro\n..." }]`
 
       const response = await llm.generateContent(
         prompt,

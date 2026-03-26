@@ -242,7 +242,7 @@ export class PromptManager {
     }
 
     const referenceMode = hasReferenceImages
-      ? 'Character identity: You are provided with character reference images. Strictly maintain the visual identity (face, hair, clothing, proportions) of the characters shown. Do not invent variations or new characters.'
+      ? 'STYLE CONSISTENCY (CRITICAL): You are provided with reference images. The ENTIRE image — characters AND background — must strictly replicate the artistic style, rendering technique, color palette, line weight, and level of detail from these references. If the reference is a flat illustration, the background must be a flat illustration too. If it is minimalist with clean lines, the background must be equally minimalist. NEVER produce photorealistic backgrounds when the reference is illustrative or stylized. The background is part of the same artwork, not a separate element. Additionally, maintain the visual identity (face, hair, clothing, proportions) of any characters shown in the references.'
       : ''
 
     const styleAnchor =
@@ -284,39 +284,50 @@ export class PromptManager {
       )
 
       if (casting) {
-        const nameInPrompt = `@${casting.name.toLowerCase()}`
+        const isStandard = casting.name.toLowerCase() === 'standard'
+        const nameInPrompt = isStandard ? '@character' : `@${casting.name.toLowerCase()}`
+
         if (!paragraph.toLowerCase().includes(nameInPrompt)) {
-          // If the name is already there without @, prefix it
-          const escapedName = casting.name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
-          const re = new RegExp(`\\b${escapedName}\\b`, 'gi')
-          if (re.test(paragraph)) {
-            paragraph = paragraph.replace(re, `@${casting.name}`)
+          // For 'standard', replace @standard first to avoid producing @@character
+          if (isStandard && /@standard\b/i.test(paragraph)) {
+            paragraph = paragraph.replaceAll(/@standard\b/gi, '@character')
           } else {
-            // Otherwise append it
-            paragraph += ` Featuring @${casting.name}.`
+            // If the name is already there without @, prefix it
+            const escapedName = casting.name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
+            const re = new RegExp(`\\b${escapedName}\\b`, 'gi')
+            if (re.test(paragraph)) {
+              paragraph = paragraph.replace(re, nameInPrompt)
+            } else {
+              // Otherwise append it
+              paragraph += ` Featuring ${nameInPrompt}.`
+            }
           }
         }
       }
     }
 
     // 3. Location Enrichment (Visibility Fallback)
-    if (scene.locationId && !paragraph.toLowerCase().includes(scene.locationId.toLowerCase())) {
-      // Also check memory for descriptive location prompt
+    if (scene.locationId) {
+      // Check memory for descriptive location prompt
       const memorized = memory?.locations.get(scene.locationId)
       if (memorized && !paragraph.toLowerCase().includes(memorized.prompt.toLowerCase().slice(0, 20))) {
         paragraph += `, in ${memorized.prompt}.`
-      } else {
-        // Fallback to locationId if no memory, but ideally we want natural text
-        paragraph += ` at ${scene.locationId}.`
       }
     }
 
     // 4. Cleanup grammar
-    const finalPrompt = paragraph
+    let finalPrompt = paragraph
       .replaceAll(/,\s*,/g, ',')
       .replaceAll(/\s{2,}/g, ' ')
       .trim()
       .replace(/([^.!?])$/, '$1.')
+
+    // 5. Style lock — enforce same artistic style as reference images in the prompt itself
+    // (system instruction alone is not always sufficient; a prompt-level hint is stronger)
+    if (hasReferenceImages) {
+      finalPrompt +=
+        ' Same flat illustration style, rendering technique, and line art as the reference images. Background must be drawn in the identical artistic style — not photorealistic.'
+    }
 
     return {
       sceneId: scene.id,
@@ -366,7 +377,7 @@ export class PromptManager {
       `Required Scene Count: ${options.maxScenes}`,
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
-      `Target Language: ${options.language || 'English'} (Generate all narration, titles, and onscreen text specifically in this language)`,
+      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION. This includes: narration, titles, onscreen text, imagePrompt (visual scene descriptions), and animationPrompt (movement instructions). Do NOT use English for imagePrompt or animationPrompt when the target language is different.`,
       '',
       this.buildCharacterInstructions(options)
     ]

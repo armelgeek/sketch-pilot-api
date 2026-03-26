@@ -110,14 +110,66 @@ export class VideosController implements Routes {
     try {
       const queueEvents = getVideoQueueEvents()
 
-      queueEvents.on('progress', ({ jobId, data }) => {
+      queueEvents.on('progress', async ({ jobId, data }) => {
         const streams = this.sseStreamsByJobId.get(jobId)
-        if (streams) {
-          // Since "data" comes from bullmq as "number | object" we need to handle primitive vs object correctly
-          const progressPayload =
-            typeof data === 'object' && data !== null ? { jobId, ...data } : { jobId, progress: data }
+        console.info(
+          `[SSE Controller] BullMQ progress event for job ${jobId}. Has Streams: ${!!streams}. Data type: ${typeof data}`
+        )
 
-          for (const enqueue of streams) enqueue('progress', progressPayload)
+        if (streams && streams.size > 0) {
+          let parsedData: any = data
+          if (typeof data === 'string') {
+            try {
+              parsedData = JSON.parse(data)
+            } catch {
+              // Not JSON, keep as is
+            }
+          }
+
+          try {
+            const progressPayload: any =
+              typeof parsedData === 'object' && parsedData !== null
+                ? { jobId, ...parsedData }
+                : { jobId, progress: parsedData }
+
+            // Fallback: Only fetch the latest state from DB if we are currently generating scenes
+            // and the `scene` object is missing from the payload for whatever reason
+            if (progressPayload.step === 'composing_scene' && !progressPayload.scene) {
+              const video = await videoRepository.findByJobId(jobId)
+              const scenes = video?.scenes || (video?.script as any)?.scenes || []
+
+              let currentSceneIndex = progressPayload.currentSceneIndex
+
+              if (video && scenes.length > 0) {
+                // If parsedData didn't have currentSceneIndex, find the highest index with an image
+                if (currentSceneIndex === undefined) {
+                  for (let i = scenes.length - 1; i >= 0; i--) {
+                    if (scenes[i].imageUrl) {
+                      currentSceneIndex = i
+                      progressPayload.scene = scenes[i]
+                      progressPayload.currentSceneIndex = i
+                      break
+                    }
+                  }
+                } else if (scenes[currentSceneIndex]) {
+                  // If we have index but no scene data, pull it from DB
+                  progressPayload.scene = scenes[currentSceneIndex]
+                }
+              }
+            }
+
+            for (const enqueue of streams) {
+              enqueue('progress', progressPayload)
+            }
+          } catch (error) {
+            console.error(`[SSE Controller] Failed to process progress payload:`, error)
+            // Ultimate fallback
+            const progressPayload =
+              typeof parsedData === 'object' && parsedData !== null
+                ? { jobId, ...parsedData }
+                : { jobId, progress: parsedData }
+            for (const enqueue of streams) enqueue('progress', progressPayload)
+          }
         }
       })
 
@@ -279,7 +331,8 @@ export class VideosController implements Routes {
                     aspectRatio: z.string().optional(),
                     themeName: z.string().optional(),
                     themeDescription: z.string().optional(),
-                    goals: z.array(z.string()).optional()
+                    goals: z.array(z.string()).optional(),
+                    duration: z.number().optional()
                   })
                 })
               }
@@ -292,7 +345,7 @@ export class VideosController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  topics: z.array(z.string())
+                  topics: z.array(z.object({ title: z.string(), script: z.string() }))
                 })
               }
             }

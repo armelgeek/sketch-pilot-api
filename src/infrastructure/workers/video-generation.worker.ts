@@ -30,10 +30,11 @@ const VIDEO_QUEUE_NAME = 'video-generation'
 const DEFAULT_VIDEO_DURATION = 60 // 1 minute default if not specified
 
 // Use a simple global map to track progress for SSE reporting
-const jobProgressMap = new Map<string, { step: string; progress: number; status: string; videoId: string }>()
+const jobProgressMap = new Map<string, any>()
 
 /**
  * Report job progress to both BullMQ and the local progress map.
+ * Accumulates metadata to prevent BullMQ throttling from dropping critical scene objects.
  */
 async function reportProgress(
   job: Job<VideoJobData>,
@@ -43,7 +44,21 @@ async function reportProgress(
   message: string,
   metadata?: Record<string, any>
 ) {
-  const status = { step, progress, status: 'processing', videoId, message, ...metadata }
+  const previousStatus = job.id ? jobProgressMap.get(job.id) || {} : {}
+  const accumulatedMetadata = {
+    ...previousStatus,
+    ...metadata
+  }
+
+  // Clean up previous step internals so they don't override the mandatory ones
+  delete accumulatedMetadata.step
+  delete accumulatedMetadata.progress
+  delete accumulatedMetadata.status
+  delete accumulatedMetadata.videoId
+  delete accumulatedMetadata.message
+
+  const status = { step, progress, status: 'processing', videoId, message, ...accumulatedMetadata }
+
   if (job.id) {
     jobProgressMap.set(job.id, status)
   }
