@@ -15,7 +15,6 @@ export const User = z.object({
   banExpires: z.date().optional().nullable(),
   lastLoginAt: z.date().nullable(),
   stripeCustomerId: z.string().optional(),
-  defaultCharacterModelId: z.string().optional(),
   createdAt: z.date(),
   updatedAt: z.date()
 })

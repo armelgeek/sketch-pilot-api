@@ -5,10 +5,10 @@ import { ChooseBackgroundMusicUseCase } from '@/application/use-cases/video/choo
 import { ChooseVoiceoverUseCase } from '@/application/use-cases/video/choose-voiceover.use-case'
 import { ConfigureBrandingUseCase } from '@/application/use-cases/video/configure-branding.use-case'
 import { ConfigureCaptionsUseCase } from '@/application/use-cases/video/configure-captions.use-case'
-import { GenerateCharacterImageUseCase } from '@/application/use-cases/video/generate-character-image.use-case'
 import { GenerateFinalVideoUseCase } from '@/application/use-cases/video/generate-final-video.use-case'
 import { GenerateNarrationUseCase } from '@/application/use-cases/video/generate-narration.use-case'
 import { GenerateScenesUseCase } from '@/application/use-cases/video/generate-scenes.use-case'
+import { GenerateScriptFromTitleUseCase } from '@/application/use-cases/video/generate-script-from-title.use-case'
 import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
@@ -33,8 +33,8 @@ const chooseVoiceoverUseCase = new ChooseVoiceoverUseCase()
 const chooseBackgroundMusicUseCase = new ChooseBackgroundMusicUseCase()
 const configureCaptionsUseCase = new ConfigureCaptionsUseCase()
 const configureBrandingUseCase = new ConfigureBrandingUseCase()
-const generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
 const suggestTopicsUseCase = new SuggestTopicsUseCase()
+const generateScriptFromTitleUseCase = new GenerateScriptFromTitleUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
 const videoGenerationService = new VideoGenerationService()
 
@@ -385,7 +385,79 @@ export class VideosController implements Routes {
       }
     )
 
-    // GET /v1/videos/jobs/:jobId/stream (SSE)
+    // POST /v1/videos/generate-script-from-title
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/generate-script-from-title',
+        tags: ['Videos'],
+        summary: 'Generate script from title',
+        description: 'Generates a full structured script based on a specific video title.',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  title: z.string().min(1).max(500),
+                  options: z
+                    .object({
+                      language: z.string().optional(),
+                      duration: z.number().optional(),
+                      aspectRatio: z.string().optional()
+                    })
+                    .optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Script generated',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  script: z.string()
+                })
+              }
+            }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { title, options } = c.req.valid('json')
+
+        const response = await generateScriptFromTitleUseCase.run({
+          userId: user.id,
+          planId: (user as any).planId,
+          title,
+          options
+        })
+
+        const result = response.result
+
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          return c.json({ error: result.error || 'Failed to generate script' }, 500)
+        }
+
+        return c.json({ script: result.script })
+      }
+    )
     this.controller.get('/v1/videos/jobs/:jobId/stream', async (c: any) => {
       const user = c.get('user')
       if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -2009,66 +2081,6 @@ export class VideosController implements Routes {
         }
 
         return c.json({ success: true, video: result.video })
-      }
-    )
-
-    // POST /v1/videos/:id/characters/:characterId/generate
-    this.controller.openapi(
-      createRoute({
-        method: 'post',
-        path: '/v1/videos/{id}/characters/{characterId}/generate',
-        tags: ['Videos'],
-        summary: 'Generate a character reference image',
-        security: [{ Bearer: [] }],
-        request: {
-          params: z.object({
-            id: z.string(),
-            characterId: z.string()
-          }),
-          body: {
-            content: {
-              'application/json': {
-                schema: z.object({
-                  prompt: z.string(),
-                  modelId: z.string().optional()
-                })
-              }
-            }
-          }
-        },
-        responses: {
-          200: {
-            description: 'Image generated',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  imageUrl: z.string(),
-                  creditsRequired: z.number()
-                })
-              }
-            }
-          }
-        }
-      }),
-      async (c: any) => {
-        const user = c.get('user')
-        const { id, characterId } = c.req.valid('param')
-        const { prompt, modelId } = c.req.valid('json')
-
-        const { result } = await generateCharacterImageUseCase.run({
-          videoId: id,
-          characterId,
-          userId: user.id,
-          prompt,
-          modelId
-        })
-
-        if (!result.success) {
-          return c.json({ error: result.error }, result.insufficientCredits ? 402 : 500)
-        }
-
-        return c.json(result)
       }
     )
   }

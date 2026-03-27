@@ -38,115 +38,102 @@ export class SuggestTopicsUseCase extends IUseCase<SuggestTopicsParams, SuggestT
     try {
       const cost = (CREDIT_COSTS as any).SUGGEST_TOPIC || 5
 
-      // 1. Check credits
+      // 1. Check available credits
       const credits = await creditsRepository.ensureUserCredits(userId)
-      const sub = await creditsRepository.getActiveSubscription(userId)
-      const actualPlan = sub?.plan || planId || 'free'
-      const planLimit = PLAN_MONTHLY_LIMITS[actualPlan] ?? PLAN_MONTHLY_LIMITS.free
+      const subscription = await creditsRepository.getActiveSubscription(userId)
+      const currentPlan = subscription?.plan || planId || 'free'
+      const planLimit = PLAN_MONTHLY_LIMITS[currentPlan] ?? PLAN_MONTHLY_LIMITS.free
 
-      const consumedThisMonth = credits?.videosThisMonth ?? 0
+      const usedThisMonth = credits?.videosThisMonth ?? 0
       const extraCredits = credits?.extraCredits ?? 0
 
-      const availablePlanCredits = planLimit === -1 ? Infinity : Math.max(0, planLimit - consumedThisMonth)
-      const totalAvailable = availablePlanCredits + extraCredits
+      const availablePlanCredits = planLimit === -1 ? Infinity : Math.max(0, planLimit - usedThisMonth)
+      const totalAvailableCredits = availablePlanCredits + extraCredits
 
-      if (totalAvailable < cost) {
+      if (totalAvailableCredits < cost) {
         return {
           success: false,
           insufficientCredits: true,
-          error: `Crédits insuffisants. Cette action requiert ${cost} crédits. Vous en avez ${totalAvailable}.`
+          error: `Insufficient credits. This action requires ${cost} credits. You have ${totalAvailableCredits}.`
         }
       }
 
       // 2. Consume credits
       const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit)
-
       await creditsRepository.addTransaction({
         userId,
         type: 'suggest_topic',
         amount: -cost,
-        metadata: {
-          planConsumed,
-          extraConsumed,
-          options
-        }
+        metadata: { planConsumed, extraConsumed, options }
       })
 
       // 3. Generate topics using LLM
-      const apiKey = process.env.GEMINI_API_KEY || ''
-      if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
+      const apiKey = process.env.OPENAI_API_KEY || ''
+      if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
 
-      const llm = LLMServiceFactory.create({
-        provider: 'gemini',
-        apiKey
-      })
+      const llm = LLMServiceFactory.create({ provider: 'openai', apiKey })
 
-      const language = options.language || 'fr-FR'
-      const type = options.videoType || 'général'
+      const language = options.language || 'en-US'
+      const type = options.videoType || 'general'
       const genre = options.videoGenre || 'storytelling'
       const themeName = options.themeName || type
       const themeDescription = options.themeDescription || ''
       const goals = options.goals && options.goals.length > 0 ? options.goals.join(', ') : ''
 
       const videoDuration = options.duration || 60
-      // Scale Center points relative to video duration
       const pointCount =
-        videoDuration <= 15 ? '2 à 3' : videoDuration <= 30 ? '3 à 5' : videoDuration <= 60 ? '5 à 7' : '8 à 10'
+        videoDuration <= 15 ? '2 to 3' : videoDuration <= 30 ? '3 to 5' : videoDuration <= 60 ? '5 to 7' : '8 to 10'
 
-      const prompt = `Génère 3 idées de scripts complets de vidéos YouTube/Shorts (format ${options.aspectRatio || '9:16'}, durée cible : ${videoDuration} secondes) basées sur le thème suivant :
-      Nom du Thème : "${themeName}"
-      Description du Thème : "${themeDescription}"
-      Objectifs/Concept : "${goals}"
-      Type de Contenu : "${type}"
-      Genre : "${genre}"
-      Langue : ${language}
+      const prompt = `Generate 3 viral YouTube/Shorts scripts (format ${options.aspectRatio || '9:16'}, target duration: ${videoDuration}s) based on the theme:
+Theme Name: "${themeName}"
+Theme Description: "${themeDescription}"
+Goals/Concepts: "${goals}"
+Content Type: "${type}"
+Genre: "${genre}"
+Language: ${language}
 
-      Instructions CRITIQUES :
-      1. Chaque idée doit avoir un titre accrocheur et un script complet rédigé.
-      2. Le script doit être structuré en 3 parties : Intro (2-3 phrases d'accroche), Center (exactement ${pointCount} points clés avec explications selon la durée de ${videoDuration}s), Outro (conclusion mémorable de 2-3 phrases).
-      3. Le ton doit correspondre au genre "${genre}" et à l'univers du thème "${themeName}".
-      4. **INTERDICTION FORMELLE** : Ne reprends JAMAIS de termes techniques internes comme "${themeName}", "Narrative System", "Prompt", "Template" ou "System" dans les titres ou le script.
-      5. Utilise les "Objectifs/Concept" (${goals}) et la "Description" (${themeDescription}) pour créer un contenu humain, concret et engageant.
-      6. Varie les angles d'approche entre les 3 idées (ex: liste pratique, histoire vraie, paradoxe psychologique, etc.).
-      7. **FORMAT TEXTE BRUT UNIQUEMENT** : N'utilise AUCUNE syntaxe Markdown (pas de ##, pas de *, pas de -, pas de _). Utilise uniquement du texte brut avec des sauts de ligne.
+CRITICAL INSTRUCTIONS:
+1. Each script must hook the viewer in the first 5 seconds using instantly recognizable real-life examples.
+2. Script structure:
+   - Intro: 2-3 punchy sentences + Visual description.
+   - Center: exactly ${pointCount} key points. Each point: 1-2 line explanation + Visual description.
+   - Outro: 2-3 sentences + Visual description.
+3. Scripts must create tension → reveal psychological insight → turn the mirror on the viewer.
+4. STRICTLY AVOID internal system words like "${themeName}", "Prompt", "Template", "System" in titles or scripts.
+5. TEXT ONLY: no Markdown, no symbols, no headings. Plain text with line breaks.
+6. Each of the 3 scripts must have a unique angle: list, story, paradox, personal reflection, or psychological twist.
 
-      Formate chaque script ainsi (texte brut, pas de Markdown) :
-      Intro
-      [2-3 phrases d'introduction accrocheuses]
+    Format for each script (plain text, no Markdown):
+    Intro
+    [hook sentences]
 
-      Center
-      Point 1 : [titre du point]
-        [Explication concrète sur 1-2 lignes]
+    Center
+    Point 1: [Title]
+      [Relatable 1-2 line explanation]
 
-      Point 2 : [titre du point]
-        [Explication concrète sur 1-2 lignes]
+    Point 2: [Title]
+      [Relatable 1-2 line explanation]
 
-      Outro
-      [2-3 phrases de conclusion mémorables]
+    Outro
+    [memorable reflection]
 
-      Renvoie UNIQUEMENT un tableau JSON valide de 3 objets avec cette structure exacte :
-      [{ "title": "Titre accrocheur", "script": "Intro\n...\n\nCenter\nPoint 1 : ...\n  ...\n\nOutro\n..." }]`
+Return ONLY a valid JSON object with a 'topics' key containing an array of 3 objects:
+{ "topics": [{ "title": "Catchy Title", "script": "Intro\\n...\\nVisual: ...\\n\\nCenter\\nPoint 1: ...\\n  ...\\n  Visual: ...\\n\\nOutro\\n...\\nVisual: ..." }] }`
 
       const response = await llm.generateContent(
         prompt,
-        'Tu es un expert en création de contenu viral et en storytelling.',
+        'You are an expert in viral content creation and storytelling.',
         'application/json'
       )
 
-      // Clean up response (sometimes LLM wraps it in markdown blocks)
       const cleanJson = response.replaceAll(/```json\n?|\n?```/g, '').trim()
-      const topics = JSON.parse(cleanJson)
+      const parsed = JSON.parse(cleanJson)
+      const topics = Array.isArray(parsed) ? parsed : parsed.topics || parsed.data || []
 
-      return {
-        success: true,
-        topics
-      }
+      return { success: true, topics: Array.isArray(topics) ? topics : [] }
     } catch (error) {
       console.error('[SuggestTopicsUseCase] Error:', error)
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to suggest topics'
-      }
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to suggest topics' }
     }
   }
 }

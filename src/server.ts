@@ -3,6 +3,7 @@ import { startVideoGenerationWorker } from '@/infrastructure/workers/video-gener
 
 import { App } from './app'
 import {
+  CharacterModelController,
   ConfigController,
   CreditsController,
   EmailCheckController,
@@ -13,7 +14,6 @@ import {
   VideosController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
-import { CharacterModelController } from './infrastructure/controllers/character-model.controller'
 import './utils/polyfills'
 import '@/infrastructure/schedulers'
 

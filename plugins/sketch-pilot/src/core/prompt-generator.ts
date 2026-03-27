@@ -23,15 +23,14 @@ export class PromptGenerator {
    * @param imageStyle - Optional visual style override (stylePrefix + characterDescription)
    * @param memory - Optional inter-scene visual memory for narrative continuity
    */
-  generateImagePrompt(
+  async generateImagePrompt(
     scene: EnrichedScene,
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
     imageStyle?: { stylePrefix?: string; characterDescription?: string },
-    memory?: SceneMemory,
-    characterSheets?: import('../types/video-script.types').CharacterSheet[]
-  ): ImagePrompt {
-    return this.manager.buildImagePrompt(scene, hasReferenceImages, aspectRatio, imageStyle, memory, characterSheets)
+    memory?: SceneMemory
+  ): Promise<ImagePrompt> {
+    return this.manager.buildImagePrompt(scene, hasReferenceImages, aspectRatio, memory)
   }
 
   /**

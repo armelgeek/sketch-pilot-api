@@ -3,7 +3,6 @@ import {
   completeVideoScriptSchema,
   MIN_SCENE_DURATION,
   suggestSceneDuration,
-  type CharacterSheet,
   type CompleteVideoScript,
   type EnrichedScene,
   type SceneContextType,
@@ -54,9 +53,7 @@ export class VideoScriptGenerator {
     if (onProgress) await onProgress(1, 'Studio: Planning initial structure...')
     const baseScript = await this.generateVideoStructure(topic, options)
 
-    const characterSheets: CharacterSheet[] = baseScript.characterSheets || []
-
-    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, characterSheets)
+    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options)
 
     let actualTotal = enrichedScenes.reduce((acc, s) => {
       const end = s.timeRange?.end
@@ -76,7 +73,6 @@ export class VideoScriptGenerator {
       theme: baseScript.theme,
       totalDuration: actualTotal,
       sceneCount: enrichedScenes.length,
-      characterSheets,
       scenes: enrichedScenes,
       aspectRatio: options.aspectRatio || '16:9',
       backgroundMusic: baseScript.backgroundMusic,
@@ -110,10 +106,9 @@ export class VideoScriptGenerator {
     audience?: string
     emotionalArc?: string[]
     scenes: RawScene[]
-    characterSheets?: CharacterSheet[]
     backgroundMusic?: string
   }> {
-    const { systemPrompt, userPrompt } = this.promptManager.buildScriptGenerationPrompts(topic, options)
+    const { systemPrompt, userPrompt } = await this.promptManager.buildScriptGenerationPrompts(topic, options)
 
     console.log(`[VideoScriptGen] Calling LLM for structure...`)
 
@@ -151,7 +146,7 @@ export class VideoScriptGenerator {
       throw lastError || new Error('Failed to generate video structure after multiple attempts')
     }
 
-    parsed.scenes = this.postProcessScenes(parsed.scenes, parsed.characterSheets || [])
+    parsed.scenes = this.postProcessScenes(parsed.scenes)
     parsed.scenes = this.assignTimeRanges(parsed.scenes, options)
 
     return parsed
@@ -183,44 +178,11 @@ export class VideoScriptGenerator {
 
   /**
    * Run all editorial post-processing passes on raw scenes.
-   * Each pass is self-contained and documented.
    */
-  private postProcessScenes(scenes: RawScene[], characterSheets: CharacterSheet[]): RawScene[] {
-    this.enforceCharacterPresence(scenes, characterSheets)
+  private postProcessScenes(scenes: RawScene[]): RawScene[] {
     this.deduplicateNarration(scenes)
     this.ensureRequiredFields(scenes)
     return scenes
-  }
-
-  /**
-   * Ensure every scene has at least one character.
-   * If the LLM generated a scene with empty characterIds, inject the first character
-   * from the character sheets as a fallback (narrator/observer role).
-   */
-  private enforceCharacterPresence(scenes: RawScene[], characterSheets: CharacterSheet[]): void {
-    if (!characterSheets || characterSheets.length === 0) return
-    const primaryCharId = characterSheets[0].id || characterSheets[0].name
-
-    scenes.forEach((scene, idx) => {
-      const hasChars = Array.isArray(scene.characterIds) && scene.characterIds.length > 0
-      if (!hasChars) {
-        console.warn(
-          `[VideoScriptGen] Scene ${idx + 1} has no characters — injecting primary character "${primaryCharId}" as observer.`
-        )
-        scene.characterIds = [primaryCharId]
-        if (!scene.characterVariant) {
-          scene.characterVariant = primaryCharId
-        }
-      }
-
-      // Phase 30: Minimize complexity by capping at 2 characters maximum unless specifically required.
-      if (scene.characterIds && scene.characterIds.length > 2) {
-        console.warn(
-          `[VideoScriptGen] Scene ${idx + 1} has too many characters (${scene.characterIds.length}); truncating to 2 for visual clarity.`
-        )
-        scene.characterIds = scene.characterIds.slice(0, 2)
-      }
-    })
   }
 
   /** Clear narration that is identical to the previous scene. */
@@ -249,7 +211,7 @@ export class VideoScriptGenerator {
    * Assign and validate timeRange for every scene, then rescale if the total
    * falls outside [minDuration, maxDuration].
    */
-  private assignTimeRanges(scenes: RawScene[], options: VideoGenerationOptions): RawScene[] {
+  public assignTimeRanges(scenes: RawScene[], options: VideoGenerationOptions): RawScene[] {
     const targetTotal = options.duration ?? options.maxDuration ?? 30
     const maxScene = typeof options.maxSceneDuration === 'number' ? options.maxSceneDuration : Number.POSITIVE_INFINITY
     const minScene = MIN_SCENE_DURATION
@@ -357,89 +319,55 @@ export class VideoScriptGenerator {
   // ─── Private: Scene enrichment ────────────────────────────────────────────
 
   /**
-   * Enrich scenes with image and animation prompts, and resolve character IDs.
+   * Enrich scenes with image and animation prompts.
    */
-  private async enrichScenes(
-    baseScenes: RawScene[],
-    options: VideoGenerationOptions,
-    characterSheets: CharacterSheet[]
-  ): Promise<EnrichedScene[]> {
+  private async enrichScenes(baseScenes: RawScene[], options: VideoGenerationOptions): Promise<EnrichedScene[]> {
     console.log(`[VideoScriptGen] Enriching ${baseScenes.length} scenes with prompts...`)
 
     const aspectRatio = options.aspectRatio || '16:9'
     const imageStyle = options.imageStyle
 
-    // Build char ID → name map
-    const charMap: Record<string, string> = {}
-    characterSheets.forEach((sheet) => {
-      if (sheet.id) charMap[sheet.id] = sheet.name
-    })
-
-    const resolveCharacters = (text: string | null | undefined): string => {
-      if (!text) return ''
-      let resolved = text
-      Object.entries(charMap).forEach(([id, desc]) => {
-        const regex = new RegExp(`(?<=^|[^a-zA-Z0-9])${id}(?=[^a-zA-Z0-9]|$)`, 'gi')
-        resolved = resolved.replace(regex, desc)
-      })
-      return resolved
-    }
-
-    // First pass: resolve all scenes so SceneMemoryBuilder works with resolved names
-    const resolvedScenes = baseScenes.map((scene) => ({
-      ...scene,
-      summary: resolveCharacters(scene.summary || ''),
-      narration: resolveCharacters(scene.narration || ''),
-      characterIds: (scene.characterIds || []).map((id) => charMap[id] || id),
-      speakingCharacterId: scene.speakingCharacterId
-        ? charMap[scene.speakingCharacterId] || scene.speakingCharacterId
-        : undefined,
-      characterVariant: scene.characterVariant
-        ? charMap[scene.characterVariant] || scene.characterVariant
-        : scene.characterVariant
-    }))
-
     // Build inter-scene visual memory progressively
     const memoryBuilder = new SceneMemoryBuilder()
     const sceneMemory: import('./scene-memory').SceneMemory = {
       locations: new Map(),
-      characters: new Map(),
       timeOfDay: '',
       weather: ''
     }
-    const charDescriptionMap = memoryBuilder.buildCharDescriptionMap(characterSheets)
 
-    // Second pass: generate image/animation prompts with progressive memory context
-    return resolvedScenes.map((resolvedScene) => {
+    // Generate image/animation prompts with progressive memory context
+    const enriched: EnrichedScene[] = []
+    for (const resolvedScene of baseScenes) {
       // 1. Process this scene into memory FIRST
-      memoryBuilder.processScene(resolvedScene, sceneMemory, charDescriptionMap)
+      memoryBuilder.processScene(resolvedScene as any, sceneMemory)
 
-      const imagePrompt = this.promptGenerator.generateImagePrompt(
+      const imagePrompt = await this.promptGenerator.generateImagePrompt(
         resolvedScene as EnrichedScene,
         false,
         aspectRatio,
         imageStyle,
-        sceneMemory,
-        characterSheets
+        sceneMemory
       )
 
       const animationPromptText =
         resolvedScene.animationPrompt != null
-          ? resolveCharacters(resolvedScene.animationPrompt)
+          ? resolvedScene.animationPrompt
           : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
 
-      return {
+      enriched.push({
         ...resolvedScene,
         imagePrompt: imagePrompt.prompt,
         animationPrompt: animationPromptText
-      } as EnrichedScene
-    })
+      } as EnrichedScene)
+    }
+
+    return enriched
   }
 
   // ─── Public: Export ───────────────────────────────────────────────────────
 
   /**
-   * Export script to markdown format (PART 1, 2, 3)
+   * Export script to markdown format
    */
   exportToMarkdown(script: CompleteVideoScript): string {
     const lines: string[] = []
@@ -461,33 +389,19 @@ export class VideoScriptGenerator {
 
     const formatTime = (seconds: number): string => {
       const mins = Math.floor(seconds / 60)
-      const secs = seconds % 60
+      const secs = Math.round(seconds % 60)
       return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
-    lines.push('## PART 1: CHARACTER SHEETS\n')
-    if (script.characterSheets && script.characterSheets.length > 0) {
-      script.characterSheets.forEach((char) => {
-        lines.push(
-          `### ${char.id}: ${char.name} (${char.role})`,
-          `- **Appearance:** ${char.appearance.description}`,
-          `- **Clothing:** ${char.appearance.clothing}`,
-          `- **Expressions:** ${char.expressions.join(', ')}`,
-          `**🖼️ Master Reference Prompt:**\n> ${char.imagePrompt}`,
-          ''
-        )
-      })
-    } else {
-      lines.push('*No recurring characters identified.*')
-    }
-
-    lines.push('\n---\n', '## PART 2: TECHNICAL BREAKDOWN & LAYOUTS\n')
+    lines.push('## TECHNICAL BREAKDOWN & LAYOUTS\n')
 
     script.scenes.forEach((scene) => {
-      lines.push(
-        `### Scene ${scene.sceneNumber} [${formatTime(scene.timeRange.start)} - ${formatTime(scene.timeRange.end)}]`,
-        `- **Narration:** *"${scene.narration}"*`
-      )
+      const timeStr = scene.timeRange
+        ? `[${formatTime(scene.timeRange.start)} - ${formatTime(scene.timeRange.end)}]`
+        : ''
+      const numStr = scene.sceneNumber || '?'
+
+      lines.push(`### Scene ${numStr} ${timeStr}`, `- **Narration:** *"${scene.narration || ''}"*`)
 
       lines.push(
         '\n#### AI Production Prompts',

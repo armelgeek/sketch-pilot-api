@@ -28,7 +28,6 @@ export class UserRepository implements UserRepositoryInterface {
       banReason: user.banReason,
       banExpires: user.banExpires || null,
       stripeCustomerId: user.stripeCustomerId || undefined,
-      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -51,7 +50,6 @@ export class UserRepository implements UserRepositoryInterface {
       banReason: user.banReason,
       banExpires: user.banExpires || null,
       stripeCustomerId: user.stripeCustomerId || undefined,
-      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }))
@@ -112,7 +110,6 @@ export class UserRepository implements UserRepositoryInterface {
       image: user.image || undefined,
       isAdmin: user.isAdmin,
       stripeCustomerId: user.stripeCustomerId || undefined,
-      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt || null,
@@ -148,7 +145,6 @@ export class UserRepository implements UserRepositoryInterface {
       banned: user.banned,
       banReason: user.banReason,
       banExpires: user.banExpires || null,
-      defaultCharacterModelId: user.defaultCharacterModelId || undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -167,7 +163,6 @@ export class UserRepository implements UserRepositoryInterface {
     if (data.banned !== undefined) updateData.banned = data.banned
     if (data.banReason !== undefined) updateData.banReason = data.banReason
     if (data.banExpires !== undefined) updateData.banExpires = data.banExpires
-    if (data.defaultCharacterModelId !== undefined) updateData.defaultCharacterModelId = data.defaultCharacterModelId
 
     const [updatedUser] = await db.update(users).set(updateData).where(eq(users.id, id)).returning()
     if (!updatedUser) throw new Error('User not found')
@@ -187,7 +182,6 @@ export class UserRepository implements UserRepositoryInterface {
       banReason: updatedUser.banReason,
       banExpires: updatedUser.banExpires || null,
       stripeCustomerId: updatedUser.stripeCustomerId || undefined,
-      defaultCharacterModelId: updatedUser.defaultCharacterModelId || undefined,
       createdAt: updatedUser.createdAt,
       updatedAt: updatedUser.updatedAt
     }

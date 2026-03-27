@@ -77,7 +77,10 @@ export class App {
       // Allow public read access to character models list
       if (
         c.req.method === 'GET' &&
-        (c.req.path === '/api/v1/character-models' || c.req.path.startsWith('/api/v1/character-models'))
+        (c.req.path === '/api/v1/characters' ||
+          c.req.path.startsWith('/api/v1/characters') ||
+          c.req.path === '/api/v1/character-models' ||
+          c.req.path.startsWith('/api/v1/character-models'))
       ) {
         return next()
       }

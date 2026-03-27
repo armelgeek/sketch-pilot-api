@@ -20,9 +20,9 @@ export const VideoOptionsSchema = z
       .optional()
       .openapi({ example: 'af_heart', description: 'Voice preset ID for Kokoro TTS' }),
     llmProvider: z
-      .enum(['gemini', 'grok', 'claude', 'haiku'])
+      .enum(['gemini', 'grok', 'claude', 'haiku', 'openai'])
       .optional()
-      .openapi({ example: 'gemini', description: 'AI provider for script generation' }),
+      .openapi({ example: 'openai', description: 'AI provider for script generation (default: openai)' }),
     qualityMode: z
       .enum(['low-cost', 'standard', 'high-quality'])
       .optional()

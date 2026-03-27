@@ -9,7 +9,7 @@ const hexColorSchema = z
   .default('#FFFFFF')
 
 export type ImageProvider = 'gemini' | 'grok'
-export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku'
+export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku' | 'openai'
 
 /**
  * Quality modes for generation:
@@ -150,74 +150,6 @@ export const transitionTypeSchema = z
 export type TransitionType = z.infer<typeof transitionTypeSchema>
 
 /**
- * Character variant types
- */
-export const characterVariantSchema = z
-  .string()
-  .describe('The character variant or name to use for this scene (e.g. "Narrator", "Expert", "Customer")')
-
-export type CharacterVariant = z.infer<typeof characterVariantSchema>
-
-/**
- * Character sheet for recurring characters
- */
-export const characterSheetSchema = z.object({
-  id: z.string().describe('Unique identifier (e.g. CHAR-01)'),
-  name: z.string(),
-  role: z.string().describe('Role in the story'),
-  appearance: z.object({
-    description: z.string().default('').describe('Base style (Round head, stick limbs, etc.)'),
-    clothing: z.string().default(''),
-    accessories: z.array(z.string()).default([]),
-    colorPalette: z.array(z.string()).default([]),
-    uniqueIdentifiers: z.array(z.string()).default([])
-  }),
-  expressions: z.array(z.string()).describe('List of primary expressions for this character'),
-  metadata: z
-    .object({
-      gender: z.enum(['male', 'female', 'unknown']).default('unknown'),
-      age: z.enum(['child', 'youth', 'senior', 'unknown']).default('unknown')
-    })
-    .optional(),
-  modelId: z.string().optional().describe('ID of the suggested/confirmed character model'),
-  voiceId: z.string().optional().describe('ID of the assigned voice'),
-  referenceImageUrl: z.string().optional().describe('URL to a custom AI-generated reference image for this character'),
-  imagePrompt: z.string().describe('Full-body 16:9 prompt in Crayon Capital style for consistent generation'),
-  lockedPromptSegment: z.string().optional().describe('Base style DNA segment that stays fixed between generations'),
-  referenceImagesBase64: z.array(z.string()).optional().describe('Direct base64 image strings for character reference'),
-  generationVariants: z
-    .array(
-      z.object({
-        id: z.string(),
-        imageUrl: z.string(),
-        seedUsed: z.number().optional(),
-        generatedAt: z.string().optional()
-      })
-    )
-    .optional()
-    .describe('Session history of recent character generations')
-})
-
-export type CharacterSheet = z.infer<typeof characterSheetSchema>
-
-/**
- * Enrollment of a specific character for the generation
- */
-export const characterEnrollmentSchema = z.object({
-  name: z.string().describe('Name of the character (e.g. "Lily")'),
-  modelId: z.string().optional().describe('ID of the character model to use'),
-  voiceId: z.string().optional().describe('ID of the voice to use for this character'),
-  appearance: z
-    .object({
-      description: z.string().optional(),
-      clothing: z.string().optional()
-    })
-    .optional()
-})
-
-export type CharacterEnrollment = z.infer<typeof characterEnrollmentSchema>
-
-/**
  * Enriched scene with all details needed for generation
  */
 export const enrichedSceneSchema = z.object({
@@ -232,12 +164,6 @@ export const enrichedSceneSchema = z.object({
     .describe('Start timestamp of the scene'),
   summary: z.string().optional().describe('Concise summary of identifying actions in the scene'),
   narration: z.string().describe('Main narrative text for the scene'),
-  characterIds: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((val) => (typeof val === 'string' ? [val] : val))
-    .describe('List of character IDs present in the scene'),
-  speakingCharacterId: z.string().optional().describe('ID of the character currently speaking/narrating'),
   locationId: z
     .string()
     .optional()
@@ -247,7 +173,6 @@ export const enrichedSceneSchema = z.object({
     ),
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
   animationPrompt: z.string().optional().describe('Animation instructions for movement'),
-  characterVariant: characterVariantSchema.nullish().describe('Special variant of the character'),
   // Dynamism fields
   transitionToNext: transitionTypeSchema.optional().describe('Transition to the next scene'),
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),
@@ -257,6 +182,7 @@ export const enrichedSceneSchema = z.object({
     .default(false)
     .describe('If true, this scene reuses the visual background of the previous scene for perfect continuity'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
+  preset: z.enum(['hook', 'reveal', 'mirror']).optional().describe('Strategic role of the scene'),
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
 })
 
@@ -327,10 +253,6 @@ export const completeVideoScriptSchema = z.object({
     ),
   totalDuration: z.number().min(1),
   sceneCount: z.number().int().positive(),
-  characterSheets: z
-    .array(characterSheetSchema)
-    .optional()
-    .describe('Details of all recurring characters in the video'),
   scenes: z.array(enrichedSceneSchema),
   backgroundMusic: z
     .string()
@@ -461,7 +383,23 @@ export const MIN_SCENE_DURATION = 3
 export function computeSceneCount(durationSeconds: number): number {
   if (durationSeconds <= 30) return Math.max(2, Math.round(durationSeconds / 8))
   if (durationSeconds <= 60) return Math.max(4, Math.round(durationSeconds / 7))
-  return Math.max(8, Math.min(20, Math.round(durationSeconds / 6)))
+  if (durationSeconds <= 120) return Math.max(8, Math.round(durationSeconds / 6))
+  // For long videos, we want more narration scenes (rhythm) but we will cap unique images in the prompt.
+  return Math.min(60, Math.round(durationSeconds / 10))
+}
+
+/**
+ * Compute the maximum number of unique images allowed for a given duration.
+ * This is used for cost optimization and hard-capping.
+ */
+export function computeVisualBudget(durationSeconds: number): number {
+  if (durationSeconds <= 30) return 5
+  if (durationSeconds <= 60) return 8
+  if (durationSeconds <= 120) return 12
+  if (durationSeconds <= 300) return 18 // 5m
+  if (durationSeconds <= 600) return 22 // 10m
+  if (durationSeconds <= 900) return 25 // 15m
+  return 30 // Max allowed
 }
 
 /**
@@ -544,6 +482,7 @@ export const videoGenerationOptionsSchema = z
     minDuration: z.number().min(1).optional().describe('Minimum total duration in seconds'),
     maxDuration: z.number().min(1).default(30).describe('Maximum total duration in seconds'),
     userId: z.string().optional().describe('The ID of the user generating the video'),
+    characterModelId: z.string().optional().describe('The ID of the character model to use as a visual reference'),
     sceneCount: z
       .number()
       .int()
@@ -568,7 +507,6 @@ export const videoGenerationOptionsSchema = z
       .any()
       .optional()
       .describe('A custom VideoTypeSpecification to override the default theme spec (e.g. loaded from database)'),
-    characterConsistency: z.boolean().default(true).describe('Ensure character remains identical across scenes'),
     animationClipDuration: z
       .number()
       .default(6)
@@ -589,7 +527,10 @@ export const videoGenerationOptionsSchema = z
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),
     autoTransitions: z.boolean().default(true).describe('Automatically assign transitions when the script omits them'),
-    llmProvider: z.enum(['gemini', 'grok']).default('gemini').describe('Provider for script generation'),
+    llmProvider: z
+      .enum(['gemini', 'grok', 'claude', 'haiku', 'openai'])
+      .default('openai')
+      .describe('Provider for script generation'),
     kokoroVoicePreset: z
       .nativeEnum(KokoroVoicePreset)
       .default(KokoroVoicePreset.AF_HEART)
@@ -623,7 +564,6 @@ export const videoGenerationOptionsSchema = z
       .default(false)
       .describe('If true, only generate the script and production report, skip asset generation'),
     skipAudio: z.boolean().default(false).describe('If true, skip audio generation (TTS)'),
-    characterModelId: z.string().optional().describe('ID of the character model to use for the entire video'),
     generateOnlyScenes: z
       .boolean()
       .default(false)
@@ -654,10 +594,6 @@ export const videoGenerationOptionsSchema = z
       .boolean()
       .default(true)
       .describe('Enable AI-generated background scenes (default is now AI-driven)'),
-    characters: z
-      .array(characterEnrollmentSchema)
-      .optional()
-      .describe('List of characters to include in the video (multi-character support)'),
     promptSections: promptSectionsSchema
       .optional()
       .describe(

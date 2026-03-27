@@ -15,7 +15,6 @@ export const users = pgTable('users', {
   banExpires: timestamp('ban_expires'),
   isAdmin: boolean('is_admin').notNull().default(false),
   stripeCustomerId: text('stripe_customer_id'),
-  defaultCharacterModelId: text('default_character_model_id'),
   utmSource: text('utm_source'),
   utmMedium: text('utm_medium'),
   utmCampaign: text('utm_campaign'),

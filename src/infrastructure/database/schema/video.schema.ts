@@ -21,7 +21,7 @@ export const videos = pgTable('videos', {
   duration: integer('duration'), // in seconds
   // Metadata
   language: text('language').default('en'),
-  characterModelId: text('character_model_id'), // FK → character_models.id (nullable)
+  characterModelId: text('character_model_id'),
   creditsUsed: integer('credits_used').notNull().default(1),
   // Script / scenes data
   script: jsonb('script'),

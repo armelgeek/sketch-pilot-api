@@ -14,9 +14,6 @@ import {
   type VideoGenerationOptions
 } from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
-import { AssetsConfigRepository } from '@/infrastructure/repositories/assets-config.repository'
-import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
-
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 
 export type { ScriptValidationResult }
@@ -29,25 +26,33 @@ export interface GenerateScriptOptions {
   qualityMode?: string
   llmProvider?: string
   promptId?: string
-  characterModelId?: string
   aspectRatio?: '9:16' | '16:9' | '1:1'
   backgroundMusic?: string
+  characterModelId?: string
 }
 
 export class ScriptGenerationService {
   private readonly validator = new ScriptValidator()
   private readonly promptService = new PromptService(new PromptRepository())
-  private readonly characterModelRepository = new CharacterModelRepository()
-  private readonly assetsConfigRepository = new AssetsConfigRepository()
 
   /**
    * Generate a complete video script using the LLM engine.
    * Does not consume video credits — script-only operation.
    */
   async generateScript(topic: string, options: GenerateScriptOptions = {}): Promise<CompleteVideoScript> {
+    const provider = (options.llmProvider as LLMServiceConfig['provider']) || 'openai'
+    const apiKey =
+      provider === 'openai'
+        ? process.env.OPENAI_API_KEY
+        : provider === 'claude' || provider === 'haiku'
+          ? process.env.ANTHROPIC_API_KEY
+          : provider === 'grok'
+            ? process.env.XAI_API_KEY
+            : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+
     const llmConfig: LLMServiceConfig = {
-      provider: (options.llmProvider as LLMServiceConfig['provider']) || 'gemini',
-      apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || ''
+      provider,
+      apiKey: apiKey || ''
     }
     const llmService = LLMServiceFactory.create(llmConfig)
 
@@ -63,30 +68,9 @@ export class ScriptGenerationService {
       language: options.language,
       aspectRatio: options.aspectRatio,
       qualityMode: options.qualityMode,
-      characterModelId: options.characterModelId,
       backgroundMusic: options.backgroundMusic,
       customSpec: spec
     })
-
-    // 2.5 Resolve specific character model if ID provided
-    if (options.characterModelId) {
-      const model = await this.characterModelRepository.findById(options.characterModelId)
-      if (model) {
-        // Inject as a pre-enrolled character to ensure PromptManager includes it in the prompt
-        // This ensures the AI knows the exact character name and presence requirements.
-        genOptions.characters = [
-          {
-            name: model.name,
-            modelId: model.id,
-            voiceId: model.voiceId || undefined,
-            appearance: {
-              description: (model as any).description || undefined,
-              clothing: (model as any).clothing || undefined
-            }
-          }
-        ]
-      }
-    }
 
     // 3. Initialize generator and run (using the SAME spec for both script and image)
     const promptManager = new PromptManager({
@@ -94,61 +78,6 @@ export class ScriptGenerationService {
     })
     const generator = new VideoScriptGenerator(llmService, promptManager)
     const script = await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)
-
-    // 4. Best-Fit Matching for auto-discovered characters
-    if (script.characterSheets && script.characterSheets.length > 0) {
-      const allVoices = await this.assetsConfigRepository.getAllVoices()
-
-      for (const sheet of script.characterSheets) {
-        // 1. Match visual model if not present (Best-fit by metadata)
-        if (!sheet.modelId && sheet.metadata) {
-          const gender =
-            sheet.metadata.gender && sheet.metadata.gender !== 'unknown' ? sheet.metadata.gender : undefined
-          const age = sheet.metadata.age && sheet.metadata.age !== 'unknown' ? sheet.metadata.age : undefined
-
-          if (gender || age) {
-            const model = await this.characterModelRepository.findByMetadata(gender, age)
-            if (model) {
-              sheet.modelId = model.id
-            }
-          }
-        }
-
-        // 2. AUTO-VOICE: Match voice preset by gender AND language if not present
-        if (!sheet.voiceId && sheet.metadata?.gender) {
-          const gender = sheet.metadata.gender.toLowerCase()
-          const targetLang = (options.language || 'en').toLowerCase().split('-')[0]
-
-          const matchingVoice =
-            allVoices.find((v) => {
-              const voiceLang = v.language.toLowerCase().split('-')[0]
-              return v.gender === gender && voiceLang === targetLang
-            }) || allVoices.find((v) => v.gender === gender)
-
-          if (matchingVoice) {
-            sheet.voiceId = matchingVoice.presetId
-          }
-        }
-
-        // 3. Sync attributes for pre-enrolled characters (matched by name)
-        // If the LLM generated a sheet for the main character we explicitly provided,
-        // override its metadata with the ground truth from the enrolled model.
-        if (options.characterModelId) {
-          const enrolled = genOptions.characters?.[0]
-          if (enrolled && sheet.name.toLowerCase() === enrolled.name.toLowerCase()) {
-            sheet.modelId = enrolled.modelId
-            if (enrolled.appearance) {
-              sheet.appearance = {
-                ...sheet.appearance,
-                description: enrolled.appearance.description || sheet.appearance.description,
-                clothing: enrolled.appearance.clothing || sheet.appearance.clothing
-              }
-            }
-            if (enrolled.voiceId) sheet.voiceId = enrolled.voiceId
-          }
-        }
-      }
-    }
 
     return script
   }

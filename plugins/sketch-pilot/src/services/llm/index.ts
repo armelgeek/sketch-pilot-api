@@ -6,7 +6,7 @@ export interface LLMService {
   generateContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => Promise<string>
 }
 
-export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku'
+export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku' | 'openai'
 
 export interface LLMServiceConfig {
   provider: LLMProvider
@@ -34,6 +34,9 @@ export const LLMServiceFactory = {
       case 'haiku': // Haiku is the default Claude model for cost optimization
         const { ClaudeLLMService } = require('./claude-llm.service')
         return new ClaudeLLMService(config)
+      case 'openai':
+        const { OpenAILLMService } = require('./openai-llm.service')
+        return new OpenAILLMService(config)
       default:
         throw new Error(`Unknown LLM provider: ${config.provider}`)
     }
@@ -43,6 +46,6 @@ export const LLMServiceFactory = {
    * Get available providers
    */
   getAvailableProviders(): LLMProvider[] {
-    return ['gemini', 'grok', 'claude', 'haiku']
+    return ['gemini', 'grok', 'claude', 'haiku', 'openai']
   }
 }

@@ -1,5 +1,3 @@
-import type { CharacterEnrollment } from '../types/video-script.types'
-
 export interface PromptMakerOptions {
   subject: string
   duration: string
@@ -7,12 +5,8 @@ export interface PromptMakerOptions {
   audience: string
   maxScenes: number
   language?: string
-  characters?: CharacterEnrollment[]
 }
 
-/**
- * Interface defining a complete video type specification.
- */
 export interface VideoTypeSpecification {
   name: string
   role: string
@@ -25,29 +19,6 @@ export interface VideoTypeSpecification {
   formatting: string
   outputFormat: string
   instructions: string[]
-
-  // Optional advanced storytelling attributes
-  narrativeVoice?: {
-    tone: string
-    register: string
-    openingPattern?: string
-    sectionPattern?: string
-    closingPattern?: string
-    forbiddenPatterns?: string[]
-    // Keep legacy fields for compatibility if needed, but prioritize new ones
-    person?: string
-    pacing?: string
-  }
-  anchorTechniques?: string[]
-  emotionalArc?: Record<string, { label: string; tension: string; mood: string }>
-  closingQuestionTemplate?: string
-  /**
-   * Optional narrative arc definition for storytelling videos.
-   * Maps stage keys to their descriptive label and optional tension/mood hints.
-   * Example: { "intro": { label: "Introduction", description: "Set the scene" },
-   *            "climax": { label: "Climax", description: "Peak tension moment" } }
-   */
-  narrativeArc?: Record<string, { label: string; description?: string; tension?: number }>
 
   // --- Total Dynamization Fields ---
   /** System instruction for the asset generator AI (e.g. pose creator) */
@@ -70,4 +41,11 @@ export interface VideoTypeSpecification {
   defaultPoseScale?: number
   /** Default position (center, left, right) */
   defaultPosePosition?: string
+
+  // --- Support for advanced storytelling attributes ---
+  scenePresets?: Record<string, any>
+  visualRules?: string[]
+  orchestration?: string[]
+  /** Global description of the main character to maintain consistency */
+  characterDescription?: string
 }

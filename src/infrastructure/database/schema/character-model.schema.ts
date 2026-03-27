@@ -1,21 +1,21 @@
-import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { jsonb, pgTable, text, timestamp, varchar } from 'drizzle-orm/pg-core'
+import { users } from './schema'
 
 export const characterModels = pgTable('character_models', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  imageUrl: text('image_url'),
-  mimeType: text('mime_type').default('image/jpeg'),
-  gender: text('gender').notNull().default('unknown'), // 'male', 'female', 'unknown'
-  age: text('age').notNull().default('unknown'), // 'child', 'youth', 'senior', 'unknown'
-  voiceId: text('voice_id'), // Associated voice preset ID
-  description: text('description'), // The prompt or appearance details
-  userId: text('user_id'), // Owner of the model (null for system models)
-  stylePrefix: text('style_prefix'), // e.g. "Clean Whiteboard illustration, monochrome black ink..."
-  artistPersona: text('artist_persona'), // e.g. "Whiteboard artist"
-  isStandard: boolean('is_standard').default(false),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow()
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  gender: text('gender').default('unknown'),
+  age: text('age').default('unknown'),
+  voiceId: text('voice_id'),
+  isStandard: text('is_standard').default('false'),
+  stylePrefix: text('style_prefix'),
+  artistPersona: text('artist_persona'),
+  images: jsonb('images').$type<string[]>().default([]),
+  userId: varchar('user_id', { length: 255 }).references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
 })
 
-export type CharacterModelRow = typeof characterModels.$inferSelect
-export type NewCharacterModelRow = typeof characterModels.$inferInsert
+export type CharacterModel = typeof characterModels.$inferSelect
+export type NewCharacterModel = typeof characterModels.$inferInsert

@@ -472,7 +472,7 @@ export class ConfigController implements Routes {
               'multipart/form-data': {
                 schema: z.object({
                   file: z.instanceof(File).openapi({ description: 'Asset file to upload' }),
-                  type: z.enum(['voice', 'music']).openapi({ description: 'Type of asset' })
+                  type: z.enum(['voice', 'music', 'image']).openapi({ description: 'Type of asset' })
                 })
               }
             }
@@ -501,7 +501,7 @@ export class ConfigController implements Routes {
           const ext = file.name.split('.').pop() || 'tmp'
           const id = crypto.randomUUID()
 
-          const folder = type === 'voice' ? 'voices' : 'music'
+          const folder = type === 'voice' ? 'voices' : type === 'image' ? 'characters' : 'music'
           const key = `config/${folder}/${id}.${ext}`
 
           const { uploadBuffer } = await import('@/infrastructure/config/storage.config')

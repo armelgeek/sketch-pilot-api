@@ -36,7 +36,6 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     llmProvider: options.llmProvider,
     imageProvider: options.imageProvider,
     qualityMode: options.qualityMode,
-    characterConsistency: options.characterConsistency,
     autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
     customSpec: customSpec || options.customSpec

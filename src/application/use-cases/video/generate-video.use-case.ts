@@ -3,18 +3,14 @@ import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
-import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
-import { UserRepository } from '@/infrastructure/repositories/user.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
-
 type GenerateVideoParams = {
   userId: string
   planId?: string
   topic: string
   options?: Partial<VideoGenerationOptions>
-  characterModelId?: string
 }
 
 type GenerateVideoResponse = {
@@ -39,11 +35,9 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     llmProvider: options.llmProvider,
     imageProvider: options.imageProvider,
     qualityMode: options.qualityMode,
-    characterConsistency: options.characterConsistency,
     autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
     customSpec: customSpec || options.customSpec,
-    characterModelId: options.characterModelId,
     scriptOnly: options.scriptOnly,
     animationMode: options.animationMode,
     aspectRatio: options.aspectRatio,
@@ -56,7 +50,6 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
-const userRepository = new UserRepository()
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
   async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
@@ -126,22 +119,6 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         }
       })
 
-      // Resolve Character Model
-      let finalCharacterModelId = options.characterModelId
-      if (!finalCharacterModelId) {
-        const userRec = await userRepository.findById(userId)
-        finalCharacterModelId = userRec?.defaultCharacterModelId || undefined
-
-        // If still no model, fallback to standard model
-        if (!finalCharacterModelId) {
-          const charRepo = new CharacterModelRepository()
-          const standardModel = await charRepo.findStandard()
-          if (standardModel) {
-            finalCharacterModelId = standardModel.id
-          }
-        }
-      }
-
       // Create the video record
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
@@ -150,9 +127,9 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         id: videoId,
         userId,
         topic,
+        characterModelId: options.characterModelId,
         options: { ...videoOptions, creditsUsed: totalCost, planConsumed, extraConsumed },
         language: options.language || 'en',
-        characterModelId: finalCharacterModelId,
         creditsUsed: totalCost
       })
 
@@ -167,7 +144,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         userId,
         videoId,
         topic,
-        options: toJobOptions({ ...videoOptions, characterModelId: finalCharacterModelId }, spec)
+        options: toJobOptions(videoOptions, spec)
       }
 
       const queue = getVideoQueue()

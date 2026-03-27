@@ -1,86 +1,71 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '../database/db'
-import { musicTracks, voicePresets, type MusicTrack, type VoicePreset } from '../database/schema'
+import { musicTracks, voicePresets } from '../database/schema/assets-config.schema'
 
 export class AssetsConfigRepository {
-  // ─── Voice Presets ────────────────────────────────────────────────────────
-
-  getAllVoices(provider?: string): Promise<VoicePreset[]> {
-    if (provider) {
-      return db
-        .select()
-        .from(voicePresets)
-        .where(and(eq(voicePresets.isActive, true), eq(voicePresets.provider, provider)))
-    }
-    return db.select().from(voicePresets).where(eq(voicePresets.isActive, true))
+  // --- Voices ---
+  async findAllVoices() {
+    return await db.select().from(voicePresets).orderBy(voicePresets.name)
   }
 
-  findAllVoices(): Promise<VoicePreset[]> {
-    return db.select().from(voicePresets)
+  async getAllVoicesGroupedByProvider() {
+    const all = await db.select().from(voicePresets).where(eq(voicePresets.isActive, true))
+    const grouped: Record<string, any[]> = {}
+
+    all.forEach((v) => {
+      if (!grouped[v.provider]) {
+        grouped[v.provider] = []
+      }
+      grouped[v.provider].push(v)
+    })
+
+    return grouped
   }
 
-  async getVoiceByPresetId(presetId: string): Promise<VoicePreset | null> {
+  async getVoiceByPresetId(presetId: string) {
     const [voice] = await db.select().from(voicePresets).where(eq(voicePresets.presetId, presetId))
     return voice || null
   }
 
-  async getAllVoicesGroupedByProvider(): Promise<Record<string, VoicePreset[]>> {
-    const voices = await db.select().from(voicePresets).where(eq(voicePresets.isActive, true))
-    return voices.reduce<Record<string, VoicePreset[]>>((acc, voice) => {
-      if (!acc[voice.provider]) acc[voice.provider] = []
-      acc[voice.provider].push(voice)
-      return acc
-    }, {})
-  }
-
-  async createVoice(data: VoicePreset): Promise<VoicePreset> {
+  async createVoice(data: any) {
     const [voice] = await db.insert(voicePresets).values(data).returning()
     return voice
   }
 
-  async updateVoice(id: string, data: Partial<VoicePreset>): Promise<VoicePreset> {
-    const [voice] = await db
-      .update(voicePresets)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(voicePresets.id, id))
-      .returning()
+  async updateVoice(id: string, data: any) {
+    const [voice] = await db.update(voicePresets).set(data).where(eq(voicePresets.id, id)).returning()
     return voice
   }
 
-  async deleteVoice(id: string): Promise<void> {
-    await db.delete(voicePresets).where(eq(voicePresets.id, id))
+  async deleteVoice(id: string) {
+    return await db.delete(voicePresets).where(eq(voicePresets.id, id))
   }
 
-  // ─── Music Tracks ─────────────────────────────────────────────────────────
-
-  getAllMusicTracks(): Promise<MusicTrack[]> {
-    return db.select().from(musicTracks).where(eq(musicTracks.isActive, true))
+  // --- Music ---
+  async findAllMusicTracks() {
+    return await db.select().from(musicTracks).orderBy(musicTracks.name)
   }
 
-  findAllMusicTracks(): Promise<MusicTrack[]> {
-    return db.select().from(musicTracks)
+  async getAllMusicTracks() {
+    return await db.select().from(musicTracks).where(eq(musicTracks.isActive, true))
   }
 
-  async getMusicTrackById(trackId: string): Promise<MusicTrack | null> {
+  async getMusicTrackById(trackId: string) {
     const [track] = await db.select().from(musicTracks).where(eq(musicTracks.trackId, trackId))
     return track || null
   }
 
-  async createMusicTrack(data: MusicTrack): Promise<MusicTrack> {
+  async createMusicTrack(data: any) {
     const [track] = await db.insert(musicTracks).values(data).returning()
     return track
   }
 
-  async updateMusicTrack(id: string, data: Partial<MusicTrack>): Promise<MusicTrack> {
-    const [track] = await db
-      .update(musicTracks)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(musicTracks.id, id))
-      .returning()
+  async updateMusicTrack(id: string, data: any) {
+    const [track] = await db.update(musicTracks).set(data).where(eq(musicTracks.id, id)).returning()
     return track
   }
 
-  async deleteMusicTrack(id: string): Promise<void> {
-    await db.delete(musicTracks).where(eq(musicTracks.id, id))
+  async deleteMusicTrack(id: string) {
+    return await db.delete(musicTracks).where(eq(musicTracks.id, id))
   }
 }

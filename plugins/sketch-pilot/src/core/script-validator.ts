@@ -206,13 +206,11 @@ export class ScriptValidator {
   private checkVisualConsistency(scenes: EnrichedScene[]): number {
     if (scenes.length === 0) return 0
 
-    let score = 5
+    const score = 5
 
-    // Check character variant consistency
-    const variants = new Set(scenes.map((s) => s.characterVariant))
-    if (variants.size > 2) {
-      score -= 1 // Too many character variants
-    }
+    // Visual consistency check (simplified for character-agnostic)
+    // We could check for location consistency here or other visual markers
+    return Math.max(0, Math.round(score * 10) / 10)
 
     return Math.max(0, Math.round(score * 10) / 10)
   }

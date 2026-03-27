@@ -9,24 +9,59 @@
  * Everything comes from the Spec.
  */
 
-import { computeSceneCount } from '../types/video-script.types'
+import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
+import { computeSceneCount, computeVisualBudget } from '../types/video-script.types'
 import type { AnimationPrompt, EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../types/video-script.types'
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
 import type { SceneMemory } from './scene-memory'
-
 export interface PromptManagerConfig {
   /**
    * Primary specification used for both script and image generation.
    * If provided, this prompt record will drive the entire video personality.
    */
   scriptSpec?: VideoTypeSpecification
+  /**
+   * The ID of the character model to use for visual consistency.
+   */
+  characterModelId?: string
 }
 
 export class PromptManager {
   private spec?: VideoTypeSpecification
+  private characterModelId?: string
+  private readonly characterRepository = new CharacterModelRepository()
 
   constructor(config: PromptManagerConfig = {}) {
     this.spec = config.scriptSpec
+    this.characterModelId = config.characterModelId
+  }
+
+  private async resolveCharacterMetadata(): Promise<any | undefined> {
+    if (this.characterModelId) {
+      const model = await this.characterRepository.findById(this.characterModelId)
+      if (model) {
+        return {
+          description: model.description || '',
+          gender: model.gender || 'unknown',
+          age: model.age || 'unknown',
+          voiceId: model.voiceId,
+          stylePrefix: model.stylePrefix || '',
+          artistPersona: model.artistPersona || '',
+          images: model.images || []
+        }
+      }
+    }
+    return this.spec
+      ? {
+          description: this.spec.characterDescription || '',
+          images: []
+        }
+      : undefined
+  }
+
+  public async resolveCharacterImages(): Promise<string[]> {
+    const metadata = await this.resolveCharacterMetadata()
+    return metadata?.images || []
   }
 
   /**
@@ -72,8 +107,9 @@ export class PromptManager {
   /**
    * Build only the system instructions for script generation.
    */
-  buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any): string {
+  async buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any): Promise<string> {
     const spec = this.getEffectiveSpec(options)
+    const characterMetadata = await this.resolveCharacterMetadata()
     const instructions = [...(spec.instructions || [])]
 
     // 1. Narration Speed
@@ -84,21 +120,57 @@ export class PromptManager {
 
     // 3. Director & Art Direction Integration (One-Pass Consolidation - Phase 31)
     instructions.push(
-      'DIRECTOR PLAN: Analyze the narrative arc to define a global visual strategy.',
-      '1. THE VISUAL ARC: Lighting and color palette must evolve to support the emotional tone.',
-      '2. RECURRING SYMBOLS: Identification of 1-3 visual objects that should appear consistently as anchors.',
-      '3. VISUAL STORYTELLING: Define powerful visual metaphors to represent abstract concepts. Avoid literalism.',
-      '4. PACING (RHYTHM): Define a global camera movement strategy and transition style.',
-      '5. ARTISTIC IDENTITY: Define the "Visual Soul" (Texture, Line Quality, Color Harmony Strategy).',
-      '6. PATTERN INTERRUPT: Identify key moments for a strong visual "Hook" to grab attention.',
-      '7. IMMERSIVE NARRATION: Characters (like the narrator or protagonists) should be addressed or referred to by name in the narration when appropriate to enhance continuity and immersion.',
-      '8. PLAIN LANGUAGE & CLARITY: The target audience is non-experts. The narration must be direct, pedagogical, and easy to understand. Avoid complex terminology or abstract metaphors in the spoken narration. Use "Explain Like I\'m Five" (ELI5) principles: keep sentences simple and focused on clarity.',
-      '9. VISUAL LOGIC & CONTINUITY: Scenes must follow a logical visual progression. If the narration refers to the same moment, keep the character in the same environment. Ensure actions are physically consistent and transitions feel natural. Avoid arbitrary location jumps unless the narration explicitly implies a change in setting.',
-      "10. LOCATION PERSISTENCE: If the input prompt defines locations with specific IDs (e.g., LOC-01, LOC-02), you MUST use these exact IDs in the scene's locationId field to ensure visual memory works correctly.",
-      '11. NAME CONSISTENCY: You MUST use the exact names provided for characters. These names are the unique keys for the @Name visual system.'
+      `Visual storytelling:
+      Each image must clearly communicate the core idea without any text or narration. The character must actively interact with the concept in a visual and meaningful way. The main concept should be the most dominant visual element in the scene.
+
+      Pacing and rhythm:
+      Define a consistent visual flow with smooth and intentional transitions between scenes.
+
+      Artistic identity:
+      Maintain a consistent visual style across all scenes, including line quality, texture, and overall rendering approach.
+
+      Pattern interrupt:
+      Introduce occasional strong visual moments designed to capture attention and break visual monotony.
+
+      Narration style:
+      Use clear, simple, and direct language. Keep explanations easy to understand, focusing on clarity over complexity.
+
+      Visual continuity:
+      Ensure scenes follow a logical progression. Keep environments and actions consistent unless a change is clearly motivated.
+
+      Cost optimization (Visual Re-use):
+      For long videos, if two or more consecutive scenes have very similar visual content (same subject, same location), use the 'visualReferenceId' field in the second scene to point to the 'id' of the first scene. This avoids generating redundant images.
+      
+      Camera Dynamics:
+      When reusing a visual via 'visualReferenceId', ALWAYS specify a different 'cameraAction' (e.g., zoom-in, pan-left) to keep the video engaging. Each scene should feel like a new shot, even if it uses the same base image.`
     )
 
-    const fullSpec = { ...spec, instructions }
+    // 4. Dynamic Visual Budget (Cost Optimization)
+    const totalDuration = options.maxDuration || 60
+    const visualBudget = computeVisualBudget(totalDuration)
+    const approxReusePercent = Math.round(Math.max(0, 100 - (visualBudget / computeSceneCount(totalDuration)) * 100))
+
+    instructions.push(
+      `STRICT VISUAL BUDGET (LIMIT: ${visualBudget} UNIQUE IMAGES):
+      For this ${Math.round(totalDuration / 60)}min video, you are strictly limited to ${visualBudget} UNIQUE image generations.
+      1. YOU MUST reuse images using 'visualReferenceId' for approximately ${approxReusePercent}% of scenes.
+      2. Distribution: Group narration into visual sequences of 30-45 seconds (same image used across 3-4 consecutive scenes).
+      3. Maintain rhythm by using different CAMERA ACTIONS (zoom-in, pan-left, zoom-out) on every reused visual.
+      4. Only generate a NEW image when the sub-topic or location changes significantly.
+      5. ASYMMETRIC PACING & LONG HOLDS:
+         - For explanatory parts, keep one image for 45-60s (using 'visualReferenceId' for 4-5 scenes).
+         - CRITICAL FOR LONG HOLDS: To prevent monotony on a 60s hold, change the 'cameraAction' for EACH reused scene (e.g., Scene 1: 'zoom-in', Scene 2: 'pan-left', Scene 3: 'zoom-out').
+         - For key moments, switch images quickly every 10-15s.
+         - Create a "heartbeat" rhythm by alternating between long visual holds and quick visual cuts.`
+    )
+
+    const fullSpec = {
+      ...spec,
+      instructions,
+      characterDescription: characterMetadata
+        ? `${characterMetadata.description}. Personality: ${characterMetadata.artistPersona}.`
+        : spec.characterDescription
+    }
     const consolidatedOutputFormat = this.getConsolidatedOutputFormat(spec.outputFormat)
 
     // 4. Inject Goals and Rules from Spec (Phase 32)
@@ -138,45 +210,29 @@ export class PromptManager {
   "fullNarration": "string",
   "theme": "string",
   "backgroundMusic": "string",
-  "characterSheets": [
-    {
-      "id": "string (descriptive unique ID, e.g. 'lily')",
-      "name": "string",
-      "role": "string",
-      "appearance": { 
-        "description": "string", 
-        "clothing": "string",
-        "accessories": ["string"],
-        "colorPalette": ["string"],
-        "uniqueIdentifiers": ["string"]
-      },
-      "expressions": ["string"],
-      "metadata": { "gender": "male|female|unknown", "age": "child|youth|senior|unknown" },
-      "imagePrompt": "string"
-    }
-  ],
   "scenes": [
     {
       "sceneNumber": 1,
+      "id": "string (unique scene id)",
       "timestamp": 0,
       "narration": "string (the spoken text)",
       "summary": "string (brief visual summary)",
-      "imagePrompt": "string (MINIMALIST visual description. One clear, simple sentence centered on the character(s) from the characterSheets AND their environment. MANDATORY: Prioritize a POIGNANT VISUAL METAPHOR or a PATTERN INTERRUPT to represent abstract concepts. Avoid literalism. Always use the @Name syntax for characters and describe the background NATURALLY within the same sentence (e.g., '@Lily sitting in a cluttered, sunlit office').)",
+      "visualReferenceId": "string (optional: the id of a previous scene to reuse its image)",
+      "locationId": "string (optional: unique location identifier)",
+      "cameraAction": {
+        "type": "zoom-in | zoom-out | pan-left | pan-right | static",
+        "intensity": "low | medium | high"
+      },
+      "preset": "hook | reveal | mirror",
+      "imagePrompt": "string (A symbolic visual perfectly representing the scene's core idea. The scene takes place in a simple, realistic interior with a table, a chair, a lamp, a shelf, and a window in the background, each object clearly defined and naturally positioned. The camera frames the action clearly, with all elements at a realistic scale. The image is rendered as a highly detailed black and white pencil drawing with soft grayscale shading and subtle textures, creating a clean, balanced, and grounded composition with no empty space.)",
       "animationPrompt": "string (specific movement/performance instructions)",
-      "characterIds": ["string (IDs from the characterSheets)"],
-      "speakingCharacterId": "string (the ID of the character currently speaking, e.g. 'lily')",
       "locationId": "string (reusable identifier, e.g. 'office', 'forest')",
       "continueFromPrevious": false,
       "visualSource": "local",
       "cameraAction": { "type": "string", "intensity": "low|medium|high" },
       "transitionToNext": "string"
     }
-  ],
-  "instructions": [
-    "1. For each scene, accurately identify the speaker via 'speakingCharacterId'. It MUST exactly match an ID from 'characterSheets'.",
-    "2. Ensure the @Name in 'imagePrompt' belongs to the 'speakingCharacterId' if that character is the one talking."
   ]
-}
 }`
   }
 
@@ -195,19 +251,16 @@ export class PromptManager {
       aspectRatio: options.aspectRatio || '16:9',
       audience: (options as any).audience || spec.audienceDefault,
       maxScenes: targetSceneCount,
-      language: options.language,
-      characters:
-        options.characters ||
-        (options.characterModelId ? [{ name: 'Main Character', modelId: options.characterModelId }] : undefined)
+      language: options.language
     })
   }
 
-  buildScriptGenerationPrompts(
+  async buildScriptGenerationPrompts(
     topic: string,
     options: VideoGenerationOptions
-  ): { systemPrompt: string; userPrompt: string } {
+  ): Promise<{ systemPrompt: string; userPrompt: string }> {
     return {
-      systemPrompt: this.buildScriptSystemPrompt(options),
+      systemPrompt: await this.buildScriptSystemPrompt(options),
       userPrompt: this.buildScriptUserPrompt(topic, options)
     }
   }
@@ -226,87 +279,57 @@ export class PromptManager {
    * FIX: now delegates to PromptMaker.buildSystemInstructions() to avoid duplicating
    * assembly logic and to include all spec fields (role, task, goals…) consistently.
    */
-  buildImageSystemInstruction(
-    hasReferenceImages: boolean,
-    characterSheets?: import('../types/video-script.types').CharacterSheet[]
-  ): string {
+  async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
     const spec = this.spec
     if (!spec) return ''
 
-    let characterContext = ''
-    if (characterSheets && characterSheets.length > 0) {
-      const sheets = characterSheets
-        .map((s) => `- @${s.name}: ${s.appearance.description}${s.role ? ` (Role: ${s.role})` : ''}`)
-        .join('\n')
-      characterContext = `CHARACTER PROFILES (Absolute visual reference for @Name syntax):\n${sheets}`
-    }
+    const characterMetadata = await this.resolveCharacterMetadata()
+    const characterDescription = characterMetadata?.description || spec.characterDescription
+    const stylePrefix = characterMetadata?.stylePrefix || ''
+    const artistPersona = characterMetadata?.artistPersona || ''
 
-    const referenceMode = hasReferenceImages
-      ? 'STYLE CONSISTENCY (CRITICAL): You are provided with reference images. The ENTIRE image — characters AND background — must strictly replicate the artistic style, rendering technique, color palette, line weight, and level of detail from these references. If the reference is a flat illustration, the background must be a flat illustration too. If it is minimalist with clean lines, the background must be equally minimalist. NEVER produce photorealistic backgrounds when the reference is illustrative or stylized. The background is part of the same artwork, not a separate element. Additionally, maintain the visual identity (face, hair, clothing, proportions) of any characters shown in the references.'
-      : ''
+    // If character metadata has images, we treat it as having reference images even if none passed in options
+    const effectiveHasRef = hasReferenceImages || (characterMetadata?.images && characterMetadata.images.length > 0)
 
-    const styleAnchor =
-      'Cinematic composition: Use extreme close-ups for emotional impact, medium shots for action, and wide shots for context. Apply the rule of thirds and heavy use of negative space to drive focus. Visualize abstract concepts through surrealism and visual metaphors rather than literal representations.'
+    const referenceMode = effectiveHasRef
+      ? `Style consistency: Match the artistic style of the reference images for character design, clothing, and line quality. ${stylePrefix}. The image is strictly black and white, rendered in grayscale with detailed pencil shading and texture. The scene includes a full, realistic, and dense environment with multiple clearly defined objects, independent from the reference background.`
+      : stylePrefix
+
+    const personaContext = artistPersona ? `Acting as a ${artistPersona}, create:` : ''
+
+    const characterContext = characterDescription
+      ? `A symbolic visual representing the scene's core idea is shown, centered around a main character described as: ${characterDescription}. This character is interacting with the environment.`
+      : "A symbolic visual perfectly representing the scene's core idea is shown, interacting with the environment."
+
+    const styleAnchor = `${personaContext} Style: Highly detailed black and white pencil drawing with rich grayscale shading and subtle cross-hatching, creating depth across all surfaces. ${characterContext} The scene takes place in a realistic interior with at least five clearly identifiable objects such as a table, a chair, a lamp, a shelf, and a window, naturally arranged. The camera frames the action clearly while showing the environment. Walls and floor are visible with natural perspective lines to ground the space. All elements are rendered at realistic human scale. The composition is clean, balanced, and fully detailed with no empty or undefined space.`
 
     const imageSpec: VideoTypeSpecification = {
       ...spec,
-      instructions: [
-        ...(referenceMode ? [referenceMode] : []),
-        styleAnchor,
-        ...(spec.instructions || []),
-        characterContext
-      ].filter(Boolean)
+      instructions: [referenceMode, styleAnchor, ...(spec.instructions || [])].filter(Boolean)
     }
 
     return this.buildSystemInstructions(imageSpec)
   }
 
-  buildImagePrompt(
+  async buildImagePrompt(
     scene: EnrichedScene,
     hasReferenceImages: boolean = false,
     aspectRatio: string = '16:9',
-    imageStyle?: { stylePrefix?: string; characterDescription?: string },
     memory?: SceneMemory,
-    characterSheets?: import('../types/video-script.types').CharacterSheet[]
-  ): ImagePrompt {
+    hasLocationReference: boolean = false
+  ): Promise<ImagePrompt> {
+    const characterMetadata = await this.resolveCharacterMetadata()
+    const characterDescription = characterMetadata?.description || this.spec?.characterDescription || ''
+
     // 1. Core prompt is exactly what the LLM wrote
     let paragraph = (scene.imagePrompt || scene.summary || '').trim()
 
-    // 2. Character Enrichment (Coherence Fallback)
-    // If the AI prompt is too short or doesn't mention characters, we add them
-    const allCharacterIds = Array.from(
-      new Set([...(scene.characterIds || []), ...(scene.speakingCharacterId ? [scene.speakingCharacterId] : [])])
-    ).filter(Boolean)
-
-    for (const charId of allCharacterIds) {
-      const casting = characterSheets?.find(
-        (c) => c.id?.toLowerCase() === charId.toLowerCase() || c.name?.toLowerCase() === charId.toLowerCase()
-      )
-
-      if (casting) {
-        const isStandard = casting.name.toLowerCase() === 'standard'
-        const nameInPrompt = isStandard ? '@character' : `@${casting.name.toLowerCase()}`
-
-        if (!paragraph.toLowerCase().includes(nameInPrompt)) {
-          // For 'standard', replace @standard first to avoid producing @@character
-          if (isStandard && /@standard\b/i.test(paragraph)) {
-            paragraph = paragraph.replaceAll(/@standard\b/gi, '@character')
-          } else {
-            // If the name is already there without @, prefix it
-            const escapedName = casting.name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
-            const re = new RegExp(`\\b${escapedName}\\b`, 'gi')
-            if (re.test(paragraph)) {
-              paragraph = paragraph.replace(re, nameInPrompt)
-            } else {
-              // Otherwise append it
-              paragraph += ` Featuring ${nameInPrompt}.`
-            }
-          }
-        }
-      }
+    // Enforce character identity if mission-critical
+    if (characterDescription && !paragraph.toLowerCase().includes(characterDescription.toLowerCase().slice(0, 10))) {
+      paragraph = `MAIN CHARACTER: ${characterDescription}. ACTION: ${paragraph}`
     }
 
-    // 3. Location Enrichment (Visibility Fallback)
+    // 2. Location Enrichment (Visibility Fallback)
     if (scene.locationId) {
       // Check memory for descriptive location prompt
       const memorized = memory?.locations.get(scene.locationId)
@@ -326,7 +349,12 @@ export class PromptManager {
     // (system instruction alone is not always sufficient; a prompt-level hint is stronger)
     if (hasReferenceImages) {
       finalPrompt +=
-        ' Same flat illustration style, rendering technique, and line art as the reference images. Background must be drawn in the identical artistic style — not photorealistic.'
+        'Style consistency: Match the flat illustration style, line art, and rendering technique of the reference images. The entire scene, including the background, must be drawn in the same style and not appear photorealistic.'
+
+      if (hasLocationReference) {
+        finalPrompt +=
+          ' ENVIRONMENTAL CONTINUITY: The scene takes place in the EXACT SAME LOCATION as shown in the reference image labeled LOCATION. Maintain all architectural details, furniture positions, and environmental landmarks. Keep the layout identical, only changing the character and their specific action.'
+      }
     }
 
     return {
@@ -363,6 +391,11 @@ export class PromptManager {
     if (spec.structure) sections.push(`## STRUCTURE\n${spec.structure}`)
     if (spec.rules?.length) sections.push(`## RULES\n${spec.rules.map((r) => `- ${r}`).join('\n')}`)
     if (spec.formatting) sections.push(`## FORMATTING\n${spec.formatting}`)
+    if (spec.scenePresets) sections.push(`## SCENE PRESETS\n${JSON.stringify(spec.scenePresets, null, 2)}`)
+    if (spec.visualRules?.length) sections.push(`## VISUAL RULES\n${spec.visualRules.map((r) => `- ${r}`).join('\n')}`)
+    if (spec.orchestration?.length)
+      sections.push(`## ORCHESTRATION\n${spec.orchestration.map((o) => `- ${o}`).join('\n')}`)
+    if (spec.characterDescription) sections.push(`## MAIN CHARACTER\n${spec.characterDescription}`)
     if (spec.outputFormat) sections.push(`## OUTPUT FORMAT\n${spec.outputFormat}`)
     if (spec.instructions?.length)
       sections.push(`## INSTRUCTIONS\n${spec.instructions.map((i) => `- ${i}`).join('\n')}`)
@@ -377,30 +410,9 @@ export class PromptManager {
       `Required Scene Count: ${options.maxScenes}`,
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
-      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION. This includes: narration, titles, onscreen text, imagePrompt (visual scene descriptions), and animationPrompt (movement instructions). Do NOT use English for imagePrompt or animationPrompt when the target language is different.`,
-      '',
-      this.buildCharacterInstructions(options)
+      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION. This includes: narration, titles, onscreen text, imagePrompt (visual scene descriptions), and animationPrompt (movement instructions). Do NOT use English for imagePrompt or animationPrompt when the target language is different.`
     ]
 
     return lines.filter(Boolean).join('\n')
-  }
-
-  private buildCharacterInstructions(options: PromptMakerOptions): string {
-    if (options.characters && options.characters.length > 0) {
-      const cast = options.characters
-        .map((char) => {
-          let line = `- ${char.name}`
-          if (char.modelId) line += ` (Model ID: ${char.modelId})`
-          if (char.appearance) {
-            const desc = [char.appearance.description, char.appearance.clothing].filter(Boolean).join(', ')
-            if (desc) line += ` [Appearance: ${desc}]`
-          }
-          return line
-        })
-        .join('\n')
-      return `CAST OF CHARACTERS:\n${cast}\n\nCRITICAL CONSTRAINTS:\n1. Every imagePrompt MUST be a single MINIMALIST sentence featuring the character(s) above as the main subject.\n2. Always use the @Name syntax to reference characters (e.g., '@Lily').\n3. Do NOT describe the characters' base appearance (hair, eyes, skin, clothing) in the imagePrompt; strictly use @Name.\n4. The character's current location MUST be explicitly mentioned (e.g. '@Lily in the kitchen').\n5. Focus on the character's simple action. No complex compositions.\n6. NAME CONSISTENCY: You MUST use the exact names provided in the CAST above. Do NOT use nicknames, synonyms, or generic terms.`
-    }
-
-    return `CHARACTER IDENTIFICATION:\n- Automatically identify the core characters relevant to this subject.\n- For each character, define their name, role, and a descriptive ID (e.g. 'lily').\n- The Character Sheet acts as the visual and persona anchor for the entire video.\n- These attributes must be returned in the \`characterSheets\` array.`
   }
 }

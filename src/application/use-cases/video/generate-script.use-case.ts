@@ -76,9 +76,9 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         progress: 100,
         options,
         language: options.language || 'en',
+        characterModelId: options.characterModelId,
         script,
-        scenes: script.scenes,
-        characterModelId: options.characterModelId
+        scenes: script.scenes
       })
 
       return {

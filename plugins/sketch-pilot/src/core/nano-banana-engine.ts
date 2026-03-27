@@ -11,12 +11,12 @@ import { LLMServiceFactory, type LLMService, type LLMServiceConfig } from '../se
 import { SceneCacheService } from '../services/llm/scene-cache.service'
 import { VideoAssembler } from '../services/video/video-assembler.service'
 import {
+  computeVisualBudget,
   KokoroVoicePreset,
   QualityMode,
   videoGenerationOptionsSchema,
   type AssCaptionConfig,
   type BrandingConfig,
-  type CharacterSheet,
   type CompleteVideoPackage,
   type CompleteVideoScript,
   type EnrichedScene,
@@ -25,7 +25,6 @@ import {
   type TranscriptionConfig,
   type VideoGenerationOptions
 } from '../types/video-script.types'
-import { getCharacterModelManager } from '../utils/character-models'
 import { runFfmpeg } from '../utils/ffmpeg-utils'
 import { TaskQueue } from '../utils/task-queue'
 
@@ -152,8 +151,7 @@ export class NanoBananaEngine {
         this.audioConfig || {
           provider: 'kokoro',
           lang: 'en',
-          apiKey: process.env.HUGGING_FACE_TOKEN || this.apiKey,
-          kokoroVoicePreset: this.currentKokoroVoicePreset
+          apiKey: process.env.HUGGING_FACE_TOKEN || this.apiKey
         }
       )
     }
@@ -217,109 +215,85 @@ export class NanoBananaEngine {
     }
     return this._transcriptionService
   }
-
   set transcriptionService(service: TranscriptionService | undefined) {
     this._transcriptionService = service
   }
 
-  private getSceneImageStyle(scene: EnrichedScene, script?: CompleteVideoScript) {
-    type ImageStyle = NonNullable<VideoGenerationOptions['imageStyle']>
-    const globalStyle: Partial<ImageStyle> = this.currentOptions?.imageStyle ?? {}
+  private async downloadAndEncodeImages(
+    images: (string | { name?: string; data: string })[]
+  ): Promise<{ name?: string; data: string }[]> {
+    const encodedImages: { name?: string; data: string }[] = []
 
-    let specificCharacterDescription = ''
-
-    if (script?.characterSheets && script.characterSheets.length > 0) {
-      // Find the primary character for this scene using a strict match first
-      const mainCharId = scene.characterIds?.[0] || scene.characterVariant
-      let matchingSheet: CharacterSheet | undefined
-
-      if (mainCharId) {
-        matchingSheet = script.characterSheets.find(
-          (c) => c.id === mainCharId || c.name === mainCharId || c.role === mainCharId
-        )
-      }
-
-      // Warn if casting fails in a multi-character script (avoids silent drift)
-      if (mainCharId && !matchingSheet && script.characterSheets.length > 1) {
-        console.warn(
-          `[NanoBanana] ⚠ Scene ${scene.id} requested character "${mainCharId}" but no matching sheet was found. Visuals may drift.`
-        )
-      }
-
-      // Only fallback to sheet[0] when the script has exactly ONE character sheet
-      // (avoids applying Eleanor's female description to Mr. Henderson's or Mark's scenes)
-      if (!matchingSheet && script.characterSheets.length === 1) {
-        matchingSheet = script.characterSheets[0]
-      }
-
-      if (matchingSheet) {
-        const metadata = matchingSheet.metadata
-
-        // Prefer the full imagePrompt from the character sheet: it already encodes
-        // gender, age, appearance and clothing in one coherent sentence.
-        const sheetImagePrompt = (matchingSheet as any).imagePrompt as string | undefined
-        const desc = matchingSheet.appearance?.description || ''
-
-        if (sheetImagePrompt) {
-          specificCharacterDescription = sheetImagePrompt
-        } else {
-          const identityParts = [desc].filter(Boolean)
-          if (identityParts.length > 0) {
-            specificCharacterDescription = `Subject (${identityParts.join(', ')})`
+    for (const img of images) {
+      try {
+        if (typeof img === 'object') {
+          // If it's already an object, assume data is base64 or a URL
+          if (img.data.startsWith('http')) {
+            const response = await axios.get(img.data, { responseType: 'arraybuffer' })
+            const base64 = Buffer.from(response.data, 'binary').toString('base64')
+            encodedImages.push({ name: img.name, data: base64 })
+          } else {
+            encodedImages.push(img)
           }
+          continue
         }
 
-        // PHASE 28: Sanitize log for user (remove gender if Stick/Whiteboard)
-        const isStickStyle =
-          globalStyle?.stylePrefix?.toLowerCase().includes('stick') ||
-          globalStyle?.stylePrefix?.toLowerCase().includes('whiteboard')
-
-        const debugGender = isStickStyle ? 'neutral' : (metadata?.gender ?? 'unknown')
-
-        console.log(
-          `[NanoBanana] Scene ${scene.id} → character sheet: "${matchingSheet.name}" (${debugGender}) — desc: ${specificCharacterDescription.slice(0, 80)}…`
-        )
+        const url = img as string
+        if (url.startsWith('http')) {
+          console.log(`[NanoBanana] Downloading and encoding reference image: ${url}`)
+          const response = await axios.get(url, { responseType: 'arraybuffer' })
+          const base64 = Buffer.from(response.data, 'binary').toString('base64')
+          encodedImages.push({ data: base64 })
+        } else if (url.length < 1000 && (url.includes('/') || url.includes('\\'))) {
+          // Likely a file path if it's short and contains separators
+          if (fs.existsSync(url)) {
+            const data = fs.readFileSync(url).toString('base64')
+            encodedImages.push({ data })
+          } else {
+            // If it's not a path and not a URL, it might be raw base64 already
+            encodedImages.push({ data: url })
+          }
+        } else {
+          // Assume raw base64
+          encodedImages.push({ data: url })
+        }
+      } catch (error) {
+        console.error(`[NanoBanana] Failed to download or encode image: ${JSON.stringify(img)}`, error)
+        // Skip failed images to avoid crashing the whole pipeline
       }
     }
 
-    // Safely combine the specific scene character description with the global style
-    let finalCharacterDescription = specificCharacterDescription
-
-    if (globalStyle.characterDescription) {
-      finalCharacterDescription = finalCharacterDescription
-        ? `${finalCharacterDescription} - ${globalStyle.characterDescription}`
-        : globalStyle.characterDescription
-    }
-
-    return {
-      ...globalStyle,
-      characterDescription: finalCharacterDescription
-    }
+    return encodedImages
   }
 
   async generateImage(
     scene: EnrichedScene,
     baseImages: (string | { name?: string; data: string })[],
     filename: string,
-    script?: CompleteVideoScript,
-    bypassCache: boolean = false,
-    memory?: SceneMemory
+    bypassCache: boolean = false
   ): Promise<string> {
-    const hasReferenceImages = baseImages.length > 0
-    const sceneImageStyle = this.getSceneImageStyle(scene, script)
-    const { prompt: fullPrompt } = this.promptManager.buildImagePrompt(
+    const characterImages = await this.promptManager.resolveCharacterImages()
+    const rawAllBaseImages = [...baseImages, ...characterImages]
+    const allBaseImages = await this.downloadAndEncodeImages(rawAllBaseImages)
+    const hasReferenceImages = allBaseImages.length > 0
+
+    console.log(`[NanoBanana] Preparing image for scene ${scene.id} with ${allBaseImages.length} reference images.`)
+
+    const hasLocationReference = rawAllBaseImages.some(
+      (img) => typeof img === 'object' && (img as any).name === 'LOCATION'
+    )
+
+    const { prompt: fullPrompt } = await this.promptManager.buildImagePrompt(
       scene,
       hasReferenceImages,
       this.currentOptions?.aspectRatio || '16:9',
-      sceneImageStyle,
-      memory,
-      script?.characterSheets
+      undefined, // memory
+      hasLocationReference
     )
 
-    const systemInstruction = this.promptManager.buildImageSystemInstruction(
-      hasReferenceImages,
-      script?.characterSheets
-    )
+    console.log(`[NanoBanana] Final image prompt for scene ${scene.id}: "${fullPrompt}"`)
+
+    const systemInstruction = await this.promptManager.buildImageSystemInstruction(hasReferenceImages)
 
     if (!bypassCache) {
       const cachedResult = this.sceneCache.get(fullPrompt, {
@@ -359,9 +333,8 @@ export class NanoBananaEngine {
         const startTime = Date.now()
         const imageUrl = await this.imageService.generateImage(refinedPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-          referenceImages: baseImages,
-          systemInstruction,
-          characterSheets: script?.characterSheets
+          referenceImages: allBaseImages,
+          systemInstruction
         })
 
         const duration = Date.now() - startTime
@@ -401,9 +374,8 @@ export class NanoBananaEngine {
           smartUpscale: true,
           format: 'webp',
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-          referenceImages: baseImages,
-          systemInstruction,
-          characterSheets: script?.characterSheets
+          referenceImages: allBaseImages,
+          systemInstruction
         })
         this.sceneCache.set(fullPrompt, result, {
           sceneId: scene.id,
@@ -420,8 +392,7 @@ export class NanoBananaEngine {
           const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
           return await geminiService.generateImage(safetyPrompt, filename, {
             aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-            quality: 'low',
-            characterSheets: script?.characterSheets
+            quality: 'low'
           })
         } catch (ultraError: any) {
           console.error(`[NanoBanana] STAGE 3 fallback failed:`, ultraError.message)
@@ -490,202 +461,147 @@ export class NanoBananaEngine {
   /**
    * Composes a full scene.
    */
-  async composeScene(
+  private async composeScene(
     scene: EnrichedScene,
-    baseImages: (string | { name?: string; data: string })[],
-    targetDir: string,
+    referenceImages: (string | { name?: string; data: string })[],
+    outputDir: string,
     lastSceneImageBase64?: string,
     isReprompt: boolean = false,
     script?: CompleteVideoScript,
     memory?: SceneMemory
   ): Promise<void> {
-    console.log(`\n--- Composing Scene: ${scene.id} ---`)
+    const startTime = Date.now()
     const options = this.currentOptions || ({} as any)
     const animationMode = options.animationMode || 'static'
     const aspectRatio = options.aspectRatio || '16:9'
-    let totalDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
 
-    console.log(`[NanoBanana] Options: Mode=${animationMode}, Clip=${options.animationClipDuration}s`)
-
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true })
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true })
     }
 
-    const layers: any[] = []
-    const sceneImage = 'scene.webp'
-    const imagePath = path.join(targetDir, `scene.webp`)
-    const tempBgPath = path.join(targetDir, 'temp_bg.webp')
+    const imagePath = path.join(outputDir, `scene.webp`)
+    const tempBgPath = path.join(outputDir, 'temp_bg.webp')
 
-    // Phase 28 : Forced Regeneration - If reprompting, delete existing images to ensure no stale cache is used
+    // If reprompting, delete existing images to ensure no stale cache is used
     if (isReprompt) {
-      console.log(
-        `[NanoBanana] 🧨 Reprompting scene ${scene.id} — Forcing deletion of existing files to guarantee regeneration.`
-      )
+      console.log(`[NanoBanana] 🧨 Reprompting scene ${scene.id} — Forcing regeneration.`)
       if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath)
       if (fs.existsSync(tempBgPath)) fs.unlinkSync(tempBgPath)
     }
 
-    const effectiveBaseImages = [...baseImages]
+    const effectiveBaseImages = [...referenceImages]
     if (scene.continueFromPrevious && lastSceneImageBase64) {
       effectiveBaseImages.push(lastSceneImageBase64)
+    }
+
+    // New: Skip generation if visualReferenceId is provided
+    const visualRefId = (scene as any).visualReferenceId
+    if (visualRefId && !isReprompt) {
+      const refSceneId = visualRefId
+      const refSceneDir = path.join(path.dirname(outputDir), refSceneId)
+      const refImagePath = path.join(refSceneDir, 'scene.webp')
+
+      if (fs.existsSync(refImagePath)) {
+        console.log(`[NanoBanana] ♻ Reusing visual from scene ${refSceneId} for scene ${scene.id} (Cost optimization)`)
+        fs.copyFileSync(refImagePath, imagePath)
+        return
+      } else {
+        console.warn(
+          `[NanoBanana] ⚠ Scene ${scene.id} requested reuse of ${refSceneId}, but it was not found. Generating new image.`
+        )
+      }
     }
 
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
 
     try {
-      // Check if scene image already exists
-      const finalImagePath = await this.generateImage(
-        scene,
-        effectiveBaseImages,
-        tempBgPath,
-        script,
-        isReprompt,
-        memory
-      )
+      // 1. Generate Image
+      const finalImagePath = await this.generateImage(scene, effectiveBaseImages, tempBgPath, isReprompt)
       if (!finalImagePath) {
-        throw new Error(`generateImage failed to return a valid path (possible API rejection or safety block).`)
+        throw new Error(`generateImage failed to return a valid path.`)
       }
 
-      const composition = sharp(tempBgPath).resize(width, height, { fit: 'cover' })
-
-      const overlays: any[] = []
-
-      // Final composition
-      if (overlays.length > 0) {
-        await composition.composite(overlays).webp().toFile(imagePath)
-      } else {
-        await composition.webp().toFile(imagePath)
-      }
+      await sharp(tempBgPath).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
     } catch (error) {
-      console.error(
-        `[NanoBanana] Composition failed for scene ${scene.id}:`,
-        error instanceof Error ? error.message : error
-      )
+      console.error(`[NanoBanana] Composition failed for scene ${scene.id}:`, error)
 
-      // Phase 28 : Ultimate Safety Net - Ensure imagePath exists so scene isn't skipped
+      // Emergency placeholder
       if (!fs.existsSync(imagePath)) {
-        try {
-          console.warn(`[NanoBanana] ⚠ Emergency placeholder triggered for scene ${scene.id}`)
-          const [width, height] = this.currentOptions?.aspectRatio === '9:16' ? [720, 1280] : [1280, 720]
-          await sharp({
-            create: {
-              width,
-              height,
-              channels: 3,
-              background: { r: 255, g: 255, b: 255 }
-            }
-          })
-            .webp()
-            .toFile(imagePath)
-        } catch (placeholderError) {
-          console.error(`[NanoBanana] Critical: Failed to create emergency placeholder:`, placeholderError)
-        }
+        await sharp({
+          create: {
+            width,
+            height,
+            channels: 3,
+            background: { r: 255, g: 255, b: 255 }
+          }
+        })
+          .webp()
+          .toFile(imagePath)
       }
       throw error
     } finally {
-      // Clean up temporary background file
       if (fs.existsSync(tempBgPath)) {
         try {
           fs.unlinkSync(tempBgPath)
         } catch {
-          // ignore cleanup errors
+          /* ignore */
         }
       }
     }
 
-    // Generate thumbnail from scene image
-    const thumbnailPath = path.join(targetDir, 'thumbnail.jpg')
-    console.log(`[NanoBanana] Creating thumbnail from ${imagePath} at ${thumbnailPath}...`)
-    if (!fs.existsSync(imagePath)) {
-      console.error(`[NanoBanana] CRITICAL: Scene image not found at ${imagePath}! Cannot create thumbnail.`)
-    } else {
-      await this.generateThumbnail(imagePath, thumbnailPath)
-      console.log(`[NanoBanana] Thumbnail created, exists: ${fs.existsSync(thumbnailPath)}`)
-    }
+    // 2. Generate thumbnail
+    const thumbnailPath = path.join(outputDir, 'thumbnail.jpg')
+    await this.generateThumbnail(imagePath, thumbnailPath)
 
-    const audioPath = path.join(targetDir, `narration.mp3`)
+    // 3. Audio Word Timings
     const wordTimings: WordTiming[] | undefined = (scene as any).globalWordTimings
+    const totalDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
 
-    if (wordTimings && wordTimings.length > 0) {
-      console.log(`[NanoBanana] Using global word timings for scene ${scene.id}`)
-      // When using global audio, duration is exactly what Whisper measured
-      totalDuration = scene.timeRange.end - scene.timeRange.start
-    } else {
-      console.warn(`[NanoBanana] ⚠ Word timings missing for scene ${scene.id}. Audio-visual sync may be degraded.`)
-      totalDuration = 5 // Default fallback
-    }
-
-    // 5. Generate Animation (Queued) - primarily for AI mode
+    // 4. Animation
     let hasVideo = false
-    const videoPath = path.join(targetDir, `animation.mp4`)
+    const videoPath = path.join(outputDir, `animation.mp4`)
     const clipDuration = options.animationClipDuration || 6
 
     if (animationMode === 'ai' && scene.animationPrompt) {
-      hasVideo = true // We assume true for manifest since generation is queued and required
-      await this.generationQueue.add(
-        async () => {
-          try {
-            const refinedVideoPrompt = scene.animationPrompt!
-
-            await this.animationService.animateImage(
-              path.join(targetDir, sceneImage),
-              refinedVideoPrompt,
-              clipDuration,
-              videoPath,
-              aspectRatio
-            )
-            hasVideo = fs.existsSync(videoPath)
-          } catch (error) {
-            console.error(`[NanoBanana] Animation error:`, error)
-          }
-        },
-        `Scene ${scene.id} Animation`,
-        'animation'
-      )
+      hasVideo = true
+      await this.generationQueue.add(async () => {
+        try {
+          await this.animationService.animateImage(
+            imagePath,
+            scene.animationPrompt!,
+            clipDuration,
+            videoPath,
+            aspectRatio
+          )
+          hasVideo = fs.existsSync(videoPath)
+        } catch (error) {
+          console.error(`[NanoBanana] Animation error:`, error)
+        }
+      })
     }
 
-    // 6. Subtitles are now handled by VideoAssembler during stitching to ensure perfect sync with padding
-
-    // 7. Save Manifest
+    // 5. Save Manifest
     const manifest: any = {
       id: scene.id,
-      sceneImage,
+      sceneImage: 'scene.webp',
       audio: !options.globalAudioPath && scene.narration ? 'narration.mp3' : undefined,
       video: hasVideo ? 'animation.mp4' : undefined,
       videoMeta: hasVideo ? { clipDuration, totalDuration, loop: true } : undefined,
       animationMode,
-      layers: layers.length > 0 ? layers : undefined,
-      panningEffect:
-        animationMode === 'panning'
-          ? {
-              type: 'zoom-in',
-              intensity: 'medium',
-              duration: totalDuration
-            }
-          : undefined,
-      aspectRatio,
       transitionToNext: scene.transitionToNext,
       pauseBefore: (scene as any).pauseBefore,
-      pauseAfter: (scene as any).pauseAfter
+      pauseAfter: (scene as any).pauseAfter,
+      aspectRatio
     }
 
-    // Store both relative and global word timings if available
     if (wordTimings && wordTimings.length > 0) {
       const startTime = scene.timeRange.start
-
-      // wordTimings: Relative to scene start (for clip effects)
-      manifest.wordTimings = wordTimings.map((w) => {
-        const relStart = Math.max(0, w.start - startTime)
-        const relEnd = Math.max(relStart, w.end - startTime)
-        return {
-          ...w,
-          start: Math.round(relStart * 100) / 100,
-          end: Math.round(relEnd * 100) / 100,
-          startMs: Math.round(relStart * 1000)
-        }
-      })
-
-      // globalWordTimings: Absolute (for global sync / subtitles)
+      manifest.wordTimings = wordTimings.map((w) => ({
+        ...w,
+        start: Math.round(Math.max(0, w.start - startTime) * 100) / 100,
+        end: Math.round(Math.max(0, w.end - startTime) * 100) / 100,
+        startMs: Math.round(Math.max(0, w.start - startTime) * 1000)
+      }))
       manifest.globalWordTimings = wordTimings.map((w) => ({
         ...w,
         start: Math.round(w.start * 100) / 100,
@@ -694,23 +610,16 @@ export class NanoBananaEngine {
       }))
     }
 
-    fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-    console.log(`[NanoBanana] Scene manifest saved to ${path.join(targetDir, 'manifest.json')}`)
+    fs.writeFileSync(path.join(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
   }
 
   /**
    * Regenerates the scene image and thumbnail for an existing scene directory.
-   * Useful for re-generating just the visuals without re-running the full pipeline.
-   *
-   * @param scene - The enriched scene data containing imagePrompt and id
-   * @param baseImages - Reference images as base64 strings for character consistency
-   * @param targetDir - The scene directory where scene.webp and thumbnail.jpg will be written
    */
   async regenerateSceneImage(
     scene: EnrichedScene,
     baseImages: (string | { name?: string; data: string })[],
-    targetDir: string,
-    script?: CompleteVideoScript
+    targetDir: string
   ): Promise<void> {
     console.log(`\n--- Regenerating Scene Image: ${scene.id} ---`)
     const imagePath = path.join(targetDir, 'scene.webp')
@@ -719,10 +628,8 @@ export class NanoBananaEngine {
       fs.mkdirSync(targetDir, { recursive: true })
     }
 
-    // Pass script so getSceneImageStyle can resolve the correct character sheet
-    // (gender, appearance) even during re-generation.
     await this.generationQueue.add(
-      () => this.generateImage(scene, baseImages, imagePath, script),
+      async () => await this.generateImage(scene, baseImages, imagePath, true),
       `Scene ${scene.id} Image Regeneration`,
       this.currentImageProvider
     )
@@ -863,7 +770,7 @@ export class NanoBananaEngine {
 
     try {
       return await this.generationQueue.add(
-        () => this.scriptGenerator.generateCompleteScript(topic, validOptions, onProgress),
+        async () => await this.scriptGenerator.generateCompleteScript(topic, validOptions, onProgress),
         `Script Generation: ${topic}`,
         'llm'
       )
@@ -965,6 +872,16 @@ export class NanoBananaEngine {
     const validOptions = videoGenerationOptionsSchema.parse(options)
     this.currentOptions = validOptions
 
+    // Ensure all scenes have timeRange and sceneNumber (robustness)
+    const needsMaintenance = script.scenes.some((s) => !s.timeRange || s.sceneNumber === undefined)
+    if (needsMaintenance) {
+      console.log(`[NanoBanana] Script scenes are missing timeRanges or numbers; auto-assigning...`)
+      if (!this.scriptGenerator) {
+        this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+      }
+      script.scenes = this.scriptGenerator.assignTimeRanges(script.scenes as any, validOptions) as any
+    }
+
     // Dynamic quality mode & provider configuration
     const qualityMode = validOptions.qualityMode || QualityMode.STANDARD
 
@@ -1003,117 +920,7 @@ export class NanoBananaEngine {
     console.log(`\n=== GENERATING VIDEO FROM SCRIPT ===`)
 
     // ─────────────────────────────────────────────────────────────────────────
-    // AUTO-LOAD CHARACTER MODELS FOR CONSISTENCY
-    // ─────────────────────────────────────────────────────────────────────────
-    const characterModelManager = getCharacterModelManager()
-    const characterReferenceMap = new Map<string, string[]>() // name -> base64[]
-
-    // 1. Process Enrolled Characters (Explicit User Choice)
-    if (validOptions.characters && validOptions.characters.length > 0) {
-      console.log(`[NanoBanana] Loading enrolled characters: ${validOptions.characters.map((c) => c.name).join(', ')}`)
-      for (const enrollment of validOptions.characters) {
-        let model = null
-        if (enrollment.modelId) {
-          model = await characterModelManager.loadCharacterModelById(enrollment.modelId)
-        } else {
-          model = await characterModelManager.loadCharacterModel({ name: enrollment.name })
-        }
-
-        if (model) {
-          characterReferenceMap.set(enrollment.name.toLowerCase(), [model.base64])
-          if (enrollment.modelId) {
-            characterReferenceMap.set(enrollment.modelId.toLowerCase(), [model.base64])
-          }
-        }
-      }
-    }
-
-    // 2. Process Script Characters (Auto-Discovered by LLM)
-    const scriptCharacters = script.characterSheets || []
-    for (const charSheet of scriptCharacters) {
-      if (characterReferenceMap.has(charSheet.name)) continue
-
-      console.log(`[NanoBanana] Resolving reference for script character: ${charSheet.name}`)
-
-      // A. Direct Base64 References (Priority 1)
-      if ((charSheet as any).referenceImagesBase64 && (charSheet as any).referenceImagesBase64.length > 0) {
-        console.log(
-          `[NanoBanana] Using ${(charSheet as any).referenceImagesBase64.length} direct Base64 reference(s) for ${charSheet.name}`
-        )
-        const refs = (charSheet as any).referenceImagesBase64
-        characterReferenceMap.set(charSheet.name.toLowerCase(), refs)
-        if (charSheet.id) characterReferenceMap.set(charSheet.id.toLowerCase(), refs)
-        continue
-      }
-
-      // B. Custom Reference Image (User Refined - Priority 2)
-      if (charSheet.referenceImageUrl) {
-        try {
-          console.log(
-            `[NanoBanana] Loading custom reference image for ${charSheet.name}: ${charSheet.referenceImageUrl}`
-          )
-          const response = await axios.get(charSheet.referenceImageUrl, { responseType: 'arraybuffer' })
-          const base64 = Buffer.from(response.data, 'binary').toString('base64')
-          characterReferenceMap.set(charSheet.name, [base64])
-          if (charSheet.id) characterReferenceMap.set(charSheet.id, [base64])
-          continue // Priority: user-refined character image wins
-        } catch (error: any) {
-          console.warn(`[NanoBanana] ⚠ Failed to load custom reference for ${charSheet.name}:`, error.message)
-        }
-      }
-
-      // B. Visual Model Reference (Standard Casting)
-      let model = null
-      if (charSheet.modelId && charSheet.modelId !== 'none') {
-        model = await characterModelManager.loadCharacterModelById(charSheet.modelId)
-      } else if (!charSheet.modelId) {
-        // Try to match by metadata ONLY if no explicit modelId (or "none") was provided
-        const metadata = charSheet.metadata
-        model = await characterModelManager.loadCharacterModel({
-          name: charSheet.name,
-          gender: metadata?.gender,
-          age: metadata?.age
-        })
-      }
-
-      if (model) {
-        console.log(`[NanoBanana] ✓ Matched "${charSheet.name}" to model: ${model.name}`)
-        characterReferenceMap.set(charSheet.name.toLowerCase(), [model.base64])
-        // Also key by internal IDs for robustness in scene mapping
-        if (charSheet.id) characterReferenceMap.set(charSheet.id.toLowerCase(), [model.base64])
-        if (charSheet.modelId && charSheet.modelId !== 'none') {
-          characterReferenceMap.set(charSheet.modelId.toLowerCase(), [model.base64])
-        }
-      } else {
-        console.warn(`[NanoBanana] ⚠ No model match for "${charSheet.name}". Will generate fresh visuals.`)
-      }
-    }
-
-    // 3. Fallback for single model or provided base images (Refined Phase 31)
-    // If we have only 1 character in the script and user provided 1+ base images,
-    // we MUST use them as the source of truth for that character.
-    if (scriptCharacters.length === 1 && baseImages.length > 0) {
-      const charName = scriptCharacters[0].name.toLowerCase()
-      console.log(`[NanoBanana] 🎯 Single character detected: Mapping base images to "${charName}"`)
-      characterReferenceMap.set(charName, baseImages)
-      if (scriptCharacters[0].id) characterReferenceMap.set(scriptCharacters[0].id.toLowerCase(), baseImages)
-    }
-
-    if (validOptions.characterModelId && characterReferenceMap.size === 0) {
-      const model = await characterModelManager.loadCharacterModelById(validOptions.characterModelId)
-      if (model) {
-        characterReferenceMap.set('standard', [model.base64])
-      }
-    }
-
-    if (characterReferenceMap.size === 0 && baseImages.length > 0) {
-      console.log(`[NanoBanana] Using provided base images as global visual reference.`)
-      characterReferenceMap.set('standard', baseImages)
-    }
-
-    if (characterReferenceMap.size > 0) {
-      console.log(`[NanoBanana] ✓ characterReferenceMap initialized with ${characterReferenceMap.size} character(s)`)
-    }
+    // Character resolution removed
 
     // ─────────────────────────────────────────────────────────────────────────
     // CHARACTER STUDIO (V2 Phase 2): Reference Images
@@ -1124,7 +931,6 @@ export class NanoBananaEngine {
 
     // Use all base images collectively for universal references if needed
     const allBaseImages = [...baseImages]
-    characterReferenceMap.forEach((imgs) => allBaseImages.push(...imgs))
 
     const scenesDir = path.join(projectDir, 'scenes')
     if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true })
@@ -1189,55 +995,14 @@ export class NanoBananaEngine {
         if (!audioExists) {
           console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
 
-          // Resolve character voices
-          const characterVoices = new Map<string, string>()
-          if (script.characterSheets) {
-            for (const char of script.characterSheets as any[]) {
-              if (char.voiceId && char.voiceId !== 'none') {
-                characterVoices.set(char.id, char.voiceId)
-              }
-            }
-          }
+          const voiceId = validOptions.kokoroVoicePreset || KokoroVoicePreset.AF_HEART
+          console.log(`[NanoBanana] Generating global narration with voice: ${voiceId}`)
 
-          const isMultiVoice = script.scenes.some(
-            (s) => s.speakingCharacterId && characterVoices.has(s.speakingCharacterId)
-          )
-
-          if (isMultiVoice) {
-            console.log(`[NanoBanana] Multi-voice detected. Generating scene-by-scene audio.`)
-            const tempDir = path.join(projectDir, 'temp_audio')
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
-
-            const sceneAudioFiles: string[] = []
-            for (let i = 0; i < script.scenes.length; i++) {
-              const scene = script.scenes[i]
-              const sceneAudioPath = path.join(tempDir, `scene_${i}.mp3`)
-              const voiceId = scene.speakingCharacterId ? characterVoices.get(scene.speakingCharacterId) : undefined
-
-              console.log(
-                `[NanoBanana] Generating scene ${i} audio ${voiceId ? `(Voice: ${voiceId})` : '(Global Voice)'}`
-              )
-              await this.audioService.generateSpeech(scene.narration, sceneAudioPath, {
-                voice: voiceId,
-                voiceId
-              })
-              sceneAudioFiles.push(sceneAudioPath)
-            }
-
-            console.log(`[NanoBanana] Stitching ${sceneAudioFiles.length} audio files...`)
-            await this.stitchAudioFiles(sceneAudioFiles, globalAudioPath)
-
-            // Cleanup temp
-            try {
-              fs.rmSync(tempDir, { recursive: true, force: true })
-            } catch {
-              /* ignore */
-            }
-          } else {
-            console.log(`[NanoBanana] Single voice detected. Generating global narration.`)
-            const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
-            await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
-          }
+          const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
+          await this.audioService.generateSpeech(fullScriptText, globalAudioPath, {
+            voice: voiceId,
+            voiceId
+          })
         } else {
           console.log(`[NanoBanana] Using existing global narration at ${globalAudioPath}`)
         }
@@ -1437,6 +1202,24 @@ export class NanoBananaEngine {
       script.totalDuration = currentTime
     }
 
+    // --- COST SAFETY GUARD ---
+    // Ensure we don't exceed the visual budget based on duration
+    let globalUniqueCount = 0
+    const MAX_BUDGET = computeVisualBudget(script.totalDuration || 60)
+    script.scenes.forEach((scene, idx) => {
+      const visualRef = (scene as any).visualReferenceId
+      if (!visualRef) {
+        if (globalUniqueCount >= MAX_BUDGET) {
+          if (idx > 0) {
+            console.warn(`[NanoBanana] 🛡 Cost Safety: Scene ${idx + 1} exceeds budget. Forcing reuse of scene ${idx}.`)
+            ;(scene as any).visualReferenceId = script.scenes[idx - 1].id
+          }
+        } else {
+          globalUniqueCount++
+        }
+      }
+    })
+
     // --- SCENE COMPOSITION ---
     // Skip composition if we only want audio OR if visuals are already generated
     // BUT ALWAYS allow composition if we are REPROMPTING a specific scene
@@ -1528,27 +1311,8 @@ export class NanoBananaEngine {
           }
 
           // Determine scene-specific reference images
-          const sceneCharacterNames = scene.characterIds || []
+          // 1. High Priority: Global Style
           const sceneBaseImages: (string | { name: string; data: string })[] = []
-
-          // 1. High Priority: Characters (MANDATORY visual soul)
-          if (sceneCharacterNames.length > 0) {
-            for (const charName of sceneCharacterNames) {
-              const refs = characterReferenceMap.get(charName.toLowerCase())
-              if (refs) {
-                sceneBaseImages.push(...refs.map((r) => ({ name: charName, data: r })))
-              } else {
-                console.warn(`[NanoBanana] ⚠ Reference images NOT FOUND for character: ${charName}`)
-              }
-            }
-          } else if (scene.characterVariant && scene.characterVariant !== 'none') {
-            const vRefs = characterReferenceMap.get(scene.characterVariant.toLowerCase())
-            if (vRefs) sceneBaseImages.push(...vRefs.map((r) => ({ name: scene.characterVariant!, data: r })))
-          } else if (characterReferenceMap.has('standard')) {
-            sceneBaseImages.push(...characterReferenceMap.get('standard')!)
-          }
-
-          // 2. Medium Priority: Global Style
           sceneBaseImages.push(...baseImages)
 
           // 3. Context/Anchor: Location
@@ -1558,7 +1322,7 @@ export class NanoBananaEngine {
             const locationRef = locationImageMap.get(scene.locationId)
             if (locationRef) {
               console.log(`[NanoBanana] ⚓ Anchoring background for ${scene.id} to location: ${scene.locationId}`)
-              sceneBaseImages.push(locationRef)
+              sceneBaseImages.push({ name: 'LOCATION', data: locationRef })
             }
           }
 
@@ -1566,7 +1330,6 @@ export class NanoBananaEngine {
           try {
             const memory = (script as any).memory || {
               locations: new Map(),
-              characters: new Map(),
               timeOfDay: '',
               weather: ''
             }

@@ -655,27 +655,32 @@ export class VideoAssembler {
       let y = 'ih/2-(ih/zoom/2)'
 
       if (cameraAction) {
-        // Boosted intensity for more perceptible motion (0.003 default)
-        const intensity = cameraAction.intensity === 'high' ? 0.006 : cameraAction.intensity === 'low' ? 0.0015 : 0.003
+        // We use a base zoom of 1.3 for panning, which gives us a 30% margin to move the camera.
+        // We MUST distribute this 30% margin across the ENTIRE duration (frameCount) to prevent panning off-screen.
+        // x/y translate max delta is: (iw - iw/1.3) = iw * 0.23
 
         if (cameraAction.type === 'zoom-out') {
-          // Starts zoomed in (1.5) and zooms out to 1.0
-          zBaseExpr = `max(1.5-${intensity}*on,1.0)`
+          // Starts zoomed in (1.5) and zooms out to 1.0 over the entire duration
+          const zoomRate = (1.5 - 1) / frameCount
+          zBaseExpr = `max(1.5-${zoomRate}*on,1.0)`
         } else if (cameraAction.type === 'zoom-in') {
-          // Starts at 1.0 and zooms in smoothly
-          zBaseExpr = `min(1.0+${intensity}*on,2.0)`
+          // Starts at 1.0 and zooms in to 1.5 over the entire duration
+          const zoomRate = (1.5 - 1) / frameCount
+          zBaseExpr = `min(1.0+${zoomRate}*on,1.5)`
         } else if (cameraAction.type === 'pan-right') {
-          zBaseExpr = '1.3' // Fixed zoom level for panning
-          x = `(iw/2-(iw/zoom/2)) + (on*${intensity * 300})`
+          zBaseExpr = '1.3'
+          // Move from left edge (0) to right edge (max margin) smoothly over frameCount
+          x = `(iw/2-(iw/zoom/2)) + ((iw-(iw/zoom))/2) * (on/${frameCount})`
         } else if (cameraAction.type === 'pan-left') {
           zBaseExpr = '1.3'
-          x = `(iw/2-(iw/zoom/2)) - (on*${intensity * 300})`
+          // Move from right edge (max margin) to left edge (0) smoothly over frameCount
+          x = `(iw/2-(iw/zoom/2)) - ((iw-(iw/zoom))/2) * (on/${frameCount})`
         } else if (cameraAction.type === 'pan-down') {
           zBaseExpr = '1.3'
-          y = `(ih/2-(ih/zoom/2)) + (on*${intensity * 300})`
+          y = `(ih/2-(ih/zoom/2)) + ((ih-(ih/zoom))/2) * (on/${frameCount})`
         } else if (cameraAction.type === 'pan-up') {
           zBaseExpr = '1.3'
-          y = `(ih/2-(ih/zoom/2)) - (on*${intensity * 300})`
+          y = `(ih/2-(ih/zoom/2)) - ((ih-(ih/zoom))/2) * (on/${frameCount})`
         }
       }
 

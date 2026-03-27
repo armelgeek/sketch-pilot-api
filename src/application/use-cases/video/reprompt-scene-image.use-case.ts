@@ -76,6 +76,13 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
         }
       }
 
+      // BREAK VISUAL LINK: If the scene is being explicitly reprompted, we must break any visual reuse link
+      // so NanoBananaEngine doesn't optimize it away and actually generates the new image.
+      delete scenes[sceneIndex].visualReferenceId
+      if (video.script && (video.script as any).scenes) {
+        delete (video.script as any).scenes[sceneIndex].visualReferenceId
+      }
+
       await videoRepository.updateStatus(videoId, {
         jobId,
         status: 'queued',
