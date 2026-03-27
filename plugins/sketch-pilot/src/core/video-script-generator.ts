@@ -128,7 +128,26 @@ export class VideoScriptGenerator {
           throw new Error("Generated script JSON is missing 'scenes' array")
         }
 
-        // Successfully parsed and validated structure, break loop
+        // --- BREVITY CHECK ---
+        const effectiveDuration = this.promptManager.getEffectiveDuration(options)
+        const wps = this.promptManager.getWordsPerSecond(options)
+        const targetWords = Math.round(effectiveDuration * wps)
+        const actualWords = parsed.scenes.reduce(
+          (acc: number, s: any) => acc + (s.narration || '').split(/\s+/).length,
+          0
+        )
+
+        // If we are at less than 90% of the target, it's a failure (the LLM was too brief)
+        if (actualWords < targetWords * 0.9 && effectiveDuration > 30) {
+          console.warn(`[VideoScriptGen] 🚨 Script too brief: ${actualWords}/${targetWords} words. Rejected for retry.`)
+          throw new Error(
+            `NARRATION TOO SHORT: The generated narration is only ${actualWords} words, but a ${Math.round(
+              effectiveDuration / 60
+            )}min video requires at least ${targetWords} words. PLEASE ELABORATE extensively and provide much more detailed narration for each scene.`
+          )
+        }
+
+        console.log(`[VideoScriptGen] ✓ Script accepted: ${actualWords}/${targetWords} words.`)
         break
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error))

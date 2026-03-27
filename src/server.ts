@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
-
 import { App } from './app'
+
 import {
   CharacterModelController,
   ConfigController,

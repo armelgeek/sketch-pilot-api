@@ -118,7 +118,7 @@ CRITICAL INSTRUCTIONS:
     [memorable reflection]
 
 Return ONLY a valid JSON object with a 'topics' key containing an array of 3 objects:
-{ "topics": [{ "title": "Catchy Title", "script": "Intro\\n...\\nVisual: ...\\n\\nCenter\\nPoint 1: ...\\n  ...\\n  Visual: ...\\n\\nOutro\\n...\\nVisual: ..." }] }`
+{ "topics": [{ "title": "Catchy Title", "script": "Intro\\n...\\nCenter\\nPoint 1: ...\\n  ...\\n\\nOutro\\n..." }] }`
 
       const response = await llm.generateContent(
         prompt,

@@ -1,15 +1,11 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import '../../utils/polyfills'
-//@ts-ignore
-import { KokoroTTS } from 'kokoro-js'
 import { detectAndTrimSilence } from '../../utils/audio-trimmer'
 import type { AudioGenerationResult, AudioService } from './index'
+import '../../utils/polyfills'
 
-// ⚠️ DOIT être en tout premier, avant tout import de kokoro-js / transformers
-process.env.ONNXRUNTIME_NODE_DISABLED = '1'
-// ou plus fiable :
-process.env.TRANSFORMERS_JS_BACKEND = 'wasm'
+// Type-only import for KokoroTTS (won't trigger native module loading)
+import type { KokoroTTS } from 'kokoro-js'
 
 export class KokoroTTSService implements AudioService {
   private tts: KokoroTTS | null = null
@@ -149,15 +145,33 @@ export class KokoroTTSService implements AudioService {
     if (this.initialized && this.tts) return
 
     console.log(`[KokoroTTS] Loading model: ${this.modelId}...`)
-    console.log(`[KokoroTTS] dtype: q8 (quantized 8-bit), device: cpu`)
+    console.log(`[KokoroTTS] backend: WASM, device: cpu`)
+    console.log(`[KokoroTTS] Env check: ONNXRUNTIME_NODE_DISABLED=${process.env.ONNXRUNTIME_NODE_DISABLED}`)
 
     try {
-      this.tts = await KokoroTTS.from_pretrained(this.modelId, {
+      // Attempt to force WASM config via transformers env if accessible
+      try {
+        // @ts-ignore - may be @xenova/transformers or @huggingface/transformers
+        const hfTransformers = await import('@xenova/transformers').catch(() => import('@huggingface/transformers'))
+        if (hfTransformers?.env) {
+          hfTransformers.env.allowLocalModels = false
+          hfTransformers.env.backends.onnx.wasm.proxy = false
+          hfTransformers.env.backends.onnx.wasm.numThreads = 1
+          console.log('[KokoroTTS] ✓ Transformers env nuclear-force to WASM')
+        }
+      } catch {
+        // Not critical if we can't patch sub-config
+      }
+
+      // Dynamic import to ensure process.env is set BEFORE the library initializes
+      const { KokoroTTS: KokoroTTSLib } = await import('kokoro-js')
+
+      this.tts = await KokoroTTSLib.from_pretrained(this.modelId, {
         dtype: 'q8',
         device: 'cpu'
       })
       this.initialized = true
-      console.log('[KokoroTTS] ✅ Model loaded successfully')
+      console.log('[KokoroTTS] ✅ Model loaded successfully (WASM)')
     } catch (error) {
       throw new Error(`Failed to load Kokoro model: ${error instanceof Error ? error.message : String(error)}`)
     }

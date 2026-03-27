@@ -11,6 +11,7 @@ import { CreditsRepository } from '@/infrastructure/repositories/credits.reposit
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { CompleteVideoPackage } from '@/domain/types/video-script.types'
 import type { VideoJobData } from '@/infrastructure/config/queue.config'
+import '@/utils/polyfills'
 
 /**
  * FIXED Video Generation Worker

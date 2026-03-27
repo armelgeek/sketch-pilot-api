@@ -5,6 +5,7 @@ export interface PromptMakerOptions {
   audience: string
   maxScenes: number
   language?: string
+  minWordCount?: number
 }
 
 export interface VideoTypeSpecification {

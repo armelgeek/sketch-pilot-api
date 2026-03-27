@@ -92,23 +92,19 @@ CRITICAL INSTRUCTIONS:
 Format for the script (plain text, no Markdown):
 Intro
 [hook sentences]
-Visual: [1-sentence dense B&W scene description]
 
 Center
 Point 1: [Title]
   [Relatable 1-2 line explanation]
-  Visual: [1-sentence dense B&W scene description]
 
 Point 2: [Title]
   [Relatable 1-2 line explanation]
-  Visual: [1-sentence dense B&W scene description]
 
 Outro
 [memorable reflection]
-Visual: [1-sentence dense B&W scene description]
 
 Return ONLY a valid JSON object with a 'script' key:
-{ "script": "Intro\\n...\\nVisual: ...\\n\\nCenter\\nPoint 1: ...\\n  ...\\n  Visual: ...\\n\\nOutro\\n...\\nVisual: ..." }`
+{ "script": "Intro\\n...\\nCenter\\nPoint 1: ...\\n  ...\\n\\nOutro\\n..." }`
 
       const response = await llm.generateContent(
         prompt,

@@ -83,7 +83,13 @@ export class GeminiImageService implements ImageService {
         })
       }
 
-      contents.push({ text: currentPrompt })
+      // Inject strict anatomy guardrails to aggressively prevent the '3 hands' or 'extra limbs' hallucinations common with stick figures
+      const anatomyGuardrail = `\n\nCRITICAL ANATOMY RULES: The character must have exactly TWO arms, TWO legs, ONE head, and TWO hands. DO NOT generate extra floating hands, third arms, or merged limbs. Ensure strict, flawless physiological anatomy. Keep the pose physically possible. If conflicting actions are described (e.g. 'arms crossed' and 'hand on chin'), pick ONE to avoid extra limbs.`
+      const finalTextPrompt = currentPrompt.includes('CRITICAL ANATOMY')
+        ? currentPrompt
+        : currentPrompt + anatomyGuardrail
+
+      contents.push({ text: finalTextPrompt })
 
       try {
         if (attempt === 0) {

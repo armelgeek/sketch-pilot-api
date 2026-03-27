@@ -17,29 +17,7 @@ const TARGET_VOICE_GAP = 1.2
 /** Fixed padding added after narration to provide visual breathing room. */
 const SCENE_PADDING_SECONDS = 0.2
 
-// Valid transitions (same list as in schema) – used when AI provides none
-const TRANSITIONS: string[] = [
-  'cut',
-  'fade',
-  'slide-left',
-  'slide-right',
-  'slide-up',
-  'slide-down',
-  'wipe',
-  'zoom-in',
-  'pop',
-  'swish',
-  'none'
-]
-
-/**
- * Pick a random transition from the available set.
- * `fade` is relatively common; `none` means a hard cut.
- */
-function getRandomTransition(): string {
-  const idx = Math.floor(Math.random() * TRANSITIONS.length)
-  return TRANSITIONS[idx]
-}
+// Transitions are now handled via camera acceleration and hard cuts.
 
 export class VideoAssembler {
   private outputDir: string
@@ -655,42 +633,45 @@ export class VideoAssembler {
       let y = 'ih/2-(ih/zoom/2)'
 
       if (cameraAction) {
-        // We use a base zoom of 1.3 for panning, which gives us a 30% margin to move the camera.
-        // We MUST distribute this 30% margin across the ENTIRE duration (frameCount) to prevent panning off-screen.
-        // x/y translate max delta is: (iw - iw/1.3) = iw * 0.23
+        // We use a base zoom of 1.4 for panning (30-40% margin) to prevent panning off-screen.
+        // x/y translate max delta is: (iw - iw/1.4) = iw * 0.28
+        // p = on / frameCount (normalized progress 0-1)
+        // Cubic Ease-In: p^3 ensures a very slow start and a sharp "burst" of speed at the end.
+        // This makes the hard cut to the next scene feel like a professional transition.
+        const p = `(on/${frameCount})*(on/${frameCount})*(on/${frameCount})`
 
         if (cameraAction.type === 'zoom-out') {
-          // Starts zoomed in (1.5) and zooms out to 1.0 over the entire duration
-          const zoomRate = (1.5 - 1) / frameCount
-          zBaseExpr = `max(1.5-${zoomRate}*on,1.0)`
+          // Starts zoomed in (1.5) and zooms out to 1.0 with Ease-In (Acceleration)
+          zBaseExpr = `1.5 - (0.5 * ${p})`
         } else if (cameraAction.type === 'zoom-in') {
-          // Starts at 1.0 and zooms in to 1.5 over the entire duration
-          const zoomRate = (1.5 - 1) / frameCount
-          zBaseExpr = `min(1.0+${zoomRate}*on,1.5)`
+          // Starts at 1.0 and zooms in to 1.5 with Ease-In (Acceleration)
+          zBaseExpr = `1.0 + (0.5 * ${p})`
         } else if (cameraAction.type === 'pan-right') {
-          zBaseExpr = '1.3'
-          // Move from left edge (0) to right edge (max margin) smoothly over frameCount
-          x = `(iw/2-(iw/zoom/2)) + ((iw-(iw/zoom))/2) * (on/${frameCount})`
+          zBaseExpr = '1.4'
+          // Move from left edge (0) to right edge (max margin) with Ease-In (Acceleration)
+          x = `(iw/2-(iw/zoom/2)) + ((iw-(iw/zoom))/2) * ${p}`
         } else if (cameraAction.type === 'pan-left') {
-          zBaseExpr = '1.3'
-          // Move from right edge (max margin) to left edge (0) smoothly over frameCount
-          x = `(iw/2-(iw/zoom/2)) - ((iw-(iw/zoom))/2) * (on/${frameCount})`
+          zBaseExpr = '1.4'
+          // Move from right edge (max margin) to left edge (0) with Ease-In (Acceleration)
+          x = `(iw/2-(iw/zoom/2)) - ((iw-(iw/zoom))/2) * ${p}`
         } else if (cameraAction.type === 'pan-down') {
-          zBaseExpr = '1.3'
-          y = `(ih/2-(ih/zoom/2)) + ((ih-(ih/zoom))/2) * (on/${frameCount})`
+          zBaseExpr = '1.4'
+          y = `(ih/2-(ih/zoom/2)) + ((ih-(ih/zoom))/2) * ${p}`
         } else if (cameraAction.type === 'pan-up') {
-          zBaseExpr = '1.3'
-          y = `(ih/2-(ih/zoom/2)) - ((ih-(ih/zoom))/2) * (on/${frameCount})`
+          zBaseExpr = '1.4'
+          y = `(ih/2-(ih/zoom/2)) - ((ih-(ih/zoom))/2) * ${p}`
         }
       }
 
       // Full zoom expression: Base Ken Burns + Audio Reactive Pulses
       const zExpr = `${zBaseExpr}${reactive.zoomExpr}`
 
-      // Add the eq filter for brightness dips during pauses, followed by the responsive zoompan
-      // We scale to 3x resolution BEFORE zoompan to gain sub-pixel precision for the crop.
-      // We also force fps=25 matching our output frame rate.
-      const filterString = `scale=${w * 3}:${h * 3}:force_original_aspect_ratio=increase,crop=${w * 3}:${h * 3},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s=${resolution}:fps=25`
+      // High-Precision Ken Burns:
+      // 1. Scale image to 4x oversize.
+      // 2. Apply Brightness/Reactivity.
+      // 3. Zoompan with 's=iwxih' (oversize output) to preserve sub-pixel precision.
+      // 4. Scale back to target resolution with Lanczos for maximum smoothness.
+      const filterString = `scale=${w * 4}:${h * 4}:force_original_aspect_ratio=increase,crop=${w * 4}:${h * 4},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s='iw'x'ih':fps=25,scale=${w}:${h}:flags=lanczos`
 
       // Add keyword visual overlays
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
@@ -715,15 +696,7 @@ export class VideoAssembler {
       }
 
       ffmpegCommand
-        .outputOptions([
-          '-c:v libx264',
-          '-preset veryfast',
-          '-crf 20',
-          '-t',
-          `${duration}`,
-          '-pix_fmt yuv420p',
-          '-r 25'
-        ])
+        .outputOptions(['-c:v libx264', '-preset slow', '-crf 17', '-t', `${duration}`, '-pix_fmt yuv420p', '-r 25'])
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => reject(new Error(`Panning clip creation failed: ${err.message}`)))
@@ -952,15 +925,7 @@ export class VideoAssembler {
       }
 
       ffmpegCommand
-        .outputOptions([
-          '-c:v libx264',
-          '-preset veryfast',
-          '-crf 20',
-          '-t',
-          `${duration}`,
-          '-pix_fmt yuv420p',
-          '-r 25'
-        ])
+        .outputOptions(['-c:v libx264', '-preset slow', '-crf 17', '-t', `${duration}`, '-pix_fmt yuv420p', '-r 25'])
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => reject(new Error(`Static clip creation failed: ${err.message}`)))
@@ -1025,8 +990,8 @@ export class VideoAssembler {
           '-vf',
           filterString,
           '-c:v libx264',
-          '-preset veryfast',
-          '-crf 20',
+          '-preset slow',
+          '-crf 17',
           '-t',
           `${targetDuration}`,
           '-pix_fmt yuv420p',
@@ -1301,23 +1266,7 @@ export class VideoAssembler {
    * High tension = cut or pop. Low tension = fade.
    */
   private resolveTransition(suggested: string | undefined, tension: number, useAuto: boolean): string {
-    // If LLM explicitly provided a valid transition, respect it
-    if (suggested && suggested !== 'cut' && suggested !== 'none') {
-      return suggested
-    }
-
-    // Fallback logic when nothing is suggested (or 'cut' is suggested but we might want more variety)
-
-    // Peak drama (9-10) -> force hard cuts for extreme impact
-    if (tension >= 9) return 'cut'
-
-    // High stakes (7-8) -> prefer fast transitions
-    if (tension >= 7) {
-      return suggested || (useAuto ? getRandomTransition() : 'cut')
-    }
-
-    // Calm/Building (0-4) -> prefer fades
-    return suggested || (useAuto ? getRandomTransition() : 'fade')
+    return 'cut'
   }
 
   /**
@@ -1436,12 +1385,14 @@ export class VideoAssembler {
       const aLabel = `[a_in_${i}]`
       if (hasAudio[i]) {
         filterComplex += `[${inputCounter}:v]null${vLabel};`
-        filterComplex += `[${inputCounter}:a]anull${aLabel};`
+        // Normalize real audio to fltp stereo 44100 for acrossfade compatibility
+        filterComplex += `[${inputCounter}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100${aLabel};`
         inputCounter++
       } else {
         // [inputCounter]:v is the video, [inputCounter+1]:a is the silence
         filterComplex += `[${inputCounter}:v]null${vLabel};`
-        filterComplex += `[${inputCounter + 1}:a]trim=duration=${durations[i]},setpts=PTS-STARTPTS${aLabel};`
+        // Use atrim (audio filter) not trim (video filter), and asetpts for audio PTS reset
+        filterComplex += `[${inputCounter + 1}:a]atrim=duration=${durations[i]},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100${aLabel};`
         inputCounter += 2
       }
       clipLabels.push(vLabel)
@@ -1469,8 +1420,12 @@ export class VideoAssembler {
       const effectiveOverlap = Math.min(Math.max(transitionDuration, audioOverlap), Math.max(0.01, maxPossibleOverlap))
       const offset = Number(Math.max(0.01, cumulativeOffset + durations[i - 1] - effectiveOverlap).toFixed(3))
 
+      // CRITICAL: FFmpeg xfade requires transitionDuration < offset, otherwise "Invalid argument"
+      // Cap transitionDuration to 80% of offset so it always stays valid, minimum 1 frame (0.04s)
+      const safeTransitionDuration = Math.max(0.04, Math.min(transitionDuration, offset * 0.8))
+
       const outLabel = `[v_out_${i}]`
-      filterComplex += `${lastVideoLabel}${clipLabels[i]}xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${outLabel};`
+      filterComplex += `${lastVideoLabel}${clipLabels[i]}xfade=transition=${transitionName}:duration=${safeTransitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${outLabel};`
       lastVideoLabel = outLabel
 
       // Update cumulative offset
@@ -1820,26 +1775,7 @@ export class VideoAssembler {
    * Helper to calculate transition overlap duration leading INTO a scene.
    */
   private getTransitionInDuration(sceneIndex: number, scenes: any[], scenesDir: string): number {
-    const prevSceneIndex = sceneIndex - 1
-    if (prevSceneIndex < 0) return 0
-
-    const prevScene = scenes[prevSceneIndex]
-    const prevSceneDir = path.join(scenesDir, prevScene.id)
-    const prevManifestPath = path.join(prevSceneDir, 'manifest.json')
-    let prevTransitionType = 'fade' // Default fallback
-
-    if (fs.existsSync(prevManifestPath)) {
-      try {
-        const m = JSON.parse(fs.readFileSync(prevManifestPath, 'utf8'))
-        prevTransitionType = m.transitionToNext || 'fade'
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const xt = this.getXfadeTransition(prevTransitionType)
-    // Unified 0.04s (1 frame) fallback for 'none'/'cut'
-    return xt ? xt.duration : 0.04
+    return 0.04 // Fixed minimal transition (1 frame at 25fps)
   }
 
   /**
@@ -1862,7 +1798,6 @@ export class VideoAssembler {
     let sceneImageFilename = 'scene.webp'
     let aspectRatio = '16:9'
     let cameraAction: any
-    let transitionToNext: string | undefined
     let wordTimings: any[] = []
     let manifestData: any = {}
 
@@ -1873,7 +1808,6 @@ export class VideoAssembler {
         sceneImageFilename = manifest.sceneImage || 'scene.webp'
         aspectRatio = manifest.aspectRatio || '16:9'
         cameraAction = manifest.cameraAction
-        transitionToNext = manifest.transitionToNext
         wordTimings = manifest.wordTimings || []
         const backgroundColor = manifest.backgroundColor || '#FFF'
         ;(scene as any).backgroundColor = backgroundColor
@@ -2052,7 +1986,7 @@ export class VideoAssembler {
       }
 
       const useAuto = globalOptions.autoTransitions !== false
-      const transition = this.resolveTransition(transitionToNext, sceneTension, useAuto)
+      const transition = this.resolveTransition(undefined, sceneTension, useAuto)
       return { clipPath: finalClip, transition }
     } catch (error) {
       console.error(`[VideoAssembler] Scene ${scene.id} failed:`, error)

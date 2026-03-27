@@ -588,7 +588,7 @@ export class NanoBananaEngine {
       video: hasVideo ? 'animation.mp4' : undefined,
       videoMeta: hasVideo ? { clipDuration, totalDuration, loop: true } : undefined,
       animationMode,
-      transitionToNext: scene.transitionToNext,
+      cameraAction: (scene as any).cameraAction,
       pauseBefore: (scene as any).pauseBefore,
       pauseAfter: (scene as any).pauseAfter,
       aspectRatio
@@ -1164,10 +1164,10 @@ export class NanoBananaEngine {
           // Store word timings in each scene for generateGlobalASS to use
           mappedTimings.forEach((timing: any, idx: number) => {
             const scene = script.scenes[idx]
+            // ALWAYS update timeRange with transcription ground truth (or proportional estimate for unmatched scenes)
+            scene.timeRange = { start: timing.start, end: timing.end }
             if (timing.wordTimings.length > 0) {
               ;(scene as any).globalWordTimings = timing.wordTimings
-              // ALWAYS update timeRange with transcription ground truth
-              scene.timeRange = { start: timing.start, end: timing.end }
             }
           })
 
@@ -1340,6 +1340,23 @@ export class NanoBananaEngine {
               await onSceneGenerated(scene, script, i + 1, sceneProgress)
             }
 
+            // --- PER-SCENE AUDIO GENERATION ---
+            const sceneAudioPath = path.join(sceneDir, 'narration.mp3')
+            if (this.audioService && !validOptions.skipAudio) {
+              const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
+              if (forceRegen || !fs.existsSync(sceneAudioPath)) {
+                console.log(`[NanoBanana] Generating per-scene audio for ${scene.id}...`)
+                try {
+                  const audioResult = await this.audioService.generateSpeech(scene.narration, sceneAudioPath)
+                  // Inject duration and word timings into the scene manifest/script
+                  ;(scene as any).audioDuration = audioResult.duration
+                  ;(scene as any).wordTimings = audioResult.wordTimings
+                } catch (audioError: any) {
+                  console.warn(`[NanoBanana] ⚠ Scene audio generation failed for ${scene.id}: ${audioError.message}`)
+                }
+              }
+            }
+
             // Update continuity tracking
             const lastImagePath = path.join(sceneDir, 'scene.webp')
             if (fs.existsSync(lastImagePath)) {
@@ -1358,6 +1375,60 @@ export class NanoBananaEngine {
 
     // Wait for all queued tasks to complete before assembly
     await this.generationQueue.onIdle()
+
+    // --- GLOBAL AUDIO CONCATENATION ---
+    if (!validOptions.skipAudio && !validOptions.generateOnlyAssembly) {
+      console.log(`[NanoBanana] Concatenating per-scene audio into global narration...`)
+      const audioFiles: string[] = []
+      for (const scene of script.scenes) {
+        const sceneAudioPath = path.join(scenesDir, scene.id, 'narration.mp3')
+        if (fs.existsSync(sceneAudioPath)) {
+          audioFiles.push(sceneAudioPath)
+        }
+      }
+
+      if (audioFiles.length > 0) {
+        try {
+          await this.stitchAudioFiles(audioFiles, globalAudioPath)
+          script.globalAudio = 'narration.mp3'
+          console.log(`[NanoBanana] ✓ Global narration created at ${globalAudioPath}`)
+
+          // Transcribe the concatenated file to get perfect word timings for the full video
+          if (validOptions.assCaptions?.enabled !== false && this.transcriptionService) {
+            console.log(`[NanoBanana] Running transcription on global audio for final sync...`)
+            const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
+            const assemblyWordTimings = transcriptionResult.wordTimings
+
+            // Map word timings back to scenes
+            const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
+            const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
+
+            mappedTimings.forEach((timing: any, idx: number) => {
+              const scene = script.scenes[idx]
+              scene.timeRange = { start: timing.start, end: timing.end }
+              if (timing.wordTimings.length > 0) {
+                ;(scene as any).globalWordTimings = timing.wordTimings
+              }
+            })
+
+            if (mappedTimings.length > 0) {
+              script.totalDuration = mappedTimings.at(-1)!.end
+            }
+          } else {
+            // Fallback duration if transcription is skipped or fails
+            let total = 0
+            for (const scene of script.scenes) {
+              const dur = (scene as any).audioDuration || scene.timeRange?.end - scene.timeRange?.start || 5
+              scene.timeRange = { start: total, end: total + dur }
+              total += dur
+            }
+            script.totalDuration = total
+          }
+        } catch (concatError: any) {
+          console.error(`[NanoBanana] Failed to concatenate audio: ${concatError.message}`)
+        }
+      }
+    }
 
     // --- ASSEMBLE FINAL VIDEO ---
     const skipAssembly =

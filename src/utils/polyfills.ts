@@ -1,3 +1,11 @@
+/* eslint-disable import/first */
+
+import process from 'node:process'
+
+process.env.ONNXRUNTIME_NODE_DISABLED = '1'
+process.env.TRANSFORMERS_JS_BACKEND = 'wasm'
+console.log('[Polyfill] NAPI Disabled: ONNXRUNTIME_NODE_DISABLED=1, BACKEND=wasm')
+
 import { createGunzip, createInflate, createInflateRaw } from 'node:zlib'
 
 class CustomDecompressionStream extends TransformStream<Uint8Array, Uint8Array> {

@@ -127,27 +127,8 @@ export const cameraActionSchema = z.object({
 
 export type CameraAction = z.infer<typeof cameraActionSchema>
 
-/**
- * Transition configuration
- */
-export const transitionTypeSchema = z
-  .enum([
-    'cut',
-    'fade',
-    'slide-left',
-    'slide-right',
-    'slide-up',
-    'slide-down',
-    'wipe',
-    'zoom-in',
-    'pop',
-    'swish',
-    'none'
-  ])
-  .or(z.string().transform(() => 'cut' as const))
-  .default('cut')
-
-export type TransitionType = z.infer<typeof transitionTypeSchema>
+// Transition configuration removed in favor of camera acceleration transitions
+export type TransitionType = 'cut' | 'none'
 
 /**
  * Enriched scene with all details needed for generation
@@ -174,7 +155,7 @@ export const enrichedSceneSchema = z.object({
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
   animationPrompt: z.string().optional().describe('Animation instructions for movement'),
   // Dynamism fields
-  transitionToNext: transitionTypeSchema.optional().describe('Transition to the next scene'),
+  // Dynamism fields (transitionToNext removed in favor of camera acceleration)
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),
   pauseAfter: z.number().default(0.1).describe('Specific silence duration after narration ends (in seconds)'),
   continueFromPrevious: z
@@ -384,8 +365,9 @@ export function computeSceneCount(durationSeconds: number): number {
   if (durationSeconds <= 30) return Math.max(2, Math.round(durationSeconds / 8))
   if (durationSeconds <= 60) return Math.max(4, Math.round(durationSeconds / 7))
   if (durationSeconds <= 120) return Math.max(8, Math.round(durationSeconds / 6))
-  // For long videos, we want more narration scenes (rhythm) but we will cap unique images in the prompt.
-  return Math.min(60, Math.round(durationSeconds / 10))
+  // For long videos, we want more narration scenes (rhythm) to allow sequential camera work.
+  // 150 scenes cap ensures even 20 min videos have ~8s scenes.
+  return Math.min(150, Math.round(durationSeconds / 8))
 }
 
 /**
