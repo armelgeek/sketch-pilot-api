@@ -25,6 +25,7 @@ export interface AudioOptions {
   voiceId?: string // Specifically for ElevenLabs/Google
   styleDirections?: string // For Gemini TTS natural language style control
   multiSpeaker?: Array<{ speaker: string; voiceName: string; styleDirections?: string }> // For Gemini multi-speaker
+  pacing?: 'fast' | 'medium' | 'slow' // For Kokoro TTS speed adjustment per scene
 }
 
 export interface AudioService {

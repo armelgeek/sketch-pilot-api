@@ -163,16 +163,23 @@ export class VideoScriptGenerator {
           const narration = scene.narration || ''
           const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
           const sentences = narration.split(/[.!?]+/).filter((s: string) => s.trim().length > 0)
+          const isHook = scene.preset === 'hook' || index === 0
 
-          const densityThreshold = effectiveDuration > 300 ? 0.5 : 0.6
-          if (sceneWords < minWordsPerScene * densityThreshold) {
-            const errorMsg = `SCENE DENSITY FAILURE: Scene ${index + 1} narration is too short (${sceneWords}/${minWordsPerScene} words). You MUST expand this scene's narration significantly by adding at least 2-3 detailed sentences explaining the concept.`
+          // Preset-aware density validation
+          const baseThreshold = effectiveDuration > 300 ? 0.5 : 0.6
+          const effectiveMinWords = isHook
+            ? Math.max(20, Math.round(minWordsPerScene * 0.3)) // Hooks can be very short (min 20 words)
+            : Math.round(minWordsPerScene * baseThreshold)
+
+          if (sceneWords < effectiveMinWords) {
+            const errorMsg = `SCENE DENSITY FAILURE: Scene ${index + 1} (${scene.preset || 'unknown'} preset) is too short (${sceneWords}/${effectiveMinWords} words). ${isHook ? 'Hooks must be percutant but still descriptive.' : 'You MUST expand this scene narration significantly.'}`
             console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
             throw new Error(errorMsg)
           }
 
-          if (sentences.length < minSentencesPerScene) {
-            const errorMsg = `STRUCTURAL FAILURE: Scene ${index + 1} has only ${sentences.length}/${minSentencesPerScene} sentences. Each scene's narration MUST contain AT LEAST ${minSentencesPerScene} full sentences.`
+          const effectiveMinSentences = isHook ? 2 : minSentencesPerScene
+          if (sentences.length < effectiveMinSentences) {
+            const errorMsg = `STRUCTURAL FAILURE: Scene ${index + 1} has only ${sentences.length}/${effectiveMinSentences} sentences. ${isHook ? 'Even hooks need at least 2 clear sentences.' : `Each scene's narration MUST contain AT LEAST ${minSentencesPerScene} full sentences.`}`
             console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
             throw new Error(errorMsg)
           }
@@ -360,7 +367,7 @@ export class VideoScriptGenerator {
     const suggestions: number[] = scenes.map((scene, idx) => {
       const words = scene.narration ? scene.narration.trim().split(/\s+/).length : 0
       const ctx = scene.contextType as SceneContextType | undefined
-      let sugg = suggestSceneDuration(words, ctx, wps)
+      let sugg = suggestSceneDuration(words, ctx, wps, (scene as any).pacing)
       if (!Number.isFinite(sugg)) {
         console.warn(
           `[VideoScriptGen] scene ${scene.sceneNumber || idx + 1} suggestion resulted in NaN; using MIN_SCENE_DURATION`

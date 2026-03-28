@@ -13,6 +13,7 @@ import { VideoAssembler } from '../services/video/video-assembler.service'
 import {
   KokoroVoicePreset,
   QualityMode,
+  suggestSceneDuration,
   videoGenerationOptionsSchema,
   type AssCaptionConfig,
   type BrandingConfig,
@@ -994,7 +995,8 @@ export class NanoBananaEngine {
             const audioService = await this.getAudioService()
             const audioResult = await audioService.generateSpeech(scene.narration, sceneAudioPath, {
               voice: voiceId,
-              voiceId
+              voiceId,
+              pacing: (scene as any).pacing // Pass scene pacing for KokoroTTS speed adjustment
             })
 
             // Store duration and word timings in scene
@@ -1042,7 +1044,7 @@ export class NanoBananaEngine {
       // --- FINAL TRANSCRIPTION SYNC (GROUND TRUTH) ---
       // Although we have per-scene durations, a final Whisper pass on the stitched file
       // ensures that timeRange and word-level captions are perfectly aligned with the reality of narration.mp3.
-      if (fs.existsSync(globalAudioPath) && validOptions.assCaptions?.enabled !== false) {
+      if (fs.existsSync(globalAudioPath)) {
         console.log(`[NanoBanana] Running final Whisper sync for word-perfect timings...`)
         try {
           if (!(await this.getTranscriptionService())) {
@@ -1160,10 +1162,7 @@ export class NanoBananaEngine {
       // --- TRANSCRIPTION FOR ASS CAPTIONS (assembly-only) ---
       // If assCaptions is enabled and word timings are not already in the script, run Whisper to get them.
       // This is needed so VideoAssembler.generateGlobalASS produces word-highlighted subtitles.
-      const needsTranscription =
-        validOptions.assCaptions?.enabled !== false &&
-        fs.existsSync(globalAudioPath) &&
-        script.scenes.some((s: any) => !s.globalWordTimings || s.globalWordTimings.length === 0)
+      const needsTranscription = fs.existsSync(globalAudioPath)
 
       if (needsTranscription) {
         console.log(`[NanoBanana] ASS captions enabled — running Whisper transcription for word timings...`)
@@ -1221,7 +1220,7 @@ export class NanoBananaEngine {
       let currentTime = 0
       script.scenes.forEach((scene) => {
         const wordCount = (scene.narration || '').split(/\s+/).length
-        const duration = Math.max(3, wordCount / 2.5)
+        const duration = suggestSceneDuration(wordCount, undefined, 2.5, (scene as any).pacing)
         scene.timeRange = { start: currentTime, end: currentTime + duration }
         currentTime += duration
       })

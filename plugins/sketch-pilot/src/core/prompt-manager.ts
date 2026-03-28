@@ -62,6 +62,12 @@ const PROVIDER_SAFETY_FACTOR: Record<string, number> = {
 const DEFAULT_WPS = 2.37
 const DEFAULT_SAFETY_FACTOR = 1.05
 
+const PACING_FACTORS = {
+  fast: 1.2, // ~20% more words per second (dense, high energy)
+  medium: 1, // base speed
+  slow: 0.8 // ~20% fewer words (breathable, dramatic)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class PromptManager {
@@ -221,12 +227,25 @@ export class PromptManager {
 
       Narration style:
       Use clear, simple, and direct language. Keep explanations easy to understand, focusing on clarity over complexity.
+      — Sentences MUST be pleasant to read aloud: well-rhythmed, clear, and breathable. Write for the ear, not the eye.
+      — The script MUST NOT resemble an article, an essay, a sermon, or an academic text. It is a spoken video voiceover.
+      — Absolutely avoid robotic phrasing, unnecessary repetition, flat or filler sentences, vague generalities, and AI-sounding formulations.
+      — Every phrase must feel human-crafted: as if a compelling speaker is talking directly to a person, not reading a summary.
+      — The content MUST be understandable by someone who knows nothing about the subject. No jargon without immediate explanation. Make complex ideas feel obvious and accessible.
+      — The script must make the viewer WANT to listen until the very end. Write with vivid, sensory, cinematic language. Make it lively, visual, deeply human. Every sentence should earn its place.
 
       Visual continuity:
       Ensure scenes follow a logical progression. Keep environments and actions consistent unless a change is clearly motivated.
 
       Camera Dynamics & Transitions:
-      Each scene MUST use a dynamic camera action (e.g., zoom-in, pan-left, zoom-out). To create a professional transition between scenes, the camera motion MUST ACCELERATE towards the end of the scene. This "ending acceleration" creates a natural, high-energy cut to the next scene without the need for traditional transitions. Each scene should feel like a new shot that inherits the momentum of the previous one.`
+      Camera Dynamics & Transitions:
+      Each scene MUST use a dynamic camera action (e.g., zoom-in, pan-left, zoom-out). To create a professional transition between scenes, the camera motion MUST ACCELERATE towards the end of the scene. This "ending acceleration" creates a natural, high-energy cut to the next scene without the need for traditional transitions. Each scene should feel like a new shot that inherits the momentum of the previous one.
+
+      PACING ARC (Density Strategy):
+      Distribute the narrative density across the video:
+      1. THE HOOK (0-15%): Fast/Medium pacing. High impact, concise, often 2-5 sentences (25-50 words).
+      2. THE BUILD (15-70%): Variable pacing. Alternate between fast explanations and slow "mirrors". 
+      3. THE REVEAL/CONCLUSION (70-100%): Slow/Medium pacing. Allow the message to "breathe". Use longer pauses (...) and explicit "breathingPoints" to let key points sink in before the call to action.`
     )
 
     // 3. Timing & Word Count Enforcement
@@ -237,60 +256,52 @@ export class PromptManager {
 
     // Target word counts
     const targetWordCountTotal = Math.round(totalDuration * wps * safetyFactor)
-    const targetWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
+    const avgWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
 
-    // Hard floor: never allow a scene to have fewer than 50 words.
-    // (Previously 15 — which gave GPT-4o zero incentive to write more.)
-    // Cap at 150 per scene to avoid overwhelming a single visual.
-    const minWordsPerScene = Math.min(150, Math.max(50, targetWordsPerScene))
-
-    // Minimum sentences: 6 is the low bound.
-    // Saying "4 to 6" always produced 4; "6 to 8" produces 6-7 reliably.
-    const minSentencesPerScene = 6
-    const maxSentencesPerScene = 8
+    // Flexible Word Count strategy:
+    // Hooks should be percutant; reveals can be slow.
+    // Instead of a hard floor of 50 everywhere:
+    // - Fast scenes: avg * 1.2
+    // - Slow scenes: avg * 0.8
+    const minWordsOverall = Math.max(25, Math.round(avgWordsPerScene * 0.5))
 
     const secondsPerScene = Math.round(totalDuration / expectedScenes)
     const provider = this.resolveProvider(options)
 
     instructions.push(
-      `## NARRATION LENGTH — STRICT ENFORCEMENT (provider: ${provider})
-
-      ### Global Target
-      - Video duration: ${totalDuration}s (${Math.round(totalDuration / 60)} min)
-      - Scene count: ${expectedScenes}
-      - TTS speed: ${wps.toFixed(2)} words/second
-      - 🎯 TOTAL TARGET: **${targetWordCountTotal} words** across all narrations
-
-      ### Per-Scene Target (NON-NEGOTIABLE)
-      - Each scene represents ~${secondsPerScene}s of screen time
-      - 🎯 Each narration MUST contain **EXACTLY ~${targetWordsPerScene} words** (tolerance ±10%, min ${minWordsPerScene})
-      - Each narration MUST contain **${minSentencesPerScene} to ${maxSentencesPerScene} full sentences**
-      - Add a "wordCount" field to every scene containing the actual word count of that narration
-
-      ### Self-Validation (MANDATORY)
-      Before returning the JSON:
-      1. Count the words in each scene's narration and set "wordCount" accordingly
-      2. Sum all wordCounts — the total MUST be ≥ ${targetWordCountTotal}
-      3. If any scene has fewer than ${minWordsPerScene} words, REWRITE it before returning
-      4. If the total is below ${targetWordCountTotal} words, expand scenes before returning
-
-      ### Expansion Strategy
-      - Explain each idea step by step. Expand on the "why", "how", and "so what".
-      - Add context, real-world examples, or technical clarifications for every point.
-      - Describe both visual and conceptual elements in the narration (e.g., "As you can see here...", "Notice how...").
-      - ELABORATE: Avoid jumping directly to conclusions. Walk the audience through the logic.
-      - If you have many scenes, ensure each one has a distinct, deep narrative beat.
-      - If you have few scenes for a long duration, you MUST write LONG, detailed paragraphs (up to 150 words) for each.
-
-      ## BALANCED DENSITY RULE
-      - Be talkative and verbose, but structured and professional.
-      - Ensure clarity while expanding ideas. Avoid generic filler content.
-   
-      ## VISUAL NARRATIVE (UNIQUE SHOTS)
-      1. Every single scene MUST have a unique 'imagePrompt'. Do NOT repeat concepts.
-      2. Use visual metaphors to illustrate abstract ideas. Every shot is a new, high-quality visual illustration.`
+      `## NARRATION PACING — STRATEGIC DISTRIBUTION (provider: ${provider})
+ 
+       ### Global Target
+       - Video duration: ${totalDuration}s
+       - TTS speed: ${wps.toFixed(2)} words/second
+       - 🎯 TOTAL TARGET: **${targetWordCountTotal} words** total across the script.
+ 
+       ### Scene-Level Flexible Targets
+       Narration MUST adapt to the scene "preset" and "pacing":
+       - **HOOK (Preset: hook)**: Percutant & High Impact. Target 3-5 sentences (~${Math.round(avgWordsPerScene * 0.7)} words). Pacing: fast/medium.
+       - **REVEAL (Preset: reveal)**: Detailed Explanation. Target 6-10 sentences (~${Math.round(avgWordsPerScene * 1.3)} words). Pacing: medium/slow.
+       - **MIRROR (Preset: mirror)**: Emotional Recognition. Target 4-6 sentences (~${Math.round(avgWordsPerScene)} words). Pacing: slow.
+ 
+       ### PACING & BREATHING
+       - **"pacing": "fast" | "medium" | "slow"**: Choose per scene. "slow" implies fewer words but deeper impact.
+       - **"breathingPoints": ["string"]**: Explicitly list where to pause (e.g., "after the second sentence").
+       - Use "..." in narration text for natural short pauses.
+ 
+       ### Self-Validation (MANDATORY)
+       1. Sum all "wordCount" fields — the total MUST be within ±10% of **${targetWordCountTotal} words**.
+       2. ELABORATE extensively where needed, but allow percutant hooks to breathe.
+       3. If the total is too low, expand "reveal" scenes significantly. If too high, trim "hook" or "mirror" scenes.`
     )
 
+    instructions.push(
+      `PAUSE MARKERS (Kokoro TTS):
+      Use "..." to insert a short natural pause in the narration.
+      Use these strategically:
+      - After a key statement to let it sink in
+      - Before a reveal or important point
+      - Between two contrasting ideas
+      Example: "This changes everything... but not in the way you'd expect."`
+    )
     const fullSpec = {
       ...spec,
       instructions,
@@ -301,9 +312,9 @@ export class PromptManager {
 
     const consolidatedOutputFormat = this.getConsolidatedOutputFormat(
       spec.outputFormat,
-      minWordsPerScene,
+      minWordsOverall,
       targetWordCountTotal,
-      targetWordsPerScene
+      avgWordsPerScene
     )
 
     // 5. Inject Goals, Rules, Context from Spec
@@ -333,9 +344,9 @@ export class PromptManager {
    */
   private getConsolidatedOutputFormat(
     baseFormat?: string,
-    minWordsPerScene?: number,
+    minWordsOverall?: number,
     targetWordCountTotal?: number,
-    targetWordsPerScene?: number
+    avgWordsPerScene?: number
   ): string {
     if (!baseFormat || !baseFormat.includes('{')) return baseFormat || ''
 
@@ -344,22 +355,23 @@ export class PromptManager {
       "audience": "string",
       "emotionalArc": ["string"],
       "titles": ["string"],
-      "fullNarration": "string (The complete unbroken script. MUST be extremely detailed and long, targeting ${targetWordCountTotal} words total.)",
-      "totalWordCount": "number (self-reported total word count across ALL scene narrations — MUST be ≥ ${targetWordCountTotal})",
+      "fullNarration": "string (The complete unbroken script. MUST target exactly ${targetWordCountTotal} words total.)",
+      "totalWordCount": "number (self-reported total word count across ALL scene narrations — MUST be within ±10% of ${targetWordCountTotal})",
       "theme": "string",
       "backgroundMusic": "string",
       "scenes": [
         {
           "sceneNumber": 1,
-          "id": "string (unique scene id)",
-          "narration": "string (The spoken text. MUST target ~${targetWordsPerScene} words. MUST contain at least ${minWordsPerScene} words and 6 to 8 full sentences. Each sentence MUST develop a different aspect of the idea. Never summarize — always elaborate.)",
-          "wordCount": "number (MANDATORY — actual word count of this narration, must be ≥ ${minWordsPerScene})",
-          "summary": "string (brief visual summary)",
-          "locationId": "string (optional: unique location identifier, e.g. 'office')",
-          "cameraAction": "string (zoom-in | zoom-out | pan-left | pan-right). MUST accelerate at the end.",
+          "id": "string",
           "preset": "hook | reveal | mirror",
-          "imagePrompt": "string (A symbolic visual perfectly representing the scene's core idea. Detailed text-to-image prompt.)",
-          "animationPrompt": "string (specific movement/performance instructions)"
+          "pacing": "fast | medium | slow",
+          "breathingPoints": ["string (locations where you planned a pause, e.g. 'after sentence 2')"],
+          "narration": "string (The spoken text. Target ~${avgWordsPerScene} words on average, but adapt to pacing. Use '...' for short pauses.)",
+          "wordCount": "number (actual word count, min ${minWordsOverall})",
+          "summary": "string",
+          "cameraAction": "string (zoom-in | zoom-out | pan-left | pan-right). MUST accelerate at the end.",
+          "imagePrompt": "string (Detailed visual prompt)",
+          "animationPrompt": "string"
         }
       ]
     }`
@@ -384,8 +396,7 @@ export class PromptManager {
       audience: (options as any).audience || spec.audienceDefault,
       maxScenes: targetSceneCount,
       language: options.language,
-      minWordCount: targetWordCount,
-      minWordsPerScene
+      minWordCount: targetWordCount
     })
   }
 
@@ -519,7 +530,7 @@ export class PromptManager {
     return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
   }
 
-  private buildUserData(options: PromptMakerOptions & { minWordsPerScene?: number }): string {
+  private buildUserData(options: PromptMakerOptions & { minWordCount?: number }): string {
     const lines = [
       `Subject: ${options.subject}`,
       `Required Duration: ${options.duration}`,
@@ -527,22 +538,17 @@ export class PromptManager {
       options.minWordCount
         ? [
             ``,
-            `🚨 WORD COUNT REQUIREMENTS (NON-NEGOTIABLE):`,
-            `   • TOTAL script: AT LEAST ${options.minWordCount} words across all scenes`,
-            `   • PER SCENE: AT LEAST ${options.minWordsPerScene ?? Math.max(50, Math.round(options.minWordCount / (options.maxScenes ?? 1)))} words`,
-            `   • PER SCENE: AT LEAST 6 full sentences (NOT 4 — minimum is 6)`,
-            `   • Add a "wordCount" field to every scene with the actual count`,
-            `   • Add a "totalWordCount" field at the root with the sum of all scenes`,
-            ``,
-            `⚠️  WARNING: If ANY scene has fewer than ${options.minWordsPerScene ?? 50} words, or the total`,
-            `    is below ${options.minWordCount} words, the script will be REJECTED.`,
-            `    BREVITY IS A FAILURE. ELABORATE EXTENSIVELY.`,
+            `🎯 TOTAL SCRIPT TARGET: **${options.minWordCount} words** across all scenes.`,
+            `⚠️  This target is non-negotiable to match the requested duration.`,
+            `   - Distribute density according to the PACING ARC instructions.`,
+            `   - Use "pacing" and "breathingPoints" to control rhythm.`,
+            `   - No scene should be empty or purely filler.`,
             ``
           ].join('\n')
         : '',
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
-      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION. This includes: narration, titles, onscreen text, imagePrompt (visual scene descriptions), and animationPrompt (movement instructions). Do NOT use English for imagePrompt or animationPrompt when the target language is different.`
+      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION.`
     ]
 
     return lines.filter(Boolean).join('\n')

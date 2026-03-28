@@ -164,6 +164,14 @@ export const enrichedSceneSchema = z.object({
     .describe('If true, this scene reuses the visual background of the previous scene for perfect continuity'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
   preset: z.enum(['hook', 'reveal', 'mirror']).optional().describe('Strategic role of the scene'),
+  pacing: z
+    .enum(['fast', 'medium', 'slow'])
+    .default('medium')
+    .describe('Narration pacing: fast (dense), medium (balanced), slow (breathable)'),
+  breathingPoints: z
+    .array(z.string())
+    .default([])
+    .describe('List of strategic pause locations (e.g. "after sentence 1", "before the reveal")'),
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
 })
 
@@ -191,21 +199,24 @@ const contextFactorMap: Record<SceneContextType, number> = {
 }
 
 /**
- * Simple scene duration estimator.  Starts with a base computed from word count
- * (approx 2.0 words per second or custom), then applies a context factor and clamps to
- * a reasonable range (3–30s).  If no context is provided, factor=1.
+ * Simple scene duration estimator. Starts with a base computed from word count
+ * (approx 2.0 words per second or custom), then applies a context factor and pacing multiplier,
+ * finally clamping to a reasonable range (3–30s).
  */
 export function suggestSceneDuration(
   wordCount: number,
   context?: SceneContextType,
-  wordsPerSecond: number = 2
+  wordsPerSecond: number = 2,
+  pacing: 'fast' | 'medium' | 'slow' = 'medium'
 ): number {
+  const pacingMultiplier = pacing === 'slow' ? 1.25 : pacing === 'fast' ? 0.9 : 1
+
   // Human-like narration (Phase 5) is slower and has more pauses.
   // Instead of 2.5 words/s (robotic speed), we use wordsPerSecond as a base.
   // We also add a 0.5s "breath" overhead per scene.
   const base = wordCount / wordsPerSecond + 0.5
   const factor = context ? contextFactorMap[context] : 1
-  const raw = base * factor
+  const raw = base * factor * pacingMultiplier
   return Math.max(MIN_SCENE_DURATION, Math.min(30, raw))
 }
 

@@ -55,9 +55,15 @@ export class KokoroTTSService implements AudioService {
         // Inject structural pause at the end of chunk to prevent rushed endings
         const textToGenerate = `${chunks[i].trim()} \n\n`
 
+        // Adjust speed based on pacing if provided
+        let activeSpeed = 1
+        if (options?.pacing === 'slow')
+          activeSpeed = 0.92 // More deliberate
+        else if (options?.pacing === 'fast') activeSpeed = 1.1 // Snappier
+
         const audio = await this.tts.generate(textToGenerate, {
           voice: activeVoice,
-          speed: 1 // Standard speed matches the generator's WPS base (~2.8) closer
+          speed: activeSpeed
         })
         await audio.save(chunkPath)
         tempFiles.push(chunkPath)
