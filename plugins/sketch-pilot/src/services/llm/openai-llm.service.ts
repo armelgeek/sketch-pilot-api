@@ -39,7 +39,8 @@ export class OpenAILLMService implements LLMService {
       const options: any = {
         model: this.modelId,
         messages,
-        temperature: 0.8
+        temperature: 0.8,
+        max_tokens: 4096 // Sufficient for ~3000 words in JSON format
       }
 
       // Handle JSON response format requirement (often used by the script generator)

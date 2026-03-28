@@ -22,21 +22,25 @@ export const LLMServiceFactory = {
   /**
    * Create an LLM service based on the configuration
    */
-  create(config: LLMServiceConfig): LLMService {
+  async create(config: LLMServiceConfig): Promise<LLMService> {
     switch (config.provider) {
-      case 'gemini':
-        const { GeminiLLMService } = require('./gemini-llm.service')
+      case 'gemini': {
+        const { GeminiLLMService } = await import('./gemini-llm.service')
         return new GeminiLLMService(config)
-      case 'grok':
-        const { GrokLLMService } = require('./grok-llm.service')
+      }
+      case 'grok': {
+        const { GrokLLMService } = await import('./grok-llm.service')
         return new GrokLLMService(config)
+      }
       case 'claude':
-      case 'haiku': // Haiku is the default Claude model for cost optimization
-        const { ClaudeLLMService } = require('./claude-llm.service')
+      case 'haiku': {
+        const { ClaudeLLMService } = await import('./claude-llm.service')
         return new ClaudeLLMService(config)
-      case 'openai':
-        const { OpenAILLMService } = require('./openai-llm.service')
+      }
+      case 'openai': {
+        const { OpenAILLMService } = await import('./openai-llm.service')
         return new OpenAILLMService(config)
+      }
       default:
         throw new Error(`Unknown LLM provider: ${config.provider}`)
     }

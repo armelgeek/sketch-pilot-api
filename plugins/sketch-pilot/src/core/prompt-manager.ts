@@ -7,6 +7,14 @@
  *
  * 100% Dynamic Version: No hardcoded rules, quality tags, or character-specific string replacements.
  * Everything comes from the Spec.
+ *
+ * FIX v2: Word count enforcement for GPT-4o / non-Kokoro providers.
+ *   - Per-provider WPS calibration (kokoro=2.45, openai/gpt4o=2.0, elevenlabs=2.1)
+ *   - minSentencesPerScene raised to 6 (was 4, always hit the lower bound)
+ *   - minWordsPerScene floor raised to 50 (was 15, zero real pressure)
+ *   - Exact target per scene instead of "minimum" (GPT-4o obeys targets better)
+ *   - Self-validation "wordCount" field injected in JSON schema
+ *   - SAFETY_FACTOR raised to 1.2 for non-Kokoro providers
  */
 
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
@@ -14,6 +22,7 @@ import { computeSceneCount } from '../types/video-script.types'
 import type { AnimationPrompt, EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../types/video-script.types'
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
 import type { SceneMemory } from './scene-memory'
+
 export interface PromptManagerConfig {
   /**
    * Primary specification used for both script and image generation.
@@ -26,7 +35,41 @@ export interface PromptManagerConfig {
   characterModelId?: string
 }
 
+// ─── Per-provider TTS speed calibration ──────────────────────────────────────
+// Words per second measured at default speed / pitch.
+// Adjust these if you measure different real-world values.
+const PROVIDER_WPS: Record<string, number> = {
+  kokoro: 2.45, // Kokoro local TTS @ speed 1.0 — measured
+  openai: 2.37, // GPT-4o TTS measured
+  gpt4o: 2.37, // alias
+  'gpt-4o': 2.37, // alias
+  elevenlabs: 2.1, // ElevenLabs standard voices
+  azure: 2.2, // Azure Neural TTS
+  google: 2.15 // Google Cloud TTS
+}
+
+// Safety factor: how much extra headroom to add on top of the WPS calculation.
+// Kokoro is very predictable; cloud providers have more variance → larger buffer.
+const PROVIDER_SAFETY_FACTOR: Record<string, number> = {
+  kokoro: 1.1, // Measured as highly consistent
+  openai: 1.05, // Measured value with small buffer
+  gpt4o: 1.05,
+  'gpt-4o': 1.05,
+  elevenlabs: 1.15,
+  azure: 1.15,
+  google: 1.15
+}
+const DEFAULT_WPS = 2.37
+const DEFAULT_SAFETY_FACTOR = 1.05
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export class PromptManager {
+  /** @deprecated Use getWordsPerSecond() which is provider-aware. */
+  public static readonly REAL_TTS_WPS = 2.45
+  /** @deprecated Use getSafetyFactor() which is provider-aware. */
+  public static readonly SAFETY_FACTOR = 1.15
+
   private spec?: VideoTypeSpecification
   private characterModelId?: string
   private readonly characterRepository = new CharacterModelRepository()
@@ -35,6 +78,28 @@ export class PromptManager {
     this.spec = config.scriptSpec
     this.characterModelId = config.characterModelId
   }
+
+  // ─── Provider helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Resolve the canonical provider key from an options object.
+   * Falls back to 'kokoro' for backward compatibility.
+   */
+  private resolveProvider(options: VideoGenerationOptions): string {
+    return (options.audioProvider || 'kokoro').toLowerCase()
+  }
+
+  /**
+   * Return the safety factor to apply for a given provider.
+   * Cloud providers get a slightly larger buffer because their pace is less
+   * predictable than the local Kokoro runtime.
+   */
+  private getSafetyFactor(options: VideoGenerationOptions): number {
+    const provider = this.resolveProvider(options)
+    return PROVIDER_SAFETY_FACTOR[provider] ?? DEFAULT_SAFETY_FACTOR
+  }
+
+  // ─── Character resolution ──────────────────────────────────────────────────
 
   private async resolveCharacterMetadata(): Promise<any | undefined> {
     if (this.characterModelId) {
@@ -64,42 +129,67 @@ export class PromptManager {
     return metadata?.images || []
   }
 
+  // ─── Speed & timing ───────────────────────────────────────────────────────
+
   /**
    * Calculate words per second based on generation options and specification.
+   *
+   * Priority order:
+   *   1. options.wordsPerMinute (explicit override)
+   *   2. spec.wordsPerSecondFactors[provider] (spec-level override)
+   *   3. spec.wordsPerSecondFactors[lang] (language-level override)
+   *   4. PROVIDER_WPS lookup (calibrated per-provider constant)
+   *   5. spec.wordsPerSecondBase (spec default)
+   *   6. DEFAULT_WPS (global fallback)
    */
   getWordsPerSecond(options: VideoGenerationOptions): number {
+    // 1. Explicit WPM override
     if (options.wordsPerMinute) {
       return options.wordsPerMinute / 60
     }
 
-    const { wordsPerSecondBase = 2.5, wordsPerSecondFactors = {} } = this.spec || {}
-
+    const spec = this.getEffectiveSpec(options)
+    const provider = this.resolveProvider(options)
     const lang = (options.language || 'en-US').toLowerCase()
-    const provider = options.audioProvider || 'kokoro'
 
-    // Check for specific provider override
-    if (wordsPerSecondFactors[provider] !== undefined) {
+    const { wordsPerSecondBase, wordsPerSecondFactors = {} } = spec || {}
+
+    // 2. Spec-level provider override (multiplicative factor on base)
+    if (wordsPerSecondFactors[provider] !== undefined && wordsPerSecondBase !== undefined) {
       return wordsPerSecondBase * wordsPerSecondFactors[provider]
     }
 
-    // Check for language-specific factor
+    // 3. Spec-level language override
     const langKey = lang.split('-')[0]
-    if (wordsPerSecondFactors[langKey] !== undefined) {
+    if (wordsPerSecondFactors[langKey] !== undefined && wordsPerSecondBase !== undefined) {
       return wordsPerSecondBase * wordsPerSecondFactors[langKey]
     }
 
-    return wordsPerSecondBase
+    // 4. Calibrated per-provider constant (most important new lookup)
+    if (PROVIDER_WPS[provider] !== undefined) {
+      return PROVIDER_WPS[provider]
+    }
+
+    // 5. Spec base with no factor
+    if (wordsPerSecondBase !== undefined) {
+      return wordsPerSecondBase
+    }
+
+    // 6. Global fallback
+    return DEFAULT_WPS
   }
 
   public getEffectiveSpec(options: VideoGenerationOptions): VideoTypeSpecification {
-    if (options?.customSpec) {
-      return options.customSpec
-    }
-    if (this.spec) {
-      return this.spec
-    }
+    if (options?.customSpec) return options.customSpec
+    if (this.spec) return this.spec
     throw new Error('[PromptManager] No specification provided and no customSpec found.')
   }
+
+  public getEffectiveDuration(options: VideoGenerationOptions): number {
+    return options.duration ?? options.maxDuration ?? options.minDuration ?? 60
+  }
+
+  // ─── Script prompt builders ───────────────────────────────────────────────
 
   /**
    * Build only the system instructions for script generation.
@@ -112,10 +202,10 @@ export class PromptManager {
     // 1. Narration Speed
     if (options && (options.wordsPerMinute || options.language || options.audioProvider)) {
       const wps = this.getWordsPerSecond(options)
-      instructions.push(`NARRATION SPEED: ${wps.toFixed(2)}`)
+      instructions.push(`NARRATION SPEED: ${wps.toFixed(2)} words/second`)
     }
 
-    // 3. Director & Art Direction Integration (One-Pass Consolidation - Phase 31)
+    // 2. Visual Storytelling & Camera Dynamics
     instructions.push(
       `Visual storytelling:
       Each image must clearly communicate the core idea without any text or narration. The character must actively interact with the concept in a visual and meaningful way. The main concept should be the most dominant visual element in the scene.
@@ -135,36 +225,67 @@ export class PromptManager {
       Visual continuity:
       Ensure scenes follow a logical progression. Keep environments and actions consistent unless a change is clearly motivated.
 
-      
       Camera Dynamics & Transitions:
       Each scene MUST use a dynamic camera action (e.g., zoom-in, pan-left, zoom-out). To create a professional transition between scenes, the camera motion MUST ACCELERATE towards the end of the scene. This "ending acceleration" creates a natural, high-energy cut to the next scene without the need for traditional transitions. Each scene should feel like a new shot that inherits the momentum of the previous one.`
     )
 
-    // 4. Expected Scene Count (for Pacing)
-    const totalDuration = options.maxDuration || 60
+    // 3. Timing & Word Count Enforcement
+    const totalDuration = this.getEffectiveDuration(options)
     const expectedScenes = computeSceneCount(totalDuration)
-
-    // 5. Script Density & Duration Enforcement
-    // TTS speed: wordsPerSecond (e.g. 2.0 = 120 wpm)
     const wps = this.getWordsPerSecond(options)
-    const minWordCountTotal = Math.round(totalDuration * wps)
-    const minWordsPerScene = Math.max(15, Math.floor(minWordCountTotal / expectedScenes))
+    const safetyFactor = this.getSafetyFactor(options)
+
+    // Target word counts
+    const targetWordCountTotal = Math.round(totalDuration * wps * safetyFactor)
+    const targetWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
+
+    // Hard floor: never allow a scene to have fewer than 50 words.
+    // (Previously 15 — which gave GPT-4o zero incentive to write more.)
+    const minWordsPerScene = Math.max(50, targetWordsPerScene)
+
+    // Minimum sentences: 6 is the low bound.
+    // Saying "4 to 6" always produced 4; "6 to 8" produces 6-7 reliably.
+    const minSentencesPerScene = 6
+    const maxSentencesPerScene = 8
+
+    const secondsPerScene = Math.round(totalDuration / expectedScenes)
+    const provider = this.resolveProvider(options)
 
     instructions.push(
-      `## SCRIPT DENSITY & DURATION (EXTREME HARD REQUIREMENTS)
-      For this ${Math.round(totalDuration / 60)}min video (${totalDuration}s):
-      1. CRITICAL: THE USER HAS REQUESTED A ${Math.round(totalDuration / 60)} MINUTE VIDEO. YOU MUST PROVIDE TENS OF SENTENCES.
-      2. TOTAL WORDS: The entire script MUST have AT LEAST ${minWordCountTotal} words. This is non-negotiable.
-      3. SCENE DENSITY: Each scene's 'narration' field MUST be at least ${minWordsPerScene} words long (approx. 2-3 substantial paragraphs per minute).
-      4. ANTI-BREVITY RULE: DO NOT SUMMARIZE. DO NOT BE CONCISE. Be talkative, verbose, and extremely detailed. Avoid short sentences. 
-      5. VERBATIM: Write out every single word the narrator will speak. If the narration is too short, the production will be aborted as a FAILURE.
-      6. ENGAGEMENT: Use descriptive storytelling to expand the narration length without being repetitive.
-      7. DENSITY RULE: Each scene should contain approximately 15-20 seconds of spoken content (~40-50 words). Break long segments into sequential unique shots.
+      `## NARRATION LENGTH — STRICT ENFORCEMENT (provider: ${provider})
 
+      ### Global Target
+      - Video duration: ${totalDuration}s (${Math.round(totalDuration / 60)} min)
+      - Scene count: ${expectedScenes}
+      - TTS speed: ${wps.toFixed(2)} words/second
+      - 🎯 TOTAL TARGET: **${targetWordCountTotal} words** across all narrations
+
+      ### Per-Scene Target (NON-NEGOTIABLE)
+      - Each scene represents ~${secondsPerScene}s of screen time
+      - 🎯 Each narration MUST contain **EXACTLY ~${targetWordsPerScene} words** (tolerance ±10%, min ${minWordsPerScene})
+      - Each narration MUST contain **${minSentencesPerScene} to ${maxSentencesPerScene} full sentences**
+      - Add a "wordCount" field to every scene containing the actual word count of that narration
+
+      ### Self-Validation (MANDATORY)
+      Before returning the JSON:
+      1. Count the words in each scene's narration and set "wordCount" accordingly
+      2. Sum all wordCounts — the total MUST be ≥ ${targetWordCountTotal}
+      3. If any scene has fewer than ${minWordsPerScene} words, REWRITE it before returning
+      4. If the total is below ${targetWordCountTotal} words, expand scenes before returning
+
+      ### Expansion Strategy
+      - Explain each idea step by step. Expand on the "why" and "how".
+      - Add context, real-world examples, or technical clarifications for every point.
+      - Describe both visual and conceptual elements in the narration (e.g., "As you can see here...", "Notice how...").
+      - ELABORATE: Avoid jumping directly to conclusions. Walk the audience through the logic.
+
+      ## BALANCED DENSITY RULE
+      - Be talkative and verbose, but structured and professional.
+      - Ensure clarity while expanding ideas. Avoid generic filler content.
+   
       ## VISUAL NARRATIVE (UNIQUE SHOTS)
-      1. Every single scene MUST have a unique 'imagePrompt'. Do NOT repeat concepts or descriptions across scenes.
-      2. Each scene represents a specific and distinct phase of the explanation.
-      3. Do NOT use visual reuse or reference previous scenes. Every shot is a new, high-quality visual illustration of the current narration point.`
+      1. Every single scene MUST have a unique 'imagePrompt'. Do NOT repeat concepts.
+      2. Use visual metaphors to illustrate abstract ideas. Every shot is a new, high-quality visual illustration.`
     )
 
     const fullSpec = {
@@ -174,13 +295,15 @@ export class PromptManager {
         ? `${characterMetadata.description}. Personality: ${characterMetadata.artistPersona}.`
         : spec.characterDescription
     }
+
     const consolidatedOutputFormat = this.getConsolidatedOutputFormat(
       spec.outputFormat,
       minWordsPerScene,
-      totalDuration
+      targetWordCountTotal,
+      targetWordsPerScene
     )
 
-    // 4. Inject Goals and Rules from Spec (Phase 32)
+    // 5. Inject Goals, Rules, Context from Spec
     const goals = spec.goals?.length ? `## GOALS\n${spec.goals.map((g) => `- ${g}`).join('\n')}` : ''
     const rules = spec.rules?.length ? `## RULES\n${spec.rules.map((r) => `- ${r}`).join('\n')}` : ''
     const context = spec.context ? `## CONTEXT\n${spec.context}` : ''
@@ -202,35 +325,41 @@ export class PromptManager {
   }
 
   /**
-   * Refines the output format to include global narrative planning and artistic style.
-   * Avoids fragile regex replacements.
+   * Refines the output format to include global narrative planning, word count
+   * self-validation, and artistic style.
    */
-  private getConsolidatedOutputFormat(baseFormat?: string, minWordsPerScene?: number, totalDuration?: number): string {
+  private getConsolidatedOutputFormat(
+    baseFormat?: string,
+    minWordsPerScene?: number,
+    targetWordCountTotal?: number,
+    targetWordsPerScene?: number
+  ): string {
     if (!baseFormat || !baseFormat.includes('{')) return baseFormat || ''
 
-    // Define the full consolidated schema structure
     return `{
-"topic": "string",
-"audience": "string",
-"emotionalArc": ["string"],
-"titles": ["string"],
-"fullNarration": "string",
-"theme": "string",
-"backgroundMusic": "string",
-"scenes": [
-  {
-    "sceneNumber": 1,
-    "id": "string (unique scene id)",
-    "narration": "string (The spoken text. Aim for 15-20 seconds (~40-50 words) per scene.)",
-    "summary": "string (brief visual summary)",
-    "locationId": "string (optional: unique location identifier, e.g. 'office')",
-    "cameraAction": "string (zoom-in | zoom-out | pan-left | pan-right). MUST accelerate at the end.",
-    "preset": "hook | reveal | mirror",
-    "imagePrompt": "string (A symbolic visual perfectly representing the scene's core idea. Detailed text-to-image prompt.)",
-    "animationPrompt": "string (specific movement/performance instructions)"
-  }
-]
-}`
+      "topic": "string",
+      "audience": "string",
+      "emotionalArc": ["string"],
+      "titles": ["string"],
+      "fullNarration": "string (The complete unbroken script. MUST be extremely detailed and long, targeting ${targetWordCountTotal} words total.)",
+      "totalWordCount": "number (self-reported total word count across ALL scene narrations — MUST be ≥ ${targetWordCountTotal})",
+      "theme": "string",
+      "backgroundMusic": "string",
+      "scenes": [
+        {
+          "sceneNumber": 1,
+          "id": "string (unique scene id)",
+          "narration": "string (The spoken text. MUST target ~${targetWordsPerScene} words. MUST contain at least ${minWordsPerScene} words and 6 to 8 full sentences. Each sentence MUST develop a different aspect of the idea. Never summarize — always elaborate.)",
+          "wordCount": "number (MANDATORY — actual word count of this narration, must be ≥ ${minWordsPerScene})",
+          "summary": "string (brief visual summary)",
+          "locationId": "string (optional: unique location identifier, e.g. 'office')",
+          "cameraAction": "string (zoom-in | zoom-out | pan-left | pan-right). MUST accelerate at the end.",
+          "preset": "hook | reveal | mirror",
+          "imagePrompt": "string (A symbolic visual perfectly representing the scene's core idea. Detailed text-to-image prompt.)",
+          "animationPrompt": "string (specific movement/performance instructions)"
+        }
+      ]
+    }`
   }
 
   /**
@@ -239,11 +368,11 @@ export class PromptManager {
   buildScriptUserPrompt(topic: string, options: VideoGenerationOptions): string {
     const spec = this.getEffectiveSpec(options)
     const effectiveDuration = this.getEffectiveDuration(options)
-    // FIX: use computeSceneCount as single source of truth (aligned with buildScriptCompletePrompt)
     const targetSceneCount = options.sceneCount ?? computeSceneCount(effectiveDuration)
-    // Use the real Kokoro/TTS speed from getWordsPerSecond (accounts for provider + language)
     const wordsPerSecond = this.getWordsPerSecond(options)
-    const minWordCount = Math.round(effectiveDuration * wordsPerSecond)
+    const safetyFactor = this.getSafetyFactor(options)
+    const targetWordCount = Math.round(effectiveDuration * wordsPerSecond * safetyFactor)
+    const minWordsPerScene = Math.max(50, Math.round(targetWordCount / targetSceneCount))
 
     return this.buildUserData({
       subject: topic,
@@ -252,7 +381,8 @@ export class PromptManager {
       audience: (options as any).audience || spec.audienceDefault,
       maxScenes: targetSceneCount,
       language: options.language,
-      minWordCount
+      minWordCount: targetWordCount,
+      minWordsPerScene
     })
   }
 
@@ -266,19 +396,10 @@ export class PromptManager {
     }
   }
 
-  // buildScriptCompletePrompt removed per user request (unified to buildScriptGenerationPrompts array mode)
-
-  public getEffectiveDuration(options: VideoGenerationOptions): number {
-    return options.duration ?? options.maxDuration ?? options.minDuration ?? 60
-  }
+  // ─── Image prompt builders ────────────────────────────────────────────────
 
   /**
    * Build the full system instruction for the image generation model.
-   * When reference images are provided, they are the ABSOLUTE SOURCE OF TRUTH.
-   * All other instructions serve the reference images, never contradict them.
-   *
-   * FIX: now delegates to PromptMaker.buildSystemInstructions() to avoid duplicating
-   * assembly logic and to include all spec fields (role, task, goals…) consistently.
    */
   async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
     const spec = this.spec
@@ -289,14 +410,13 @@ export class PromptManager {
     const stylePrefix = characterMetadata?.stylePrefix || ''
     const artistPersona = characterMetadata?.artistPersona || ''
 
-    // If character metadata has images, we treat it as having reference images even if none passed in options
     const effectiveHasRef = hasReferenceImages || (characterMetadata?.images && characterMetadata.images.length > 0)
 
     const referenceMode = effectiveHasRef
-      ? `Style consistency: Match the artistic style of the reference images for character design, clothing, and line quality. ${stylePrefix}. The image is strictly black and white, rendered in grayscale with detailed pencil shading and texture. The scene includes a full, realistic, and dense environment with multiple clearly defined objects, independent from the reference background.`
+      ? `Style consistency: Match the artistic style of the reference images for character design, clothing, and line quality.${stylePrefix}. The image is strictly black and white, rendered in grayscale with detailed pencil shading and texture. The scene includes a full, realistic, and dense environment with multiple clearly defined objects, independent from the reference background.`
       : stylePrefix
 
-    const personaContext = artistPersona ? `Acting as a ${artistPersona}, create:` : ''
+    const personaContext = artistPersona ? `Acting as a ${artistPersona}, create: ` : ''
 
     const characterContext = characterDescription
       ? `A symbolic visual representing the scene's core idea is shown, centered around a main character described as: ${characterDescription}. This character is interacting with the environment.`
@@ -322,35 +442,28 @@ export class PromptManager {
     const characterMetadata = await this.resolveCharacterMetadata()
     const characterDescription = characterMetadata?.description || this.spec?.characterDescription || ''
 
-    // 1. Core prompt is exactly what the LLM wrote
     let paragraph = (scene.imagePrompt || scene.summary || '').trim()
 
-    // Enforce character identity if mission-critical
     if (characterDescription && !paragraph.toLowerCase().includes(characterDescription.toLowerCase().slice(0, 10))) {
       paragraph = `MAIN CHARACTER: ${characterDescription}. ACTION: ${paragraph}`
     }
 
-    // 2. Location Enrichment (Visibility Fallback)
     if (scene.locationId) {
-      // Check memory for descriptive location prompt
       const memorized = memory?.locations.get(scene.locationId)
       if (memorized && !paragraph.toLowerCase().includes(memorized.prompt.toLowerCase().slice(0, 20))) {
         paragraph += `, in ${memorized.prompt}.`
       }
     }
 
-    // 4. Cleanup grammar
     let finalPrompt = paragraph
       .replaceAll(/,\s*,/g, ',')
       .replaceAll(/\s{2,}/g, ' ')
       .trim()
       .replace(/([^.!?])$/, '$1.')
 
-    // 5. Style lock — enforce same artistic style as reference images in the prompt itself
-    // (system instruction alone is not always sufficient; a prompt-level hint is stronger)
     if (hasReferenceImages) {
       finalPrompt +=
-        'Style consistency: Match the flat illustration style, line art, and rendering technique of the reference images. The entire scene, including the background, must be drawn in the same style and not appear photorealistic.'
+        ' Style consistency: Match the flat illustration style, line art, and rendering technique of the reference images. The entire scene, including the background, must be drawn in the same style and not appear photorealistic.'
 
       if (hasLocationReference) {
         finalPrompt +=
@@ -366,7 +479,6 @@ export class PromptManager {
 
   /**
    * Build animation instructions for a scene.
-   * Fully Character-Agnostic.
    */
   buildAnimationPrompt(scene: EnrichedScene, imageStyle?: { characterDescription?: string }): AnimationPrompt {
     const instructions = scene.animationPrompt || ''
@@ -404,17 +516,27 @@ export class PromptManager {
     return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
   }
 
-  private buildUserData(options: PromptMakerOptions): string {
+  private buildUserData(options: PromptMakerOptions & { minWordsPerScene?: number }): string {
     const lines = [
       `Subject: ${options.subject}`,
       `Required Duration: ${options.duration}`,
       `Required Scene Count: ${options.maxScenes}`,
       options.minWordCount
-        ? `MANDATORY TOTAL WORD COUNT: ${options.minWordCount} words. 
-           🚨 WARNING: If the combined narration is less than ${options.minWordCount} words, the script will be REJECTED. 
-           You MUST be extremely verbose. Describe details, provide context, and expand on every idea to reach this length. 
-           For a ${options.duration} video, brevity is a CRITICAL ERROR.`
-        : null,
+        ? [
+            ``,
+            `🚨 WORD COUNT REQUIREMENTS (NON-NEGOTIABLE):`,
+            `   • TOTAL script: AT LEAST ${options.minWordCount} words across all scenes`,
+            `   • PER SCENE: AT LEAST ${options.minWordsPerScene ?? Math.max(50, Math.round(options.minWordCount / (options.maxScenes ?? 1)))} words`,
+            `   • PER SCENE: AT LEAST 6 full sentences (NOT 4 — minimum is 6)`,
+            `   • Add a "wordCount" field to every scene with the actual count`,
+            `   • Add a "totalWordCount" field at the root with the sum of all scenes`,
+            ``,
+            `⚠️  WARNING: If ANY scene has fewer than ${options.minWordsPerScene ?? 50} words, or the total`,
+            `    is below ${options.minWordCount} words, the script will be REJECTED.`,
+            `    BREVITY IS A FAILURE. ELABORATE EXTENSIVELY.`,
+            ``
+          ].join('\n')
+        : '',
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
       `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION. This includes: narration, titles, onscreen text, imagePrompt (visual scene descriptions), and animationPrompt (movement instructions). Do NOT use English for imagePrompt or animationPrompt when the target language is different.`

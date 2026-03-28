@@ -57,41 +57,46 @@ export const AudioServiceFactory = {
   /**
    * Create an audio service based on the configuration
    */
-  create(config: AudioServiceConfig): AudioService {
+  async create(config: AudioServiceConfig): Promise<AudioService> {
     switch (config.provider) {
-      case 'demo':
-        const { DemoAudioService } = require('./demo-audio.service')
+      case 'demo': {
+        const { DemoAudioService } = await import('./demo-audio.service')
         return new DemoAudioService(config.lang)
-      case 'google-tts':
+      }
+      case 'google-tts': {
         if (!config.apiKey) {
           throw new Error('API key is required for Google TTS provider')
         }
-        const { GoogleTTSService } = require('./google-tts.service')
+        const { GoogleTTSService } = await import('./google-tts.service')
         return new GoogleTTSService(
           config.apiKey,
           config.lang || 'en-US',
           config.voiceName,
           config.audioEncoding || 'MP3'
         )
-      case 'elevenlabs':
+      }
+      case 'elevenlabs': {
         if (!config.apiKey) {
           throw new Error('API key is required for ElevenLabs provider')
         }
-        const { ElevenLabsService } = require('./elevenlabs.service')
+        const { ElevenLabsService } = await import('./elevenlabs.service')
         return new ElevenLabsService(
           config.apiKey,
           config.voiceId || 'EXAVITQu4vr4xnSDxMaL',
           config.modelId || 'eleven_monolingual_v1'
         )
-      case 'kokoro':
-        const { KokoroTTSService } = require('./kokoro-tts.service')
+      }
+      case 'kokoro': {
+        const { KokoroTTSService } = await import('./kokoro-tts.service')
         return new KokoroTTSService(config.apiKey || '', config.lang || 'en-US', config.kokoroVoicePreset || 'af_heart')
-      case 'gemini-tts':
+      }
+      case 'gemini-tts': {
         if (!config.apiKey) {
           throw new Error('API key is required for Gemini TTS provider')
         }
-        const { GeminiSpeechService } = require('./gemini-speech.service')
-        return new GeminiSpeechService(config.apiKey, config.lang || 'en', config.geminiVoiceName || 'Kore')
+        const { GeminiSpeechService } = await import('./gemini-speech.service')
+        return new GeminiSpeechService(config.apiKey, config.lang || 'en', (config.geminiVoiceName as any) || 'Kore')
+      }
       case 'openai-tts':
         throw new Error(
           `Audio provider "${config.provider}" is not yet implemented. Consider using google-tts, elevenlabs, kokoro, or gemini-tts.`

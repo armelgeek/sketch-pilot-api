@@ -144,9 +144,9 @@ export class NanoBananaEngine {
   // Getters for Lazy Service Initialization
   // ─────────────────────────────────────────────────────────────────────────────
 
-  get audioService(): AudioService {
+  async getAudioService(): Promise<AudioService> {
     if (!this._audioService) {
-      this._audioService = AudioServiceFactory.create(
+      this._audioService = await AudioServiceFactory.create(
         this.audioConfig || {
           provider: 'kokoro',
           lang: 'en',
@@ -161,9 +161,9 @@ export class NanoBananaEngine {
     this._audioService = service
   }
 
-  get animationService(): AnimationService {
+  async getAnimationService(): Promise<AnimationService> {
     if (!this._animationService) {
-      this._animationService = AnimationServiceFactory.create(
+      this._animationService = await AnimationServiceFactory.create(
         this.animationConfig || { provider: 'veo', apiKey: this.apiKey }
       )
     }
@@ -174,9 +174,9 @@ export class NanoBananaEngine {
     this._animationService = service
   }
 
-  get imageService(): ImageService {
+  async getImageService(): Promise<ImageService> {
     if (!this._imageService) {
-      this._imageService = ImageServiceFactory.create(
+      this._imageService = await ImageServiceFactory.create(
         this.imageConfig || {
           provider: this.currentImageProvider,
           apiKey: this.apiKey,
@@ -191,9 +191,9 @@ export class NanoBananaEngine {
     this._imageService = service
   }
 
-  get llmService(): LLMService {
+  async getLlmService(): Promise<LLMService> {
     if (!this._llmService) {
-      this._llmService = LLMServiceFactory.create(
+      this._llmService = await LLMServiceFactory.create(
         this.llmConfig || {
           provider: this.currentLLMProvider,
           apiKey: this.apiKey,
@@ -208,9 +208,9 @@ export class NanoBananaEngine {
     this._llmService = service
   }
 
-  get transcriptionService(): TranscriptionService | undefined {
+  async getTranscriptionService(): Promise<TranscriptionService | undefined> {
     if (!this._transcriptionService && this.transcriptionConfig) {
-      this._transcriptionService = TranscriptionServiceFactory.create(this.transcriptionConfig as any)
+      this._transcriptionService = await TranscriptionServiceFactory.create(this.transcriptionConfig as any)
     }
     return this._transcriptionService
   }
@@ -330,7 +330,8 @@ export class NanoBananaEngine {
         const refinedPrompt = fullPrompt
 
         const startTime = Date.now()
-        const imageUrl = await this.imageService.generateImage(refinedPrompt, filename, {
+        const imageService = await this.getImageService()
+        const imageUrl = await imageService.generateImage(refinedPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
           systemInstruction
@@ -367,7 +368,7 @@ export class NanoBananaEngine {
     if (this.currentImageProvider !== 'gemini' && this.isNetworkError(error)) {
       console.warn(`[NanoBanana] Network error with ${this.currentImageProvider}, falling back to Gemini...`)
       try {
-        const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
+        const geminiService = await ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
         const result = await geminiService.generateImage(fullPrompt, filename, {
           quality: 'medium',
           smartUpscale: true,
@@ -388,7 +389,7 @@ export class NanoBananaEngine {
         try {
           console.warn(`[NanoBanana] Attempting STAGE 3 fallback (Safety Prompt)...`)
           const safetyPrompt = `Minimalist whiteboard drawing, very simple sketch, clean lines on white background, neutral composition.`
-          const geminiService = ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
+          const geminiService = await ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
           return await geminiService.generateImage(safetyPrompt, filename, {
             aspectRatio: this.currentOptions?.aspectRatio || '16:9',
             quality: 'low'
@@ -547,13 +548,8 @@ export class NanoBananaEngine {
       hasVideo = true
       await this.generationQueue.add(async () => {
         try {
-          await this.animationService.animateImage(
-            imagePath,
-            scene.animationPrompt!,
-            clipDuration,
-            videoPath,
-            aspectRatio
-          )
+          const animationService = await this.getAnimationService()
+          await animationService.animateImage(imagePath, scene.animationPrompt!, clipDuration, videoPath, aspectRatio)
           hasVideo = fs.existsSync(videoPath)
         } catch (error) {
           console.error(`[NanoBanana] Animation error:`, error)
@@ -636,9 +632,9 @@ export class NanoBananaEngine {
     const script = JSON.parse(fs.readFileSync(scriptPath, 'utf-8')) as CompleteVideoScript
 
     // Auto-initialize Whisper local if not already done
-    if (!this.transcriptionService) {
+    if (!(await this.getTranscriptionService())) {
       console.log(`[NanoBanana-Sync] Initializing Whisper for sync...`)
-      this.transcriptionService = TranscriptionServiceFactory.create(
+      this.transcriptionService = await TranscriptionServiceFactory.create(
         (this.currentTranscriptionConfig as any) || {
           provider: 'whisper-local',
           model: 'base',
@@ -648,8 +644,9 @@ export class NanoBananaEngine {
       )
     }
 
+    const transcriptionService = (await this.getTranscriptionService())!
     console.log(`[NanoBanana-Sync] Transcribing global audio for project: ${path.basename(projectDir)}`)
-    const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
+    const transcriptionResult = await transcriptionService.transcribe(globalAudioPath)
     const globalWordTimings = transcriptionResult.wordTimings
 
     console.log(`[NanoBanana-Sync] Mapping word timings to scenes...`)
@@ -684,13 +681,13 @@ export class NanoBananaEngine {
           }
         })
 
-        // Update globalWordTimings (absolute for global subtitle sync)
-        ;(manifest as any).globalWordTimings = wordTimings.map((w) => ({
-          ...w,
-          start: Math.round(w.start * 100) / 100,
-          end: Math.round(w.end * 100) / 100,
-          startMs: Math.round(w.startMs)
-        }))
+          // Update globalWordTimings (absolute for global subtitle sync)
+          ; (manifest as any).globalWordTimings = wordTimings.map((w) => ({
+            ...w,
+            start: Math.round(w.start * 100) / 100,
+            end: Math.round(w.end * 100) / 100,
+            startMs: Math.round(w.startMs)
+          }))
 
         fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
       }
@@ -724,7 +721,7 @@ export class NanoBananaEngine {
       if (validOptions.llmProvider && validOptions.llmProvider !== this.currentLLMProvider) {
         console.log(`[NanoBanana] Switching LLM provider: ${this.currentLLMProvider} -> ${validOptions.llmProvider}`)
         this.currentLLMProvider = validOptions.llmProvider
-        this.llmService = LLMServiceFactory.create({
+        this.llmService = await LLMServiceFactory.create({
           provider: this.currentLLMProvider,
           apiKey: this.currentLLMProvider === 'grok' ? process.env.XAI_API_KEY || this.apiKey : this.apiKey,
           cacheSystemPrompt: true // ← Option B: Enable prompt caching
@@ -732,7 +729,7 @@ export class NanoBananaEngine {
       }
 
       // Re-initialize generator with new service, sharing the same PromptManager
-      this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+      this.scriptGenerator = new VideoScriptGenerator(await this.getLlmService(), this.promptManager)
     }
 
     // Initialize/Switch Transcription Service
@@ -741,12 +738,11 @@ export class NanoBananaEngine {
       JSON.stringify(validOptions.transcription) !== JSON.stringify(this.currentTranscriptionConfig)
     ) {
       console.log(
-        `[NanoBanana] Updating transcription provider: ${
-          this.currentTranscriptionConfig?.provider || 'none'
+        `[NanoBanana] Updating transcription provider: ${this.currentTranscriptionConfig?.provider || 'none'
         } -> ${validOptions.transcription.provider}`
       )
       this.currentTranscriptionConfig = validOptions.transcription
-      this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
+      this.transcriptionService = await TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
     }
 
     try {
@@ -761,15 +757,15 @@ export class NanoBananaEngine {
       if (isNetError && this.currentLLMProvider === 'grok') {
         console.warn(`[NanoBanana] Network error with Grok LLM, falling back to Claude Haiku...`)
         this.currentLLMProvider = 'haiku'
-        this.llmService = LLMServiceFactory.create({
+        this.llmService = await LLMServiceFactory.create({
           provider: 'haiku',
           apiKey: this.apiKey,
           cacheSystemPrompt: true
         })
 
         // Re-initialize generator with Claude
-        this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
-        ;(validOptions as any).llmProvider = 'haiku' // Propagate the provider change to options
+        this.scriptGenerator = new VideoScriptGenerator(await this.getLlmService(), this.promptManager)
+          ; (validOptions as any).llmProvider = 'haiku' // Propagate the provider change to options
 
         // Retry with Claude Haiku
         try {
@@ -790,7 +786,7 @@ export class NanoBananaEngine {
 
     // Ensure scriptGenerator is initialized (needed for exportToMarkdown)
     if (!this.scriptGenerator) {
-      this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+      this.scriptGenerator = new VideoScriptGenerator(await this.getLlmService(), this.promptManager)
     }
 
     fs.writeFileSync(path.join(outputPath, 'script.json'), JSON.stringify(script, null, 2))
@@ -858,7 +854,7 @@ export class NanoBananaEngine {
     if (needsMaintenance) {
       console.log(`[NanoBanana] Script scenes are missing timeRanges or numbers; auto-assigning...`)
       if (!this.scriptGenerator) {
-        this.scriptGenerator = new VideoScriptGenerator(this.llmService, this.promptManager)
+        this.scriptGenerator = new VideoScriptGenerator(await this.getLlmService(), this.promptManager)
       }
       script.scenes = this.scriptGenerator.assignTimeRanges(script.scenes as any, validOptions) as any
     }
@@ -876,7 +872,7 @@ export class NanoBananaEngine {
         `[NanoBanana] Switching image provider: ${this.currentImageProvider} -> ${validOptions.imageProvider} (${qualityMode} mode)`
       )
       this.currentImageProvider = validOptions.imageProvider
-      this.imageService = ImageServiceFactory.create({
+      this.imageService = await ImageServiceFactory.create({
         provider: this.currentImageProvider,
         apiKey: this.currentImageProvider === 'grok' ? process.env.XAI_API_KEY || this.apiKey : this.apiKey,
         systemPrompt: this.systemPrompt,
@@ -890,7 +886,7 @@ export class NanoBananaEngine {
         `[NanoBanana] Switching Kokoro voice: ${this.currentKokoroVoicePreset} -> ${validOptions.kokoroVoicePreset}`
       )
       this.currentKokoroVoicePreset = validOptions.kokoroVoicePreset
-      this.audioService = AudioServiceFactory.create({
+      this.audioService = await AudioServiceFactory.create({
         provider: 'kokoro',
         lang: (validOptions.language?.split('-')[0] || 'en') as any,
         apiKey: process.env.HUGGING_FACE_TOKEN || this.apiKey,
@@ -954,96 +950,90 @@ export class NanoBananaEngine {
     // No need to pre-initialize here - it happens on-demand
 
     let lastSceneImageBase64: string | undefined
+    const globalAudioPath = path.join(projectDir, 'narration.mp3')
 
-    // --- GLOBAL AUDIO GENERATION ---
+    // --- AUDIO GENERATION & TIMING SYNC (REAL-WORLD) ---
+    // Instead of one big file, we generate per-scene to get exact durations and avoid drift.
     const skipAudio =
       validOptions.skipAudio ||
       validOptions.generateOnlyAssembly ||
       validOptions.repromptSceneIndex !== undefined ||
       false
-    const globalAudioPath = path.join(projectDir, 'narration.mp3')
-    let globalWordTimings: WordTiming[] = []
-
-    // Skip generation if narration.mp3 already exists (Force re-use)
-    const audioExists = fs.existsSync(globalAudioPath)
-    if (audioExists && !skipAudio) {
-      console.log(`[NanoBanana] Found existing global narration at ${globalAudioPath}. Skipping generation.`)
-    }
 
     if (!skipAudio) {
-      if (onProgress) await onProgress(10, 'Generating narration audio...')
-      try {
-        if (!audioExists) {
-          console.log(`\n[NanoBanana] --- Generating Global Audio ---`)
+      if (onProgress) await onProgress(10, 'Generating narration audio (per-scene)...')
+      console.log(`\n[NanoBanana] --- Generating Per-Scene Audio & Syncing Timings ---`)
 
-          const voiceId = validOptions.kokoroVoicePreset || KokoroVoicePreset.AF_HEART
-          console.log(`[NanoBanana] Generating global narration with voice: ${voiceId}`)
+      let currentTime = 0
+      const audioFiles: string[] = []
 
-          const fullScriptText = script.scenes.map((s) => s.narration).join('\n\n...\n\n') // Add strong pause between scenes
-          await this.audioService.generateSpeech(fullScriptText, globalAudioPath, {
-            voice: voiceId,
-            voiceId
-          })
+      for (let i = 0; i < script.scenes.length; i++) {
+        const scene = script.scenes[i]
+        const sceneDir = path.join(scenesDir, scene.id)
+        if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
+
+        const sceneAudioPath = path.join(sceneDir, 'narration.mp3')
+        const voiceId = validOptions.kokoroVoicePreset || KokoroVoicePreset.AF_HEART
+
+        // Always generate if it doesn't exist, or if forceRegenerateAudio is on
+        const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
+        if (forceRegen || !fs.existsSync(sceneAudioPath)) {
+          const wordCount = (scene.narration || '').split(/\s+/).filter(Boolean).length
+          console.log(`[NanoBanana] Scene ${i + 1}: Synthesizing ${wordCount} words...`)
+
+          try {
+            const audioService = await this.getAudioService()
+            const audioResult = await audioService.generateSpeech(scene.narration, sceneAudioPath, {
+              voice: voiceId,
+              voiceId
+            })
+
+              // Store duration and word timings in scene
+              ; (scene as any).audioDuration = audioResult.duration
+              ; (scene as any).globalWordTimings = audioResult.wordTimings
+            console.log(`[NanoBanana] ✓ Scene ${i + 1} Duration: ${audioResult.duration.toFixed(2)}s`)
+          } catch (audioError: any) {
+            console.warn(`[NanoBanana] ⚠ Scene audio generation failed for ${scene.id}: ${audioError.message}`)
+            // Fallback estimation if generation fails
+            const wordCount = (scene.narration || '').split(/\s+/).length
+              ; (scene as any).audioDuration = Math.max(3, wordCount / 2.5)
+          }
         } else {
-          console.log(`[NanoBanana] Using existing global narration at ${globalAudioPath}`)
-        }
-
-        // Auto-initialize Whisper local if not already done
-        if (!this.transcriptionService) {
-          console.log(`[NanoBanana] Initializing Whisper for global timing...`)
-          this.currentTranscriptionConfig = {
-            provider: 'whisper-local',
-            model: 'base',
-            device: 'cpu',
-            language: validOptions.language?.split('-')[0] || 'en'
+          // If audio exists, we need to know its duration to sync timings
+          // We can't easily get it without ffprobe here, so we might need a utility or store it in manifest
+          // For now, if it exists, we assume the script.json timings might be correct OR we should re-measure
+          console.log(`[NanoBanana] Scene ${i + 1} audio already exists at ${sceneAudioPath}`)
+          // If we have no duration, we might need to estimate or use existing timeRange
+          if (!(scene as any).audioDuration) {
+            ; (scene as any).audioDuration = scene.timeRange.end - scene.timeRange.start
           }
-          this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
         }
 
-        if (onProgress) await onProgress(12, 'Transcribing audio with Whisper...')
-        console.log(`[NanoBanana] Transcribing global audio with Whisper...`)
-        const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
-        globalWordTimings = transcriptionResult.wordTimings
+        // Update TimeRange based on real duration
+        const duration = (scene as any).audioDuration || 5
+        scene.timeRange = { start: currentTime, end: currentTime + duration }
+        currentTime += duration
 
-        if (onProgress) await onProgress(14, 'Mapping timings to scenes...')
-        console.log(`[NanoBanana] Mapping global timings to scenes...`)
-        const sceneNarrations = script.scenes.map((s) => ({ sceneId: s.id, narration: s.narration }))
-        const mappedTimings = TimingMapper.mapScenes(sceneNarrations, globalWordTimings)
+        audioFiles.push(sceneAudioPath)
+      }
 
-        // Update scene timeRanges and store timings
-        mappedTimings.forEach((timing, idx) => {
-          const scene = script.scenes[idx]
-          scene.timeRange.start = timing.start
-          scene.timeRange.end = timing.end
-          ;(scene as any).globalWordTimings = timing.wordTimings
-          if (timing.wordTimings.length === 0) {
-            console.warn(
-              `[NanoBanana] ⚠ Scene ${scene.id} could not be matched to any words in transcription. Using estimation.`
-            )
-          }
-          console.log(
-            `[NanoBanana] Scene ${scene.id}: ${timing.start.toFixed(2)}s -> ${timing.end.toFixed(2)}s (${timing.wordTimings.length} words)`
-          )
-        })
+      script.totalDuration = currentTime
+      script.globalAudio = 'narration.mp3'
 
-        // Trigger timing sync callback if provided
-        if (onTimingSync) {
-          console.log(`[NanoBanana] Timing sync reached. Triggering callback for real-time update...`)
-          await onTimingSync(script)
-        }
+      // Save the synchronized script EARLY
+      fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
+      console.log(`[NanoBanana] Synchronized script with real durations (${script.totalDuration.toFixed(2)}s)`)
 
-        // Update total duration
-        if (mappedTimings.length > 0) {
-          script.totalDuration = mappedTimings.at(-1)!.end
-        }
+      // Stitch audio files into global narration.mp3
+      if (audioFiles.length > 0 && !fs.existsSync(globalAudioPath)) {
+        console.log(`[NanoBanana] Stitching ${audioFiles.length} scenes into global narration.mp3...`)
+        await this.stitchAudioFiles(audioFiles, globalAudioPath)
+      }
 
-        script.globalAudio = 'narration.mp3'
-
-        // Persist the synchronized script so future renders use these exact timings
-        fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
-        console.log(`[NanoBanana] Synchronized script saved to script.json`)
-      } catch (audioError) {
-        console.error(`[NanoBanana] Global audio generation/transcription failed:`, audioError)
+      // Trigger timing sync callback
+      if (onTimingSync) {
+        console.log(`[NanoBanana] Timing sync reached. Triggering callback...`)
+        await onTimingSync(script)
       }
     } else if (validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
@@ -1083,7 +1073,8 @@ export class NanoBananaEngine {
           console.log(`[NanoBanana] Regenerating narration from script text as a last resort...`)
           try {
             const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
-            await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+            const audioService = await this.getAudioService()
+            await audioService.generateSpeech(fullScriptText, globalAudioPath)
             if (fs.existsSync(globalAudioPath)) {
               script.globalAudio = 'narration.mp3'
               console.log(`[NanoBanana] ✓ Narration re-generated from script at ${globalAudioPath}`)
@@ -1101,7 +1092,8 @@ export class NanoBananaEngine {
         )
         try {
           const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
-          await this.audioService.generateSpeech(fullScriptText, globalAudioPath)
+          const audioService = await this.getAudioService()
+          await audioService.generateSpeech(fullScriptText, globalAudioPath)
           if (fs.existsSync(globalAudioPath)) {
             script.globalAudio = 'narration.mp3'
             console.log(`[NanoBanana] ✓ Narration re-generated from script at ${globalAudioPath}`)
@@ -1125,17 +1117,18 @@ export class NanoBananaEngine {
         console.log(`[NanoBanana] ASS captions enabled — running Whisper transcription for word timings...`)
         try {
           // Auto-initialize Whisper if needed
-          if (!this.transcriptionService) {
+          if (!(await this.getTranscriptionService())) {
             this.currentTranscriptionConfig = {
               provider: 'whisper-local',
               model: 'base',
               device: 'cpu',
               language: validOptions.language?.split('-')[0] || 'en'
             }
-            this.transcriptionService = TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
+            this.transcriptionService = await TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
           }
 
-          const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
+          const transcriptionService = (await this.getTranscriptionService())!
+          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath)
           const assemblyWordTimings = transcriptionResult.wordTimings
 
           // Map word timings back to scenes (using existing TimeRange from script)
@@ -1148,7 +1141,7 @@ export class NanoBananaEngine {
             // ALWAYS update timeRange with transcription ground truth (or proportional estimate for unmatched scenes)
             scene.timeRange = { start: timing.start, end: timing.end }
             if (timing.wordTimings.length > 0) {
-              ;(scene as any).globalWordTimings = timing.wordTimings
+              ; (scene as any).globalWordTimings = timing.wordTimings
             }
           })
 
@@ -1176,7 +1169,7 @@ export class NanoBananaEngine {
       let currentTime = 0
       script.scenes.forEach((scene) => {
         const wordCount = (scene.narration || '').split(/\s+/).length
-        const duration = Math.max(3, wordCount / 2.5) // roughly ~2.5 words per second
+        const duration = Math.max(3, wordCount / 2.5)
         scene.timeRange = { start: currentTime, end: currentTime + duration }
         currentTime += duration
       })
@@ -1303,21 +1296,11 @@ export class NanoBananaEngine {
               await onSceneGenerated(scene, script, i + 1, sceneProgress)
             }
 
-            // --- PER-SCENE AUDIO GENERATION ---
+            // Skip redundant per-scene audio generation as it is now done in the INITIAL phase
+            // However, we ensure the manifest correctly references the already generated audio if needed
             const sceneAudioPath = path.join(sceneDir, 'narration.mp3')
-            if (this.audioService && !validOptions.skipAudio) {
-              const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
-              if (forceRegen || !fs.existsSync(sceneAudioPath)) {
-                console.log(`[NanoBanana] Generating per-scene audio for ${scene.id}...`)
-                try {
-                  const audioResult = await this.audioService.generateSpeech(scene.narration, sceneAudioPath)
-                  // Inject duration and word timings into the scene manifest/script
-                  ;(scene as any).audioDuration = audioResult.duration
-                  ;(scene as any).wordTimings = audioResult.wordTimings
-                } catch (audioError: any) {
-                  console.warn(`[NanoBanana] ⚠ Scene audio generation failed for ${scene.id}: ${audioError.message}`)
-                }
-              }
+            if (fs.existsSync(sceneAudioPath)) {
+              // (scene as any).audioDuration and (scene as any).globalWordTimings are already injected
             }
 
             // Update continuity tracking
@@ -1340,58 +1323,8 @@ export class NanoBananaEngine {
     await this.generationQueue.onIdle()
 
     // --- GLOBAL AUDIO CONCATENATION ---
-    if (!validOptions.skipAudio && !validOptions.generateOnlyAssembly) {
-      console.log(`[NanoBanana] Concatenating per-scene audio into global narration...`)
-      const audioFiles: string[] = []
-      for (const scene of script.scenes) {
-        const sceneAudioPath = path.join(scenesDir, scene.id, 'narration.mp3')
-        if (fs.existsSync(sceneAudioPath)) {
-          audioFiles.push(sceneAudioPath)
-        }
-      }
-
-      if (audioFiles.length > 0) {
-        try {
-          await this.stitchAudioFiles(audioFiles, globalAudioPath)
-          script.globalAudio = 'narration.mp3'
-          console.log(`[NanoBanana] ✓ Global narration created at ${globalAudioPath}`)
-
-          // Transcribe the concatenated file to get perfect word timings for the full video
-          if (validOptions.assCaptions?.enabled !== false && this.transcriptionService) {
-            console.log(`[NanoBanana] Running transcription on global audio for final sync...`)
-            const transcriptionResult = await this.transcriptionService.transcribe(globalAudioPath)
-            const assemblyWordTimings = transcriptionResult.wordTimings
-
-            // Map word timings back to scenes
-            const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
-            const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
-
-            mappedTimings.forEach((timing: any, idx: number) => {
-              const scene = script.scenes[idx]
-              scene.timeRange = { start: timing.start, end: timing.end }
-              if (timing.wordTimings.length > 0) {
-                ;(scene as any).globalWordTimings = timing.wordTimings
-              }
-            })
-
-            if (mappedTimings.length > 0) {
-              script.totalDuration = mappedTimings.at(-1)!.end
-            }
-          } else {
-            // Fallback duration if transcription is skipped or fails
-            let total = 0
-            for (const scene of script.scenes) {
-              const dur = (scene as any).audioDuration || scene.timeRange?.end - scene.timeRange?.start || 5
-              scene.timeRange = { start: total, end: total + dur }
-              total += dur
-            }
-            script.totalDuration = total
-          }
-        } catch (concatError: any) {
-          console.error(`[NanoBanana] Failed to concatenate audio: ${concatError.message}`)
-        }
-      }
-    }
+    // ALREADY COMPLETED in the initial phase.
+    // If it somehow failed, we could retry here, but usually, it's done.
 
     // --- ASSEMBLE FINAL VIDEO ---
     const skipAssembly =

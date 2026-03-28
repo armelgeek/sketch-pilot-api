@@ -71,7 +71,7 @@ export class SuggestTopicsUseCase extends IUseCase<SuggestTopicsParams, SuggestT
       const apiKey = process.env.OPENAI_API_KEY || ''
       if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
 
-      const llm = LLMServiceFactory.create({ provider: 'openai', apiKey })
+      const llm = await LLMServiceFactory.create({ provider: 'openai', apiKey })
 
       const language = options.language || 'en-US'
       const type = options.videoType || 'general'

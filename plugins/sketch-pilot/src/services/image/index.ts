@@ -43,17 +43,20 @@ export const ImageServiceFactory = {
   /**
    * Create an image service based on the configuration
    */
-  create(config: ImageServiceConfig): ImageService {
+  async create(config: ImageServiceConfig): Promise<ImageService> {
     switch (config.provider) {
-      case 'gemini':
-        const { GeminiImageService } = require('./gemini-image.service')
+      case 'gemini': {
+        const { GeminiImageService } = await import('./gemini-image.service')
         return new GeminiImageService(config)
-      case 'grok':
-        const { GrokImageService } = require('./grok-image.service')
+      }
+      case 'grok': {
+        const { GrokImageService } = await import('./grok-image.service')
         return new GrokImageService(config)
-      case 'demo':
-        const { DemoImageService } = require('./demo-image.service')
+      }
+      case 'demo': {
+        const { DemoImageService } = await import('./demo-image.service')
         return new DemoImageService(config)
+      }
       default:
         throw new Error(`Unknown image provider: ${config.provider}`)
     }

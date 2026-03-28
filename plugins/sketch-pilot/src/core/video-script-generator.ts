@@ -112,17 +112,24 @@ export class VideoScriptGenerator {
 
     console.log(`[VideoScriptGen] Calling LLM for structure...`)
 
-    const MAX_RETRIES = 3
-    let parsed: ReturnType<typeof this.parseJsonResponse> | null = null
+    const MAX_RETRIES = 5
+    let latestParsed: any = null
     let lastError: Error | null = null
+    let feedback = ''
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         console.log(`[VideoScriptGen] Generation attempt ${attempt}/${MAX_RETRIES}...`)
-        const text = await this.llmService.generateContent(userPrompt, systemPrompt, 'application/json')
+
+        const currentUserPrompt =
+          attempt === 1
+            ? userPrompt
+            : `${userPrompt}\n\n⚠️ PREVIOUS ATTEMPT FAILED VALIDATION:\n${feedback}\n\nPlease try again and ENSURE you meet all the requirements, especially the word count and sentence count per scene. You MUST expand each scene narration to meet the minimum word count.`
+
+        const text = await this.llmService.generateContent(currentUserPrompt, systemPrompt, 'application/json')
         if (!text) throw new Error('API returned empty generated content or timeout')
 
-        parsed = this.parseJsonResponse(text)
+        const parsed = this.parseJsonResponse(text)
 
         if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
           throw new Error("Generated script JSON is missing 'scenes' array")
@@ -131,44 +138,73 @@ export class VideoScriptGenerator {
         // --- BREVITY CHECK ---
         const effectiveDuration = this.promptManager.getEffectiveDuration(options)
         const wps = this.promptManager.getWordsPerSecond(options)
-        const targetWords = Math.round(effectiveDuration * wps)
+        const REAL_TTS_WPS = wps
+        const SAFETY_FACTOR = PromptManager.SAFETY_FACTOR
+        const targetWords = Math.round(effectiveDuration * REAL_TTS_WPS * SAFETY_FACTOR)
+        const minSentencesPerScene = 4
+
         const actualWords = parsed.scenes.reduce(
-          (acc: number, s: any) => acc + (s.narration || '').split(/\s+/).length,
+          (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
           0
         )
 
-        // If we are at less than 90% of the target, it's a failure (the LLM was too brief)
-        if (actualWords < targetWords * 0.9 && effectiveDuration > 30) {
-          console.warn(`[VideoScriptGen] 🚨 Script too brief: ${actualWords}/${targetWords} words. Rejected for retry.`)
-          throw new Error(
-            `NARRATION TOO SHORT: The generated narration is only ${actualWords} words, but a ${Math.round(
-              effectiveDuration / 60
-            )}min video requires at least ${targetWords} words. PLEASE ELABORATE extensively and provide much more detailed narration for each scene.`
-          )
+        const minWordsPerScene = Math.floor(targetWords / (parsed.scenes.length || 1))
+
+        console.log(
+          `[VideoScriptGen] [VAL_DEBUG] scenes_count=${parsed.scenes.length}, actual_words=${actualWords}, target_words=${targetWords}, min_words/scene=${minWordsPerScene}`
+        )
+
+        // 1. Validate density per scene
+        for (const [index, scene] of parsed.scenes.entries()) {
+          const narration = scene.narration || ''
+          const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
+          const sentences = narration.split(/[.!?]+/).filter((s: string) => s.trim().length > 0)
+
+          if (sceneWords < minWordsPerScene * 0.7) {
+            const errorMsg = `SCENE DENSITY FAILURE: Scene ${index + 1} narration is too short (${sceneWords}/${minWordsPerScene} words). You MUST expand this scene's narration significantly by adding at least 2-3 detailed sentences explaining the concept.`
+            console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
+            throw new Error(errorMsg)
+          }
+
+          if (sentences.length < minSentencesPerScene) {
+            const errorMsg = `STRUCTURAL FAILURE: Scene ${index + 1} has only ${sentences.length}/${minSentencesPerScene} sentences. Each scene's narration MUST contain AT LEAST ${minSentencesPerScene} full sentences.`
+            console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
+            throw new Error(errorMsg)
+          }
+        }
+
+        // 2. Validate total word count (95% of target)
+        if (actualWords < targetWords * 0.95 && effectiveDuration > 30) {
+          const errorMsg = `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${targetWords} words total. PLEASE ELABORATE extensively on every scene.`
+          console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
+          throw new Error(errorMsg)
         }
 
         console.log(`[VideoScriptGen] ✓ Script accepted: ${actualWords}/${targetWords} words.`)
+        latestParsed = parsed
         break
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        console.warn(`[VideoScriptGen] Attempt ${attempt} failed: ${lastError.message}`)
+        feedback = lastError.message
+        console.warn(`[VideoScriptGen] Attempt ${attempt} failed: ${feedback}`)
+
         if (attempt < MAX_RETRIES) {
-          const delay = attempt * 2000 // Exponential-ish backoff: 2s, 4s
-          console.log(`[VideoScriptGen] Waiting ${delay}ms before retrying...`)
+          const delay = 1000 // Fixed short delay for retries to keep it snappy
+          console.log(`[VideoScriptGen] Retrying with feedback in ${delay}ms...`)
           await new Promise((res) => setTimeout(res, delay))
         }
       }
     }
 
-    if (!parsed) {
+    if (!latestParsed) {
       console.error('[VideoScriptGen] All retry attempts failed.')
       throw lastError || new Error('Failed to generate video structure after multiple attempts')
     }
 
-    parsed.scenes = this.postProcessScenes(parsed.scenes)
-    parsed.scenes = this.assignTimeRanges(parsed.scenes, options)
+    latestParsed.scenes = this.postProcessScenes(latestParsed.scenes)
+    latestParsed.scenes = this.assignTimeRanges(latestParsed.scenes, options)
 
-    return parsed
+    return latestParsed
   }
 
   /**

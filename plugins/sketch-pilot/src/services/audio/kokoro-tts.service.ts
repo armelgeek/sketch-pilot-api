@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { detectAndTrimSilence } from '../../utils/audio-trimmer'
+import { runFfmpeg } from '../../utils/ffmpeg-utils'
 import type { AudioGenerationResult, AudioService } from './index'
 import '../../utils/polyfills'
 
@@ -45,12 +46,18 @@ export class KokoroTTSService implements AudioService {
         const chunkPath = path.join(baseDir, `${baseName}_chunk_${i}.wav`)
         console.log(`[KokoroTTS] Generating chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`)
 
+        // Ensure the directory still exists (in case it was deleted during long synthesis)
+        if (!fs.existsSync(baseDir)) {
+          console.warn(`[KokoroTTS] Output directory ${baseDir} disappeared. Re-creating...`)
+          fs.mkdirSync(baseDir, { recursive: true })
+        }
+
         // Inject structural pause at the end of chunk to prevent rushed endings
         const textToGenerate = `${chunks[i].trim()} \n\n`
 
         const audio = await this.tts.generate(textToGenerate, {
           voice: activeVoice,
-          speed: 0.8 // Slow down for more natural, less "rushed" delivery
+          speed: 1 // Standard speed matches the generator's WPS base (~2.8) closer
         })
         await audio.save(chunkPath)
         tempFiles.push(chunkPath)
@@ -112,17 +119,13 @@ export class KokoroTTSService implements AudioService {
   }
 
   private async concatenateAudioFiles(filePaths: string[], outputPath: string): Promise<void> {
-    const { exec } = require('node:child_process')
-    const { promisify } = require('node:util')
-    const execAsync = promisify(exec)
-
     const listFile = `${outputPath}.list.txt`
     const fileListContent = filePaths.map((p) => `file '${path.resolve(p)}'`).join('\n')
     fs.writeFileSync(listFile, fileListContent)
 
     try {
       // Use ffmpeg concat demuxer with aresample to ensure clean timestamps
-      await execAsync(`ffmpeg -f concat -safe 0 -i "${listFile}" -af "aresample=async=1" -y "${outputPath}"`)
+      await runFfmpeg(['-f', 'concat', '-safe', '0', '-i', listFile, '-af', 'aresample=async=1', '-y', outputPath])
     } finally {
       if (fs.existsSync(listFile)) fs.unlinkSync(listFile)
     }

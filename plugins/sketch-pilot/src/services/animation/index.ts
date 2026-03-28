@@ -29,14 +29,16 @@ export const AnimationServiceFactory = {
   /**
    * Create an animation service based on the configuration
    */
-  create(config: AnimationServiceConfig): AnimationService {
+  async create(config: AnimationServiceConfig): Promise<AnimationService> {
     switch (config.provider) {
-      case 'grok':
-        const { GrokAnimationService } = require('./grok-animation.service')
+      case 'grok': {
+        const { GrokAnimationService } = await import('./grok-animation.service')
         return new GrokAnimationService(config.apiKey)
-      case 'veo':
-        const { VeoAnimationService } = require('./veo-animation.service')
+      }
+      case 'veo': {
+        const { VeoAnimationService } = await import('./veo-animation.service')
         return new VeoAnimationService(config.apiKey)
+      }
       default:
         throw new Error(`Unknown animation provider: ${config.provider}`)
     }
