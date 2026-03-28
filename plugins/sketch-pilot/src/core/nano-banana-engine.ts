@@ -11,7 +11,6 @@ import { LLMServiceFactory, type LLMService, type LLMServiceConfig } from '../se
 import { SceneCacheService } from '../services/llm/scene-cache.service'
 import { VideoAssembler } from '../services/video/video-assembler.service'
 import {
-  computeVisualBudget,
   KokoroVoicePreset,
   QualityMode,
   videoGenerationOptionsSchema,
@@ -492,24 +491,6 @@ export class NanoBananaEngine {
     const effectiveBaseImages = [...referenceImages]
     if (scene.continueFromPrevious && lastSceneImageBase64) {
       effectiveBaseImages.push(lastSceneImageBase64)
-    }
-
-    // New: Skip generation if visualReferenceId is provided
-    const visualRefId = (scene as any).visualReferenceId
-    if (visualRefId && !isReprompt) {
-      const refSceneId = visualRefId
-      const refSceneDir = path.join(path.dirname(outputDir), refSceneId)
-      const refImagePath = path.join(refSceneDir, 'scene.webp')
-
-      if (fs.existsSync(refImagePath)) {
-        console.log(`[NanoBanana] ♻ Reusing visual from scene ${refSceneId} for scene ${scene.id} (Cost optimization)`)
-        fs.copyFileSync(refImagePath, imagePath)
-        return
-      } else {
-        console.warn(
-          `[NanoBanana] ⚠ Scene ${scene.id} requested reuse of ${refSceneId}, but it was not found. Generating new image.`
-        )
-      }
     }
 
     const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
@@ -1201,24 +1182,6 @@ export class NanoBananaEngine {
       })
       script.totalDuration = currentTime
     }
-
-    // --- COST SAFETY GUARD ---
-    // Ensure we don't exceed the visual budget based on duration
-    let globalUniqueCount = 0
-    const MAX_BUDGET = computeVisualBudget(script.totalDuration || 60)
-    script.scenes.forEach((scene, idx) => {
-      const visualRef = (scene as any).visualReferenceId
-      if (!visualRef) {
-        if (globalUniqueCount >= MAX_BUDGET) {
-          if (idx > 0) {
-            console.warn(`[NanoBanana] 🛡 Cost Safety: Scene ${idx + 1} exceeds budget. Forcing reuse of scene ${idx}.`)
-            ;(scene as any).visualReferenceId = script.scenes[idx - 1].id
-          }
-        } else {
-          globalUniqueCount++
-        }
-      }
-    })
 
     // --- SCENE COMPOSITION ---
     // Skip composition if we only want audio OR if visuals are already generated

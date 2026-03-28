@@ -10,7 +10,7 @@
  */
 
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
-import { computeSceneCount, computeVisualBudget } from '../types/video-script.types'
+import { computeSceneCount } from '../types/video-script.types'
 import type { AnimationPrompt, EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../types/video-script.types'
 import type { PromptMakerOptions, VideoTypeSpecification } from './prompt-maker.types'
 import type { SceneMemory } from './scene-memory'
@@ -135,32 +135,20 @@ export class PromptManager {
       Visual continuity:
       Ensure scenes follow a logical progression. Keep environments and actions consistent unless a change is clearly motivated.
 
-      Cost optimization (Visual Re-use):
-      For long videos, if two or more consecutive scenes have very similar visual content (same subject, same location), use the 'visualReferenceId' field in the second scene to point to the 'id' of the first scene. This avoids generating redundant images.
       
       Camera Dynamics & Transitions:
       Each scene MUST use a dynamic camera action (e.g., zoom-in, pan-left, zoom-out). To create a professional transition between scenes, the camera motion MUST ACCELERATE towards the end of the scene. This "ending acceleration" creates a natural, high-energy cut to the next scene without the need for traditional transitions. Each scene should feel like a new shot that inherits the momentum of the previous one.`
     )
 
-    // 4. Dynamic Visual Budget (Cost Optimization)
+    // 4. Expected Scene Count (for Pacing)
     const totalDuration = options.maxDuration || 60
-    const visualBudget = computeVisualBudget(totalDuration)
     const expectedScenes = computeSceneCount(totalDuration)
-    const scenesPerImage = Math.ceil(expectedScenes / visualBudget)
 
     // 5. Script Density & Duration Enforcement
     // TTS speed: wordsPerSecond (e.g. 2.0 = 120 wpm)
     const wps = this.getWordsPerSecond(options)
     const minWordCountTotal = Math.round(totalDuration * wps)
     const minWordsPerScene = Math.max(15, Math.floor(minWordCountTotal / expectedScenes))
-
-    let patternInstruction = ''
-    if (scenesPerImage <= 1) {
-      patternInstruction = `PATTERN RULE: Do NOT reuse images. Every single scene MUST have a unique imagePrompt and a null visualReferenceId.`
-    } else {
-      const reuseCount = scenesPerImage - 1
-      patternInstruction = `PATTERN RULE: You MUST follow a strict repeating sequence: Generate 1 new unique scene (null visualReferenceId), then reuse that EXACT SAME scene for the next ${reuseCount} consecutive scene(s) (using visualReferenceId). Repeat this exact [1 new, ${reuseCount} reused] pattern throughout the entire script.`
-    }
 
     instructions.push(
       `## SCRIPT DENSITY & DURATION (EXTREME HARD REQUIREMENTS)
@@ -171,12 +159,12 @@ export class PromptManager {
       4. ANTI-BREVITY RULE: DO NOT SUMMARIZE. DO NOT BE CONCISE. Be talkative, verbose, and extremely detailed. Avoid short sentences. 
       5. VERBATIM: Write out every single word the narrator will speak. If the narration is too short, the production will be aborted as a FAILURE.
       6. ENGAGEMENT: Use descriptive storytelling to expand the narration length without being repetitive.
-      7. SCENE SPLITTING RULE: Any narration segment longer than 12 seconds (~30 words) MUST be split into multiple scene entries. If you are describing one continuous visual point, use the 'visualReferenceId' field to keep the image consistent across these sub-scenes.
+      7. DENSITY RULE: Each scene should contain approximately 15-20 seconds of spoken content (~40-50 words). Break long segments into sequential unique shots.
 
-      ## VISUAL BUDGET (LIMIT: ${visualBudget} UNIQUE IMAGES):
-      1. ${patternInstruction}
-      2. CAMERA DYNAMICS: Every time you reuse a visual (via 'visualReferenceId'), you MUST change the 'cameraAction' (e.g., scene 1: zoom-in, scene 2: pan-left, scene 3: zoom-out). This creates a dynamic "camera sequence" even on a single image. Never repeat the same cameraAction for the same image.
-      3. Do NOT cluster all unique images at the start. The sequence pattern must be mathematically consistent from start to finish.`
+      ## VISUAL NARRATIVE (UNIQUE SHOTS)
+      1. Every single scene MUST have a unique 'imagePrompt'. Do NOT repeat concepts or descriptions across scenes.
+      2. Each scene represents a specific and distinct phase of the explanation.
+      3. Do NOT use visual reuse or reference previous scenes. Every shot is a new, high-quality visual illustration of the current narration point.`
     )
 
     const fullSpec = {
@@ -233,9 +221,8 @@ export class PromptManager {
   {
     "sceneNumber": 1,
     "id": "string (unique scene id)",
-    "narration": "string (The spoken text. MAX 12 seconds (~30 words) per scene. If more text is needed, split into multiple scene entries using visualReferenceId.)",
+    "narration": "string (The spoken text. Aim for 15-20 seconds (~40-50 words) per scene.)",
     "summary": "string (brief visual summary)",
-    "visualReferenceId": "string (CRITICAL for cost optimization: the id of a previous scene to reuse its image, or null if new)",
     "locationId": "string (optional: unique location identifier, e.g. 'office')",
     "cameraAction": "string (zoom-in | zoom-out | pan-left | pan-right). MUST accelerate at the end.",
     "preset": "hook | reveal | mirror",

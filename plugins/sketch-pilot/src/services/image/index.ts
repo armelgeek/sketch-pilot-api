@@ -25,7 +25,7 @@ export interface ImageService {
   ) => Promise<string>
 }
 
-export type ImageProvider = 'gemini' | 'grok'
+export type ImageProvider = 'gemini' | 'grok' | 'demo'
 
 export interface ImageServiceConfig {
   provider: ImageProvider
@@ -51,6 +51,9 @@ export const ImageServiceFactory = {
       case 'grok':
         const { GrokImageService } = require('./grok-image.service')
         return new GrokImageService(config)
+      case 'demo':
+        const { DemoImageService } = require('./demo-image.service')
+        return new DemoImageService(config)
       default:
         throw new Error(`Unknown image provider: ${config.provider}`)
     }
@@ -60,6 +63,6 @@ export const ImageServiceFactory = {
    * Get available providers
    */
   getAvailableProviders(): ImageProvider[] {
-    return ['gemini', 'grok']
+    return ['gemini', 'grok', 'demo']
   }
 }

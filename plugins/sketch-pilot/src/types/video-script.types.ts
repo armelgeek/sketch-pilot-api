@@ -8,7 +8,7 @@ const hexColorSchema = z
   .regex(/^#([A-F0-9]{6}|[A-F0-9]{3})$/i, 'Must be a valid hex color (e.g. #FFFFFF)')
   .default('#FFFFFF')
 
-export type ImageProvider = 'gemini' | 'grok'
+export type ImageProvider = 'gemini' | 'grok' | 'demo'
 export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku' | 'openai'
 
 /**
@@ -362,26 +362,12 @@ export const MIN_SCENE_DURATION = 3
  *  120 s  → 10 scenes (max)
  */
 export function computeSceneCount(durationSeconds: number): number {
-  if (durationSeconds <= 30) return Math.max(2, Math.round(durationSeconds / 8))
-  if (durationSeconds <= 60) return Math.max(4, Math.round(durationSeconds / 7))
-  if (durationSeconds <= 120) return Math.max(8, Math.round(durationSeconds / 6))
-  // For long videos, we want more narration scenes (rhythm) to allow sequential camera work.
-  // 150 scenes cap ensures even 20 min videos have ~8s scenes.
-  return Math.min(150, Math.round(durationSeconds / 8))
-}
-
-/**
- * Compute the maximum number of unique images allowed for a given duration.
- * This is used for cost optimization and hard-capping.
- */
-export function computeVisualBudget(durationSeconds: number): number {
-  if (durationSeconds <= 30) return 5
-  if (durationSeconds <= 60) return 8
-  if (durationSeconds <= 120) return 12
-  if (durationSeconds <= 300) return 18 // 5m
-  if (durationSeconds <= 600) return 22 // 10m
-  if (durationSeconds <= 900) return 25 // 15m
-  return 30 // Max allowed
+  if (durationSeconds <= 30) return Math.max(2, Math.round(durationSeconds / 12))
+  if (durationSeconds <= 60) return Math.max(3, Math.round(durationSeconds / 15))
+  if (durationSeconds <= 120) return Math.max(4, Math.round(durationSeconds / 18))
+  // For long videos, we want unique images but limited to avoid cost explosion.
+  // 1 scene every 20-22 seconds is a good balance for long-form unique visuals.
+  return Math.max(6, Math.round(durationSeconds / 22))
 }
 
 /**
@@ -505,7 +491,7 @@ export const videoGenerationOptionsSchema = z
     proEncoding: proEncodingConfigSchema.optional().describe('Advanced encoding parameters'),
     assCaptions: assCaptionConfigSchema.optional().describe('ASS caption configuration for video subtitles'),
     transcription: transcriptionConfigSchema.optional().describe('Transcription service configuration'),
-    imageProvider: z.enum(['gemini', 'grok']).default('gemini').describe('Provider for image generation'),
+    imageProvider: z.enum(['gemini', 'grok', 'demo']).default('demo').describe('Provider for image generation'),
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),
     autoTransitions: z.boolean().default(true).describe('Automatically assign transitions when the script omits them'),
