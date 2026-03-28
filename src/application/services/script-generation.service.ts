@@ -54,7 +54,7 @@ export class ScriptGenerationService {
       provider,
       apiKey: apiKey || ''
     }
-    const llmService = LLMServiceFactory.create(llmConfig)
+    const llmService = await LLMServiceFactory.create(llmConfig)
 
     // 1. Resolve Spec from DB by promptId
     const spec = await this.promptService.resolveSpec(options.promptId)

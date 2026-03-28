@@ -365,9 +365,10 @@ export function computeSceneCount(durationSeconds: number): number {
   if (durationSeconds <= 30) return Math.max(2, Math.round(durationSeconds / 12))
   if (durationSeconds <= 60) return Math.max(3, Math.round(durationSeconds / 15))
   if (durationSeconds <= 120) return Math.max(4, Math.round(durationSeconds / 18))
-  // For long videos, we want unique images but limited to avoid cost explosion.
-  // 1 scene every 20-22 seconds is a good balance for long-form unique visuals.
-  return Math.max(6, Math.round(durationSeconds / 22))
+  if (durationSeconds <= 300) return Math.max(6, Math.round(durationSeconds / 20))
+  // For very long videos (5-15 mins), we cap the scene count to 15 to avoid LLM context/output truncation.
+  // This ensures the full JSON script fits in a single response (approx 18-20k characters).
+  return Math.max(12, Math.min(15, Math.round(durationSeconds / 60)))
 }
 
 /**

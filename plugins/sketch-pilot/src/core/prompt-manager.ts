@@ -241,7 +241,8 @@ export class PromptManager {
 
     // Hard floor: never allow a scene to have fewer than 50 words.
     // (Previously 15 — which gave GPT-4o zero incentive to write more.)
-    const minWordsPerScene = Math.max(50, targetWordsPerScene)
+    // Cap at 150 per scene to avoid overwhelming a single visual.
+    const minWordsPerScene = Math.min(150, Math.max(50, targetWordsPerScene))
 
     // Minimum sentences: 6 is the low bound.
     // Saying "4 to 6" always produced 4; "6 to 8" produces 6-7 reliably.
@@ -274,10 +275,12 @@ export class PromptManager {
       4. If the total is below ${targetWordCountTotal} words, expand scenes before returning
 
       ### Expansion Strategy
-      - Explain each idea step by step. Expand on the "why" and "how".
+      - Explain each idea step by step. Expand on the "why", "how", and "so what".
       - Add context, real-world examples, or technical clarifications for every point.
       - Describe both visual and conceptual elements in the narration (e.g., "As you can see here...", "Notice how...").
       - ELABORATE: Avoid jumping directly to conclusions. Walk the audience through the logic.
+      - If you have many scenes, ensure each one has a distinct, deep narrative beat.
+      - If you have few scenes for a long duration, you MUST write LONG, detailed paragraphs (up to 150 words) for each.
 
       ## BALANCED DENSITY RULE
       - Be talkative and verbose, but structured and professional.
@@ -372,7 +375,7 @@ export class PromptManager {
     const wordsPerSecond = this.getWordsPerSecond(options)
     const safetyFactor = this.getSafetyFactor(options)
     const targetWordCount = Math.round(effectiveDuration * wordsPerSecond * safetyFactor)
-    const minWordsPerScene = Math.max(50, Math.round(targetWordCount / targetSceneCount))
+    const minWordsPerScene = Math.min(150, Math.max(50, Math.round(targetWordCount / targetSceneCount)))
 
     return this.buildUserData({
       subject: topic,

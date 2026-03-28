@@ -681,13 +681,13 @@ export class NanoBananaEngine {
           }
         })
 
-          // Update globalWordTimings (absolute for global subtitle sync)
-          ; (manifest as any).globalWordTimings = wordTimings.map((w) => ({
-            ...w,
-            start: Math.round(w.start * 100) / 100,
-            end: Math.round(w.end * 100) / 100,
-            startMs: Math.round(w.startMs)
-          }))
+        // Update globalWordTimings (absolute for global subtitle sync)
+        ;(manifest as any).globalWordTimings = wordTimings.map((w) => ({
+          ...w,
+          start: Math.round(w.start * 100) / 100,
+          end: Math.round(w.end * 100) / 100,
+          startMs: Math.round(w.startMs)
+        }))
 
         fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
       }
@@ -738,7 +738,8 @@ export class NanoBananaEngine {
       JSON.stringify(validOptions.transcription) !== JSON.stringify(this.currentTranscriptionConfig)
     ) {
       console.log(
-        `[NanoBanana] Updating transcription provider: ${this.currentTranscriptionConfig?.provider || 'none'
+        `[NanoBanana] Updating transcription provider: ${
+          this.currentTranscriptionConfig?.provider || 'none'
         } -> ${validOptions.transcription.provider}`
       )
       this.currentTranscriptionConfig = validOptions.transcription
@@ -746,8 +747,16 @@ export class NanoBananaEngine {
     }
 
     try {
+      const wrappedOnProgress = async (p: number, m: string, meta?: Record<string, any>) => {
+        if (onProgress) {
+          // Map script gen 0-100% to 0-15%
+          const scriptProgress = Math.round((p / 100) * 15)
+          await onProgress(scriptProgress, m, meta)
+        }
+      }
+
       return await this.generationQueue.add(
-        async () => await this.scriptGenerator.generateCompleteScript(topic, validOptions, onProgress),
+        async () => await this.scriptGenerator.generateCompleteScript(topic, validOptions, wrappedOnProgress),
         `Script Generation: ${topic}`,
         'llm'
       )
@@ -765,7 +774,7 @@ export class NanoBananaEngine {
 
         // Re-initialize generator with Claude
         this.scriptGenerator = new VideoScriptGenerator(await this.getLlmService(), this.promptManager)
-          ; (validOptions as any).llmProvider = 'haiku' // Propagate the provider change to options
+        ;(validOptions as any).llmProvider = 'haiku' // Propagate the provider change to options
 
         // Retry with Claude Haiku
         try {
@@ -813,7 +822,7 @@ export class NanoBananaEngine {
     }
 
     console.log(`\n=== GENERATING SCRIPT: ${topic} ===`)
-    const script = await this.generateStructuredScript(topic, validOptions)
+    const script = await this.generateStructuredScript(topic, validOptions, onProgress)
 
     if (onProgress && validOptions.scriptOnly) {
       await onProgress(100, `Script generated successfully.`)
@@ -988,15 +997,15 @@ export class NanoBananaEngine {
               voiceId
             })
 
-              // Store duration and word timings in scene
-              ; (scene as any).audioDuration = audioResult.duration
-              ; (scene as any).globalWordTimings = audioResult.wordTimings
+            // Store duration and word timings in scene
+            ;(scene as any).audioDuration = audioResult.duration
+            ;(scene as any).globalWordTimings = audioResult.wordTimings
             console.log(`[NanoBanana] ✓ Scene ${i + 1} Duration: ${audioResult.duration.toFixed(2)}s`)
           } catch (audioError: any) {
             console.warn(`[NanoBanana] ⚠ Scene audio generation failed for ${scene.id}: ${audioError.message}`)
             // Fallback estimation if generation fails
             const wordCount = (scene.narration || '').split(/\s+/).length
-              ; (scene as any).audioDuration = Math.max(3, wordCount / 2.5)
+            ;(scene as any).audioDuration = Math.max(3, wordCount / 2.5)
           }
         } else {
           // If audio exists, we need to know its duration to sync timings
@@ -1005,7 +1014,7 @@ export class NanoBananaEngine {
           console.log(`[NanoBanana] Scene ${i + 1} audio already exists at ${sceneAudioPath}`)
           // If we have no duration, we might need to estimate or use existing timeRange
           if (!(scene as any).audioDuration) {
-            ; (scene as any).audioDuration = scene.timeRange.end - scene.timeRange.start
+            ;(scene as any).audioDuration = scene.timeRange.end - scene.timeRange.start
           }
         }
 
@@ -1028,6 +1037,49 @@ export class NanoBananaEngine {
       if (audioFiles.length > 0 && !fs.existsSync(globalAudioPath)) {
         console.log(`[NanoBanana] Stitching ${audioFiles.length} scenes into global narration.mp3...`)
         await this.stitchAudioFiles(audioFiles, globalAudioPath)
+      }
+
+      // --- FINAL TRANSCRIPTION SYNC (GROUND TRUTH) ---
+      // Although we have per-scene durations, a final Whisper pass on the stitched file
+      // ensures that timeRange and word-level captions are perfectly aligned with the reality of narration.mp3.
+      if (fs.existsSync(globalAudioPath) && validOptions.assCaptions?.enabled !== false) {
+        console.log(`[NanoBanana] Running final Whisper sync for word-perfect timings...`)
+        try {
+          if (!(await this.getTranscriptionService())) {
+            this.currentTranscriptionConfig = {
+              provider: 'whisper-local',
+              model: 'base',
+              device: 'cpu',
+              language: validOptions.language?.split('-')[0] || 'en'
+            }
+            this.transcriptionService = await TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
+          }
+
+          const transcriptionService = (await this.getTranscriptionService())!
+          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath)
+          const assemblyWordTimings = transcriptionResult.wordTimings
+
+          // Map word timings back to scenes (Refines TimeRange from synthesis durations to real audio detection)
+          const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
+          const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
+
+          mappedTimings.forEach((timing: any, idx: number) => {
+            const scene = script.scenes[idx]
+            scene.timeRange = { start: timing.start, end: timing.end }
+            if (timing.wordTimings.length > 0) {
+              ;(scene as any).globalWordTimings = timing.wordTimings
+            }
+          })
+
+          if (mappedTimings.length > 0) {
+            script.totalDuration = mappedTimings.at(-1)!.end
+          }
+          console.log(`[NanoBanana] ✓ Final timings updated from transcription (${script.totalDuration.toFixed(2)}s)`)
+        } catch (error: any) {
+          console.warn(
+            `[NanoBanana] ⚠ Final transcription refinement failed: ${error.message}. Keeping synthesis durations.`
+          )
+        }
       }
 
       // Trigger timing sync callback
@@ -1141,7 +1193,7 @@ export class NanoBananaEngine {
             // ALWAYS update timeRange with transcription ground truth (or proportional estimate for unmatched scenes)
             scene.timeRange = { start: timing.start, end: timing.end }
             if (timing.wordTimings.length > 0) {
-              ; (scene as any).globalWordTimings = timing.wordTimings
+              ;(scene as any).globalWordTimings = timing.wordTimings
             }
           })
 
@@ -1230,7 +1282,9 @@ export class NanoBananaEngine {
         }
 
         // Report progress for scene generation
-        const sceneProgress = 15 + ((i - startSceneIndex) / script.scenes.length) * 70
+        // Map scene progress to the 15-85% range
+        const sceneProgress =
+          15 + Math.round(((i - startSceneIndex + 1) / (script.scenes.length - startSceneIndex)) * 70 * 0.9)
         const progressMessage = `Generating scene ${i + 1}/${script.scenes.length}...`
         if (onProgress) {
           await onProgress(sceneProgress, progressMessage, { currentSceneIndex: i })
@@ -1353,7 +1407,6 @@ export class NanoBananaEngine {
       }
 
       try {
-        if (onProgress) await onProgress(87, 'Assembling final video with FFmpeg...')
         const videoAssembler = new VideoAssembler()
         const finalVideoPath = await videoAssembler.assembleVideo(
           script,
@@ -1363,10 +1416,17 @@ export class NanoBananaEngine {
           {
             ...validOptions,
             globalAudioPath: fs.existsSync(globalAudioPath) ? globalAudioPath : undefined
+          },
+          async (p, m) => {
+            if (onProgress) {
+              // Map assembler 0-100% to 85-98% engine range
+              const assemblyProgress = 85 + Math.round((p / 100) * 13)
+              await onProgress(assemblyProgress, m)
+            }
           }
         )
         console.log(`\n✅ VIDEO ASSEMBLY COMPLETE: ${finalVideoPath}`)
-        if (onProgress) await onProgress(98, 'Video assembled! Uploading...')
+        if (onProgress) await onProgress(99, 'Video finalized! Saving results...')
       } catch (assemblyError) {
         console.error(`\n❌ VIDEO ASSEMBLY FAILED:`, assemblyError)
       }

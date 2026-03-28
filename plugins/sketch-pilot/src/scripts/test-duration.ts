@@ -11,10 +11,12 @@ import { videoGenerationOptionsSchema } from '../types/video-script.types'
 dotenv.config()
 
 async function runDurationTest() {
-  const targetDuration = 300 // 5 minutes as requested by the user
-  const tmpDir = path.join(process.cwd(), '.tmp_test_audio')
+  const targetDuration = 900 // 15 minutes
+  const tmpDir = path.resolve(process.cwd(), '.tmp_test_audio')
+  console.log(`[0/4] Temp directory: ${tmpDir}`)
 
   if (!fs.existsSync(tmpDir)) {
+    console.log(`[0/4] Creating temp directory...`)
     fs.mkdirSync(tmpDir, { recursive: true })
   }
 

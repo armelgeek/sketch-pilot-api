@@ -40,7 +40,8 @@ export class VideoAssembler {
     scenesDir: string,
     projectDir: string,
     animationMode: 'panning' | 'ai' | 'composition' | 'static' | 'none',
-    globalOptions: VideoGenerationOptions
+    globalOptions: VideoGenerationOptions,
+    onProgress?: (progress: number, message: string) => Promise<void>
   ): Promise<string> {
     const hasGlobalAudio = !!globalOptions.globalAudioPath
     console.log(`[VideoAssembler] Assembling video in ${animationMode} mode...`)
@@ -54,6 +55,10 @@ export class VideoAssembler {
     // Parallel processing with concurrency limit
     const CONCURRENCY_LIMIT = 3
     for (let i = 0; i < sceneTasks.length; i += CONCURRENCY_LIMIT) {
+      if (onProgress) {
+        const p = Math.round((i / sceneTasks.length) * 35)
+        await onProgress(p, `Assembling scene clips (${i}/${sceneTasks.length})...`)
+      }
       const chunk = sceneTasks.slice(i, i + CONCURRENCY_LIMIT)
       await Promise.all(
         chunk.map(async (sceneIndex) => {
@@ -71,6 +76,8 @@ export class VideoAssembler {
       )
     }
 
+    if (onProgress) await onProgress(40, 'Stitching scenes together...')
+
     // Filter out potential nulls if a scene failed (though processSceneClip should handle it)
     const finalClips = processedClips.filter(Boolean)
     const finalTransitions = processedTransitions
@@ -83,6 +90,7 @@ export class VideoAssembler {
     // --- GLOBAL AUDIO OVERLAY ---
     let finalVisualPath = finalVideoNoMusic
     if (hasGlobalAudio && fs.existsSync(globalOptions.globalAudioPath!)) {
+      if (onProgress) await onProgress(55, 'Syncing global narration...')
       console.log(`[VideoAssembler] Overlaying global audio: ${globalOptions.globalAudioPath}`)
       const videoWithGlobalAudio = path.join(projectDir, 'final_video_with_global_audio.mp4')
       const narrationVol = globalOptions.narrationVolume ?? 1
@@ -109,6 +117,7 @@ export class VideoAssembler {
     }
 
     // Apply visual professional polish (Progress Bar, Vignette, Noise, subtitles, branding, encoding)
+    if (onProgress) await onProgress(70, 'Applying cinematic polish...')
     const polishedVideoPath = path.join(projectDir, 'final_video_polished.mp4')
     finalVisualPath = await this.applyProfessionalPolish(finalVisualPath, polishedVideoPath, {
       ...globalOptions,
@@ -131,6 +140,7 @@ export class VideoAssembler {
     // Add background music if requested
     const bgMusic = globalOptions.backgroundMusic || script.backgroundMusic
     if (bgMusic) {
+      if (onProgress) await onProgress(90, 'Mixing background music...')
       const musicTrack = this.musicService.getTrackForMood(bgMusic)
       if (musicTrack) {
         const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')

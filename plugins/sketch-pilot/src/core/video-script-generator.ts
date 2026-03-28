@@ -50,10 +50,10 @@ export class VideoScriptGenerator {
   ): Promise<CompleteVideoScript> {
     console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
 
-    if (onProgress) await onProgress(1, 'Studio: Planning initial structure...')
-    const baseScript = await this.generateVideoStructure(topic, options)
+    const baseScript = await this.generateVideoStructure(topic, options, onProgress)
+    if (onProgress) await onProgress(10, 'Studio: Script structure finalized. Building visuals...')
 
-    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options)
+    const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, onProgress)
 
     let actualTotal = enrichedScenes.reduce((acc, s) => {
       const end = s.timeRange?.end
@@ -97,7 +97,8 @@ export class VideoScriptGenerator {
    */
   private async generateVideoStructure(
     topic: string,
-    options: VideoGenerationOptions
+    options: VideoGenerationOptions,
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   ): Promise<{
     titles: string[]
     fullNarration: string
@@ -120,6 +121,7 @@ export class VideoScriptGenerator {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         console.log(`[VideoScriptGen] Generation attempt ${attempt}/${MAX_RETRIES}...`)
+        if (onProgress) await onProgress(5, `Studio: Generation progress (Attempt ${attempt}/${MAX_RETRIES})...`)
 
         const currentUserPrompt =
           attempt === 1
@@ -128,6 +130,8 @@ export class VideoScriptGenerator {
 
         const text = await this.llmService.generateContent(currentUserPrompt, systemPrompt, 'application/json')
         if (!text) throw new Error('API returned empty generated content or timeout')
+
+        if (onProgress) await onProgress(8, 'Studio: Validating script structure...')
 
         const parsed = this.parseJsonResponse(text)
 
@@ -141,14 +145,14 @@ export class VideoScriptGenerator {
         const REAL_TTS_WPS = wps
         const SAFETY_FACTOR = PromptManager.SAFETY_FACTOR
         const targetWords = Math.round(effectiveDuration * REAL_TTS_WPS * SAFETY_FACTOR)
-        const minSentencesPerScene = 4
+        const minSentencesPerScene = 3
 
         const actualWords = parsed.scenes.reduce(
           (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
           0
         )
 
-        const minWordsPerScene = Math.floor(targetWords / (parsed.scenes.length || 1))
+        const minWordsPerScene = Math.min(150, Math.floor(targetWords / (parsed.scenes.length || 1)))
 
         console.log(
           `[VideoScriptGen] [VAL_DEBUG] scenes_count=${parsed.scenes.length}, actual_words=${actualWords}, target_words=${targetWords}, min_words/scene=${minWordsPerScene}`
@@ -160,7 +164,8 @@ export class VideoScriptGenerator {
           const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
           const sentences = narration.split(/[.!?]+/).filter((s: string) => s.trim().length > 0)
 
-          if (sceneWords < minWordsPerScene * 0.7) {
+          const densityThreshold = effectiveDuration > 300 ? 0.5 : 0.6
+          if (sceneWords < minWordsPerScene * densityThreshold) {
             const errorMsg = `SCENE DENSITY FAILURE: Scene ${index + 1} narration is too short (${sceneWords}/${minWordsPerScene} words). You MUST expand this scene's narration significantly by adding at least 2-3 detailed sentences explaining the concept.`
             console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
             throw new Error(errorMsg)
@@ -173,9 +178,13 @@ export class VideoScriptGenerator {
           }
         }
 
-        // 2. Validate total word count (95% of target)
-        if (actualWords < targetWords * 0.95 && effectiveDuration > 30) {
-          const errorMsg = `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${targetWords} words total. PLEASE ELABORATE extensively on every scene.`
+        // 2. Validate total word count (85% for >60s, 70% for >300s)
+        let totalThreshold = 0.95
+        if (effectiveDuration > 300) totalThreshold = 0.7
+        else if (effectiveDuration > 60) totalThreshold = 0.85
+
+        if (actualWords < targetWords * totalThreshold && effectiveDuration > 30) {
+          const errorMsg = `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${Math.round(targetWords * totalThreshold)} words total. PLEASE ELABORATE extensively on every scene.`
           console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
           throw new Error(errorMsg)
         }
@@ -209,11 +218,12 @@ export class VideoScriptGenerator {
 
   /**
    * Parse and clean a raw LLM text response into a JS object.
+   * Includes a repair phase for truncated JSON (common in long scripts).
    */
   private parseJsonResponse(text: unknown): any {
     if (typeof text === 'object') return text
 
-    const cleaned = (text as string)
+    let cleaned = (text as string)
       .replaceAll(/```json\n?|\n?```/g, '')
       .replace(/^\uFEFF/, '')
       .replaceAll(/[\u0000-\u0008\v\f\u000E-\u001F\u007F]/g, '')
@@ -223,10 +233,83 @@ export class VideoScriptGenerator {
     try {
       return JSON.parse(cleaned)
     } catch {
+      // Step 1: Try to extract a JSON block using regex
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-      if (jsonMatch) return JSON.parse(jsonMatch[0])
-      throw new Error(`JSON parsing failed — could not extract valid object from LLM response`)
+      if (jsonMatch) {
+        try {
+          return JSON.parse(jsonMatch[0])
+        } catch {
+          cleaned = jsonMatch[0]
+        }
+      }
+
+      // Step 2: Attempt to repair truncated JSON (common at end of long generation)
+      try {
+        const repaired = this.repairJson(cleaned)
+        return JSON.parse(repaired)
+      } catch (repairError: any) {
+        throw new Error(`JSON parsing failed (Repair also failed): ${repairError.message}`)
+      }
     }
+  }
+
+  /**
+   * Simple state-machine repair for truncated JSON.
+   * Hardened to handle truncated arrays by removing the last (partially written) element.
+   */
+  private repairJson(json: string): string {
+    let repaired = json.trim()
+
+    // If we're inside a string, close it
+    let openQuotes = 0
+    for (const char of repaired) if (char === '"') openQuotes++
+    if (openQuotes % 2 !== 0) repaired += '"'
+
+    // Remove any trailing fragments like "scenes": [ { "id": "1", ...
+    // If the JSON ends with a comma followed by nothing or whitespace, remove the comma
+    repaired = repaired.replaceAll(/,\s*$/g, '')
+
+    // If it looks like we cut off mid-array-element
+    // Try to backtrack to the last valid object boundary
+    const lastObjectClose = repaired.lastIndexOf('}')
+    const lastObjectOpen = repaired.lastIndexOf('{')
+    const lastArrayOpen = repaired.lastIndexOf('[')
+
+    // If we have an unclosed object at the end of what looks like an array
+    if (lastObjectOpen > lastObjectClose && lastArrayOpen < lastObjectOpen) {
+      // Cut off the truncated object and the comma preceding it
+      repaired = repaired.substring(0, lastObjectOpen).trim().replaceAll(/,\s*$/g, '')
+    }
+
+    const stack: string[] = []
+    let inString = false
+    let escaped = false
+
+    for (const char of repaired) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === '\\') {
+        escaped = true
+        continue
+      }
+      if (char === '"') {
+        inString = !inString
+        continue
+      }
+      if (!inString) {
+        if (char === '{' || char === '[') stack.push(char === '{' ? '}' : ']')
+        else if ((char === '}' || char === ']') && stack.length > 0 && stack.at(-1) === char) stack.pop()
+      }
+    }
+
+    // Close all open braces/brackets
+    while (stack.length > 0) {
+      repaired += stack.pop()
+    }
+
+    return repaired
   }
 
   // ─── Private: Post-processing ─────────────────────────────────────────────
@@ -376,7 +459,11 @@ export class VideoScriptGenerator {
   /**
    * Enrich scenes with image and animation prompts.
    */
-  private async enrichScenes(baseScenes: RawScene[], options: VideoGenerationOptions): Promise<EnrichedScene[]> {
+  private async enrichScenes(
+    baseScenes: RawScene[],
+    options: VideoGenerationOptions,
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
+  ): Promise<EnrichedScene[]> {
     console.log(`[VideoScriptGen] Enriching ${baseScenes.length} scenes with prompts...`)
 
     const aspectRatio = options.aspectRatio || '16:9'
@@ -392,7 +479,13 @@ export class VideoScriptGenerator {
 
     // Generate image/animation prompts with progressive memory context
     const enriched: EnrichedScene[] = []
-    for (const resolvedScene of baseScenes) {
+    for (let i = 0; i < baseScenes.length; i++) {
+      const resolvedScene = baseScenes[i]
+      if (onProgress) {
+        // Map 10-100% of enrichment phase to the progress range
+        const progressVal = 10 + Math.round((i / baseScenes.length) * 90)
+        await onProgress(progressVal, `Studio: Refining visuals for scene ${i + 1}/${baseScenes.length}...`)
+      }
       // 1. Process this scene into memory FIRST
       memoryBuilder.processScene(resolvedScene as any, sceneMemory)
 

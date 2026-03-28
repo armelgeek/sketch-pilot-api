@@ -70,7 +70,7 @@ export class GenerateScriptFromTitleUseCase extends IUseCase<
       const apiKey = process.env.OPENAI_API_KEY || ''
       if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
 
-      const llm = LLMServiceFactory.create({ provider: 'openai', apiKey })
+      const llm = await LLMServiceFactory.create({ provider: 'openai', apiKey })
 
       const videoDuration = options?.duration || 60
       const pointCount =
