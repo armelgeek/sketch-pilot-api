@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { apiReference } from '@scalar/hono-api-reference'
@@ -53,9 +54,15 @@ export class App {
       '*',
       cors({
         origin:
-          Bun.env.NODE_ENV === 'production'
-            ? [Bun.env.PRODUCTION_URL || 'http://localhost:5000', Bun.env.REACT_APP_URL || 'http://localhost:5173']
-            : [Bun.env.BETTER_AUTH_URL || 'http://localhost:5000', Bun.env.REACT_APP_URL || 'http://localhost:5173'],
+          process.env.NODE_ENV === 'production'
+            ? [
+                process.env.PRODUCTION_URL || 'http://localhost:5000',
+                process.env.REACT_APP_URL || 'http://localhost:5173'
+              ]
+            : [
+                process.env.BETTER_AUTH_URL || 'http://localhost:5000',
+                process.env.REACT_APP_URL || 'http://localhost:5173'
+              ],
         credentials: true,
         maxAge: 86400
       })
@@ -100,8 +107,8 @@ export class App {
 
     this.app.doc31('/swagger', () => {
       const protocol = 'https:'
-      const hostname = Bun.env.NODE_ENV === 'production' ? Bun.env.PRODUCTION_HOST || 'localhost' : 'localhost'
-      const port = Bun.env.NODE_ENV === 'production' ? '' : ':5000'
+      const hostname = process.env.NODE_ENV === 'production' ? process.env.PRODUCTION_HOST || 'localhost' : 'localhost'
+      const port = process.env.NODE_ENV === 'production' ? '' : ':5000'
 
       return {
         openapi: '3.1.0',
@@ -123,8 +130,8 @@ export class App {
         layout: 'modern',
         darkMode: true,
         url:
-          Bun.env.NODE_ENV === 'production'
-            ? `https://${Bun.env.PRODUCTION_HOST || 'localhost'}/swagger`
+          process.env.NODE_ENV === 'production'
+            ? `https://${process.env.PRODUCTION_HOST || 'localhost'}/swagger`
             : 'http://localhost:5000/swagger'
       })
     )

@@ -1,3 +1,4 @@
+import process from 'node:process'
 import * as nodemailer from 'nodemailer'
 
 type EmailParams = {
@@ -11,13 +12,13 @@ const FROM_NAME = 'Meko Academy'
 const FROM_EMAIL = 'contact@mekoacademy.com'
 
 const transporter = nodemailer.createTransport({
-  host: Bun.env.SMTP_HOST,
-  port: Number.parseInt(Bun.env.SMTP_PORT || '587'),
+  host: process.env.SMTP_HOST,
+  port: Number.parseInt(process.env.SMTP_PORT || '587'),
   secure: false,
   requireTLS: true,
   auth: {
-    user: Bun.env.SMTP_USER,
-    pass: Bun.env.SMTP_PASSWORD
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD
   },
   connectionTimeout: 60000,
   greetingTimeout: 30000,
@@ -136,7 +137,7 @@ L'équipe Meko Academy`
 }
 
 export const sendEmail = async ({ to, subject, text, html }: EmailParams): Promise<any> => {
-  const from = Bun.env.EMAIL_FROM || `${FROM_NAME} <${FROM_EMAIL}>`
+  const from = process.env.EMAIL_FROM || `${FROM_NAME} <${FROM_EMAIL}>`
 
   const mailOptions: any = {
     from,

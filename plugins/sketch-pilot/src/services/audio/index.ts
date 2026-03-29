@@ -1,4 +1,3 @@
-import '../../utils/polyfills'
 /**
  * Audio Service Interface and Factory
  *

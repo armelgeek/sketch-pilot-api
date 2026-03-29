@@ -143,7 +143,8 @@ export class VideoScriptGenerator {
         const effectiveDuration = this.promptManager.getEffectiveDuration(options)
         const wps = this.promptManager.getWordsPerSecond(options)
         const REAL_TTS_WPS = wps
-        const SAFETY_FACTOR = PromptManager.SAFETY_FACTOR
+        // Use the provider-aware safety factor (e.g. 1.05 for Gemini, 1.15 for Kokoro)
+        const SAFETY_FACTOR = this.promptManager.getPublicSafetyFactor(options)
         const targetWords = Math.round(effectiveDuration * REAL_TTS_WPS * SAFETY_FACTOR)
         const minSentencesPerScene = 3
 
@@ -185,10 +186,12 @@ export class VideoScriptGenerator {
           }
         }
 
-        // 2. Validate total word count (85% for >60s, 70% for >300s)
-        let totalThreshold = 0.95
-        if (effectiveDuration > 300) totalThreshold = 0.7
-        else if (effectiveDuration > 60) totalThreshold = 0.85
+        // 2. Validate total word count
+        // Thresholds are relaxed vs OpenAI because Gemini tends to be more concise.
+        // The goal is catching egregiously short scripts, not micro-optimising density.
+        let totalThreshold = 0.75
+        if (effectiveDuration > 300) totalThreshold = 0.65
+        else if (effectiveDuration > 60) totalThreshold = 0.7
 
         if (actualWords < targetWords * totalThreshold && effectiveDuration > 30) {
           const errorMsg = `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${Math.round(targetWords * totalThreshold)} words total. PLEASE ELABORATE extensively on every scene.`

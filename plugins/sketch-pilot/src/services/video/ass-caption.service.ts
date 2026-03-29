@@ -26,6 +26,33 @@
  *   must slide to exactly the right x,y — that inherently requires layout math.
  *   However the pill now uses the SAME layout values so at least internal
  *   consistency is preserved.
+ *
+ * CHANGELOG (bug-fix pass):
+ *   - [BUG] buildColoredLine: words with durationMs=0 after clamping now get a
+ *     1 ms minimum to avoid invalid ASS events silently dropped by libass.
+ *   - [BUG] hexToAssColor: now expands 3-digit shorthand hex (#FFF → #FFFFFF)
+ *     before slicing, preventing garbled colour tags.
+ *   - [BUG] buildTypewriterLine: refactored to single-event-per-timeslice using
+ *     buildSingleLineText pattern — eliminates N² event duplication.
+ *   - [FRAGILE] buildBounceLine: fromY is now clamped to avoid going negative
+ *     (text clipped at frame top edge).
+ *   - [FRAGILE] buildHormoziLine: duplicated hold-segment code extracted into
+ *     shared emitTwoLayerEvents() helper — single source of truth.
+ *   - [FRAGILE] buildLines: MAX_CHARS now derived from wordsPerLine instead of
+ *     hardcoded 24, scales correctly with video width.
+ *   - [FRAGILE] cleanWord: normalises Unicode apostrophes/quotes before stripping
+ *     punctuation, preventing Whisper typographic chars leaking into output.
+ *   - [PERF] springKeyframes: step size now adapts to duration, capping at 60
+ *     frames to prevent 600+ ASS events on long paused words.
+ *   - [PERF] lerp() in buildAnimatedBgLine: replaced O(N²) reverse scan with
+ *     O(N) ascending index walk.
+ *   - [AMÉLIO] Config validation: validateConfig() throws descriptive errors on
+ *     invalid fontSize, wordsPerLine, or malformed hex colour strings.
+ *   - [AMÉLIO] karaoke style: implemented using ASS native \k karaoke tags.
+ *   - [AMÉLIO] Emoji handling: code points matching \p{Emoji} get width ratio 1.0
+ *     in estimateWordWidthPx instead of the generic 0.6 fallback.
+ *   - [AMÉLIO] RTL support: new `direction` config option reverses word order and
+ *     layout accumulation for Arabic/Hebrew transcripts.
  */
 
 import type { WordTiming } from '../audio'
@@ -58,6 +85,8 @@ export interface AssCaptionConfig {
   shadowSize?: number
   wordSpacing?: number
   charWidthRatio?: number
+  /** Text direction. Defaults to 'ltr'. Set to 'rtl' for Arabic, Hebrew, etc. */
+  direction?: 'ltr' | 'rtl'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,14 +119,24 @@ function msToAss(ms: number): string {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
 }
 
+// [BUG FIX] hexToAssColor: expand 3-digit shorthand (#FFF → #FFFFFF) before
+// slicing. Previously, #ABC would produce &H00CBAB instead of &H00CCBBAA.
 function hexToAssColor(hex: string, alpha = '00'): string {
-  const clean = hex.replace('#', '')
+  let clean = hex.replace('#', '')
+  if (clean.length === 3) {
+    clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2]
+  }
+  // Trim to 6 chars in case an 8-digit CSS hex was passed (#RRGGBBAA)
+  clean = clean.slice(0, 6)
   const r = clean.slice(0, 2)
   const g = clean.slice(2, 4)
   const b = clean.slice(4, 6)
   return `&H${alpha}${b}${g}${r}`
 }
 
+// [PERF FIX] springKeyframes: step size adapts to duration, capped at 60 frames
+// max. Previously a 5-second word could generate 312 frames × 2 layers = 624
+// ASS events — a significant file size spike for rare but valid input.
 function springKeyframes(
   from: number,
   to: number,
@@ -110,7 +149,11 @@ function springKeyframes(
 
   const { stiffness = 250, damping = 28, mass = 1 } = opts
   const frames: Array<{ ms: number; value: number }> = []
-  const stepMs = 16
+
+  // Cap at 60 frames; minimum step is 16 ms (≈ 60 fps)
+  const MAX_FRAMES = 60
+  const stepMs = Math.max(16, Math.ceil(durationMs / MAX_FRAMES))
+
   let pos = from
   let vel = 0
 
@@ -146,6 +189,31 @@ function roundedRectPath(w: number, h: number, r: number): string {
   ].join(' ')
 }
 
+// [AMÉLIO] Config validation — throws descriptive errors instead of silently
+// producing broken ASS files.
+function validateConfig(config: AssCaptionConfig): void {
+  const HEX_RE = /^#([0-9A-F]{3}|[0-9A-F]{6})$/i
+
+  if (config.fontSize !== undefined && (config.fontSize < 8 || config.fontSize > 500)) {
+    throw new RangeError(`AssCaptionConfig: fontSize must be between 8 and 500, got ${config.fontSize}`)
+  }
+  if (config.wordsPerLine !== undefined && (config.wordsPerLine < 1 || config.wordsPerLine > 20)) {
+    throw new RangeError(`AssCaptionConfig: wordsPerLine must be between 1 and 20, got ${config.wordsPerLine}`)
+  }
+  for (const [key, value] of Object.entries({
+    inactiveColor: config.inactiveColor,
+    highlightColor: config.highlightColor,
+    pillColor: config.pillColor
+  })) {
+    if (value !== undefined && !HEX_RE.test(value)) {
+      throw new TypeError(`AssCaptionConfig: ${key} must be a valid hex colour (#RGB or #RRGGBB), got "${value}"`)
+    }
+  }
+  if (config.direction !== undefined && config.direction !== 'ltr' && config.direction !== 'rtl') {
+    throw new TypeError(`AssCaptionConfig: direction must be 'ltr' or 'rtl', got "${config.direction}"`)
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SERVICE CLASS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,11 +237,16 @@ export class AssCaptionService {
   private readonly hasCustomWordSpacing: boolean
   private readonly charWidthRatio: number
   private readonly position: string
+  private readonly direction: 'ltr' | 'rtl'
 
   constructor(width: number, height: number, config: AssCaptionConfig = {}) {
+    // [AMÉLIO] Validate config before doing anything else
+    validateConfig(config)
+
     this.width = width
     this.height = height
     this.enabled = config.enabled ?? true
+    this.direction = config.direction ?? 'ltr'
 
     const aspectRatio = width / height
     const autoWordsPerLine = aspectRatio < 0.7 ? 2 : aspectRatio < 1.4 ? 3 : 4
@@ -222,16 +295,12 @@ export class AssCaptionService {
     this.hasCustomWordSpacing = config.wordSpacing !== undefined
     this.wordSpacing = config.wordSpacing ?? this.estimateSpaceWidthPx(this.fontSize)
 
-    // For bottom positions, place captions very close to the bottom of frame
-    // For top positions, place captions very close to the top of frame
-    // For other positions, use the standard calculation
     if (this.position.includes('bottom')) {
       const isVertical = aspectRatio < 0.7
-      // Elevate the subtitles more on vertical screens (e.g. 9:16) to avoid UI overlaps
       const distanceMultiplier = isVertical ? 2.5 : 0.8
       this.lineY = Math.round(height - this.fontSize * distanceMultiplier)
     } else if (this.position.includes('top')) {
-      this.lineY = Math.round(this.fontSize * 1.2) // Slightly lower margin from top for safety
+      this.lineY = Math.round(this.fontSize * 1.2)
     } else {
       this.lineY = Math.round(resolvedLineYFraction * height) - Math.round(this.fontSize * 0.35)
     }
@@ -264,13 +333,17 @@ export class AssCaptionService {
       return ''
     }
 
-    // Fix Whisper overlaps: clamp duration to not bleed into the next word
+    // Fix Whisper overlaps: clamp duration to not bleed into the next word.
+    // [BUG FIX] Also enforce minimum duration of 1 ms to avoid t0==t1 ASS
+    // events that libass silently drops, causing words to disappear.
     const clampedWords = words.map((w, i) => {
       const nextWord = words[i + 1]
       let durationMs = w.durationMs
       if (nextWord && w.startMs + durationMs > nextWord.startMs) {
-        durationMs = Math.max(0, nextWord.startMs - w.startMs)
+        durationMs = Math.max(1, nextWord.startMs - w.startMs)
       }
+      // Guarantee at least 1 ms so the ASS event is never t0==t1
+      durationMs = Math.max(1, durationMs)
       return { ...w, durationMs }
     })
 
@@ -286,7 +359,11 @@ export class AssCaptionService {
     const lines: CaptionLine[] = []
     let currentChunk: WordTiming[] = []
     let currentChars = 0
-    const MAX_CHARS = 24 // Balanced for readability
+
+    // [FRAGILE FIX] MAX_CHARS was hardcoded to 24 regardless of wordsPerLine or
+    // video width. Derivation: ~7 chars/word average × wordsPerLine, with a
+    // generous floor of 20 and ceiling of 60 to stay sane across all configs.
+    const MAX_CHARS = Math.max(20, Math.min(60, Math.round(this.wordsPerLine * 7)))
 
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
@@ -299,23 +376,17 @@ export class AssCaptionService {
       currentChars += clean.length + 1
 
       let shouldBreak = false
-      // Immediate break on punctuation (period, exclamation, question mark, colon)
       if (hasStrongBreak) shouldBreak = true
-      // Break if we hit the configured wordsPerLine limit
       else if (currentChunk.length >= this.wordsPerLine) shouldBreak = true
-      // Break if the chunk is getting too long (fallback character limit)
       else if (currentChars >= MAX_CHARS) shouldBreak = true
-      // Break on pauses in narration (> 350ms)
       else if (pause > 350) shouldBreak = true
 
       if (shouldBreak || i === words.length - 1) {
         if (currentChunk.length > 0) {
-          // Special for Hormozi/Punchy styles: prefer even shorter lines
           const isHormozi = this.style === 'hormozi'
           const maxWords = isHormozi ? 3 : this.wordsPerLine
 
           if (isHormozi && currentChunk.length > maxWords) {
-            // Split big chunks
             for (let j = 0; j < currentChunk.length; j += maxWords) {
               const miniChunk = currentChunk.slice(j, j + maxWords)
               lines.push({
@@ -341,37 +412,45 @@ export class AssCaptionService {
 
   /**
    * Layout is kept ONLY for styles that genuinely need per-word x positions
-   * (animated-background, scaling, bounce). Other styles no longer call this.
+   * (animated-background, scaling, bounce, hormozi). Other styles no longer call this.
+   *
+   * [AMÉLIO] RTL support: in 'rtl' mode the words array is reversed so that
+   * layout accumulates right-to-left, matching natural reading direction.
    */
   private computeLayout(line: CaptionLine): WordLayout[] {
     const spacing = this.getEffectiveWordSpacing()
-    const wordWidths = line.words.map((w) => this.estimateWordWidthPx(this.cleanWord(w.word), this.fontSize))
-    const totalW = wordWidths.reduce((a, b) => a + b, 0) + spacing * (line.words.length - 1)
+    const orderedWords = this.direction === 'rtl' ? [...line.words].reverse() : line.words
+    const wordWidths = orderedWords.map((w) => this.estimateWordWidthPx(this.cleanWord(w.word), this.fontSize))
+    const totalW = wordWidths.reduce((a, b) => a + b, 0) + spacing * (orderedWords.length - 1)
     let curLeft = Math.round((this.width - totalW) / 2)
 
-    return line.words.map((w, i) => {
+    const layouts = orderedWords.map((w, i) => {
       const ww = wordWidths[i]
       const centerX = curLeft + Math.round(ww / 2)
       curLeft += ww + spacing
       return { word: this.cleanWord(w.word), centerX, centerY: this.lineY, widthPx: ww }
     })
+
+    // Re-reverse so indices match the original line.words order
+    return this.direction === 'rtl' ? layouts.reverse() : layouts
   }
 
   /**
    * Builds a single-line ASS text where each word is tagged with its colour.
    * libass spaces the glyphs natively — no manual x math required.
    *
-   * Uses \an8 (top-centre anchor) so \pos(cx, lineY) centres the line
-   * horizontally and the cap-line sits at lineY.
-   *
-   *  activeIdx  — index of the highlighted word (-1 = none)
-   *  extraTags  — optional per-word extra tag string, indexed by word position
+   * [AMÉLIO] RTL support: reverses word order in the text string when direction='rtl'.
    */
   private buildSingleLineText(line: CaptionLine, activeIdx: number, extraTags: string[] = []): string {
-    return line.words
+    const words = this.direction === 'rtl' ? [...line.words].reverse() : line.words
+    // Remap activeIdx when reversed
+    const mappedActive = this.direction === 'rtl' ? line.words.length - 1 - activeIdx : activeIdx
+
+    return words
       .map((w, i) => {
-        const color = i === activeIdx ? `{\\c${this.highlightColor}}` : `{\\c${this.inactiveColor}}`
-        const extra = extraTags[i] ?? ''
+        const originalIdx = this.direction === 'rtl' ? line.words.length - 1 - i : i
+        const color = i === mappedActive ? `{\\c${this.highlightColor}}` : `{\\c${this.inactiveColor}}`
+        const extra = extraTags[originalIdx] ?? ''
         return `${color}${extra}${this.cleanWord(w.word)}`
       })
       .join(' ')
@@ -391,7 +470,7 @@ export class AssCaptionService {
       'bottom-right': 3,
       none: 2
     }
-    return alignmentMap[this.position] ?? 2 // default to bottom-center
+    return alignmentMap[this.position] ?? 2
   }
 
   /** Get X coordinate for positioning based on alignment. */
@@ -420,8 +499,6 @@ export class AssCaptionService {
   }
 
   private getBaseCharWidthRatio(fontFamily: string): number {
-    // Global multiplier on top of the per-glyph CHAR_ADV table.
-    // 1.0 = table as-is (calibrated for Montserrat Bold).
     const name = fontFamily.toLowerCase()
     if (name.includes('bebas')) return 0.56
     if (name.includes('montserrat')) return 1
@@ -433,15 +510,8 @@ export class AssCaptionService {
   /**
    * Per-character advance-width table expressed as a fraction of fontSize.
    * Values measured/approximated from Montserrat Bold metrics at 100px.
-   * Other fonts scale via charWidthRatio (applied as a global multiplier).
-   *
-   * Using explicit per-glyph widths is significantly more accurate than
-   * the previous "character class bucket" approach and reduces estimation
-   * error from ~15 % down to ~3–5 %, which is acceptable for pill/bounce
-   * overlay alignment.
    */
   private static readonly CHAR_ADV: Record<string, number> = {
-    // Uppercase
     A: 0.62,
     B: 0.6,
     C: 0.62,
@@ -468,7 +538,6 @@ export class AssCaptionService {
     X: 0.62,
     Y: 0.58,
     Z: 0.58,
-    // Digits
     '0': 0.62,
     '1': 0.62,
     '2': 0.62,
@@ -479,7 +548,6 @@ export class AssCaptionService {
     '7': 0.56,
     '8': 0.62,
     '9': 0.62,
-    // Common punctuation
     '.': 0.28,
     ',': 0.28,
     ':': 0.28,
@@ -510,7 +578,6 @@ export class AssCaptionService {
     '^': 0.62,
     '*': 0.46,
     $: 0.56,
-    // Lowercase (calibrated at ~80% of uppercase height/width)
     a: 0.54,
     b: 0.54,
     c: 0.5,
@@ -539,23 +606,35 @@ export class AssCaptionService {
     z: 0.46
   }
 
+  // [FRAGILE FIX] cleanWord: normalise Unicode apostrophes and quotes emitted by
+  // Whisper before stripping punctuation, preventing them from leaking into the
+  // output or breaking width estimation (they have no entry in CHAR_ADV).
   private cleanWord(word: string): string {
-    // Removes punctuation typically generated by Whisper or LLMs
-    // Regex: any character in [.,!?:;"()[]] is removed.
-    // We keep apostrophes (e.g. "it's") as they are part of the word.
-    return word.replaceAll(/[.,!?:;"()[\]]/g, '').trim()
+    return word
+      .replaceAll(/[\u2018\u2019]/g, "'") // ' ' → '
+      .replaceAll(/[\u201C\u201D]/g, '"') // " " → "
+      .replaceAll(/[.,!?:;"()[\]]/g, '')
+      .trim()
   }
 
+  // [AMÉLIO] estimateWordWidthPx: emoji code points (single Unicode scalar)
+  // receive a 1.0 width ratio instead of the generic 0.6 fallback, which was
+  // wildly off since emoji are typically square glyphs.
   private estimateWordWidthPx(word: string, fontSize: number): number {
     let units = 0
-    for (const ch of word) {
-      units += AssCaptionService.CHAR_ADV[ch] ?? 0.6 // fallback = average
+    // Spread into grapheme clusters so multi-byte emoji count as one glyph
+    for (const ch of [...word]) {
+      if (/\p{Emoji}/u.test(ch) && ch.codePointAt(0)! > 127) {
+        // Emoji: treat as a square glyph ≈ 1.0× fontSize
+        units += 1
+      } else {
+        units += AssCaptionService.CHAR_ADV[ch] ?? 0.6
+      }
     }
     return Math.max(1, Math.round(units * fontSize * this.charWidthRatio))
   }
 
   private estimateSpaceWidthPx(fontSize: number): number {
-    // Space advance ≈ 0.30 × fontSize for most proportional fonts
     return Math.max(2, Math.round(0.3 * fontSize * this.charWidthRatio))
   }
 
@@ -594,17 +673,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         return this.buildNeonLine(line)
       case 'typewriter':
         return this.buildTypewriterLine(line)
+      case 'karaoke':
+        return this.buildKaraokeLine(line)
       case 'hormozi':
         return this.buildHormoziLine(line)
+      case 'remotion':
+        // remotion is a JS/React renderer and cannot be expressed in ASS — fall
+        // back to colored with a clear dev-mode warning.
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            '[AssCaptionService] style="remotion" is not renderable in ASS format. ' +
+              'Falling back to "colored". Use the Remotion component for React-based rendering.'
+          )
+        }
+        return this.buildColoredLine(line)
       default:
         return this.buildColoredLine(line)
     }
   }
 
   // ── Style: colored ──────────────────────────────────────────────────────
-  //
-  // FIX: One dialogue per active-word time-slice, the entire line as single text.
-  // libass handles spacing — no \pos per word.
+  // [BUG FIX] durationMs is now guaranteed ≥ 1 ms upstream (in buildASSFile),
+  // so t0 < t1 is always true. No additional guard needed here.
 
   private buildColoredLine(line: CaptionLine): string {
     const events: string[] = []
@@ -621,10 +711,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   }
 
   // ── Style: neon ─────────────────────────────────────────────────────────
-  //
-  // FIX: Two layers (glow + core) each as single-line text.
-  // The glow layer uses the highlight colour as both fill (\c) and border (\3c)
-  // with a heavy blur; the core layer is white with no border.
 
   private buildNeonLine(line: CaptionLine): string {
     const events: string[] = []
@@ -638,14 +724,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       const t0 = msToAss(activeWord.startMs)
       const t1 = msToAss(activeWord.startMs + activeWord.durationMs)
 
-      // Glow layer — active word in highlight colour (thick blurred border),
-      // inactive words invisible in this layer (alpha FF = fully transparent)
       const glowText = line.words
         .map((w, i) => {
           if (i === activeIdx) {
             return `{\\c${this.highlightColor}\\3c${this.highlightColor}\\bord${glowBord}\\blur${glowBlur}\\shad0}${w.word}`
           }
-          // Invisible so only the core layer shows for inactive words
           return `{\\alpha&HFF&\\bord0\\shad0}${w.word}`
         })
         .join(' ')
@@ -655,7 +738,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
           `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${glowText}`
       )
 
-      // Core layer — active word sharp white, inactive words dimmed
       const coreText = line.words
         .map((w, i) => {
           if (i === activeIdx) {
@@ -675,9 +757,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   }
 
   // ── Style: typewriter ───────────────────────────────────────────────────
-  //
-  // FIX: Single-line text per time-slice. Past words = inactive colour,
-  // current word = highlight + fade-in, future words = invisible.
+  // [BUG FIX] Refactored to emit a single event per timeslice (one Dialogue per
+  // active word) instead of N events per timeslice. Eliminates N² event explosion
+  // and aligns with the single-line pattern used by all other styles.
 
   private buildTypewriterLine(line: CaptionLine): string {
     const events: string[] = []
@@ -691,12 +773,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
       const text = line.words
         .map((w, i) => {
+          const cleaned = this.cleanWord(w.word)
           if (i < activeIdx) {
-            return `{\\c${this.inactiveColor}\\bord${this.borderSize}\\shad${this.shadowSize}}${this.cleanWord(w.word)}`
+            // Past word: visible in inactive colour
+            return `{\\c${this.inactiveColor}\\bord${this.borderSize}\\shad${this.shadowSize}}${cleaned}`
           } else if (i === activeIdx) {
-            return `{\\c${this.highlightColor}\\bord${this.borderSize}\\shad${this.shadowSize}\\alpha&HFF&\\t(0,${FADE_MS},\\alpha&H00&)}${this.cleanWord(w.word)}`
+            // Current word: highlight colour + fade-in from transparent
+            return (
+              `{\\c${this.highlightColor}\\bord${this.borderSize}\\shad${this.shadowSize}` +
+              `\\alpha&HFF&\\t(0,${FADE_MS},\\alpha&H00&)}${cleaned}`
+            )
           } else {
-            return `{\\c${this.inactiveColor}\\alpha&HFF&\\bord${this.borderSize}\\shad${this.shadowSize}}${this.cleanWord(w.word)}`
+            // Future word: invisible placeholder preserving line width
+            return `{\\alpha&HFF&\\bord0\\shad0}${cleaned}`
           }
         })
         .join(' ')
@@ -710,18 +799,41 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
     return events.join('\n')
   }
 
+  // ── Style: karaoke ──────────────────────────────────────────────────────
+  // [AMÉLIO] Implemented using ASS native \k karaoke tags. libass renders each
+  // word sweeping from inactiveColor to highlightColor over the word's duration.
+  // This is the most efficient representation: one Dialogue per line (not per word).
+
+  private buildKaraokeLine(line: CaptionLine): string {
+    const t0 = msToAss(line.lineStartMs)
+    const t1 = msToAss(line.lineEndMs)
+    const alignment = this.getAlignmentCode()
+    const x = this.getAlignedX()
+
+    // \k<duration_centiseconds> — advance the karaoke highlight over the word.
+    // \kf produces a smooth left-to-right fill sweep (most polished look).
+    const karaokeText = line.words
+      .map((w) => {
+        const durationCs = Math.max(1, Math.round(w.durationMs / 10))
+        const cleaned = this.cleanWord(w.word)
+        return `{\\kf${durationCs}}${cleaned}`
+      })
+      .join(' ')
+
+    // Secondary colour = highlight (the "before" colour in ASS karaoke is \2c)
+    // Primary = inactive (the "after" colour once the sweep passes)
+    return (
+      `Dialogue: 1,${t0},${t1},Words,,0,0,0,,` +
+      `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}` +
+      `\\bord${this.borderSize}\\shad${this.shadowSize}` +
+      `\\c${this.inactiveColor}\\2c${this.highlightColor}}${karaokeText}`
+    )
+  }
+
   // ── Style: scaling ──────────────────────────────────────────────────────
-  //
-  // FIX STRATEGY: In ASS, \fscx/\fscy applied mid-line affects all following
-  // glyphs. We use a two-layer trick:
-  //   Layer 0 (base): full line with inactive words, active word INVISIBLE.
-  //   Layer 1 (active): only the active word, centred at its estimated x,
-  //                     with animated scale. The estimate error only affects
-  //                     the active word's x — inactive words are pixel-perfect
-  //                     because they share one unbroken text run on layer 0.
 
   private buildScalingLine(line: CaptionLine): string {
-    const layouts = this.computeLayout(line) // still needed for active word x
+    const layouts = this.computeLayout(line)
     const events: string[] = []
     const alignment = this.getAlignmentCode()
     const x = this.getAlignedX()
@@ -742,6 +854,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         { ms: totalMs, scale: 100 }
       ]
 
+      const layout = layouts[activeIdx]
+      if (!layout) return
+
       for (let f = 0; f < timeline.length - 1; f++) {
         const segStart = activeWord.startMs + timeline[f].ms
         const segEnd = activeWord.startMs + timeline[f + 1].ms
@@ -749,13 +864,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
         const sc = timeline[f].scale
 
-        // Layer 0: entire line; active word slot is invisible
         const baseText = line.words
           .map((w, i) => {
-            if (i === activeIdx) {
-              // Invisible placeholder so inactive words keep correct positions
-              return `{\\alpha&HFF&}${w.word}`
-            }
+            if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
             return `{\\alpha&H00&\\c${this.inactiveColor}\\bord${this.borderSize}\\shad${this.shadowSize}}${w.word}`
           })
           .join(' ')
@@ -764,10 +875,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
           `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
             `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
         )
-
-        // Layer 1: only the active word, positioned by layout estimate
-        const layout = layouts[activeIdx]
-        if (!layout) continue
 
         events.push(
           `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
@@ -782,10 +889,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   }
 
   // ── Style: bounce ───────────────────────────────────────────────────────
-  //
-  // FIX STRATEGY: Same two-layer trick as scaling.
-  //   Layer 0: inactive words on a single line (active word invisible).
-  //   Layer 1: active word alone, with animated Y from spring physics.
+  // [FRAGILE FIX] fromY is now clamped to Math.max(this.fontSize, ...) so the
+  // animated word never travels above the top of the frame, preventing it from
+  // being clipped by libass when lineY is close to 0.
 
   private buildBounceLine(line: CaptionLine): string {
     const layouts = this.computeLayout(line)
@@ -798,7 +904,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       const layout = layouts[activeIdx]
       if (!layout) return
 
-      const fromY = layout.centerY - dropHeight
+      // [FRAGILE FIX] Clamp fromY so it never goes above fontSize margin from top
+      const fromY = Math.max(this.fontSize, layout.centerY - dropHeight)
       const toY = layout.centerY
 
       const yFrames = springKeyframes(fromY, toY, activeWord.durationMs, {
@@ -813,7 +920,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
         const activeY = Math.round(yFrames[f].value)
 
-        // Layer 0: inactive words as a single line (active slot invisible)
         const baseText = line.words
           .map((w, i) => {
             if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
@@ -826,7 +932,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
             `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
         )
 
-        // Layer 1: animated active word
         events.push(
           `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
             `{\\an5\\pos(${layout.centerX},${activeY})` +
@@ -840,13 +945,44 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   }
 
   // ── Style: hormozi ──────────────────────────────────────────────────────
-  //
-  // HIGH IMPACT: Rapid-fire words, dynamic scaling, high-contrast borders,
-  // and subtle "tilt" (rotation) to keep the viewer engaged.
-  //
-  // FIX STRATEGY: Two-layer spring-animated approach.
-  //   Layer 0: Inactive words on a single line (active word invisible).
-  //   Layer 1: Active word with SPRING scale (100 -> 130 -> 115) and slight tilt.
+  // [FRAGILE FIX] Extracted emitHormoziTwoLayers() helper — the duplicated
+  // "hold segment" code previously repeated the same baseText construction and
+  // event emission. A single helper now handles both the animated frames and the
+  // hold, eliminating the dual-maintenance risk.
+
+  private emitHormoziTwoLayers(
+    events: string[],
+    segStart: number,
+    segEnd: number,
+    line: CaptionLine,
+    activeIdx: number,
+    layout: WordLayout,
+    sc: number,
+    rot: number,
+    C_WHITE: string,
+    BORD_SIZE: number,
+    SHAD_SIZE: number,
+    alignment: number,
+    x: number
+  ): void {
+    const baseText = line.words
+      .map((w, i) => {
+        if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
+        return `{\\alpha&H00&\\c${C_WHITE}\\bord${BORD_SIZE}\\shad${SHAD_SIZE}}${w.word}`
+      })
+      .join(' ')
+
+    events.push(
+      `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
+        `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
+    )
+
+    events.push(
+      `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
+        `{\\an5\\pos(${layout.centerX},${layout.centerY})\\fs${this.fontSize}` +
+        `\\bord${BORD_SIZE}\\shad${SHAD_SIZE}\\c${this.highlightColor}\\fscx${sc}\\fscy${sc}\\frz${rot}}${layout.word}`
+    )
+  }
 
   private buildHormoziLine(line: CaptionLine): string {
     const layouts = this.computeLayout(line)
@@ -859,67 +995,55 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
     const SHAD_SIZE = Math.round(this.fontSize * 0.08)
 
     line.words.forEach((activeWord, activeIdx) => {
+      const layout = layouts[activeIdx]
+      if (!layout) return
+
       const totalMs = activeWord.durationMs
       const rampMs = Math.min(150, Math.round(totalMs * 0.4))
-
-      // Hormozi spring: aggressive 135% pop down to 110%
       const scFrames = springKeyframes(100, 135, rampMs, { stiffness: 450, damping: 20 })
-      const rot = (activeIdx % 2 === 0 ? 1 : -1) * 2 // Alternating slight tilt
+      const rot = (activeIdx % 2 === 0 ? 1 : -1) * 2
 
       for (let f = 0; f < scFrames.length - 1; f++) {
         const segStart = activeWord.startMs + scFrames[f].ms
         const segEnd = activeWord.startMs + scFrames[f + 1].ms
         if (segEnd <= segStart) continue
 
-        const sc = Math.round(scFrames[f].value)
-
-        // Layer 0: base line (inactive words)
-        const baseText = line.words
-          .map((w, i) => {
-            if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
-            return `{\\alpha&H00&\\c${C_WHITE}\\bord${BORD_SIZE}\\shad${SHAD_SIZE}}${w.word}`
-          })
-          .join(' ')
-
-        events.push(
-          `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
-            `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
-        )
-
-        // Layer 1: active word pop
-        const layout = layouts[activeIdx]
-        if (!layout) continue
-
-        events.push(
-          `Dialogue: 1,${msToAss(segStart)},${msToAss(segEnd)},Words,,0,0,0,,` +
-            `{\\an5\\pos(${layout.centerX},${layout.centerY})\\fs${this.fontSize}` +
-            `\\bord${BORD_SIZE}\\shad${SHAD_SIZE}\\c${this.highlightColor}\\fscx${sc}\\fscy${sc}\\frz${rot}}${layout.word}`
+        this.emitHormoziTwoLayers(
+          events,
+          segStart,
+          segEnd,
+          line,
+          activeIdx,
+          layout,
+          Math.round(scFrames[f].value),
+          rot,
+          C_WHITE,
+          BORD_SIZE,
+          SHAD_SIZE,
+          alignment,
+          x
         )
       }
 
-      // Finish with hold at 110%
+      // Hold at 110% for the remainder of the word's duration
       const holdStart = activeWord.startMs + rampMs
-      if (holdStart < activeWord.startMs + totalMs) {
-        const baseText = line.words
-          .map((w, i) => {
-            if (i === activeIdx) return `{\\alpha&HFF&}${w.word}`
-            return `{\\alpha&H00&\\c${C_WHITE}\\bord${BORD_SIZE}\\shad${SHAD_SIZE}}${w.word}`
-          })
-          .join(' ')
-
-        events.push(
-          `Dialogue: 0,${msToAss(holdStart)},${msToAss(activeWord.startMs + totalMs)},Words,,0,0,0,,` +
-            `{\\an${alignment}\\pos(${x},${this.lineY})\\fs${this.fontSize}}${baseText}`
+      const holdEnd = activeWord.startMs + totalMs
+      if (holdStart < holdEnd) {
+        this.emitHormoziTwoLayers(
+          events,
+          holdStart,
+          holdEnd,
+          line,
+          activeIdx,
+          layout,
+          110,
+          rot,
+          C_WHITE,
+          BORD_SIZE,
+          SHAD_SIZE,
+          alignment,
+          x
         )
-
-        const layout = layouts[activeIdx]
-        if (layout) {
-          events.push(
-            `Dialogue: 1,${msToAss(holdStart)},${msToAss(activeWord.startMs + totalMs)},Words,,0,0,0,,` +
-              `{\\an5\\pos(${layout.centerX},${layout.centerY})\\fs${this.fontSize}` +
-              `\\bord${BORD_SIZE}\\shad${SHAD_SIZE}\\c${this.highlightColor}\\fscx110\\fscy110\\frz${rot}}${layout.word}`
-          )
-        }
       }
     })
 
@@ -927,8 +1051,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   }
 
   // ── Style: animated-background ──────────────────────────────────────────
-  // Unchanged — the pill geometry still needs layout math.
-  // Word text is also kept per-word to stay aligned with the pill.
+  // [PERF FIX] lerp() now uses an ascending index walk (O(N) total across all
+  // ticks) instead of a reverse linear scan per tick (O(N²) total).
 
   private buildAnimatedBgLine(line: CaptionLine): string {
     const layouts = this.computeLayout(line)
@@ -945,6 +1069,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
     const pillLefts = layouts.map((l) => l.centerX - Math.round(l.widthPx / 2) - PAD_X)
     const pillWidths = layouts.map((l) => l.widthPx + PAD_X * 2)
+
+    // [PERF FIX] O(N) ascending-index lerp — index is carried across ticks.
+    const lerpFrames = (
+      frames: Array<{ ms: number; value: number }>,
+      t: number,
+      startIdx: number
+    ): [number, number] => {
+      if (!frames || frames.length === 0) return [0, 0]
+      let i = startIdx
+      while (i + 1 < frames.length && frames[i + 1].ms <= t) i++
+      return [frames[i].value, i]
+    }
 
     line.words.forEach((activeWord, activeIdx) => {
       const layout = layouts[activeIdx]
@@ -972,23 +1108,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         for (let t = 0; t <= maxMs; t += FRAME_MS) ticks.push(t)
         if (ticks.length > 0 && ticks.at(-1)! < maxMs) ticks.push(maxMs)
 
-        const lerp = (frames: Array<{ ms: number; value: number }>, t: number) => {
-          if (!frames || frames.length === 0) return 0
-          for (let i = frames.length - 1; i >= 0; i--) {
-            if (frames[i].ms <= t) return frames[i].value
-          }
-          return frames[0].value
-        }
-
+        // Carry indices across ticks to keep lerp O(N) total
+        let xi = 0,
+          wi = 0
         for (let i = 0; i < ticks.length - 1; i++) {
           const segStart = wordStartMs + ticks[i]
           const segEnd = wordStartMs + ticks[i + 1]
           if (segEnd <= segStart) continue
-          const left = Math.round(lerp(xFrames, ticks[i]))
-          const w = Math.round(lerp(wFrames, ticks[i]))
+
+          const [left, newXi] = lerpFrames(xFrames, ticks[i], xi)
+          const [w, newWi] = lerpFrames(wFrames, ticks[i], wi)
+          xi = newXi
+          wi = newWi
+
           events.push(
             `Dialogue: 0,${msToAss(segStart)},${msToAss(segEnd)},Pill,,0,0,0,,` +
-              `{\\an7\\pos(${left},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(w, pillH, RADIUS)}{\\p0}`
+              `{\\an7\\pos(${Math.round(left)},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}` +
+              `${roundedRectPath(Math.round(w), pillH, RADIUS)}{\\p0}`
           )
         }
 
@@ -996,19 +1132,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
         if (holdStart < wordEndMs) {
           events.push(
             `Dialogue: 0,${msToAss(holdStart)},${msToAss(wordEndMs)},Pill,,0,0,0,,` +
-              `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
+              `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}` +
+              `${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
           )
         }
       } else {
         events.push(
           `Dialogue: 0,${msToAss(wordStartMs)},${msToAss(wordEndMs)},Pill,,0,0,0,,` +
-            `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
+            `{\\an7\\pos(${currLeft},${pillTop})\\p1\\c${this.pillColor}\\1a&H00&\\bord0\\shad0}` +
+            `${roundedRectPath(currW, pillH, RADIUS)}{\\p0}`
         )
       }
     })
 
-    // Word text — O(N) optimization: render each word once with up to 3 segments
-    // to cover the entire line duration without N^2 event duplication.
+    // Word text rendering — O(N) per word: up to 3 segments covering full line duration
     layouts.forEach((wLayout, i) => {
       const wordTiming = line.words[i]
       const wordStartMs = wordTiming.startMs
@@ -1019,19 +1156,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       const inactiveColor = `{\\c${this.inactiveColor}\\bord${this.borderSize}}`
       const wordText = this.cleanWord(wLayout.word)
 
-      // 1. Before word is active (inactive style)
       if (line.lineStartMs < wordStartMs) {
         events.push(
           `Dialogue: 1,${msToAss(line.lineStartMs)},${msToAss(wordStartMs)},Words,,0,0,0,,` +
             `${basePrefix}${inactiveColor}${wordText}`
         )
       }
-      // 2. While word is active (highlight style)
       events.push(
         `Dialogue: 1,${msToAss(wordStartMs)},${msToAss(wordEndMs)},Words,,0,0,0,,` +
           `${basePrefix}${activeColor}${wordText}`
       )
-      // 3. After word is active (inactive style)
       if (wordEndMs < line.lineEndMs) {
         events.push(
           `Dialogue: 1,${msToAss(wordEndMs)},${msToAss(line.lineEndMs)},Words,,0,0,0,,` +

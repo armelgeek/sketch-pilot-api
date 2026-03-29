@@ -3,7 +3,6 @@ import * as path from 'node:path'
 import { detectAndTrimSilence } from '../../utils/audio-trimmer'
 import { runFfmpeg } from '../../utils/ffmpeg-utils'
 import type { AudioGenerationResult, AudioService } from './index'
-import '../../utils/polyfills'
 
 // Type-only import for KokoroTTS (won't trigger native module loading)
 import type { KokoroTTS } from 'kokoro-js'
@@ -154,25 +153,27 @@ export class KokoroTTSService implements AudioService {
     if (this.initialized && this.tts) return
 
     console.log(`[KokoroTTS] Loading model: ${this.modelId}...`)
-    console.log(`[KokoroTTS] backend: WASM, device: cpu`)
-    console.log(`[KokoroTTS] Env check: ONNXRUNTIME_NODE_DISABLED=${process.env.ONNXRUNTIME_NODE_DISABLED}`)
 
     try {
-      // Attempt to force WASM config via transformers env if accessible
-      try {
-        // @ts-ignore - may be @xenova/transformers or @huggingface/transformers
-        const hfTransformers = await import('@xenova/transformers').catch(() => import('@huggingface/transformers'))
-        if (hfTransformers?.env) {
-          hfTransformers.env.allowLocalModels = false
-          hfTransformers.env.backends.onnx.wasm.proxy = false
-          hfTransformers.env.backends.onnx.wasm.numThreads = 1
-          console.log('[KokoroTTS] ✓ Transformers env nuclear-force to WASM')
+      // Import the environment from @huggingface/transformers (used by kokoro-js 1.2+)
+      const { env } = await import('@huggingface/transformers')
+
+      // Allow remote downloads if not found locally
+      env.allowLocalModels = true
+      env.allowRemoteModels = true
+
+      // Do NOT force WASM if onnxruntime-node is available.
+      // @huggingface/transformers 3.x+ automatically detects and uses it.
+      // We only log if it's explicitly disabled but default behavior is best.
+      if (process.env.ONNXRUNTIME_NODE_DISABLED === 'true') {
+        console.warn('[KokoroTTS] Warning: ONNXRUNTIME_NODE_DISABLED is true. Falling back to WASM.')
+        if (env.backends?.onnx?.wasm) {
+          env.backends.onnx.wasm.proxy = false
+          env.backends.onnx.wasm.numThreads = 1
         }
-      } catch {
-        // Not critical if we can't patch sub-config
       }
 
-      // Dynamic import to ensure process.env is set BEFORE the library initializes
+      // Dynamic import of kokoro-js
       const { KokoroTTS: KokoroTTSLib } = await import('kokoro-js')
 
       this.tts = await KokoroTTSLib.from_pretrained(this.modelId, {
@@ -180,9 +181,11 @@ export class KokoroTTSService implements AudioService {
         device: 'cpu'
       })
       this.initialized = true
-      console.log('[KokoroTTS] ✅ Model loaded successfully (WASM)')
+      console.log('[KokoroTTS] ✅ Model loaded successfully')
     } catch (error) {
-      throw new Error(`Failed to load Kokoro model: ${error instanceof Error ? error.message : String(error)}`)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`[KokoroTTS] ❌ Model load failed: ${errorMessage}`)
+      throw new Error(`Failed to load Kokoro model: ${errorMessage}`)
     }
   }
 

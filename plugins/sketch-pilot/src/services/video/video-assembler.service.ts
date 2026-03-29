@@ -8,16 +8,43 @@ import type { CompleteVideoScript, TextPosition, VideoGenerationOptions } from '
 import type { WordTiming } from '../audio'
 import { AssCaptionService } from './ass-caption.service'
 
-/** Number of words per caption chunk for the remotion style fallback (no word timings). */
-const REMOTION_CHUNK_SIZE = 3
-/** Font size multiplier applied to the base fontSize for the remotion style. */
-const REMOTION_FONT_SIZE_MULTIPLIER = 1.3
-/** Target silence interval between voice narrations in seconds. */
-const TARGET_VOICE_GAP = 1.2
-/** Fixed padding added after narration to provide visual breathing room. */
 const SCENE_PADDING_SECONDS = 0.2
 
-// Transitions are now handled via camera acceleration and hard cuts.
+/**
+ * Internal FPS used by zoompan for sub-frame interpolation.
+ * Higher value = smoother motion. FFmpeg resamples down to OUTPUT_FPS afterwards.
+ * 60fps gives ~2.4x more interpolation steps vs 25fps → visibly smoother panning.
+ */
+const ZOOMPAN_INTERNAL_FPS = 60
+/** Final output frame rate. */
+const OUTPUT_FPS = 25
+/** Upscale factor for the source image before zoompan. 2× is sufficient and faster than 4×. */
+const ZOOMPAN_SCALE_FACTOR = 2
+
+// ---------------------------------------------------------------------------
+// SMOOTHERSTEP helpers (used in zoompan expressions)
+// Smootherstep: 6t⁵ - 15t⁴ + 10t³  — starts slow, peaks, ends slow.
+// In zoompan context `t` = on/totalFrames (normalised 0→1).
+// We approximate it inline as a string expression for FFmpeg's math evaluator.
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a smootherstep expression string for zoompan.
+ * `p` should be a string expression evaluating to a value in [0,1].
+ * smootherstep(p) = p*p*p*(p*(p*6-15)+10)
+ */
+function smootherstep(p: string): string {
+  return `(${p})*(${p})*(${p})*((${p})*((${p})*6-15)+10)`
+}
+
+/**
+ * Returns a cubic ease-in-out expression string for zoompan.
+ * cubic_ease(p) = p<0.5 ? 4p³ : 1-(-2p+2)³/2
+ * Approximated for FFmpeg: use smootherstep which is close enough and simpler.
+ */
+function cubicEaseInOut(p: string): string {
+  return smootherstep(p)
+}
 
 export class VideoAssembler {
   private outputDir: string
@@ -78,12 +105,10 @@ export class VideoAssembler {
 
     if (onProgress) await onProgress(40, 'Stitching scenes together...')
 
-    // Filter out potential nulls if a scene failed (though processSceneClip should handle it)
     const finalClips = processedClips.filter(Boolean)
     const finalTransitions = processedTransitions
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
-    // If global audio is used, we prefer hard cuts (0 overlap) to maintain sync
     const audioOverlap = hasGlobalAudio ? 0 : (globalOptions.audioOverlap ?? 0.3)
     await this.stitchClips(finalClips, finalVideoNoMusic, finalTransitions, audioOverlap)
 
@@ -116,7 +141,7 @@ export class VideoAssembler {
       await this.generateGlobalASS(script, globalAssPath, globalOptions)
     }
 
-    // Apply visual professional polish (Progress Bar, Vignette, Noise, subtitles, branding, encoding)
+    // Apply visual professional polish
     if (onProgress) await onProgress(70, 'Applying cinematic polish...')
     const polishedVideoPath = path.join(projectDir, 'final_video_polished.mp4')
     finalVisualPath = await this.applyProfessionalPolish(finalVisualPath, polishedVideoPath, {
@@ -124,7 +149,7 @@ export class VideoAssembler {
       globalAssPath
     })
 
-    // Apply branding (Logo/Watermark)
+    // Apply branding
     if (globalOptions.branding) {
       const brandedVideoPath = path.join(projectDir, 'final_video_branded.mp4')
       finalVisualPath = await this.applyBranding(finalVisualPath, globalOptions.branding, brandedVideoPath)
@@ -145,8 +170,6 @@ export class VideoAssembler {
       if (musicTrack) {
         const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
         const musicPath = this.musicService.getTrackPath(musicTrack.path)
-
-        // Mix background music with AUTO-DUCKING (sidechain)
         const musicVol = globalOptions.backgroundMusicVolume ?? 0.15
         return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
       }
@@ -177,7 +200,6 @@ export class VideoAssembler {
         return resolve(videoPath)
       }
 
-      // Check if input video has audio
       const meta = await this.getClipMetadata(videoPath).catch(() => ({ hasAudio: false }))
 
       if (!meta.hasAudio) {
@@ -192,7 +214,6 @@ export class VideoAssembler {
         return
       }
 
-      // IMPROVED DUCKING: More aggressive parameters for better voice clarity
       ffmpeg()
         .input(videoPath)
         .input(musicPath)
@@ -224,11 +245,8 @@ export class VideoAssembler {
 
     console.log(`[VideoAssembler] Applying ${soundEffects.length} sound effects to scene...`)
 
-    // Build SFX filter chain: each SFX is delayed by its timestamp and mixed
     const filterParts: string[] = []
-    const inputBase = 'aformat=sample_rates=48000:channel_layouts=stereo'
 
-    // Process each SFX
     for (const [i, sfx] of soundEffects.entries()) {
       const sfxPath = this.sfxService.resolveSFX(sfx.type)
       if (!sfxPath || !fs.existsSync(sfxPath)) {
@@ -236,7 +254,6 @@ export class VideoAssembler {
         continue
       }
 
-      // Delay SFX by timestamp and apply volume
       const volAdjust = sfx.volume ?? 0.8
       const delayMs = Math.floor(sfx.timestamp * 1000)
       filterParts.push(`[${i + 1}:a]adelay=${delayMs}|${delayMs},volume=${volAdjust}[sfx${i}]`)
@@ -247,7 +264,6 @@ export class VideoAssembler {
       return null
     }
 
-    // Mix all SFX with dialogue
     let mixInputs = '[0:a]'
     for (let i = 0; i < filterParts.length; i++) {
       mixInputs += `[sfx${i}]`
@@ -260,7 +276,6 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       let cmd = ffmpeg(scenePath)
 
-      // Add SFX inputs
       const sfxPaths = soundEffects
         .map((sfx) => this.sfxService.resolveSFX(sfx.type))
         .filter((p) => p && fs.existsSync(p)) as string[]
@@ -296,26 +311,22 @@ export class VideoAssembler {
   ): Promise<string> {
     console.log(`[VideoAssembler] Adding audio crossfade between clips (${crossfadeDuration}s)...`)
 
-    // Get audio durations for all clips
     const durations: number[] = []
     for (const clip of clips) {
       durations.push(await this.getClipDuration(clip))
     }
 
-    // Build audio crossfade chain (similar to video xfade but audio focused)
     let filterComplex = ''
     let lastAudioLabel = '[0:a]'
     let audioOffset = durations[0] - crossfadeDuration
 
     for (let i = 1; i < clips.length; i++) {
       const outLabel = `[a${i}]`
-      // Smooth audio crossfade with adjustable curve
       filterComplex += `${lastAudioLabel}[${i}:a]acrossfade=d=${crossfadeDuration}:c1=tri:c2=tri${outLabel};`
       lastAudioLabel = outLabel
       audioOffset += durations[i] - crossfadeDuration
     }
 
-    // Remove trailing semicolon
     if (filterComplex.endsWith(';')) {
       filterComplex = filterComplex.slice(0, -1)
     }
@@ -337,7 +348,7 @@ export class VideoAssembler {
   }
 
   /**
-   * Applies professional visual polish: Progress Bar, Vignette, and Grain.
+   * Applies professional visual polish: Vignette, Grain, Subtitles.
    */
   async applyProfessionalPolish(
     videoPath: string,
@@ -355,30 +366,19 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       ffmpeg(videoPath)
         .complexFilter([
-          // 1. Vignette: subtle dark edges (angle 0.12 is tighter than 0.15)
           `vignette=angle=0.12[vignetted]`,
-          // 2. Cinematic Noise: 3% grain (organic feel)
           `[vignetted]noise=alls=3:allf=t[polished]`,
-          // 3. Contrast/Brightness boost (1.1 range)
           `[polished]eq=contrast=1.05:brightness=0.02[brightened]`,
-          // 4. Global Subtitles if path provided
           assPath
             ? `[brightened]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
             : `[brightened]copy[outv]`
         ])
-        .outputOptions([
-          '-map [outv]',
-          '-map 0:a?',
-          '-c:v libx264',
-          `-preset ${preset}`,
-          `-crf ${crf}`,
-          '-shortest' // Ensure output doesn't exceed audio stream length
-        ])
+        .outputOptions(['-map [outv]', '-map 0:a?', '-c:v libx264', `-preset ${preset}`, `-crf ${crf}`, '-shortest'])
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => {
           console.error(`[VideoAssembler] Polish failed: ${err.message}`)
-          resolve(videoPath) // Fallback to original on error
+          resolve(videoPath)
         })
     })
   }
@@ -396,7 +396,6 @@ export class VideoAssembler {
         inputs.push(config.logoPath)
         const pos = this.getBrandingPosition(config.position)
         const scale = config.scale || 0.15
-        // Scale logo relative to video width and overlay with opacity
         filter += `[1:v]scale=iw*${scale}:-1,format=rgba,colorchannelmixer=aa=${config.opacity || 0.5}[logo]; [0:v][logo]overlay=${pos}[branded_v]`
       }
 
@@ -481,7 +480,6 @@ export class VideoAssembler {
           const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
           const wordTimings = manifest.wordTimings || []
 
-          // Group words into lines of ~5 words or punctuation ends
           let currentLine: any[] = []
           for (let i = 0; i < wordTimings.length; i++) {
             currentLine.push(wordTimings[i])
@@ -489,8 +487,8 @@ export class VideoAssembler {
             const hasPunctuation = wordTimings[i].word.match(/[.!?]$/)
 
             if (currentLine.length >= 5 || hasPunctuation || isLastWord) {
-              const startInSec =
-                currentLine[0].startMs !== undefined ? currentLine[0].startMs / 1000 : currentLine[0].start
+              const firstW = currentLine[0]
+              const startInSec = firstW.startMs !== undefined ? firstW.startMs / 1000 : firstW.start
               const endInSec = currentLine.at(-1).end
 
               const startTime = this.formatSRTTime(cumulativeTime + startInSec)
@@ -503,7 +501,6 @@ export class VideoAssembler {
             }
           }
 
-          // Approximate scene duration if no timings
           if (wordTimings.length === 0) {
             const duration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
             const startTime = this.formatSRTTime(cumulativeTime)
@@ -552,18 +549,14 @@ export class VideoAssembler {
       let videoFilter: string
 
       if (cameraAction.type === 'zoom-in') {
-        // Punch-in zoom: start normal, zoom to zoomFactor over the whole clip duration
         videoFilter = `scale=iw*${zoomFactor}:ih*${zoomFactor},crop=${resolution.replace('x', ':')}`
       } else if (cameraAction.type === 'zoom-out') {
         videoFilter = `scale=iw*${zoomFactor}:ih*${zoomFactor},crop=${resolution.replace('x', ':')},scale=${resolution.replace('x', ':')}`
       } else if (cameraAction.type === 'shake') {
-        // Random shake using crop displacement
         videoFilter = `crop=iw-${shakePx * 2}:ih-${shakePx * 2}:${shakePx}+${shakePx}*sin(n/3):${shakePx}+${shakePx}*cos(n/5),scale=${resolution.replace('x', ':')}`
       } else if (cameraAction.type === 'breathing') {
-        // Subtle oscillation of zoom
-        videoFilter = `zoompan=z='1.0+0.05*sin(2*pi*on/100)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${resolution}`
+        videoFilter = `zoompan=z='1.0+0.05*sin(2*pi*on/100)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${resolution}:fps=${ZOOMPAN_INTERNAL_FPS},fps=${OUTPUT_FPS}`
       } else {
-        // Unknown action, just copy
         return resolve(videoPath)
       }
 
@@ -577,8 +570,11 @@ export class VideoAssembler {
   }
 
   /**
-   * Builds mathematical expressions for FFmpeg zoompan and eq filters based on word timings.
-   * This creates micro-zooms on strong phonemes and micro-fades on pauses.
+   * Builds mathematical expressions for FFmpeg zoompan filter based on word timings.
+   *
+   * IMPORTANT: In zoompan, the only available time variable is `on` (output frame number).
+   * To reference seconds: use `on/${ZOOMPAN_INTERNAL_FPS}` — do NOT use `time` or `t`.
+   * The brightExpr uses the `eq` filter which DOES support `t` (seconds) — kept as-is.
    */
   private buildAudioReactiveExpressions(
     wordTimings: any[],
@@ -591,20 +587,17 @@ export class VideoAssembler {
     let lastEnd = 0
 
     for (const [i, w] of wordTimings.entries()) {
-      // Attack zoom: first word or after a decent pause
       const startSec = w.startMs !== undefined ? w.startMs / 1000 : w.start
       const endSec = w.end
       const gap = startSec - lastEnd
+
       if (i === 0 || gap > 0.3) {
-        // Gaussian pulse on zoom: +0.02 at the peak, lasting ~0.2s
-        zoomPulses.push(`0.02*exp(-pow(time-${startSec.toFixed(3)}, 2)*40)`)
+        zoomPulses.push(`0.02*exp(-pow((on/${ZOOMPAN_INTERNAL_FPS})-${startSec.toFixed(3)},2)*40)`)
       }
 
-      // Pause fade: gap larger than 0.4s
       if (gap > 0.4) {
         const pauseMid = (lastEnd + gap / 2).toFixed(3)
-        // Gaussian dip on brightness: -0.08 at the peak in the middle of the pause
-        brightFades.push(`-0.08*exp(-pow(t-${pauseMid}, 2)*25)`)
+        brightFades.push(`-0.08*exp(-pow(t-${pauseMid},2)*25)`)
       }
 
       lastEnd = endSec
@@ -616,8 +609,137 @@ export class VideoAssembler {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // NEW: Snap-zoom expression builder
+  // Generates a zoompan z-expression that holds at baseZoom, then snaps brutally
+  // to peakZoom at `snapAtSec` seconds, then eases back over `decaySec` seconds.
+  // Useful for beat-sync moments and emphasis on key words.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Builds a snap-zoom z-expression for zoompan.
+   * @param baseZoom    Resting zoom level (e.g. 1.0)
+   * @param peakZoom    Peak zoom level at snap moment (e.g. 1.4)
+   * @param snapAtSec   When (in seconds) the snap fires
+   * @param decaySec    How long (seconds) to ease back to baseZoom after peak
+   */
+  private buildSnapZoomExpression(
+    baseZoom: number,
+    peakZoom: number,
+    snapAtSec: number,
+    decaySec: number = 0.4
+  ): string {
+    const delta = peakZoom - baseZoom
+    // After the snap: decay = delta * exp(-k * (t - snapAt)) where k controls speed
+    const k = 8 / decaySec
+    const snapFrame = Math.round(snapAtSec * ZOOMPAN_INTERNAL_FPS)
+    // Use max(0, t-snapAt) to avoid affecting frames before the snap
+    return (
+      `${baseZoom}+` +
+      `if(gte(on,${snapFrame}),` +
+      `${delta.toFixed(4)}*exp(-${k.toFixed(4)}*(on/${ZOOMPAN_INTERNAL_FPS}-${snapAtSec.toFixed(3)})),` +
+      `0` +
+      `)`
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // NEW: Organic micro-movement expression builder
+  // Overlays a gentle sinusoidal oscillation on x/y to simulate handheld feel.
+  // Keeps the camera alive even on static/slow shots.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Builds x/y oscillation expressions for organic micro-movement.
+   * Combines two sin waves at different frequencies for a non-periodic feel.
+   * @param ampPx   Amplitude in source-image pixels (before zoompan scaling)
+   * @param seed    Small integer to vary the phase per scene (0-99)
+   */
+  private buildOrganicOscillation(ampPx: number = 6, seed: number = 0): { xOscExpr: string; yOscExpr: string } {
+    // Two overlapping sine waves — different frequencies and phases
+    const phase1 = (seed * 1.3) % (2 * Math.PI)
+    const phase2 = (seed * 2.7 + 1.1) % (2 * Math.PI)
+    const p1 = phase1.toFixed(3)
+    const p2 = phase2.toFixed(3)
+    const amp = ampPx.toFixed(1)
+    // t in zoompan = on/ZOOMPAN_INTERNAL_FPS
+    const t = `(on/${ZOOMPAN_INTERNAL_FPS})`
+    const xOscExpr = `${amp}*sin(0.37*2*PI*${t}+${p1})+${amp}*0.4*sin(0.91*2*PI*${t}+${p2})`
+    const yOscExpr = `${amp}*sin(0.29*2*PI*${t}+${p1})+${amp}*0.4*cos(0.73*2*PI*${t}+${p2})`
+    return { xOscExpr, yOscExpr }
+  }
+
+  // ---------------------------------------------------------------------------
+  // NEW: Dutch tilt (rotation) via FFmpeg rotate filter
+  // Applies a subtle constant rotation to create narrative tension.
+  // Combined with panning for max cinematic effect.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Applies a Dutch tilt rotation to an existing video clip.
+   * The rotation slowly oscillates (if oscillate=true) or stays fixed.
+   * @param inputPath   Source clip path
+   * @param outputPath  Destination path
+   * @param angleDeg    Peak rotation angle in degrees (positive = clockwise)
+   * @param oscillate   If true, angle sways back and forth sinusoidally
+   * @param duration    Clip duration in seconds (needed for oscillation period)
+   */
+  async applyDutchTilt(
+    inputPath: string,
+    outputPath: string,
+    angleDeg: number = 1.8,
+    oscillate: boolean = false,
+    duration: number = 5
+  ): Promise<string> {
+    return new Promise((resolve) => {
+      const angleRad = (angleDeg * Math.PI) / 180
+      // oscillate: angle = A * sin(2π*t/T) where T = duration, so one full swing
+      const rotExpr = oscillate ? `${angleRad.toFixed(4)}*sin(2*PI*t/${duration.toFixed(2)})` : `${angleRad.toFixed(4)}`
+
+      ffmpeg(inputPath)
+        .videoFilter(
+          // fillcolor=black fills the corners exposed by rotation
+          `rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`
+        )
+        .outputOptions(['-c:v libx264', '-preset fast', '-crf 18', '-c:a copy', '-pix_fmt yuv420p'])
+        .save(outputPath)
+        .on('end', () => resolve(outputPath))
+        .on('error', (err) => {
+          console.warn(`[VideoAssembler] Dutch tilt failed: ${err.message}, skipping...`)
+          resolve(inputPath)
+        })
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+  // IMPROVED: createPanningClip
+  // Changes vs original:
+  //   1. Smootherstep curve replaces the bare cubic p³ → proper ease-in-out
+  //   2. Zoom + pan simultaneous combos: 'zoom-in-pan-right', etc.
+  //   3. Snap-zoom type: brutal zoom on a specific timestamp
+  //   4. Organic micro-oscillation added to x/y for handheld feel
+  //   5. `seed` parameter for reproducible-but-varied effect selection
+  //   6. Narrative direction awareness: pan direction can be forced by caller
+  // ---------------------------------------------------------------------------
+
   /**
    * Creates a video clip from an image with a zoom/pan effect (Ken Burns) and audio-reactive dynamics.
+   *
+   * Supported cameraAction.type values:
+   *   Original: 'zoom-out' | 'zoom-in' | 'pan-right' | 'pan-left' | 'pan-down' | 'pan-up'
+   *   New:      'zoom-in-pan-right' | 'zoom-in-pan-left' | 'zoom-in-pan-up' | 'zoom-in-pan-down'
+   *             'zoom-out-pan-right' | 'zoom-out-pan-left'
+   *             'snap-zoom'   — brutal zoom at snapAtSec (default: duration/3)
+   *             'dutch-tilt'  — gentle rotation overlay (post-process)
+   *             'breathing'   — sinusoidal zoom pulse (unchanged)
+   *             'shake'       — handheld shake (unchanged)
+   *
+   * cameraAction extended fields:
+   *   snapAtSec?: number    — for snap-zoom: when to fire (default duration/3)
+   *   peakZoom?:  number    — for snap-zoom: how far to zoom (default 1.5)
+   *   seed?:      number    — integer for deterministic variation (0-99)
+   *   organic?:   boolean   — add micro-oscillation to x/y (default true for viral modes)
+   *   tiltDeg?:   number    — for dutch-tilt: angle in degrees (default 1.8)
    */
   async createPanningClip(
     imagePath: string,
@@ -626,64 +748,133 @@ export class VideoAssembler {
     aspectRatio: string = '16:9',
     resolutionPreset: string = '720p',
     backgroundColor?: string,
-    cameraAction?: { type: string; intensity: string; duration?: number },
+    cameraAction?: {
+      type: string
+      intensity?: string
+      duration?: number
+      snapAtSec?: number
+      peakZoom?: number
+      seed?: number
+      organic?: boolean
+      tiltDeg?: number
+    },
     wordTimings: any[] = [],
     keywordVisuals: Array<{ imagePath: string; start: number; end: number }> = []
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const resolution = this.getResolution(aspectRatio, resolutionPreset)
       const [w, h] = resolution.split('x').map(Number)
-      const bgColor = this.normalizeColor(backgroundColor)
-      const frameCount = Math.round(duration * 25)
+
+      const internalFrameCount = Math.round(duration * ZOOMPAN_INTERNAL_FPS)
 
       const reactive = this.buildAudioReactiveExpressions(wordTimings, duration)
 
-      let zBaseExpr = '1.0+0.002*on' // Default: Slow, constant linear zoom
-      let x = 'iw/2-(iw/zoom/2)'
-      let y = 'ih/2-(ih/zoom/2)'
+      // Normalised progress in [0,1] — used for smootherstep expressions
+      const rawP = `(on/${internalFrameCount})`
+      // Clamp to [0,1] to avoid overshoot on last frames
+      const P = `min(1,max(0,${rawP}))`
+      const SS = smootherstep(P) // smootherstep: ease-in AND ease-out
 
-      if (cameraAction) {
-        // We use a base zoom of 1.4 for panning (30-40% margin) to prevent panning off-screen.
-        // x/y translate max delta is: (iw - iw/1.4) = iw * 0.28
-        // p = on / frameCount (normalized progress 0-1)
-        // Cubic Ease-In: p^3 ensures a very slow start and a sharp "burst" of speed at the end.
-        // This makes the hard cut to the next scene feel like a professional transition.
-        const p = `(on/${frameCount})*(on/${frameCount})*(on/${frameCount})`
+      // Organic oscillation (off by default unless cameraAction.organic=true or snap/dutch modes)
+      const wantsOrganic =
+        cameraAction?.organic === true || cameraAction?.type === 'snap-zoom' || cameraAction?.type === 'dutch-tilt'
+      const oscSeed = cameraAction?.seed ?? 0
+      const { xOscExpr, yOscExpr } = this.buildOrganicOscillation(4, oscSeed)
 
-        if (cameraAction.type === 'zoom-out') {
-          // Starts zoomed in (1.5) and zooms out to 1.0 with Ease-In (Acceleration)
-          zBaseExpr = `1.5 - (0.5 * ${p})`
-        } else if (cameraAction.type === 'zoom-in') {
-          // Starts at 1.0 and zooms in to 1.5 with Ease-In (Acceleration)
-          zBaseExpr = `1.0 + (0.5 * ${p})`
-        } else if (cameraAction.type === 'pan-right') {
-          zBaseExpr = '1.4'
-          // Move from left edge (0) to right edge (max margin) with Ease-In (Acceleration)
-          x = `(iw/2-(iw/zoom/2)) + ((iw-(iw/zoom))/2) * ${p}`
-        } else if (cameraAction.type === 'pan-left') {
-          zBaseExpr = '1.4'
-          // Move from right edge (max margin) to left edge (0) with Ease-In (Acceleration)
-          x = `(iw/2-(iw/zoom/2)) - ((iw-(iw/zoom))/2) * ${p}`
-        } else if (cameraAction.type === 'pan-down') {
-          zBaseExpr = '1.4'
-          y = `(ih/2-(ih/zoom/2)) + ((ih-(ih/zoom))/2) * ${p}`
-        } else if (cameraAction.type === 'pan-up') {
-          zBaseExpr = '1.4'
-          y = `(ih/2-(ih/zoom/2)) - ((ih-(ih/zoom))/2) * ${p}`
-        }
+      let zBaseExpr = '1.0+0.002*(on/2.4)' // default: very slow linear zoom
+      let x = `iw/2-(iw/zoom/2)${wantsOrganic ? `+(${xOscExpr})` : ''}`
+      let y = `ih/2-(ih/zoom/2)${wantsOrganic ? `+(${yOscExpr})` : ''}`
+
+      const type = cameraAction?.type ?? ''
+
+      // ------------------------------------------------------------------
+      // Existing single-axis effects — upgraded to smootherstep
+      // ------------------------------------------------------------------
+      if (type === 'zoom-out') {
+        zBaseExpr = `1.5-(0.5*${SS})`
+      } else if (type === 'zoom-in') {
+        zBaseExpr = `1.0+(0.5*${SS})`
+      } else if (type === 'pan-right') {
+        zBaseExpr = '1.4'
+        x = `(iw/2-(iw/zoom/2))+((iw-(iw/zoom))/2)*${SS}${wantsOrganic ? `+(${xOscExpr})` : ''}`
+      } else if (type === 'pan-left') {
+        zBaseExpr = '1.4'
+        x = `(iw/2-(iw/zoom/2))-((iw-(iw/zoom))/2)*${SS}${wantsOrganic ? `+(${xOscExpr})` : ''}`
+      } else if (type === 'pan-down') {
+        zBaseExpr = '1.4'
+        y = `(ih/2-(ih/zoom/2))+((ih-(ih/zoom))/2)*${SS}${wantsOrganic ? `+(${yOscExpr})` : ''}`
+      } else if (type === 'pan-up') {
+        zBaseExpr = '1.4'
+        y = `(ih/2-(ih/zoom/2))-((ih-(ih/zoom))/2)*${SS}${wantsOrganic ? `+(${yOscExpr})` : ''}`
+
+        // ------------------------------------------------------------------
+        // NEW: Zoom + Pan simultaneous combos
+        // Zoom grows from 1.0→1.5 via smootherstep while panning in the
+        // chosen direction. The pan travel is proportional to the zoom delta
+        // so the focus point stays roughly centred until the end.
+        // ------------------------------------------------------------------
+      } else if (type === 'zoom-in-pan-right') {
+        zBaseExpr = `1.0+(0.5*${SS})`
+        x = `(iw/2-(iw/zoom/2))+((iw-(iw/zoom))/2)*${SS}${wantsOrganic ? `+(${xOscExpr})` : ''}`
+      } else if (type === 'zoom-in-pan-left') {
+        zBaseExpr = `1.0+(0.5*${SS})`
+        x = `(iw/2-(iw/zoom/2))-((iw-(iw/zoom))/2)*${SS}${wantsOrganic ? `+(${xOscExpr})` : ''}`
+      } else if (type === 'zoom-in-pan-up') {
+        zBaseExpr = `1.0+(0.5*${SS})`
+        y = `(ih/2-(ih/zoom/2))-((ih-(ih/zoom))/2)*${SS}${wantsOrganic ? `+(${yOscExpr})` : ''}`
+      } else if (type === 'zoom-in-pan-down') {
+        zBaseExpr = `1.0+(0.5*${SS})`
+        y = `(ih/2-(ih/zoom/2))+((ih-(ih/zoom))/2)*${SS}${wantsOrganic ? `+(${yOscExpr})` : ''}`
+      } else if (type === 'zoom-out-pan-right') {
+        zBaseExpr = `1.5-(0.5*${SS})`
+        x = `(iw/2-(iw/zoom/2))+((iw-(iw/zoom))/2)*${SS}${wantsOrganic ? `+(${xOscExpr})` : ''}`
+      } else if (type === 'zoom-out-pan-left') {
+        zBaseExpr = `1.5-(0.5*${SS})`
+        x = `(iw/2-(iw/zoom/2))-((iw-(iw/zoom))/2)*${SS}${wantsOrganic ? `+(${xOscExpr})` : ''}`
+
+        // ------------------------------------------------------------------
+        // NEW: Snap-zoom
+        // Holds near base zoom, then snaps brutally to peakZoom at snapAtSec,
+        // then exponentially decays back. Perfect for beat-sync emphasis.
+        // ------------------------------------------------------------------
+      } else if (type === 'snap-zoom') {
+        const snapAt = cameraAction?.snapAtSec ?? duration / 3
+        const peak = cameraAction?.peakZoom ?? 1.5
+        zBaseExpr = this.buildSnapZoomExpression(1, peak, snapAt, 0.35)
+        // Also snap the x/y centring slightly to add punch
+        x = `iw/2-(iw/zoom/2)${wantsOrganic ? `+(${xOscExpr})` : ''}`
+        y = `ih/2-(ih/zoom/2)${wantsOrganic ? `+(${yOscExpr})` : ''}`
+
+        // ------------------------------------------------------------------
+        // Unchanged: breathing, dutch-tilt (post-processed), shake
+        // ------------------------------------------------------------------
+      } else if (type === 'breathing') {
+        zBaseExpr = `1.0+0.05*sin(2*PI*(on/${ZOOMPAN_INTERNAL_FPS})/${duration.toFixed(2)})`
+      } else if (type === 'dutch-tilt') {
+        // Dutch tilt is applied as a post-process after zoompan.
+        // Here we use a gentle slow zoom as the base motion.
+        zBaseExpr = `1.0+(0.08*${SS})`
+        x = `iw/2-(iw/zoom/2)+(${xOscExpr})`
+        y = `ih/2-(ih/zoom/2)+(${yOscExpr})`
+      } else if (type === 'shake') {
+        const shakePx = cameraAction?.intensity === 'high' ? 12 : cameraAction?.intensity === 'medium' ? 7 : 4
+        zBaseExpr = '1.15'
+        x = `iw/2-(iw/zoom/2)+${shakePx}*sin(on*1.3)+(${xOscExpr})`
+        y = `ih/2-(ih/zoom/2)+${shakePx}*cos(on*0.9)+(${yOscExpr})`
       }
 
-      // Full zoom expression: Base Ken Burns + Audio Reactive Pulses
       const zExpr = `${zBaseExpr}${reactive.zoomExpr}`
 
-      // High-Precision Ken Burns:
-      // 1. Scale image to 4x oversize.
-      // 2. Apply Brightness/Reactivity.
-      // 3. Zoompan with 's=iwxih' (oversize output) to preserve sub-pixel precision.
-      // 4. Scale back to target resolution with Lanczos for maximum smoothness.
-      const filterString = `scale=${w * 4}:${h * 4}:force_original_aspect_ratio=increase,crop=${w * 4}:${h * 4},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s='iw'x'ih':fps=25,scale=${w}:${h}:flags=lanczos`
+      const scW = w * ZOOMPAN_SCALE_FACTOR
+      const scH = h * ZOOMPAN_SCALE_FACTOR
+      const filterString = [
+        `scale=${scW}:${scH}:force_original_aspect_ratio=increase`,
+        `crop=${scW}:${scH}`,
+        `${reactive.brightExpr}zoompan=z='${zExpr}':d=${internalFrameCount}:x='${x}':y='${y}':s=${w}x${h}:fps=${ZOOMPAN_INTERNAL_FPS}`,
+        `fps=${OUTPUT_FPS}`,
+        `scale=${w}:${h}:flags=lanczos`
+      ].join(',')
 
-      // Add keyword visual overlays
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
 
       if (keywordVisuals.length > 0) {
@@ -694,7 +885,6 @@ export class VideoAssembler {
           ffmpegCommand.input(kv.imagePath).inputOptions(['-loop 1'])
           const inputIdx = idx + 1
           const nextOutput = `[v_kv_${idx}]`
-          // Scale each keyword visual to match resolution and overlay it at the exact timing
           complexFilter += `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}[kv_s_${idx}];`
           complexFilter += `${lastOutput}[kv_s_${idx}]overlay=enable='between(t,${kv.start},${kv.end})'${idx === keywordVisuals.length - 1 ? '' : nextOutput};`
           lastOutput = nextOutput
@@ -705,10 +895,36 @@ export class VideoAssembler {
         ffmpegCommand.outputOptions(['-vf', filterString])
       }
 
+      const baseOutputPath = outputPath
+      const needsDutchTiltPass = type === 'dutch-tilt'
+      const intermediateOutputPath = needsDutchTiltPass ? outputPath.replace('.mp4', '_pre_tilt.mp4') : outputPath
+
       ffmpegCommand
-        .outputOptions(['-c:v libx264', '-preset slow', '-crf 17', '-t', `${duration}`, '-pix_fmt yuv420p', '-r 25'])
-        .save(outputPath)
-        .on('end', () => resolve(outputPath))
+        .outputOptions([
+          '-c:v libx264',
+          '-preset slow',
+          '-crf 17',
+          '-t',
+          `${duration}`,
+          '-pix_fmt yuv420p',
+          `-r ${OUTPUT_FPS}`
+        ])
+        .save(intermediateOutputPath)
+        .on('end', async () => {
+          if (needsDutchTiltPass) {
+            const tiltDeg = cameraAction?.tiltDeg ?? 1.8
+            const finalPath = await this.applyDutchTilt(
+              intermediateOutputPath,
+              baseOutputPath,
+              tiltDeg,
+              true, // oscillate
+              duration
+            )
+            resolve(finalPath)
+          } else {
+            resolve(intermediateOutputPath)
+          }
+        })
         .on('error', (err) => reject(new Error(`Panning clip creation failed: ${err.message}`)))
     })
   }
@@ -734,38 +950,31 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       const resolution = this.getResolution(aspectRatio, resolutionPreset)
       const [width, height] = resolution.split('x').map(Number)
-      const fps = 25
+      const fps = OUTPUT_FPS
 
       let command = ffmpeg()
 
-      // 1. Add background
       command = command.input(backgroundPath).inputOptions(['-loop 1'])
 
-      // 2. Add all layers
       layers.forEach((layer) => {
         command = command.input(layer.path).inputOptions(['-loop 1'])
       })
 
-      // 3. Add keyword visuals as additional inputs
       keywordVisuals.forEach((kv) => {
         command = command.input(kv.imagePath).inputOptions(['-loop 1'])
       })
 
-      // 4. Build complex filter
       let filterChain = `[0:v]scale=${width}:${height}[bg];`
       let lastOutput = 'bg'
 
-      // Process layers
       layers.forEach((layer, index) => {
         const inputIdx = index + 1
         const inputLabel = `layer${inputIdx}`
         const outputLabel = `v${inputIdx}`
 
-        // Scale layer (base width is 40% of frame width, then adjusted by scale factor)
         const layerWidth = Math.round(width * 0.4 * layer.scale)
         filterChain += `[${inputIdx}:v]scale=${layerWidth}:-1[${inputLabel}_scaled];`
 
-        // Anchor logic
         const xExpr = `(W-w)*${layer.x}`
         const yExpr = `(H-h)*${layer.y}`
         let alphaFilter = ''
@@ -787,7 +996,6 @@ export class VideoAssembler {
         lastOutput = outputLabel
       })
 
-      // Process keyword visuals (overlays that swap the whole frame)
       if (keywordVisuals.length > 0) {
         const layerCount = layers.length
         keywordVisuals.forEach((kv, idx) => {
@@ -795,17 +1003,12 @@ export class VideoAssembler {
           const kvInputLabel = `kv_input_${idx}`
           const kvOutputLabel = `kv_final_${idx}`
 
-          // Scale keyword visual to full frame
           filterChain += `[${inputIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[${kvInputLabel}];`
-
-          // Overlay with time-based enable (covers the whole frame)
           filterChain += `[${lastOutput}][${kvInputLabel}]overlay=enable='between(t,${kv.start},${kv.end})'[${kvOutputLabel}];`
 
           lastOutput = kvOutputLabel
         })
       }
-
-      // Process keyword visuals (overlays that swap the whole frame)
 
       const finalFilterChain = filterChain.replace(/;+$/, '')
 
@@ -824,8 +1027,21 @@ export class VideoAssembler {
     })
   }
 
+  // ---------------------------------------------------------------------------
+  // IMPROVED: createStaticClip
+  // Changes vs original:
+  //   1. Smootherstep replaces raw `on/N` linear ramps → ease-in-out on all 6 effects
+  //   2. `seed` parameter separates image hash from temporal variation
+  //      so the same image can get different effects across re-generations
+  //   3. Organic micro-oscillation on x/y for all effects
+  //   4. Diagonal Ken Burns effect added (effect index 6 & 7)
+  // ---------------------------------------------------------------------------
+
   /**
-   * Creates a video clip from an image with no background motion, but includes audio-reactive dynamics.
+   * Creates a static clip with Ken Burns effects and audio-reactive dynamics.
+   *
+   * @param seed  Optional integer to vary effect selection independently of imagePath.
+   *              Pass a different value each time to avoid always getting the same effect.
    */
   async createStaticClip(
     imagePath: string,
@@ -835,76 +1051,101 @@ export class VideoAssembler {
     resolutionPreset: string = '720p',
     backgroundColor?: string,
     wordTimings: any[] = [],
-    keywordVisuals: Array<{ imagePath: string; start: number; end: number }> = []
+    keywordVisuals: Array<{ imagePath: string; start: number; end: number }> = [],
+    seed?: number
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const resolution = this.getResolution(aspectRatio, resolutionPreset)
       const [width, height] = resolution.split('x').map(Number)
-      const bgColor = this.normalizeColor(backgroundColor)
 
       const reactive = this.buildAudioReactiveExpressions(wordTimings, duration)
 
-      // ----------------------------------------------------
-      // DYNAMIC STATIC CLIIP EFFECTS
-      // ----------------------------------------------------
+      const internalFrameCount = Math.round(duration * ZOOMPAN_INTERNAL_FPS)
+
+      // Normalised progress for smootherstep
+      const P = `min(1,max(0,(on/${internalFrameCount})))`
+      const SS = smootherstep(P)
+
       let baseZ = '1.0'
       let baseX = 'iw/2-(iw/zoom/2)'
       let baseY = 'ih/2-(ih/zoom/2)'
 
-      const frameCount = Math.round(duration * 25)
-
-      // Random deterministic index based on the hash of the image path
+      // ----- FIX: separate hash from seed so re-generations can vary -----
       let hash = 0
       for (let i = 0; i < imagePath.length; i++) {
         hash = imagePath.charCodeAt(i) + ((hash << 5) - hash)
       }
-      // Add randomness based on the scene index/timings to avoid sequences generating same effect
-      hash += duration * 1000
-      const effectIndex = Math.abs(Math.floor(hash)) % 6
+      // XOR with seed so passing a different seed picks a different effect
+      // even for the same image file. Falls back to duration-based variation
+      // when seed is undefined (backwards-compatible).
+      const seedValue = seed !== undefined ? seed : Math.floor(duration * 1000)
+      hash = Math.abs(hash ^ seedValue)
 
-      // Max zoom target for zoom in/out
+      // Expanded from 6 to 8 effects — added two diagonal Ken Burns variants
+      const effectIndex = hash % 8
+
       const zoomIntensity = 1.05
       const dz = (zoomIntensity - 1).toFixed(3)
-
-      // Buffer for panning (needs more zoom for noticeable movement, minimum 15% crop area)
       const panIntensity = 1.15
 
+      // Organic micro-oscillation for all static effects
+      const oscSeed = hash % 99
+      const { xOscExpr, yOscExpr } = this.buildOrganicOscillation(5, oscSeed)
+
       switch (effectIndex) {
-        case 0: // Subtle Zoom In
-          baseZ = `1.0+(${dz}*on/${frameCount})`
+        case 0: // Slow zoom-in (ease-in-out)
+          baseZ = `1.0+(${dz}*${SS})`
           break
-        case 1: // Subtle Zoom Out
-          baseZ = `${zoomIntensity}-(${dz}*on/${frameCount})`
+        case 1: // Slow zoom-out (ease-in-out)
+          baseZ = `${zoomIntensity}-(${dz}*${SS})`
           break
-        case 2: // Pan Left to Right
+        case 2: // Pan right (ease-in-out)
           baseZ = `${panIntensity}`
-          baseX = `(iw-(iw/zoom))*(on/${frameCount})`
+          baseX = `(iw-(iw/zoom))*(${SS})`
           baseY = `ih/2-(ih/zoom/2)`
           break
-        case 3: // Pan Right to Left
+        case 3: // Pan left (ease-in-out)
           baseZ = `${panIntensity}`
-          baseX = `(iw-(iw/zoom))*(1-(on/${frameCount}))`
+          baseX = `(iw-(iw/zoom))*(1-(${SS}))`
           baseY = `ih/2-(ih/zoom/2)`
           break
-        case 4: // Pan Top to Bottom
+        case 4: // Pan down (ease-in-out)
           baseZ = `${panIntensity}`
           baseX = `iw/2-(iw/zoom/2)`
-          baseY = `(ih-(ih/zoom))*(on/${frameCount})`
+          baseY = `(ih-(ih/zoom))*(${SS})`
           break
-        case 5: // Pan Bottom to Top
+        case 5: // Pan up (ease-in-out)
           baseZ = `${panIntensity}`
           baseX = `iw/2-(iw/zoom/2)`
-          baseY = `(ih-(ih/zoom))*(1-(on/${frameCount}))`
+          baseY = `(ih-(ih/zoom))*(1-(${SS}))`
+          break
+        // --- NEW: Diagonal Ken Burns (zoom + pan simultaneously) ---
+        case 6: // Zoom-in + pan toward top-right corner
+          baseZ = `1.0+(0.2*${SS})`
+          baseX = `(iw/2-(iw/zoom/2))+((iw-(iw/zoom))/2)*(${SS})`
+          baseY = `(ih/2-(ih/zoom/2))-((ih-(ih/zoom))/2)*(${SS})`
+          break
+        case 7: // Zoom-in + pan toward bottom-left corner
+          baseZ = `1.0+(0.2*${SS})`
+          baseX = `(iw/2-(iw/zoom/2))-((iw-(iw/zoom))/2)*(${SS})`
+          baseY = `(ih/2-(ih/zoom/2))+((ih-(ih/zoom))/2)*(${SS})`
           break
       }
 
-      // We append the reactive zoom expr to our base z-expression to keep micro-zooms working
+      // Add organic oscillation on top of all effects
       const zExpr = `${baseZ}${reactive.zoomExpr}`
-      const x = baseX
-      const y = baseY
-      // ----------------------------------------------------
+      const x = `${baseX}+(${xOscExpr})`
+      const y = `${baseY}+(${yOscExpr})`
 
-      const filterString = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},${reactive.brightExpr}zoompan=z='${zExpr}':d=${frameCount}:x='${x}':y='${y}':s=${resolution}:fps=25`
+      const scW = width * ZOOMPAN_SCALE_FACTOR
+      const scH = height * ZOOMPAN_SCALE_FACTOR
+      const filterString = [
+        `scale=${scW}:${scH}:force_original_aspect_ratio=increase`,
+        `crop=${scW}:${scH}`,
+        `${reactive.brightExpr}zoompan=z='${zExpr}':d=${internalFrameCount}:x='${x}':y='${y}':s=${width}x${height}:fps=${ZOOMPAN_INTERNAL_FPS}`,
+        `fps=${OUTPUT_FPS}`,
+        `scale=${width}:${height}:flags=lanczos`
+      ].join(',')
 
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
 
@@ -935,7 +1176,15 @@ export class VideoAssembler {
       }
 
       ffmpegCommand
-        .outputOptions(['-c:v libx264', '-preset slow', '-crf 17', '-t', `${duration}`, '-pix_fmt yuv420p', '-r 25'])
+        .outputOptions([
+          '-c:v libx264',
+          '-preset slow',
+          '-crf 17',
+          '-t',
+          `${duration}`,
+          '-pix_fmt yuv420p',
+          `-r ${OUTPUT_FPS}`
+        ])
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => reject(new Error(`Static clip creation failed: ${err.message}`)))
@@ -956,7 +1205,6 @@ export class VideoAssembler {
     const target = clean(keyword)
     const targetWords = target.split(/\s+/)
 
-    // Try to find the phrase in the timings
     for (let i = 0; i <= wordTimings.length - targetWords.length; i++) {
       let match = true
       for (const [j, targetWord] of targetWords.entries()) {
@@ -978,7 +1226,7 @@ export class VideoAssembler {
   }
 
   /**
-   * Processes an AI video clip to match the target duration (loop or speed change) and format.
+   * Processes an AI video clip to match the target duration and format.
    */
   async processAiClip(
     videoPath: string,
@@ -990,9 +1238,8 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       const resolution = this.getResolution(aspectRatio, resolutionPreset)
       const [width, height] = resolution.split('x').map(Number)
-      const bgColor = this.normalizeColor('black')
 
-      const filterString = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=25`
+      const filterString = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${OUTPUT_FPS}`
 
       ffmpeg(videoPath)
         .inputOptions(['-stream_loop -1'])
@@ -1005,7 +1252,7 @@ export class VideoAssembler {
           '-t',
           `${targetDuration}`,
           '-pix_fmt yuv420p',
-          '-r 25'
+          `-r ${OUTPUT_FPS}`
         ])
         .save(outputPath)
         .on('end', () => resolve(outputPath))
@@ -1022,30 +1269,24 @@ export class VideoAssembler {
       return colorName
     }
 
-    // Handle hex colors
     let hex = colorName.replace('#', '')
-    // Expand short hex (e.g., FFF to FFFFFF)
     if (hex.length === 3) {
       hex = hex
         .split('')
         .map((c) => c + c)
         .join('')
     }
-    // Ensure it's 6 characters and valid hex
     if (/^[0-9A-F]{6}$/i.test(hex)) {
       return `0x${hex}`
     }
-    // Fallback to white if invalid
     return 'white'
   }
 
   private getResolution(aspectRatio: string, preset: string = '720p'): string {
-    // Heights based on resolution preset
     let baseHeight = 720
     if (preset === '1080p') baseHeight = 1080
     if (preset === '4k') baseHeight = 2160
 
-    // Ensure dimension is even for libx264
     const makeEven = (val: number) => {
       const rounded = Math.round(val)
       return rounded % 2 === 0 ? rounded : rounded + 1
@@ -1097,15 +1338,12 @@ export class VideoAssembler {
     return filters.join(',')
   }
 
-  /**
-   * Calculates the narration speed-up rate based on scene tension.
-   */
   private getAtempoRate(tension: number): number {
-    if (tension <= 2) return 0.88 // slow, contemplative
-    if (tension <= 4) return 0.94 // building, measured
-    if (tension <= 6) return 1 // standard
-    if (tension <= 8) return 1.08 // urgent, high stakes
-    return 1.16 // peak drama, rapid delivery
+    if (tension <= 2) return 0.88
+    if (tension <= 4) return 0.94
+    if (tension <= 6) return 1
+    if (tension <= 8) return 1.08
+    return 1.16
   }
 
   /**
@@ -1123,22 +1361,19 @@ export class VideoAssembler {
     skipNarration: boolean = false,
     options?: VideoGenerationOptions
   ): Promise<string> {
-    // ── Tension-Driven Audio Parameters ──
     const atempoRate = this.getAtempoRate(tension)
 
-    // Soundscape ducking ratio (how much the ambient is suppressed during narration)
-    // Low tension = gentle duck (ambient stays present). High tension = near-mute.
     let ambientBaseVolume: number
     let duckingRatio: number
     if (tension <= 3) {
       ambientBaseVolume = 0.5
-      duckingRatio = 4 // Calm: ambient is prominent
+      duckingRatio = 4
     } else if (tension <= 6) {
       ambientBaseVolume = 0.35
-      duckingRatio = 8 // Standard: balanced mix
+      duckingRatio = 8
     } else {
       ambientBaseVolume = 0.2
-      duckingRatio = 15 // High: ambient retreats significantly
+      duckingRatio = 15
     }
 
     console.log(
@@ -1152,14 +1387,12 @@ export class VideoAssembler {
 
       let currentInputIndex = 1
 
-      // Input: Narration (skipped if using global audio)
       const hasNarration = narrationPath && fs.existsSync(narrationPath)
       if (!skipNarration && hasNarration) {
         cmd.input(narrationPath)
         currentInputIndex++
       }
 
-      // Input: Soundscape (if any)
       const hasSoundscape = soundscapePath && fs.existsSync(soundscapePath)
       let ambInputStr = ''
       if (hasSoundscape) {
@@ -1168,7 +1401,6 @@ export class VideoAssembler {
         currentInputIndex++
       }
 
-      // Inputs: SFX
       const activeSFX: Array<{ path: string; timestamp: number; volume: number }> = []
       const sfxStartIndex = currentInputIndex
       for (const sfx of soundEffects) {
@@ -1178,7 +1410,7 @@ export class VideoAssembler {
           activeSFX.push({
             path: sfxPath,
             timestamp: sfx.timestamp,
-            volume: (sfx.volume ?? 0.8) * narrVol // SFX follow narration volume
+            volume: (sfx.volume ?? 0.8) * narrVol
           })
           currentInputIndex++
         }
@@ -1188,7 +1420,6 @@ export class VideoAssembler {
       const delayMs = Math.floor(startPadding * 1000)
       let currentAudioLabel = ''
 
-      // Label [narr]: Delayed + pitch-corrected speed-up via atempo
       if (!skipNarration && hasNarration) {
         if (hasSoundscape) {
           filterParts.push(
@@ -1202,31 +1433,23 @@ export class VideoAssembler {
         }
       }
 
-      // Handle Soundscape with Tension-Aware Ducking
       if (hasSoundscape) {
-        // Base volume rises with calm, falls during peak tension.
-        // Ducking ratio: calm = gentle sidechain, peak = aggressive suppression.
         filterParts.push(`${ambInputStr}volume=${ambientBaseVolume}[amb_vol]`)
 
         if (skipNarration || !hasNarration) {
-          // No narration means no ducking needed, just use ambient
           currentAudioLabel = '[amb_vol]'
         } else {
-          // threshold=0.02 (earlier trigger), attack=15 (faster drop), release=500 (smoother return)
           filterParts.push(
             `[amb_vol][narr_sc]sidechaincompress=threshold=0.02:ratio=${duckingRatio}:attack=15:release=500:makeup=1.1[amb_ducked]`
           )
-          // Mix narration and ambient
           filterParts.push(`[narr_mix][amb_ducked]amix=inputs=2:duration=first[mixed_base]`)
           currentAudioLabel = '[mixed_base]'
         }
       } else if (skipNarration || !hasNarration) {
-        // Neither narration nor soundscape: start with silence
-        filterParts.push(`anullsrc=r=44100:cl=stereo:d=${duration}[silent_base]`)
+        filterParts.push(`aevalsrc=0:c=stereo:s=44100:d=${duration}[silent_base]`)
         currentAudioLabel = '[silent_base]'
       }
 
-      // Handle SFX
       if (activeSFX.length > 0) {
         const sfxLabels: string[] = []
         for (const [i, element] of activeSFX.entries()) {
@@ -1243,7 +1466,6 @@ export class VideoAssembler {
         currentAudioLabel = '[final_a]'
       }
 
-      // Ensure the mixed audio is padded to full clip duration
       filterParts.push(`${currentAudioLabel}apad[aout_padded]`)
 
       cmd
@@ -1271,17 +1493,10 @@ export class VideoAssembler {
     return this.mixSceneAudio(videoPath, audioPath, null, [], outputPath, duration, delayMs / 1000)
   }
 
-  /**
-   * Resolves the best transition for a given scene based on its tension.
-   * High tension = cut or pop. Low tension = fade.
-   */
   private resolveTransition(suggested: string | undefined, tension: number, useAuto: boolean): string {
     return 'cut'
   }
 
-  /**
-   * Maps our transition type names to FFmpeg xfade transition names and durations.
-   */
   private getXfadeTransition(
     type: string | undefined,
     maxAllowedDuration?: number
@@ -1308,9 +1523,6 @@ export class VideoAssembler {
     return transition
   }
 
-  /**
-   * Gets the duration of a video clip in seconds via ffprobe.
-   */
   private getClipDuration(clipPath: string): Promise<number> {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(clipPath, (err, metadata) => {
@@ -1322,7 +1534,6 @@ export class VideoAssembler {
 
   /**
    * Stitches multiple video clips together with optional xfade transitions.
-   * Falls back to fast concat demuxer when no transitions are present.
    */
   async stitchClips(
     clips: string[],
@@ -1336,22 +1547,17 @@ export class VideoAssembler {
       return outputPath
     }
 
-    // Check if any real transition is requested
     const hasTransitions = transitions.some((t) => {
       const xf = this.getXfadeTransition(t)
       return xf !== null
     })
 
-    // If no transitions requested AND audioOverlap is 0, use fast concat
     if (!hasTransitions && audioOverlap <= 0) {
-      // Fast path: simple concat (no re-encode)
       return this.stitchClipsSimple(clips, outputPath)
     }
 
-    // ── xfade path (re-encodes but adds smooth transitions) ──
     console.log(`[VideoAssembler] Stitching ${clips.length} clips with xfade transitions...`)
 
-    // 1. Get durations and audio presence of all clips
     const durations: number[] = []
     const hasAudio: boolean[] = []
     for (const clip of clips) {
@@ -1360,19 +1566,14 @@ export class VideoAssembler {
       hasAudio.push(meta.hasAudio)
     }
 
-    // 2. Build complex filter chain
     const command = ffmpeg()
     clips.forEach((clip, i) => {
-      if (hasAudio[i]) {
-        command.input(clip)
-      } else {
-        // Inject silent audio if stream is missing
-        command.input(clip)
+      command.input(clip)
+      if (!hasAudio[i]) {
         command.input('anullsrc=r=44100:cl=stereo').inputOptions(['-f', 'lavfi'])
       }
     })
 
-    // ── Transition SFX Inputs ──
     const swishPath = this.sfxService.getSFXPath('swish')
     const hasSwish = swishPath && fs.existsSync(swishPath)
     if (hasSwish) {
@@ -1384,8 +1585,6 @@ export class VideoAssembler {
     let filterComplex = ''
     const n = clips.length
 
-    // Label mapping for clips that might have injected silence
-    // If hasAudio[i] is false, we need to mix input clip with anullsrc
     let inputCounter = 0
     const clipLabels: string[] = []
     const audioLabels: string[] = []
@@ -1395,13 +1594,10 @@ export class VideoAssembler {
       const aLabel = `[a_in_${i}]`
       if (hasAudio[i]) {
         filterComplex += `[${inputCounter}:v]null${vLabel};`
-        // Normalize real audio to fltp stereo 44100 for acrossfade compatibility
         filterComplex += `[${inputCounter}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100${aLabel};`
         inputCounter++
       } else {
-        // [inputCounter]:v is the video, [inputCounter+1]:a is the silence
         filterComplex += `[${inputCounter}:v]null${vLabel};`
-        // Use atrim (audio filter) not trim (video filter), and asetpts for audio PTS reset
         filterComplex += `[${inputCounter + 1}:a]atrim=duration=${durations[i]},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100${aLabel};`
         inputCounter += 2
       }
@@ -1409,36 +1605,27 @@ export class VideoAssembler {
       audioLabels.push(aLabel)
     }
 
-    // ── Video xfade chain ──
-    // Running offset tracks the cumulative video timeline position
     let cumulativeOffset = 0
     let lastVideoLabel = clipLabels[0]
     const transitionOffsets: number[] = []
 
     for (let i = 1; i < n; i++) {
-      // Safe transition max is half of the shortest adjacent clip
       const maxSafeOverlap = Math.min(durations[i - 1], durations[i]) / 2
       const transition = this.getXfadeTransition(transitions[i - 1], maxSafeOverlap)
 
-      // If 'none' or 'cut', we use a minimal 1-frame (0.04s) transition for video
-      // but we will use audioOverlap for the actual timing if it's larger.
       const transitionDuration = transition ? transition.duration : 0.04
       const transitionName = transition ? transition.name : 'fade'
 
-      // We use audioOverlap as the actual overlap for the timeline if it's larger than the transition duration
       const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.05
       const effectiveOverlap = Math.min(Math.max(transitionDuration, audioOverlap), Math.max(0.01, maxPossibleOverlap))
       const offset = Number(Math.max(0.01, cumulativeOffset + durations[i - 1] - effectiveOverlap).toFixed(3))
 
-      // CRITICAL: FFmpeg xfade requires transitionDuration < offset, otherwise "Invalid argument"
-      // Cap transitionDuration to 80% of offset so it always stays valid, minimum 1 frame (0.04s)
       const safeTransitionDuration = Math.max(0.04, Math.min(transitionDuration, offset * 0.8))
 
       const outLabel = `[v_out_${i}]`
       filterComplex += `${lastVideoLabel}${clipLabels[i]}xfade=transition=${transitionName}:duration=${safeTransitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${outLabel};`
       lastVideoLabel = outLabel
 
-      // Update cumulative offset
       if (i === 1) {
         cumulativeOffset = durations[0] - effectiveOverlap
       } else {
@@ -1447,12 +1634,11 @@ export class VideoAssembler {
       transitionOffsets.push(cumulativeOffset)
     }
 
-    // ── Audio crossfade chain ──
     let lastAudioLabel = audioLabels[0]
     let audioCumulativeOffset = 0
 
     for (let i = 1; i < n; i++) {
-      const maxSafeOverlap = Math.min(durations[i - 1], durations[i]) / 2.1 // More conservative safety buffer
+      const maxSafeOverlap = Math.min(durations[i - 1], durations[i]) / 2.1
       const incomingTransitionType = transitions[i - 1]
       const transition = this.getXfadeTransition(incomingTransitionType, maxSafeOverlap)
 
@@ -1470,7 +1656,6 @@ export class VideoAssembler {
 
       const safeOffset = Math.max(0.01, offset)
       const outLabel = `[a_out_${i}]`
-      // Use effectiveAudioOverlap for acrossfade duration
       filterComplex += `${lastAudioLabel}${audioLabels[i]}acrossfade=d=${effectiveAudioOverlap.toFixed(3)}:c1=tri:c2=tri${outLabel};`
       lastAudioLabel = outLabel
 
@@ -1481,21 +1666,12 @@ export class VideoAssembler {
       }
     }
 
-    // ── Mix Transition SFX ──
     if (hasSwish && n > 1) {
       const sfxStartIndex = inputCounter
       let sfxMixLabel = lastAudioLabel
       for (let i = 1; i < n; i++) {
         const sfxLabel = `[swish_${i}]`
         const outLabel = `[a_swish_mix_${i}]`
-        // Timing: we want the swish to peak during the xfade overlap.
-        // The overlap starts at 'audioCumulativeOffset' for that i.
-        // Wait, the 'audioCumulativeOffset' logic above is a bit nested.
-        // Let's use the same 'offset' logic as video for simplicity if possible.
-
-        // Actually, we can just use the absolute offset calculated in the video loop if we store them.
-        // But for now, let's just add them.
-        // Note: transition SFX are optional polish.
         const sfxOffsetMs = Math.round(transitionOffsets[i - 1] * 1000)
         filterComplex += `[${sfxStartIndex + i - 1}:a]adelay=${sfxOffsetMs}|${sfxOffsetMs},volume=0.4${sfxLabel};`
         filterComplex += `${sfxMixLabel}${sfxLabel}amix=inputs=2:duration=first${outLabel};`
@@ -1504,7 +1680,6 @@ export class VideoAssembler {
       lastAudioLabel = sfxMixLabel
     }
 
-    // Remove trailing semicolon
     filterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex
 
     return new Promise<string>((resolve, reject) => {
@@ -1525,7 +1700,6 @@ export class VideoAssembler {
         .on('error', (err, stdout, stderr) => {
           console.error('[VideoAssembler] xfade stitching failed:', err.message)
           console.error('[VideoAssembler] stderr:', stderr?.substring(0, 500))
-          // Fallback to simple concat on xfade failure
           console.warn('[VideoAssembler] Falling back to simple concat...')
           this.stitchClipsSimple(clips, outputPath).then(resolve).catch(reject)
         })
@@ -1563,9 +1737,6 @@ export class VideoAssembler {
     })
   }
 
-  /**
-   * Gets metadata for a video clip including duration and audio presence.
-   */
   private getClipMetadata(clipPath: string): Promise<{ duration: number; hasAudio: boolean }> {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(clipPath, (err, metadata) => {
@@ -1579,7 +1750,7 @@ export class VideoAssembler {
 
   private async getAudioDuration(audioPath: string): Promise<number> {
     return new Promise((resolve, reject) => {
-      if (!fs.existsSync(audioPath)) return resolve(5) // Default scene length
+      if (!fs.existsSync(audioPath)) return resolve(5)
 
       ffmpeg.ffprobe(audioPath, (err, metadata) => {
         if (err) return reject(err)
@@ -1588,9 +1759,6 @@ export class VideoAssembler {
     })
   }
 
-  /**
-   * Detects the duration of leading silence at the start of an audio file.
-   */
   private async detectLeadingSilence(audioPath: string): Promise<number> {
     return new Promise((resolve) => {
       if (!fs.existsSync(audioPath)) return resolve(0)
@@ -1615,9 +1783,6 @@ export class VideoAssembler {
     })
   }
 
-  /**
-   * Detects the duration of trailing silence at the end of an audio file.
-   */
   private async detectTrailingSilence(audioPath: string): Promise<number> {
     return new Promise((resolve) => {
       if (!fs.existsSync(audioPath)) return resolve(0)
@@ -1653,9 +1818,6 @@ export class VideoAssembler {
     })
   }
 
-  /**
-   * Escapes text for FFmpeg drawtext filter
-   */
   private escapeForFFmpeg(text: string): string {
     return text
       .replaceAll('\\', '\\\\')
@@ -1667,9 +1829,6 @@ export class VideoAssembler {
       .replaceAll('\n', String.raw`\n`)
   }
 
-  /**
-   * Gets x,y position coordinates based on text position preset
-   */
   private getTextPosition(position: TextPosition): { x: string; y: string } {
     const positions: Record<TextPosition, { x: string; y: string }> = {
       top: { x: '(w-text_w)/2', y: '50' },
@@ -1685,9 +1844,6 @@ export class VideoAssembler {
     return positions[position] || positions.bottom
   }
 
-  /**
-   * Wraps text to fit within max characters per line
-   */
   private wrapText(text: string, maxCharsPerLine: number): string {
     const words = text.split(' ')
     const lines: string[] = []
@@ -1781,11 +1937,8 @@ export class VideoAssembler {
     fs.writeFileSync(outputPath, assContent)
   }
 
-  /**
-   * Helper to calculate transition overlap duration leading INTO a scene.
-   */
   private getTransitionInDuration(sceneIndex: number, scenes: any[], scenesDir: string): number {
-    return 0.04 // Fixed minimal transition (1 frame at 25fps)
+    return 0.04
   }
 
   /**
@@ -1804,7 +1957,6 @@ export class VideoAssembler {
     const sceneDir = path.join(scenesDir, scene.id)
     const manifestPath = path.join(sceneDir, 'manifest.json')
 
-    // 1. Load Manifest & Metadata
     let sceneImageFilename = 'scene.webp'
     let aspectRatio = '16:9'
     let cameraAction: any
@@ -1835,7 +1987,6 @@ export class VideoAssembler {
     const videoPath = path.join(sceneDir, 'animation.mp4')
     const clipOutputPath = path.join(sceneDir, 'clip.mp4')
 
-    // 2. Timing & Pacing Calculation
     const scriptDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
     const rawDuration = hasGlobalAudio ? scriptDuration : await this.getAudioDuration(audioPath).catch(() => 5)
 
@@ -1859,10 +2010,8 @@ export class VideoAssembler {
     let rawDurationWithPadding = startPadding + rawDuration + endPadding
     if (hasGlobalAudio && sceneIndex > 0) rawDurationWithPadding += transitionInDur
 
-    const FPS = 25
-    const duration = Math.ceil(rawDurationWithPadding * FPS) / FPS
+    const duration = Math.ceil(rawDurationWithPadding * OUTPUT_FPS) / OUTPUT_FPS
 
-    // 3. Visual Generation
     try {
       const keywordVisualsJsonPath = path.join(sceneDir, 'keyword_visuals.json')
       const processedKeywordVisuals: Array<{ imagePath: string; start: number; end: number }> = []
@@ -1884,7 +2033,12 @@ export class VideoAssembler {
         }
       }
 
-      // Launch Visual Engine
+      // ----------------------------------------------------------------
+      // Pass scene index as seed to createStaticClip so identical images
+      // across different scenes get different Ken Burns effects.
+      // ----------------------------------------------------------------
+      const staticSeed = sceneIndex
+
       if (animationMode === 'ai' && fs.existsSync(videoPath)) {
         await this.processAiClip(videoPath, duration, clipOutputPath, aspectRatio, globalOptions.resolution)
       } else if (animationMode === 'static' || animationMode === 'none') {
@@ -1896,7 +2050,8 @@ export class VideoAssembler {
           globalOptions.resolution,
           (scene as any).backgroundColor,
           wordTimings,
-          processedKeywordVisuals
+          processedKeywordVisuals,
+          staticSeed // NEW: pass scene index as seed
         )
       } else if (animationMode === 'composition' && manifestData.layers?.length > 0) {
         const layers = manifestData.layers.map((l: any) => ({ ...l, path: path.join(sceneDir, l.path) }))
@@ -1923,7 +2078,6 @@ export class VideoAssembler {
         )
       }
 
-      // 4. Audio Mixing
       let finalClip = clipOutputPath
       if (fs.existsSync(audioPath) || hasGlobalAudio) {
         const mixedClipPath = path.join(sceneDir, 'clip_mixed.mp4')
@@ -1946,7 +2100,6 @@ export class VideoAssembler {
         finalClip = mixedClipPath
       }
 
-      // 5. ASS Captions
       const useGlobalAss = !!globalOptions.globalAudioPath && globalOptions.assCaptions?.enabled !== false
       const captionsEnabled = globalOptions.assCaptions?.enabled !== false
 

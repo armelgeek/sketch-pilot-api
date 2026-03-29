@@ -1,7 +1,8 @@
 import process from 'node:process'
+import { serve } from '@hono/node-server'
 import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
-import { App } from './app'
 
+import { App } from './app'
 import {
   CharacterModelController,
   ConfigController,
@@ -14,7 +15,6 @@ import {
   VideosController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
-import './utils/polyfills'
 import '@/infrastructure/schedulers'
 
 const app = new App([
@@ -56,7 +56,7 @@ const gracefulShutdown = async (signal: string) => {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 
-const PORT = Bun.env.PORT || 5000
+const PORT = process.env.PORT || 5000
 
 console.info(`
 \u001B[34m╔══════════════════════════════════════════════════════╗
@@ -72,3 +72,8 @@ console.info(`
 `)
 
 export default app
+
+serve({
+  fetch: app.fetch,
+  port: Number(PORT)
+})

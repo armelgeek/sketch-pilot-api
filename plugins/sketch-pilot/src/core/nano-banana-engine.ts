@@ -1,6 +1,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { GoogleGenAI } from '@google/genai'
+
 import axios from 'axios'
 import sharp from 'sharp'
 import { AnimationServiceFactory, type AnimationService, type AnimationServiceConfig } from '../services/animation'
@@ -32,7 +34,9 @@ import { TimingMapper } from '../utils/timing-mapper'
 import { PromptManager, type PromptManagerConfig } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
 import type { SceneMemory } from './scene-memory'
-import '../utils/polyfills'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // Types and Schemas
 export interface SceneDescription {

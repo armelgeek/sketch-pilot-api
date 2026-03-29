@@ -15,6 +15,20 @@
  *   - Exact target per scene instead of "minimum" (GPT-4o obeys targets better)
  *   - Self-validation "wordCount" field injected in JSON schema
  *   - SAFETY_FACTOR raised to 1.2 for non-Kokoro providers
+ *
+ * FIX v3: Retry feedback + per-preset word count floors.
+ *   - buildRetryFeedback(): surgical, scene-specific feedback on each retry attempt
+ *   - Per-preset minimum words: hook ≥ 30, reveal ≥ 60, mirror ≥ 40
+ *   - minWordsOverall replaced with minWordsHook/Reveal/Mirror in prompt + output format
+ *   - Absolute minimum overrides injected in instructions to prevent spec contradictions
+ *
+ * FIX v4: Anti-under-generation — LLM bias toward concision fix.
+ *   - [C] Narrative scaffold slots replacing raw word-count targets per preset
+ *       Each preset now requires filling named content slots (OBSERVATION, EXPLANATION, etc.)
+ *       making it structurally impossible to satisfy the constraint with sparse text.
+ *   - [B] Sentence-count floors as secondary validator (easier to check programmatically)
+ *   - [D] Duration-based retry feedback ("missing ~28s of narration" vs "missing 67 words")
+ *       LLMs have intuitive understanding of spoken duration — far more visceral than word counts.
  */
 
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
@@ -49,10 +63,9 @@ const PROVIDER_WPS: Record<string, number> = {
 }
 
 // Safety factor: how much extra headroom to add on top of the WPS calculation.
-// Kokoro is very predictable; cloud providers have more variance → larger buffer.
 const PROVIDER_SAFETY_FACTOR: Record<string, number> = {
-  kokoro: 1.1, // Measured as highly consistent
-  openai: 1.05, // Measured value with small buffer
+  kokoro: 1.1,
+  openai: 1.05,
   gpt4o: 1.05,
   'gpt-4o': 1.05,
   elevenlabs: 1.15,
@@ -67,6 +80,54 @@ const PACING_FACTORS = {
   medium: 1, // base speed
   slow: 0.8 // ~20% fewer words (breathable, dramatic)
 }
+
+// ─── Per-preset absolute minimum word counts ─────────────────────────────────
+const PRESET_MIN_WORDS = {
+  hook: 30,
+  reveal: 60,
+  mirror: 40
+} as const
+
+// Minimum sentence counts per preset — used both in validation and feedback [B]
+const PRESET_MIN_SENTENCES = {
+  hook: 3,
+  reveal: 5,
+  mirror: 3
+} as const
+
+// ─── [C] Narrative scaffold slots per preset ──────────────────────────────────
+// Each slot MUST be filled with at least 1-2 complete sentences.
+// This makes it structurally impossible to satisfy the constraint with sparse text.
+const PRESET_SCAFFOLD: Record<string, { slots: string[]; description: string }> = {
+  hook: {
+    description: 'Percutant & High Impact opener',
+    slots: [
+      '[HOOK_QUESTION_OR_SHOCK] — A provocative question, surprising fact, or visceral statement that stops the viewer cold.',
+      '[TENSION_BUILD] — Amplify the tension or curiosity. Why should the viewer keep watching?',
+      '[IMPLICIT_PROMISE] — Hint at the revelation or transformation coming. Make them feel they NEED to see what follows.'
+    ]
+  },
+  reveal: {
+    description: 'Detailed Explanation — the intellectual and emotional core of the video',
+    slots: [
+      '[OBSERVATION] — Describe what is happening / what the viewer already recognizes from their own life.',
+      '[EXPLANATION] — Explain WHY it works this way. The underlying mechanism, root cause, or hidden logic.',
+      '[CONCRETE_EXAMPLE] — A specific, sensory, real-world example. Start with "Imagine...", "Picture...", or "Think of the time when...".',
+      '[CONSEQUENCE] — What does this mean for the viewer? What does it cost them, unlock for them, or change?',
+      "[TRANSITION] — A bridging sentence that naturally pulls the viewer toward the next scene's idea."
+    ]
+  },
+  mirror: {
+    description: 'Emotional Recognition — the viewer sees themselves in the message',
+    slots: [
+      '[EMOTIONAL_RECOGNITION] — Name a feeling, situation, or internal experience the viewer has had. Make them feel seen.',
+      '[VALIDATION] — Normalize or validate that experience. They are not alone. This is human.',
+      '[OPENING] — Gently open a door: a reframe, a question, or a possibility that invites them to see things differently.'
+    ]
+  }
+}
+
+type Preset = keyof typeof PRESET_MIN_WORDS
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -87,22 +148,17 @@ export class PromptManager {
 
   // ─── Provider helpers ──────────────────────────────────────────────────────
 
-  /**
-   * Resolve the canonical provider key from an options object.
-   * Falls back to 'kokoro' for backward compatibility.
-   */
   private resolveProvider(options: VideoGenerationOptions): string {
     return (options.audioProvider || 'kokoro').toLowerCase()
   }
 
-  /**
-   * Return the safety factor to apply for a given provider.
-   * Cloud providers get a slightly larger buffer because their pace is less
-   * predictable than the local Kokoro runtime.
-   */
   private getSafetyFactor(options: VideoGenerationOptions): number {
     const provider = this.resolveProvider(options)
     return PROVIDER_SAFETY_FACTOR[provider] ?? DEFAULT_SAFETY_FACTOR
+  }
+
+  public getPublicSafetyFactor(options: VideoGenerationOptions): number {
+    return this.getSafetyFactor(options)
   }
 
   // ─── Character resolution ──────────────────────────────────────────────────
@@ -137,19 +193,7 @@ export class PromptManager {
 
   // ─── Speed & timing ───────────────────────────────────────────────────────
 
-  /**
-   * Calculate words per second based on generation options and specification.
-   *
-   * Priority order:
-   *   1. options.wordsPerMinute (explicit override)
-   *   2. spec.wordsPerSecondFactors[provider] (spec-level override)
-   *   3. spec.wordsPerSecondFactors[lang] (language-level override)
-   *   4. PROVIDER_WPS lookup (calibrated per-provider constant)
-   *   5. spec.wordsPerSecondBase (spec default)
-   *   6. DEFAULT_WPS (global fallback)
-   */
   getWordsPerSecond(options: VideoGenerationOptions): number {
-    // 1. Explicit WPM override
     if (options.wordsPerMinute) {
       return options.wordsPerMinute / 60
     }
@@ -160,28 +204,23 @@ export class PromptManager {
 
     const { wordsPerSecondBase, wordsPerSecondFactors = {} } = spec || {}
 
-    // 2. Spec-level provider override (multiplicative factor on base)
     if (wordsPerSecondFactors[provider] !== undefined && wordsPerSecondBase !== undefined) {
       return wordsPerSecondBase * wordsPerSecondFactors[provider]
     }
 
-    // 3. Spec-level language override
     const langKey = lang.split('-')[0]
     if (wordsPerSecondFactors[langKey] !== undefined && wordsPerSecondBase !== undefined) {
       return wordsPerSecondBase * wordsPerSecondFactors[langKey]
     }
 
-    // 4. Calibrated per-provider constant (most important new lookup)
     if (PROVIDER_WPS[provider] !== undefined) {
       return PROVIDER_WPS[provider]
     }
 
-    // 5. Spec base with no factor
     if (wordsPerSecondBase !== undefined) {
       return wordsPerSecondBase
     }
 
-    // 6. Global fallback
     return DEFAULT_WPS
   }
 
@@ -195,11 +234,154 @@ export class PromptManager {
     return options.duration ?? options.maxDuration ?? options.minDuration ?? 60
   }
 
-  // ─── Script prompt builders ───────────────────────────────────────────────
+  // ─── Per-preset word count helpers ────────────────────────────────────────
+
+  private computePresetTargets(avgWordsPerScene: number): {
+    hook: number
+    reveal: number
+    mirror: number
+  } {
+    return {
+      hook: Math.max(PRESET_MIN_WORDS.hook, Math.round(avgWordsPerScene * 0.7)),
+      reveal: Math.max(PRESET_MIN_WORDS.reveal, Math.round(avgWordsPerScene * 1.3)),
+      mirror: Math.max(PRESET_MIN_WORDS.mirror, Math.round(avgWordsPerScene))
+    }
+  }
+
+  // ─── [C] Scaffold instruction builder ─────────────────────────────────────
 
   /**
-   * Build only the system instructions for script generation.
+   * Build the narrative scaffold instructions for a given preset.
+   * Each slot MUST be filled — this prevents the LLM from satisfying
+   * the constraint with sparse text.
    */
+  private buildScaffoldInstruction(preset: keyof typeof PRESET_SCAFFOLD, wordTarget: number): string {
+    const scaffold = PRESET_SCAFFOLD[preset]
+    const minSentences = PRESET_MIN_SENTENCES[preset as Preset]
+    const minWords = PRESET_MIN_WORDS[preset as Preset]
+
+    const slotList = scaffold.slots.map((slot, i) => `      ${i + 1}. ${slot}`).join('\n')
+
+    return `**${preset.toUpperCase()} preset** — ${scaffold.description}
+    Target: ~${wordTarget} words | Minimum: ${minWords} words / ${minSentences} sentences
+
+    MANDATORY NARRATIVE SLOTS — every slot MUST be filled with at least 1-2 complete sentences.
+    An empty or one-word slot makes this scene INVALID:
+${slotList}
+
+    ⚠️  DO NOT skip any slot. ⚠️  DO NOT merge two slots into one short sentence.
+    Each slot is a distinct narrative beat. Write them all, in order.`
+  }
+
+  // ─── [D] Duration-based retry feedback ────────────────────────────────────
+
+  /**
+   * Build a targeted, surgical feedback message for VideoScriptGenerator retries.
+   *
+   * [D] KEY CHANGE: Deficit is now expressed in seconds of spoken audio, not raw word count.
+   * LLMs have intuitive understanding of what "28 seconds of narration" feels like —
+   * far more visceral than "67 words".
+   */
+  public buildRetryFeedback(
+    validationError: string,
+    attempt: number,
+    scenes: Array<{ preset?: string; narration?: string; wordCount?: number; sceneNumber?: number }> | undefined,
+    targetWords: number,
+    actualWords: number,
+    options?: VideoGenerationOptions
+  ): string {
+    const deficit = targetWords - actualWords
+    const pct = Math.round((actualWords / targetWords) * 100)
+
+    // [D] Duration conversion — use the provider WPS for human-readable feedback
+    const wps = options ? this.getWordsPerSecond(options) : DEFAULT_WPS
+    const targetDuration = Math.round(targetWords / wps)
+    const actualDuration = Math.round(actualWords / wps)
+    const missingSeconds = Math.max(0, targetDuration - actualDuration)
+
+    // ── Identify failing scene numbers from the error string ────────────────
+    const failingSceneNumbers: number[] = []
+    const sceneMatches = validationError.matchAll(/Scene\s+(\d+)/gi)
+    for (const match of sceneMatches) {
+      const n = parseInt(match[1], 10)
+      if (!failingSceneNumbers.includes(n)) failingSceneNumbers.push(n)
+    }
+
+    // ── Build per-scene diagnosis with scaffold slot hints ───────────────────
+    const sceneDiagnoses: string[] = []
+
+    if (failingSceneNumbers.length > 0 && scenes) {
+      for (const sceneNum of failingSceneNumbers) {
+        const scene = scenes.find((s) => (s.sceneNumber ?? 0) === sceneNum) ?? scenes[sceneNum - 1]
+        const preset = (scene?.preset ?? 'mirror') as Preset
+        const currentWords = scene?.wordCount ?? scene?.narration?.trim().split(/\s+/).filter(Boolean).length ?? 0
+        const currentDuration = Math.round(currentWords / wps)
+        const minWords = PRESET_MIN_WORDS[preset]
+        const minSentences = PRESET_MIN_SENTENCES[preset]
+        const targetSceneDuration = Math.round(minWords / wps)
+
+        // Surface which scaffold slots are likely missing
+        const scaffold = PRESET_SCAFFOLD[preset]
+        const missingSlotsHint = scaffold
+          ? `\n      Missing slots likely: ${scaffold.slots
+              .slice(Math.max(0, scaffold.slots.length - 2))
+              .map((s) => s.split('—')[0].trim())
+              .join(', ')}`
+          : ''
+
+        sceneDiagnoses.push(
+          `  • Scene ${sceneNum} (preset: ${preset}):` +
+            `\n      Current: ~${currentWords} words (~${currentDuration}s spoken)` +
+            `\n      Required: ≥${minWords} words (~${targetSceneDuration}s) / ≥${minSentences} sentences` +
+            `\n      Deficit: ~${Math.max(0, targetSceneDuration - currentDuration)} seconds of missing narration${
+              missingSlotsHint
+            }`
+        )
+      }
+    } else if (validationError) {
+      sceneDiagnoses.push(`  Raw validation error: ${validationError}`)
+    }
+
+    const overallShort = actualWords < targetWords * 0.9
+    const expansionTarget = overallShort ? '"reveal" scenes (they carry most of the word budget)' : 'failing scenes'
+
+    return `
+╔══════════════════════════════════════════════════════════════════════╗
+║  🚨 ATTEMPT ${attempt} FAILED — MANDATORY CORRECTIONS BEFORE REGENERATING  ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+SPOKEN DURATION: Your script runs ~${actualDuration}s. It must run ~${targetDuration}s.
+${
+  missingSeconds > 0
+    ? `❌ You are missing ~${missingSeconds} seconds of spoken narration (≈${deficit} words).`
+    : `✅ Total duration is acceptable, but structural rules were violated (see below).`
+}
+
+FAILING SCENES:
+${sceneDiagnoses.join('\n\n')}
+
+MANDATORY RULES FOR THIS RETRY:
+1. Expand ${expansionTarget} significantly — fill ALL their scaffold slots completely.
+2. Every "reveal" MUST contain: [OBSERVATION] + [EXPLANATION] + [CONCRETE_EXAMPLE] + [CONSEQUENCE] + [TRANSITION].
+3. Every "mirror" MUST contain: [EMOTIONAL_RECOGNITION] + [VALIDATION] + [OPENING].
+4. Every "hook" MUST contain: [HOOK_QUESTION_OR_SHOCK] + [TENSION_BUILD] + [IMPLICIT_PROMISE].
+5. Each slot = minimum 1-2 full sentences. A one-word slot is invalid.
+6. "..." counts as punctuation, NOT as a word. Do NOT pad with dots.
+7. DO NOT reproduce the same short narrations. Genuinely rewrite and expand each slot.
+8. After writing each scene, estimate its spoken duration (~${wps.toFixed(1)} words/second) — it must match the target.
+
+EXPANSION TECHNIQUES FOR MISSING SECONDS:
+  - [CONCRETE_EXAMPLE]: "Imagine the feeling of…", "Picture a room where…", "Think of the last time…"
+  - [CONSEQUENCE]: "This matters because…", "The cost of ignoring this is…", "What unlocks when you do this is…"
+  - [TENSION_BUILD]: "But here's what nobody tells you…", "And this is where most people stop…"
+  - [EMOTIONAL_RECOGNITION]: "You've felt this before…", "That quiet voice that says…", "Most people never name this feeling, but…"
+
+Regenerate the COMPLETE script with ALL scenes. Do not truncate.
+`.trim()
+  }
+
+  // ─── Script prompt builders ───────────────────────────────────────────────
+
   async buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any): Promise<string> {
     const spec = this.getEffectiveSpec(options)
     const characterMetadata = await this.resolveCharacterMetadata()
@@ -238,8 +420,28 @@ export class PromptManager {
       Ensure scenes follow a logical progression. Keep environments and actions consistent unless a change is clearly motivated.
 
       Camera Dynamics & Transitions:
-      Camera Dynamics & Transitions:
-      Each scene MUST use a dynamic camera action (e.g., zoom-in, pan-left, zoom-out). To create a professional transition between scenes, the camera motion MUST ACCELERATE towards the end of the scene. This "ending acceleration" creates a natural, high-energy cut to the next scene without the need for traditional transitions. Each scene should feel like a new shot that inherits the momentum of the previous one.
+      Each scene MUST use a dynamic camera action chosen to match the emotional and narrative context of the scene. The camera motion MUST ACCELERATE towards the end of the scene to create a natural, high-energy cut to the next scene without the need for traditional transitions.
+
+      Available cameraAction values and their intended use:
+      — breathing          → Calm / contemplative scenes. Subtle in-out pulse, meditative rhythm.
+      — zoom-in            → Slow zoom for calm, contemplative, or intimate moments.
+      — zoom-out           → Slow pullback for tension rising or context reveal.
+      — pan-right          → Directional storytelling: narrative progression, moving forward in time.
+      — pan-left           → Directional storytelling: flashback, going back in time, reversal.
+      — ken-burns-static   → Static Ken Burns effect for calm, scenic, or reflective moments.
+      — zoom-in-pan-right  → Tension rising combined with forward motion, escalating stakes.
+      — dutch-tilt         → Unease, instability, psychological tension. Tilted frame.
+      — snap-zoom          → Revelation or shock moment. Use snapAtSec (seconds into scene) and peakZoom (e.g. 1.6).
+      — shake              → Action, beat sync, high intensity, physical impact.
+      — zoom-in-pan-down   → Action or beat sync with downward energy, weighted impact.
+
+      CONTEXTUAL SELECTION GUIDE:
+      • Calm / contemplative scene   → breathing, zoom-in (slow), pan-right/left, ken-burns-static
+      • Tension rising               → zoom-in-pan-right, dutch-tilt, zoom-out (slow)
+      • Revelation / shock           → snap-zoom (set snapAtSec:0, peakZoom:1.6)
+      • Action / beat sync           → snap-zoom, shake, zoom-in-pan-down
+      • Narrative progression        → pan-right (forward in story)
+      • Flashback / reversal         → pan-left (going back)
 
       PACING ARC (Density Strategy):
       Distribute the narrative density across the video:
@@ -253,44 +455,70 @@ export class PromptManager {
     const expectedScenes = computeSceneCount(totalDuration)
     const wps = this.getWordsPerSecond(options)
     const safetyFactor = this.getSafetyFactor(options)
-
-    // Target word counts
-    const targetWordCountTotal = Math.round(totalDuration * wps * safetyFactor)
-    const avgWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
-
-    // Flexible Word Count strategy:
-    // Hooks should be percutant; reveals can be slow.
-    // Instead of a hard floor of 50 everywhere:
-    // - Fast scenes: avg * 1.2
-    // - Slow scenes: avg * 0.8
-    const minWordsOverall = Math.max(25, Math.round(avgWordsPerScene * 0.5))
-
-    const secondsPerScene = Math.round(totalDuration / expectedScenes)
     const provider = this.resolveProvider(options)
 
+    const targetWordCountTotal = Math.round(totalDuration * wps * safetyFactor)
+    const avgWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
+    const presetTargets = this.computePresetTargets(avgWordsPerScene)
+
+    const secondsPerScene = Math.round(totalDuration / expectedScenes)
+
+    // [C] Build scaffold instructions for each preset
+    const hookScaffold = this.buildScaffoldInstruction('hook', presetTargets.hook)
+    const revealScaffold = this.buildScaffoldInstruction('reveal', presetTargets.reveal)
+    const mirrorScaffold = this.buildScaffoldInstruction('mirror', presetTargets.mirror)
+
     instructions.push(
-      `## NARRATION PACING — STRATEGIC DISTRIBUTION (provider: ${provider})
- 
-       ### Global Target
+      `## NARRATION PACING — NARRATIVE SCAFFOLD SYSTEM (provider: ${provider})
+
+       ### Why Scaffolds Instead of Word Counts
+       Word count targets alone are ineffective — they are abstract numbers the model can
+       approximate poorly. Instead, each preset requires filling named narrative SLOTS.
+       Each slot is a distinct content beat that MUST be present as 1-2 full sentences.
+       A scene where any slot is empty or merged into a single short sentence is INVALID.
+
+       ### Global Spoken Duration Target
        - Video duration: ${totalDuration}s
        - TTS speed: ${wps.toFixed(2)} words/second
-       - 🎯 TOTAL TARGET: **${targetWordCountTotal} words** total across the script.
- 
-       ### Scene-Level Flexible Targets
-       Narration MUST adapt to the scene "preset" and "pacing":
-       - **HOOK (Preset: hook)**: Percutant & High Impact. Target 3-5 sentences (~${Math.round(avgWordsPerScene * 0.7)} words). Pacing: fast/medium.
-       - **REVEAL (Preset: reveal)**: Detailed Explanation. Target 6-10 sentences (~${Math.round(avgWordsPerScene * 1.3)} words). Pacing: medium/slow.
-       - **MIRROR (Preset: mirror)**: Emotional Recognition. Target 4-6 sentences (~${Math.round(avgWordsPerScene)} words). Pacing: slow.
- 
+       - 🎯 TOTAL TARGET: **~${totalDuration} seconds of spoken audio** (~${targetWordCountTotal} words)
+       - Average per scene: **~${secondsPerScene}s** (~${avgWordsPerScene} words)
+
+       ### Per-Preset Scaffold Requirements
+
+       ${hookScaffold}
+
+       ${revealScaffold}
+
+       ${mirrorScaffold}
+
        ### PACING & BREATHING
-       - **"pacing": "fast" | "medium" | "slow"**: Choose per scene. "slow" implies fewer words but deeper impact.
-       - **"breathingPoints": ["string"]**: Explicitly list where to pause (e.g., "after the second sentence").
+       - **"pacing": "fast" | "medium" | "slow"**: Choose per scene.
+       - **"breathingPoints": ["string"]**: List where to pause (e.g., "after slot 2").
        - Use "..." in narration text for natural short pauses.
- 
-       ### Self-Validation (MANDATORY)
-       1. Sum all "wordCount" fields — the total MUST be within ±10% of **${targetWordCountTotal} words**.
-       2. ELABORATE extensively where needed, but allow percutant hooks to breathe.
-       3. If the total is too low, expand "reveal" scenes significantly. If too high, trim "hook" or "mirror" scenes.`
+
+       ### Self-Validation (MANDATORY — 3 steps before submitting)
+       STEP 1 — Per-scene slot check: For each scene, verify every scaffold slot is filled
+                 with at least 1-2 full sentences. Missing slot = rewrite that scene now.
+       STEP 2 — Per-scene duration estimate: Count your words, divide by ${wps.toFixed(1)}.
+                 Each reveal scene should run ~${Math.round(presetTargets.reveal / wps)}s.
+                 Each mirror scene should run ~${Math.round(presetTargets.mirror / wps)}s.
+                 Each hook scene should run ~${Math.round(presetTargets.hook / wps)}s.
+       STEP 3 — Total duration check: Sum all scenes. Total MUST be ~${totalDuration}s (±10%).
+                 If total is short, expand "reveal" slot [CONCRETE_EXAMPLE] and [CONSEQUENCE] first.`
+    )
+
+    // 4. Absolute minimum overrides — belt AND suspenders
+    instructions.push(
+      `ABSOLUTE MINIMUM NARRATION FLOORS (override any preset or pacing default):
+      These floors are NON-NEGOTIABLE and apply regardless of "pacing" or any spec rule:
+      - "hook" preset:   minimum ${PRESET_MIN_SENTENCES.hook} sentences, minimum ${PRESET_MIN_WORDS.hook} words (~${Math.round(PRESET_MIN_WORDS.hook / wps)}s)
+      - "reveal" preset: minimum ${PRESET_MIN_SENTENCES.reveal} sentences, minimum ${PRESET_MIN_WORDS.reveal} words (~${Math.round(PRESET_MIN_WORDS.reveal / wps)}s)
+      - "mirror" preset: minimum ${PRESET_MIN_SENTENCES.mirror} sentences, minimum ${PRESET_MIN_WORDS.mirror} words (~${Math.round(PRESET_MIN_WORDS.mirror / wps)}s)
+
+      After writing each scene narration:
+      1. COUNT its words
+      2. ESTIMATE its spoken duration (words ÷ ${wps.toFixed(1)})
+      3. If below the floor, FILL the missing scaffold slots — do not proceed to the next scene.`
     )
 
     instructions.push(
@@ -302,6 +530,7 @@ export class PromptManager {
       - Between two contrasting ideas
       Example: "This changes everything... but not in the way you'd expect."`
     )
+
     const fullSpec = {
       ...spec,
       instructions,
@@ -312,9 +541,11 @@ export class PromptManager {
 
     const consolidatedOutputFormat = this.getConsolidatedOutputFormat(
       spec.outputFormat,
-      minWordsOverall,
+      presetTargets,
       targetWordCountTotal,
-      avgWordsPerScene
+      avgWordsPerScene,
+      wps,
+      totalDuration
     )
 
     // 5. Inject Goals, Rules, Context from Spec
@@ -339,24 +570,41 @@ export class PromptManager {
   }
 
   /**
-   * Refines the output format to include global narrative planning, word count
-   * self-validation, and artistic style.
+   * Refines the output format to include spoken duration self-validation,
+   * scaffold slot reminders, and per-preset sentence floors.
+   *
+   * [C+B+D] Combined approach:
+   *   - Scaffold slot reminder in narration field description
+   *   - Sentence count floor in wordCount field description
+   *   - Duration estimate in self-check comment
    */
   private getConsolidatedOutputFormat(
     baseFormat?: string,
-    minWordsOverall?: number,
+    presetTargets?: { hook: number; reveal: number; mirror: number },
     targetWordCountTotal?: number,
-    avgWordsPerScene?: number
+    avgWordsPerScene?: number,
+    wps?: number,
+    totalDuration?: number
   ): string {
     if (!baseFormat || !baseFormat.includes('{')) return baseFormat || ''
+
+    const hook = presetTargets?.hook ?? PRESET_MIN_WORDS.hook
+    const reveal = presetTargets?.reveal ?? PRESET_MIN_WORDS.reveal
+    const mirror = presetTargets?.mirror ?? PRESET_MIN_WORDS.mirror
+    const effectiveWps = wps ?? DEFAULT_WPS
+    const effectiveDuration = totalDuration ?? 60
+
+    const hookDuration = Math.round(hook / effectiveWps)
+    const revealDuration = Math.round(reveal / effectiveWps)
+    const mirrorDuration = Math.round(mirror / effectiveWps)
 
     return `{
       "topic": "string",
       "audience": "string",
       "emotionalArc": ["string"],
       "titles": ["string"],
-      "fullNarration": "string (The complete unbroken script. MUST target exactly ${targetWordCountTotal} words total.)",
-      "totalWordCount": "number (self-reported total word count across ALL scene narrations — MUST be within ±10% of ${targetWordCountTotal})",
+      "fullNarration": "string (The complete unbroken script. Must produce ~${effectiveDuration}s of spoken audio.)",
+      "totalWordCount": "number (self-reported total. Must be within ±10% of ${targetWordCountTotal} words / ~${effectiveDuration}s spoken)",
       "theme": "string",
       "backgroundMusic": "string",
       "scenes": [
@@ -365,11 +613,12 @@ export class PromptManager {
           "id": "string",
           "preset": "hook | reveal | mirror",
           "pacing": "fast | medium | slow",
-          "breathingPoints": ["string (locations where you planned a pause, e.g. 'after sentence 2')"],
-          "narration": "string (The spoken text. Target ~${avgWordsPerScene} words on average, but adapt to pacing. Use '...' for short pauses.)",
-          "wordCount": "number (actual word count, min ${minWordsOverall})",
+          "breathingPoints": ["string (e.g. 'after slot 2', 'after sentence 3')"],
+          "narration": "string — SCAFFOLD REQUIRED. hook: fill [HOOK_QUESTION_OR_SHOCK]+[TENSION_BUILD]+[IMPLICIT_PROMISE] (~${hookDuration}s). reveal: fill [OBSERVATION]+[EXPLANATION]+[CONCRETE_EXAMPLE]+[CONSEQUENCE]+[TRANSITION] (~${revealDuration}s). mirror: fill [EMOTIONAL_RECOGNITION]+[VALIDATION]+[OPENING] (~${mirrorDuration}s). Each slot = 1-2 full sentences minimum. Use '...' for pauses.",
+          "wordCount": "number — hook: min ${PRESET_MIN_WORDS.hook} words/${PRESET_MIN_SENTENCES.hook} sentences. reveal: min ${PRESET_MIN_WORDS.reveal} words/${PRESET_MIN_SENTENCES.reveal} sentences. mirror: min ${PRESET_MIN_WORDS.mirror} words/${PRESET_MIN_SENTENCES.mirror} sentences.",
+          "estimatedDuration": "number (words ÷ ${effectiveWps.toFixed(1)} — spoken seconds for this scene)",
           "summary": "string",
-          "cameraAction": "string (zoom-in | zoom-out | pan-left | pan-right). MUST accelerate at the end.",
+          "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | ken-burns-static | zoom-in-pan-right | dutch-tilt | snap-zoom | shake | zoom-in-pan-down)",
           "imagePrompt": "string (Detailed visual prompt)",
           "animationPrompt": "string"
         }
@@ -387,7 +636,6 @@ export class PromptManager {
     const wordsPerSecond = this.getWordsPerSecond(options)
     const safetyFactor = this.getSafetyFactor(options)
     const targetWordCount = Math.round(effectiveDuration * wordsPerSecond * safetyFactor)
-    const minWordsPerScene = Math.min(150, Math.max(50, Math.round(targetWordCount / targetSceneCount)))
 
     return this.buildUserData({
       subject: topic,
@@ -396,7 +644,9 @@ export class PromptManager {
       audience: (options as any).audience || spec.audienceDefault,
       maxScenes: targetSceneCount,
       language: options.language,
-      minWordCount: targetWordCount
+      targetWordCount,
+      targetDuration: effectiveDuration,
+      wps: wordsPerSecond
     })
   }
 
@@ -412,9 +662,6 @@ export class PromptManager {
 
   // ─── Image prompt builders ────────────────────────────────────────────────
 
-  /**
-   * Build the full system instruction for the image generation model.
-   */
   async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
     const spec = this.spec
     if (!spec) return ''
@@ -491,9 +738,6 @@ export class PromptManager {
     }
   }
 
-  /**
-   * Build animation instructions for a scene.
-   */
   buildAnimationPrompt(scene: EnrichedScene, imageStyle?: { characterDescription?: string }): AnimationPrompt {
     const instructions = scene.animationPrompt || ''
     const movements: AnimationPrompt['movements'] = [
@@ -506,7 +750,7 @@ export class PromptManager {
     return { sceneId: scene.id, instructions, movements }
   }
 
-  // ─── Private Builders (formerly PromptMaker) ──────────────────────────────
+  // ─── Private Builders ──────────────────────────────────────────────────────
 
   private buildSystemInstructions(spec: VideoTypeSpecification): string {
     const sections: string[] = []
@@ -530,22 +774,33 @@ export class PromptManager {
     return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
   }
 
-  private buildUserData(options: PromptMakerOptions & { minWordCount?: number }): string {
+  private buildUserData(
+    options: PromptMakerOptions & { targetWordCount?: number; targetDuration?: number; wps?: number }
+  ): string {
+    const { targetWordCount, targetDuration, wps } = options
+    const effectiveWps = wps ?? DEFAULT_WPS
+
+    const durationBlock =
+      targetWordCount && targetDuration
+        ? [
+            ``,
+            `🎯 SPOKEN DURATION TARGET: **~${targetDuration} seconds** of narration audio`,
+            `   (~${targetWordCount} words at ${effectiveWps.toFixed(1)} words/second)`,
+            ``,
+            `⚠️  This target is non-negotiable — it matches the requested video duration.`,
+            `   Strategy to hit it:`,
+            `   1. Every "reveal" scene MUST fill all 5 scaffold slots fully.`,
+            `   2. After each scene, estimate its duration (words ÷ ${effectiveWps.toFixed(1)}).`,
+            `   3. Check running total before moving to the next scene.`,
+            ``
+          ].join('\n')
+        : ''
+
     const lines = [
       `Subject: ${options.subject}`,
       `Required Duration: ${options.duration}`,
       `Required Scene Count: ${options.maxScenes}`,
-      options.minWordCount
-        ? [
-            ``,
-            `🎯 TOTAL SCRIPT TARGET: **${options.minWordCount} words** across all scenes.`,
-            `⚠️  This target is non-negotiable to match the requested duration.`,
-            `   - Distribute density according to the PACING ARC instructions.`,
-            `   - Use "pacing" and "breathingPoints" to control rhythm.`,
-            `   - No scene should be empty or purely filler.`,
-            ``
-          ].join('\n')
-        : '',
+      durationBlock,
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
       `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION.`
