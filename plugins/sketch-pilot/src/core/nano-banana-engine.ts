@@ -62,6 +62,7 @@ export class NanoBananaEngine {
   private _animationService?: AnimationService
   private _imageService?: ImageService
   private _llmService?: LLMService
+  private readonly outputDir: string
   private currentOptions: VideoGenerationOptions = videoGenerationOptionsSchema.parse({
     aspectRatio: '16:9',
     qualityMode: QualityMode.STANDARD,
@@ -138,10 +139,9 @@ export class NanoBananaEngine {
       }
     })
 
-    // Ensure output directory exists
-    const outputDir = path.join(__dirname, '..', '..', 'output')
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true })
+    this.outputDir = path.join(process.cwd(), 'uploads', 'output')
+    if (!fs.existsSync(this.outputDir)) {
+      fs.mkdirSync(this.outputDir, { recursive: true })
     }
   }
 
@@ -917,7 +917,7 @@ export class NanoBananaEngine {
     // CHARACTER STUDIO (V2 Phase 2): Reference Images
     // ─────────────────────────────────────────────────────────────────────────
     const projectName = projectId || `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
-    const projectDir = path.join(__dirname, '..', '..', 'output', projectName)
+    const projectDir = path.join(this.outputDir, projectName)
     if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true })
 
     // Use all base images collectively for universal references if needed
@@ -1448,6 +1448,9 @@ export class NanoBananaEngine {
         )
         console.log(`\n✅ VIDEO ASSEMBLY COMPLETE: ${finalVideoPath}`)
         if (onProgress) await onProgress(100, 'Video finalized! Saving results...')
+
+        // --- CLEANUP INTERMEDIATE FILES ---
+        await this.cleanupProject(projectDir, 'intermediate')
       } catch (assemblyError) {
         console.error(`\n❌ VIDEO ASSEMBLY FAILED:`, assemblyError)
       }
@@ -1496,8 +1499,7 @@ export class NanoBananaEngine {
           opacity: 1,
           scale: 1
         },
-        minDuration: 100,
-        maxDuration: 120,
+        duration: 120,
         animationMode: 'none',
         aspectRatio: '16:9',
         scriptOnly: false,
@@ -1565,5 +1567,51 @@ export class NanoBananaEngine {
     const cacheSize = Object.keys((this.sceneCache as any).cache).length
     const cacheFile = (this.sceneCache as any).filePath
     return { entries: cacheSize, cacheFile }
+  }
+
+  /**
+   * Final production cleanup.
+   * - 'intermediate': removes scenes and intermediate assembly files, keeps final video/metadata.
+   * - 'full': removes the entire project directory.
+   */
+  private async cleanupProject(projectDir: string, mode: 'intermediate' | 'full' = 'intermediate'): Promise<void> {
+    if (!fs.existsSync(projectDir)) return
+
+    if (mode === 'full') {
+      console.log(`[NanoBanana] 🔥 Purging project directory: ${projectDir}`)
+      fs.rmSync(projectDir, { recursive: true, force: true })
+      return
+    }
+
+    console.log(`[NanoBanana] 🧹 Cleaning up intermediate artifacts in: ${projectDir}`)
+
+    // 1. Delete scenes directory
+    const scenesDir = path.join(projectDir, 'scenes')
+    if (fs.existsSync(scenesDir)) {
+      fs.rmSync(scenesDir, { recursive: true, force: true })
+    }
+
+    // 2. Delete intermediate root files (concatenations, unpolished versions, etc.)
+    const rootFiles = fs.readdirSync(projectDir)
+    const filesToDelete = rootFiles.filter((file) => {
+      // Keep only these files
+      const toKeep = ['final_video.mp4', 'script.json', 'script.md', 'metadata.json', 'subtitles.srt']
+      return !toKeep.includes(file)
+    })
+
+    for (const file of filesToDelete) {
+      const filePath = path.join(projectDir, file)
+      if (fs.statSync(filePath).isFile()) {
+        fs.unlinkSync(filePath)
+      }
+    }
+  }
+
+  /**
+   * Public API to manually purge a project (e.g., on cancellation)
+   */
+  public async purgeProject(projectId: string): Promise<void> {
+    const projectDir = path.join(this.outputDir, projectId)
+    await this.cleanupProject(projectDir, 'full')
   }
 }

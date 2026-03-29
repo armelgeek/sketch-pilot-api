@@ -66,11 +66,11 @@ export class GenerateScriptFromTitleUseCase extends IUseCase<
         metadata: { planConsumed, extraConsumed, title, options }
       })
 
-      // 3. Generate script using OpenAI
-      const apiKey = process.env.OPENAI_API_KEY || ''
-      if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
+      // 3. Generate script using Gemini
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
+      if (!apiKey) throw new Error('GEMINI_API_KEY is not configured')
 
-      const llm = await LLMServiceFactory.create({ provider: 'openai', apiKey })
+      const llm = await LLMServiceFactory.create({ provider: 'gemini', apiKey })
 
       const videoDuration = options?.duration || 60
       const pointCount =

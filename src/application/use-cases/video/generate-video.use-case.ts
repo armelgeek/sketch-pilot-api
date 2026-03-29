@@ -27,7 +27,7 @@ type GenerateVideoResponse = {
 /** Map VideoGenerationOptions to the flat VideoJobData.options shape. */
 function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any): VideoJobData['options'] {
   return {
-    duration: options.maxDuration,
+    duration: options.duration,
     sceneCount: options.sceneCount,
     language: options.language,
     voiceProvider: options.audioProvider,
@@ -58,11 +58,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
       const spec = await promptService.resolveSpec(options.promptId)
 
       // 2. Build options using the schema for validation and transformation
-      const targetDuration = (options as any).duration || options.maxDuration
       const videoOptions = videoGenerationOptionsSchema.parse({
         ...options,
-        minDuration: targetDuration,
-        maxDuration: targetDuration,
         customSpec: spec
       })
 

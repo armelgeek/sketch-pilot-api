@@ -2,9 +2,7 @@ import { z } from '@hono/zod-openapi'
 
 export const VideoOptionsSchema = z
   .object({
-    duration: z.number().optional().openapi({ example: 30, description: 'Target duration in seconds' }),
-    maxDuration: z.number().optional().openapi({ example: 60, description: 'Maximum total duration in seconds' }),
-    minDuration: z.number().optional().openapi({ example: 30, description: 'Minimum total duration in seconds' }),
+    duration: z.number().optional().openapi({ example: 60, description: 'Target duration in seconds' }),
     sceneCount: z.number().optional().openapi({ example: 5, description: 'Number of scenes' }),
     language: z.string().optional().openapi({ example: 'en-US', description: 'Language code' }),
     imageProvider: z

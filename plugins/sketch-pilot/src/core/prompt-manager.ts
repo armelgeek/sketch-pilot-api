@@ -53,7 +53,7 @@ export interface PromptManagerConfig {
 // Words per second measured at default speed / pitch.
 // Adjust these if you measure different real-world values.
 const PROVIDER_WPS: Record<string, number> = {
-  kokoro: 2.45, // Kokoro local TTS @ speed 1.0 — measured
+  kokoro: 2.45, // Reverted to real-world measured speed
   openai: 2.37, // GPT-4o TTS measured
   gpt4o: 2.37, // alias
   'gpt-4o': 2.37, // alias
@@ -64,8 +64,8 @@ const PROVIDER_WPS: Record<string, number> = {
 
 // Safety factor: how much extra headroom to add on top of the WPS calculation.
 const PROVIDER_SAFETY_FACTOR: Record<string, number> = {
-  kokoro: 1.1,
-  openai: 1.05,
+  kokoro: 1.05, // Added 5% margin for breathing room
+  openai: 1, // Was 1.05
   gpt4o: 1.05,
   'gpt-4o': 1.05,
   elevenlabs: 1.15,
@@ -231,7 +231,7 @@ export class PromptManager {
   }
 
   public getEffectiveDuration(options: VideoGenerationOptions): number {
-    return options.duration ?? options.maxDuration ?? options.minDuration ?? 60
+    return options.duration
   }
 
   // ─── Per-preset word count helpers ────────────────────────────────────────
@@ -343,7 +343,26 @@ ${slotList}
     }
 
     const overallShort = actualWords < targetWords * 0.9
+    const overallLong = actualWords > targetWords * 1.12
     const expansionTarget = overallShort ? '"reveal" scenes (they carry most of the word budget)' : 'failing scenes'
+    const truncationTarget = overallLong ? 'every scene by merging slots or removing filler' : 'overly long scenes'
+
+    const mandatoryRules = [
+      `1. ${overallLong ? `TRIM ${truncationTarget} significantly` : `Expand ${expansionTarget} significantly`} — fill ALL their scaffold slots completely but concisely.`,
+      `2. Every "reveal" MUST contain: [OBSERVATION] + [EXPLANATION] + [CONCRETE_EXAMPLE] + [CONSEQUENCE] + [TRANSITION].`,
+      `3. Every "mirror" MUST contain: [EMOTIONAL_RECOGNITION] + [VALIDATION] + [OPENING].`,
+      `4. Every "hook" MUST contain: [HOOK_QUESTION_OR_SHOCK] + [TENSION_BUILD] + [IMPLICIT_PROMISE].`,
+      `5. Each slot = ${overallLong ? 'exactly 1' : 'minimum 1-2'} full sentences. A one-word slot is invalid.`,
+      `6. "..." counts as punctuation, NOT as a word. Do NOT pad with dots.`,
+      `7. ${overallLong ? 'DENSE & PUNCHY: Use fewer words to say more. Avoid flowery language.' : 'DO NOT reproduce the same short narrations. Genuinely rewrite and expand each slot.'}`,
+      `8. After writing each scene, estimate its spoken duration (~${wps.toFixed(1)} words/second) — it must match the target.`
+    ]
+
+    if (validationError.includes('NARRATIVE INCONSISTENCY')) {
+      mandatoryRules.push(
+        `9. ⚠️ ALIGNMENT: Your 'fullNarration' and the sum of 'scenes' MUST be identical text. No discrepancies allowed.`
+      )
+    }
 
     return `
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -354,25 +373,20 @@ SPOKEN DURATION: Your script runs ~${actualDuration}s. It must run ~${targetDura
 ${
   missingSeconds > 0
     ? `❌ You are missing ~${missingSeconds} seconds of spoken narration (≈${deficit} words).`
-    : `✅ Total duration is acceptable, but structural rules were violated (see below).`
+    : actualWords > targetWords * 1.15
+      ? `❌ Your script is ~${actualDuration - targetDuration}s TOO LONG (≈${actualWords - targetWords} extra words).`
+      : `✅ Total duration is acceptable, but structural rules were violated (see below).`
 }
 
 FAILING SCENES:
 ${sceneDiagnoses.join('\n\n')}
 
 MANDATORY RULES FOR THIS RETRY:
-1. Expand ${expansionTarget} significantly — fill ALL their scaffold slots completely.
-2. Every "reveal" MUST contain: [OBSERVATION] + [EXPLANATION] + [CONCRETE_EXAMPLE] + [CONSEQUENCE] + [TRANSITION].
-3. Every "mirror" MUST contain: [EMOTIONAL_RECOGNITION] + [VALIDATION] + [OPENING].
-4. Every "hook" MUST contain: [HOOK_QUESTION_OR_SHOCK] + [TENSION_BUILD] + [IMPLICIT_PROMISE].
-5. Each slot = minimum 1-2 full sentences. A one-word slot is invalid.
-6. "..." counts as punctuation, NOT as a word. Do NOT pad with dots.
-7. DO NOT reproduce the same short narrations. Genuinely rewrite and expand each slot.
-8. After writing each scene, estimate its spoken duration (~${wps.toFixed(1)} words/second) — it must match the target.
+${mandatoryRules.join('\n')}
 
-EXPANSION TECHNIQUES FOR MISSING SECONDS:
+EXPANSION/TRIMMING TECHNIQUES:
   - [CONCRETE_EXAMPLE]: "Imagine the feeling of…", "Picture a room where…", "Think of the last time…"
-  - [CONSEQUENCE]: "This matters because…", "The cost of ignoring this is…", "What unlocks when you do this is…"
+  - [PUNCHY_TIP]: If too long, remove adverbs and redundant adjectives. Combine slots into single, dense sentences.
   - [TENSION_BUILD]: "But here's what nobody tells you…", "And this is where most people stop…"
   - [EMOTIONAL_RECOGNITION]: "You've felt this before…", "That quiet voice that says…", "Most people never name this feeling, but…"
 
@@ -382,7 +396,7 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
 
   // ─── Script prompt builders ───────────────────────────────────────────────
 
-  async buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any): Promise<string> {
+  async buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any, targetWords?: number): Promise<string> {
     const spec = this.getEffectiveSpec(options)
     const characterMetadata = await this.resolveCharacterMetadata()
     const instructions = [...(spec.instructions || [])]
@@ -410,6 +424,8 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
       Narration style:
       Use clear, simple, and direct language. Keep explanations easy to understand, focusing on clarity over complexity.
       — Sentences MUST be pleasant to read aloud: well-rhythmed, clear, and breathable. Write for the ear, not the eye.
+      — FAVOR SHORT, PUNCHY SENTENCES. Avoid long, complex clauses that leave the speaker breathless.
+      — INSERT NATURAL PAUSES: Use "..." between distinct ideas to force the TTS to breathe.
       — The script MUST NOT resemble an article, an essay, a sermon, or an academic text. It is a spoken video voiceover.
       — Absolutely avoid robotic phrasing, unnecessary repetition, flat or filler sentences, vague generalities, and AI-sounding formulations.
       — Every phrase must feel human-crafted: as if a compelling speaker is talking directly to a person, not reading a summary.
@@ -457,7 +473,7 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
     const safetyFactor = this.getSafetyFactor(options)
     const provider = this.resolveProvider(options)
 
-    const targetWordCountTotal = Math.round(totalDuration * wps * safetyFactor)
+    const targetWordCountTotal = targetWords ?? Math.round(totalDuration * wps * safetyFactor)
     const avgWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
     const presetTargets = this.computePresetTargets(avgWordsPerScene)
 
@@ -481,6 +497,7 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
        - Video duration: ${totalDuration}s
        - TTS speed: ${wps.toFixed(2)} words/second
        - 🎯 TOTAL TARGET: **~${totalDuration} seconds of spoken audio** (~${targetWordCountTotal} words)
+       - ⚠️ MAXIMUM ALLOWED: **${Math.round(targetWordCountTotal * 1.15)} words**. Excess text will be REJECTED.
        - Average per scene: **~${secondsPerScene}s** (~${avgWordsPerScene} words)
 
        ### Per-Preset Scaffold Requirements
@@ -540,7 +557,7 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
     }
 
     const consolidatedOutputFormat = this.getConsolidatedOutputFormat(
-      spec.outputFormat,
+      undefined,
       presetTargets,
       targetWordCountTotal,
       avgWordsPerScene,
@@ -560,8 +577,10 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
       '---',
       this.buildSystemInstructions({
         ...fullSpec,
+        targetDuration: totalDuration,
+        targetWordCount: targetWordCountTotal,
         outputFormat: consolidatedOutputFormat
-      })
+      } as any)
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -579,14 +598,15 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
    *   - Duration estimate in self-check comment
    */
   private getConsolidatedOutputFormat(
-    baseFormat?: string,
+    _unused_baseFormat?: string,
     presetTargets?: { hook: number; reveal: number; mirror: number },
     targetWordCountTotal?: number,
     avgWordsPerScene?: number,
     wps?: number,
     totalDuration?: number
   ): string {
-    if (!baseFormat || !baseFormat.includes('{')) return baseFormat || ''
+    // We ignore the baseFormat (legacy from DB/Spec) and always return the consolidated version
+    // to ensure perfect synchronization with the current engine logic.
 
     const hook = presetTargets?.hook ?? PRESET_MIN_WORDS.hook
     const reveal = presetTargets?.reveal ?? PRESET_MIN_WORDS.reveal
@@ -629,13 +649,13 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
   /**
    * Build only the user data part for script generation.
    */
-  buildScriptUserPrompt(topic: string, options: VideoGenerationOptions): string {
+  buildScriptUserPrompt(topic: string, options: VideoGenerationOptions, targetWords?: number): string {
     const spec = this.getEffectiveSpec(options)
     const effectiveDuration = this.getEffectiveDuration(options)
     const targetSceneCount = options.sceneCount ?? computeSceneCount(effectiveDuration)
     const wordsPerSecond = this.getWordsPerSecond(options)
     const safetyFactor = this.getSafetyFactor(options)
-    const targetWordCount = Math.round(effectiveDuration * wordsPerSecond * safetyFactor)
+    const targetWordCount = targetWords ?? Math.round(effectiveDuration * wordsPerSecond * safetyFactor)
 
     return this.buildUserData({
       subject: topic,
@@ -652,11 +672,12 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
 
   async buildScriptGenerationPrompts(
     topic: string,
-    options: VideoGenerationOptions
+    options: VideoGenerationOptions,
+    targetWords?: number
   ): Promise<{ systemPrompt: string; userPrompt: string }> {
     return {
-      systemPrompt: await this.buildScriptSystemPrompt(options),
-      userPrompt: this.buildScriptUserPrompt(topic, options)
+      systemPrompt: await this.buildScriptSystemPrompt(options, targetWords),
+      userPrompt: this.buildScriptUserPrompt(topic, options, targetWords)
     }
   }
 
@@ -757,6 +778,11 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
 
     if (spec.role) sections.push(`## ROLE\n${spec.role}`)
     if (spec.context) sections.push(`## CONTEXT\n${spec.context}`)
+    if ((spec as any).targetDuration) {
+      sections.push(
+        `## DURATION\nTarget: ${(spec as any).targetDuration} seconds\nWord Count: ${(spec as any).targetWordCount ?? 'approx 135'} words`
+      )
+    }
     if (spec.task) sections.push(`## TASK\n${spec.task}`)
     if (spec.goals?.length) sections.push(`## GOALS\n${spec.goals.map((g) => `- ${g}`).join('\n')}`)
     if (spec.structure) sections.push(`## STRUCTURE\n${spec.structure}`)
@@ -800,10 +826,12 @@ Regenerate the COMPLETE script with ALL scenes. Do not truncate.
       `Subject: ${options.subject}`,
       `Required Duration: ${options.duration}`,
       `Required Scene Count: ${options.maxScenes}`,
-      durationBlock,
       `Aspect Ratio: ${options.aspectRatio}`,
       `Audience: ${options.audience}`,
-      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION.`
+      `Target Language: ${options.language || 'English'} — Generate ALL text content in this language WITHOUT EXCEPTION.`,
+      '',
+      '---',
+      durationBlock
     ]
 
     return lines.filter(Boolean).join('\n')

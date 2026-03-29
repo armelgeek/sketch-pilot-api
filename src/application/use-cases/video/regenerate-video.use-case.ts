@@ -28,7 +28,7 @@ type RegenerateVideoResponse = {
 /** Map VideoGenerationOptions to the flat VideoJobData.options shape. */
 function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any): VideoJobData['options'] {
   return {
-    duration: options.maxDuration,
+    duration: options.duration,
     sceneCount: options.sceneCount,
     language: options.language,
     voiceProvider: options.audioProvider,

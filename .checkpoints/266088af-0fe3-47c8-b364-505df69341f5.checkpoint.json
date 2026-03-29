@@ -7,8 +7,8 @@
     "narration_generation": { "name": "narration_generation", "completed": false },
     "video_assembly": { "name": "video_assembly", "completed": false },
     "upload": { "name": "upload", "completed": false },
-    "completed": { "name": "completed", "completed": true, "completedAt": "2026-03-29T05:35:57.048Z" }
+    "completed": { "name": "completed", "completed": true, "completedAt": "2026-03-29T05:54:37.593Z" }
   },
   "createdAt": "2026-03-28T18:59:39.603Z",
-  "updatedAt": "2026-03-29T05:35:57.048Z"
+  "updatedAt": "2026-03-29T05:54:37.593Z"
 }

@@ -62,7 +62,7 @@ export class VideoScriptGenerator {
     }, 0)
 
     if (actualTotal < 1) {
-      const fallback = options.minDuration ?? options.maxDuration ?? 1
+      const fallback = options.duration
       console.warn(`[VideoScriptGen] computed totalDuration ${actualTotal} is invalid; falling back to ${fallback}`)
       actualTotal = Math.max(fallback, 1)
     }
@@ -109,9 +109,18 @@ export class VideoScriptGenerator {
     scenes: RawScene[]
     backgroundMusic?: string
   }> {
-    const { systemPrompt, userPrompt } = await this.promptManager.buildScriptGenerationPrompts(topic, options)
+    const effectiveDuration = this.promptManager.getEffectiveDuration(options)
+    const wps = this.promptManager.getWordsPerSecond(options)
+    const safetyFactor = this.promptManager.getPublicSafetyFactor(options)
+    const targetWords = Math.round(effectiveDuration * wps * safetyFactor)
 
-    console.log(`[VideoScriptGen] Calling LLM for structure...`)
+    const { systemPrompt, userPrompt } = await this.promptManager.buildScriptGenerationPrompts(
+      topic,
+      options,
+      targetWords
+    )
+
+    console.log(`[VideoScriptGen] Calling LLM for structure (Target: ${targetWords} words)...`)
 
     const MAX_RETRIES = 5
     let latestParsed: any = null
@@ -140,20 +149,13 @@ export class VideoScriptGenerator {
         }
 
         // --- BREVITY CHECK ---
-        const effectiveDuration = this.promptManager.getEffectiveDuration(options)
-        const wps = this.promptManager.getWordsPerSecond(options)
-        const REAL_TTS_WPS = wps
-        // Use the provider-aware safety factor (e.g. 1.05 for Gemini, 1.15 for Kokoro)
-        const SAFETY_FACTOR = this.promptManager.getPublicSafetyFactor(options)
-        const targetWords = Math.round(effectiveDuration * REAL_TTS_WPS * SAFETY_FACTOR)
-        const minSentencesPerScene = 3
-
         const actualWords = parsed.scenes.reduce(
           (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
           0
         )
 
         const minWordsPerScene = Math.min(150, Math.floor(targetWords / (parsed.scenes.length || 1)))
+        const minSentencesPerScene = minWordsPerScene < 45 ? 2 : 3
 
         console.log(
           `[VideoScriptGen] [VAL_DEBUG] scenes_count=${parsed.scenes.length}, actual_words=${actualWords}, target_words=${targetWords}, min_words/scene=${minWordsPerScene}`
@@ -186,20 +188,45 @@ export class VideoScriptGenerator {
           }
         }
 
-        // 2. Validate total word count
+        // 2. Validate total word count & consistency
         // Thresholds are relaxed vs OpenAI because Gemini tends to be more concise.
-        // The goal is catching egregiously short scripts, not micro-optimising density.
+        // The goal is catching egregiously short or long scripts, and ensuring consistency.
         let totalThreshold = 0.75
+        const totalUpperBound = 1.15 // Max 15% over-generation allowed
         if (effectiveDuration > 300) totalThreshold = 0.65
         else if (effectiveDuration > 60) totalThreshold = 0.7
 
-        if (actualWords < targetWords * totalThreshold && effectiveDuration > 30) {
+        const fullNarrationWords = (parsed.fullNarration || '').trim().split(/\s+/).filter(Boolean).length
+
+        console.log(
+          `[VideoScriptGen] [VAL_DEBUG] scenes_count=${parsed.scenes.length}, actual_words=${actualWords}, full_narration_words=${fullNarrationWords}, target_words=${targetWords}, min_words/scene=${minWordsPerScene}`
+        )
+
+        // A. Check for under-generation
+        if (actualWords < targetWords * totalThreshold && effectiveDuration >= 30) {
           const errorMsg = `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${Math.round(targetWords * totalThreshold)} words total. PLEASE ELABORATE extensively on every scene.`
           console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
           throw new Error(errorMsg)
         }
 
+        // B. Check for over-generation (to prevent rushed audio/visual sync)
+        if (actualWords > targetWords * totalUpperBound && effectiveDuration >= 30) {
+          const errorMsg = `TOTAL NARRATION TOO LONG: The script has ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, the maximum allowed is ${Math.round(targetWords * totalUpperBound)} words. PLEASE TRIM and CONDENSE your narration significantly.`
+          console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
+          throw new Error(errorMsg)
+        }
+
+        // C. Check for consistency between global narration and individual scenes
+        // If there's a > 5% mismatch, the script is likely broken or hallucinated.
+        const drift = Math.abs(actualWords - fullNarrationWords)
+        if (drift > actualWords * 0.05 && fullNarrationWords > 0) {
+          const errorMsg = `NARRATIVE INCONSISTENCY: The 'fullNarration' (${fullNarrationWords} words) does not match the sum of your scene narrations (${actualWords} words). Please ensure they are identical.`
+          console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
+          throw new Error(errorMsg)
+        }
+
         console.log(`[VideoScriptGen] ✓ Script accepted: ${actualWords}/${targetWords} words.`)
+
         latestParsed = parsed
         break
       } catch (error: unknown) {
@@ -360,7 +387,7 @@ export class VideoScriptGenerator {
    * falls outside [minDuration, maxDuration].
    */
   public assignTimeRanges(scenes: RawScene[], options: VideoGenerationOptions): RawScene[] {
-    const targetTotal = options.duration ?? options.maxDuration ?? 30
+    const targetTotal = options.duration
     const maxScene = typeof options.maxSceneDuration === 'number' ? options.maxSceneDuration : Number.POSITIVE_INFINITY
     const minScene = MIN_SCENE_DURATION
     const overlap = options.audioOverlap ?? 0
@@ -397,11 +424,9 @@ export class VideoScriptGenerator {
     // Rescale if outside bounds
     const lastScene = scenes.at(-1)
     const total = lastScene ? lastScene.timeRange.end : 0
-    const minDuration = options.minDuration ?? options.duration ?? targetTotal
-    const maxDuration = options.maxDuration ?? options.duration ?? targetTotal
 
-    if (total < minDuration || total > maxDuration) {
-      const desired = total < minDuration ? minDuration : maxDuration
+    if (Math.abs(total - options.duration) > 0.1) {
+      const desired = options.duration
       const currentDurations = scenes.map((s) => s.timeRange.end - s.timeRange.start)
       const scaled = this.buildWeightedDurations(
         scenes.length,

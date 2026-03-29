@@ -1,4 +1,5 @@
 /* eslint-disable import/first */
+/* eslint-disable no-console */
 
 import process from 'node:process'
 

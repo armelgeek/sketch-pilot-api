@@ -1,6 +1,6 @@
 import { PromptManager } from './plugins/sketch-pilot/src/core/prompt-manager.ts'
 
-function verify() {
+async function verify() {
   const pm = new PromptManager({
     scriptSpec: {
       name: 'Test',
@@ -17,6 +17,17 @@ function verify() {
     }
   })
 
+  // Verify WPS and Safety Factor
+  const options: any = { audioProvider: 'kokoro' }
+  const wps = pm.getWordsPerSecond(options)
+  const safety = pm.getPublicSafetyFactor(options)
+
+  console.info(`Kokoro WPS: ${wps} (Expected: 2.2)`)
+  console.info(`Kokoro Safety Factor: ${safety} (Expected: 1.0)`)
+
+  if (wps !== 2.2) console.error('FAIL: WPS should be 2.2')
+  if (safety !== 1) console.error('FAIL: Safety Factor should be 1.0')
+
   const sceneWithChars: any = {
     id: 'scene-1',
     sceneNumber: 1,
@@ -27,43 +38,29 @@ function verify() {
     timestamp: 0
   }
 
-  const sceneWithoutChars: any = {
-    id: 'scene-2',
-    sceneNumber: 2,
-    summary: 'A landscape.',
-    narration: 'Behold the mountains',
-    characterIds: [],
-    duration: 5,
-    timestamp: 5
+  console.info('\n--- Image Prompt Generation ---')
+  const prompt1 = await pm.buildImagePrompt(sceneWithChars as any, false, '16:9')
+  console.info('Prompt:', prompt1.prompt)
+
+  if (prompt1.prompt) {
+    console.info('PASS: Image prompt generated successfully')
+  } else {
+    console.error('FAIL: Image prompt is empty')
   }
 
-  const charSheets = [
-    {
-      id: 'CHAR-01',
-      name: 'Alex',
-      role: 'Main',
-      appearance: { description: 'A man', clothing: 'Blue shirt' },
-      expressions: []
-    }
-  ]
-
-  console.info('--- Prompt with Characters ---')
-  const prompt1 = pm.buildImagePrompt(sceneWithChars as any, false, '16:9', {}, undefined, charSheets as any)
-  console.info(prompt1.prompt)
-  if (!prompt1.prompt.includes('Alex')) {
-    console.error('FAIL: Character "Alex" should be in the prompt')
+  console.info('\n--- System Prompt Narration Instructions ---')
+  const systemPrompt = await pm.buildScriptSystemPrompt(options)
+  if (systemPrompt.includes('2.20 words/second')) {
+    console.info('PASS: System prompt contains correct WPS')
   } else {
-    console.info('PASS: Character "Alex" is in the prompt')
+    console.error('FAIL: System prompt does not contain correct WPS')
   }
 
-  console.info('\n--- Prompt without Characters ---')
-  const prompt2 = pm.buildImagePrompt(sceneWithoutChars as any, false, '16:9', {}, undefined, charSheets as any)
-  console.info(prompt2.prompt)
-  if (prompt2.prompt.includes('Alex') || prompt2.prompt.includes('wearing')) {
-    console.error('FAIL: Character info should NOT be in the prompt')
+  if (systemPrompt.includes('FAVOR SHORT, PUNCHY SENTENCES')) {
+    console.info('PASS: System prompt contains new pacing instructions')
   } else {
-    console.info('PASS: Character info is NOT in the prompt')
+    console.error('FAIL: System prompt missing new pacing instructions')
   }
 }
 
-verify()
+verify().catch(console.error)

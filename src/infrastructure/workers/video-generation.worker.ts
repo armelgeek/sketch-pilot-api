@@ -181,7 +181,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     const storedOptions = (videoRecord.options as any) || {}
     const genOptions: Record<string, any> = {
       ...options,
-      maxDuration: options.duration || storedOptions.maxDuration || DEFAULT_VIDEO_DURATION,
+      duration: options.duration || storedOptions.duration || DEFAULT_VIDEO_DURATION,
       sceneCount: options.sceneCount || storedOptions.sceneCount || 6,
       language: options.language || storedOptions.language || 'en',
       llmProvider: options.llmProvider || storedOptions.llmProvider || 'gemini',

@@ -107,7 +107,7 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
         videoId,
         topic: video.topic,
         options: {
-          duration: videoOptions.maxDuration,
+          duration: videoOptions.duration,
           sceneCount: videoOptions.sceneCount,
           videoType: videoOptions.videoType,
           videoGenre: videoOptions.videoGenre,

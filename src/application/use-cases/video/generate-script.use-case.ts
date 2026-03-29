@@ -87,7 +87,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         videoId,
         metadata: {
           sceneCount: script.scenes?.length ?? 0,
-          estimatedDuration: script.totalDuration ?? options.maxDuration ?? 60,
+          estimatedDuration: script.totalDuration ?? options.duration ?? 60,
           language: options.language ?? 'en'
         }
       }

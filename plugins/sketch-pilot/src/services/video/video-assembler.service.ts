@@ -53,7 +53,7 @@ export class VideoAssembler {
   private ambientService: AmbientService
 
   constructor() {
-    this.outputDir = path.join(process.cwd(), 'output')
+    this.outputDir = path.join(process.cwd(), 'uploads', 'output')
     this.musicService = new MusicService()
     this.sfxService = new SFXService()
     this.ambientService = new AmbientService()
@@ -472,7 +472,7 @@ export class VideoAssembler {
     let cumulativeTime = 0
 
     for (const scene of script.scenes) {
-      const sceneDir = path.join(process.cwd(), 'output', 'scenes', scene.id)
+      const sceneDir = path.join(process.cwd(), 'uploads', 'output', 'scenes', scene.id)
       const manifestPath = path.join(sceneDir, 'manifest.json')
 
       if (fs.existsSync(manifestPath)) {
@@ -1539,7 +1539,7 @@ export class VideoAssembler {
     clips: string[],
     outputPath: string,
     transitions: (string | undefined)[] = [],
-    audioOverlap: number = 0.3
+    audioOverlap: number = 0.1
   ): Promise<string> {
     if (clips.length === 0) throw new Error('No clips to stitch')
     if (clips.length === 1) {

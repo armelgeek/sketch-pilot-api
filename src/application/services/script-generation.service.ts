@@ -20,7 +20,6 @@ export type { ScriptValidationResult }
 
 export interface GenerateScriptOptions {
   duration?: number
-  maxDuration?: number
   sceneCount?: number
   language?: string
   qualityMode?: string
@@ -40,7 +39,7 @@ export class ScriptGenerationService {
    * Does not consume video credits — script-only operation.
    */
   async generateScript(topic: string, options: GenerateScriptOptions = {}): Promise<CompleteVideoScript> {
-    const provider = (options.llmProvider as LLMServiceConfig['provider']) || 'openai'
+    const provider = (options.llmProvider as LLMServiceConfig['provider']) || 'gemini'
     const apiKey =
       provider === 'openai'
         ? process.env.OPENAI_API_KEY
@@ -59,11 +58,10 @@ export class ScriptGenerationService {
     // 1. Resolve Spec from DB by promptId
     const spec = await this.promptService.resolveSpec(options.promptId)
 
-    // 2. Build options using the schema for validation and transformation (handles dynamic scene count, duration mapping, etc.)
-    const targetDuration = options.duration || options.maxDuration
+    // 2. Build options using the schema for validation and transformation
+    const targetDuration = options.duration ?? 60
     const genOptions = videoGenerationOptionsSchema.parse({
-      minDuration: targetDuration,
-      maxDuration: targetDuration,
+      duration: targetDuration,
       sceneCount: options.sceneCount,
       language: options.language,
       aspectRatio: options.aspectRatio,

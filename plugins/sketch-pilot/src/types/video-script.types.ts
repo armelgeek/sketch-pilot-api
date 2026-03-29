@@ -459,8 +459,7 @@ export type PromptSections = z.infer<typeof promptSectionsSchema>
  */
 export const videoGenerationOptionsSchema = z
   .object({
-    minDuration: z.number().min(1).optional().describe('Minimum total duration in seconds'),
-    maxDuration: z.number().min(1).default(30).describe('Maximum total duration in seconds'),
+    duration: z.number().min(1).default(60).describe('Total video duration in seconds'),
     userId: z.string().optional().describe('The ID of the user generating the video'),
     characterModelId: z.string().optional().describe('The ID of the character model to use as a visual reference'),
     sceneCount: z
@@ -536,7 +535,7 @@ export const videoGenerationOptionsSchema = z
       .number()
       .min(0)
       .max(2)
-      .default(0.3)
+      .default(0.1)
       .describe('Overlap duration between scenes for audio acrossfade (in seconds)'),
     globalAudioPath: z.string().optional().describe('Path to a pre-generated global audio file'),
     scriptOnly: z
@@ -605,22 +604,11 @@ export const videoGenerationOptionsSchema = z
       .describe('Configuration for the visual style of generated image prompts')
   })
   .transform((opts) => {
-    // Determine the effective range for the video duration
-    const targetDur = opts.maxDuration ?? opts.minDuration ?? 30
-    const minDur = opts.minDuration ?? targetDur
-    const maxDur = opts.maxDuration ?? targetDur
-
-    if (minDur > maxDur) {
-      throw new Error('minDuration cannot be greater than maxDuration')
-    }
-    // For downstream compatibility we keep `duration` set to the target
-
     return {
       ...opts,
-      duration: targetDur,
-      minDuration: minDur,
-      maxDuration: maxDur,
-      sceneCount: opts.sceneCount ?? computeSceneCount(targetDur),
+      sceneCount: opts.sceneCount ?? computeSceneCount(opts.duration),
+      minDuration: opts.duration,
+      maxDuration: opts.duration,
       /** true when the caller explicitly provided sceneCount; false when auto-derived from duration */
       sceneCountFixed: opts.sceneCount !== undefined
     }

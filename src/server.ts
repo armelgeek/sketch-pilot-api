@@ -1,8 +1,8 @@
 import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
-
 import { App } from './app'
+
 import {
   CharacterModelController,
   ConfigController,
@@ -15,6 +15,7 @@ import {
   VideosController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
+import 'dotenv/config'
 import '@/infrastructure/schedulers'
 
 const app = new App([
@@ -57,6 +58,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 
 const PORT = process.env.PORT || 5000
+
+console.info(`[Server] Environment: ${process.env.NODE_ENV}`)
+console.info(
+  `[Server] Loading keys: GEMINI_API_KEY=${process.env.GEMINI_API_KEY ? `present (${process.env.GEMINI_API_KEY.slice(0, 8)}...)` : 'MISSING'}`
+)
+console.info(`[Server] Loading keys: STRIPE_SECRET_KEY=${process.env.STRIPE_SECRET_KEY ? 'present' : 'MISSING'}`)
 
 console.info(`
 \u001B[34m╔══════════════════════════════════════════════════════╗

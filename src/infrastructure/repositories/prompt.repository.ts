@@ -5,46 +5,6 @@ import { prompts } from '@/infrastructure/database/schema/prompt.schema'
 import type { CreatePromptInput, Prompt, UpdatePromptInput } from '@/domain/models/prompt.model'
 import type { PromptRepositoryInterface } from '@/domain/repositories/prompt.repository.interface'
 
-export const DEFAULT_SCRIPT_OUTPUT_FORMAT = {
-  titles: ['Title 1', 'Title 2', 'Title 3'],
-  fullNarration: 'String - The complete unbroken text of the video.',
-  topic: 'String',
-  audience: 'String',
-  characterSheets: [
-    {
-      id: 'CHAR-01',
-      name: 'Name',
-      role: 'Role',
-      metadata: { gender: 'male|female|unknown', age: 'child|youth|senior|unknown' },
-      appearance: {
-        description: 'Base style',
-        clothing: 'Specific clothing...',
-        accessories: ['Distinguishing items'],
-        colorPalette: ['#HEX1', '#HEX2'],
-        uniqueIdentifiers: ['Specific trait 1', 'Specific trait 2']
-      },
-      expressions: ['Happy', 'Sad', 'Neutral'],
-      imagePrompt: 'Consistent visual reference prompt'
-    }
-  ],
-  scenes: [
-    {
-      sceneNumber: 'Integer',
-      locationId: "String - Identifier to reuse locations across scenes (e.g. 'office', 'forest')",
-      duration: 'Float (seconds)',
-      timestamp: 'Float (seconds)',
-      summary: 'String (brief description)',
-      narration: 'String (spoken text)',
-      characterIds: ['String (IDs from characterSheets)'],
-      speakingCharacterId: 'String',
-      imagePrompt: 'String (DETAILED visual description including characters and background)',
-      animationPrompt: 'String (movement instructions)',
-      continueFromPrevious: false,
-      visualSource: 'local'
-    }
-  ]
-}
-
 function toPrompt(row: typeof prompts.$inferSelect): Prompt {
   const config = (row.config as any) || {}
   return {
@@ -62,7 +22,6 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     structure: config.structure,
     rules: config.rules || [],
     formatting: config.formatting,
-    outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2),
     instructions: config.instructions || [],
 
     // NEW: Advanced Studio Specs
@@ -141,8 +100,7 @@ export class PromptRepository implements PromptRepositoryInterface {
       config: {
         ...config,
         category: config.category,
-        tags: config.tags || [],
-        outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2)
+        tags: config.tags || []
       },
       isActive: isActive ?? true,
       createdAt: now,
@@ -169,14 +127,13 @@ export class PromptRepository implements PromptRepositoryInterface {
       .update(prompts)
       .set({
         ...(description !== undefined && { description }),
-        ...(Object.keys(config).length > 0 && {
+        ...(Object.keys(inputConfig).length > 0 && {
           config: {
             ...config,
             category: config.category,
-            tags: config.tags || (existing.config as any)?.tags || [],
-            outputFormat: JSON.stringify(DEFAULT_SCRIPT_OUTPUT_FORMAT, null, 2)
+            tags: config.tags || (existing.config as any)?.tags || []
           },
-          name: config.name
+          name: config.name || (existing.config as any).name
         }),
         ...(isActive !== undefined && { isActive }),
         updatedAt: now

@@ -86,7 +86,20 @@ export class KokoroTTSService implements AudioService {
     const trimResult = await detectAndTrimSilence(outputPath, trimmedPath)
 
     if (fs.existsSync(trimmedPath)) {
-      fs.renameSync(trimmedPath, outputPath)
+      // Add a small 150ms silence padding to the end to prevent rushed transitions
+      const paddedPath = outputPath.replace('.mp3', '_padded.mp3').replace('.wav', '_padded.wav')
+      try {
+        await runFfmpeg(['-i', trimmedPath, '-af', 'apad=pad_dur=0.15', '-y', paddedPath])
+        if (fs.existsSync(paddedPath)) {
+          fs.renameSync(paddedPath, outputPath)
+          if (fs.existsSync(trimmedPath)) fs.unlinkSync(trimmedPath)
+        } else {
+          fs.renameSync(trimmedPath, outputPath)
+        }
+      } catch (error) {
+        console.warn(`[KokoroTTS] Failed to add padding: ${error}. Falling back to trimmed only.`)
+        fs.renameSync(trimmedPath, outputPath)
+      }
     }
 
     console.log(
