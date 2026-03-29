@@ -823,7 +823,7 @@ export class NanoBananaEngine {
     this.currentOptions = validOptions
 
     if (onProgress) {
-      await onProgress(5, `Generating script for topic: ${topic}...`)
+      await onProgress(0, `Starting generation: ${topic}...`)
     }
 
     console.log(`\n=== GENERATING SCRIPT: ${topic} ===`)
@@ -975,7 +975,7 @@ export class NanoBananaEngine {
       false
 
     if (!skipAudio) {
-      if (onProgress) await onProgress(10, 'Generating narration audio (per-scene)...')
+      if (onProgress) await onProgress(16, 'Generating narration audio (per-scene)...')
       console.log(`\n[NanoBanana] --- Generating Per-Scene Audio & Syncing Timings ---`)
 
       let currentTime = 0
@@ -1030,6 +1030,12 @@ export class NanoBananaEngine {
         currentTime += duration
 
         audioFiles.push(sceneAudioPath)
+
+        // Increment audio progress from 16 to 25%
+        if (onProgress) {
+          const audioProg = 16 + Math.round(((i + 1) / script.scenes.length) * 9)
+          await onProgress(audioProg, `Synthesized audio for scene ${i + 1}/${script.scenes.length}...`)
+        }
       }
 
       script.totalDuration = currentTime
@@ -1041,6 +1047,7 @@ export class NanoBananaEngine {
 
       // Stitch audio files into global narration.mp3
       if (audioFiles.length > 0 && !fs.existsSync(globalAudioPath)) {
+        if (onProgress) await onProgress(25, 'Stitching audio tracks...')
         console.log(`[NanoBanana] Stitching ${audioFiles.length} scenes into global narration.mp3...`)
         await this.stitchAudioFiles(audioFiles, globalAudioPath)
       }
@@ -1049,6 +1056,7 @@ export class NanoBananaEngine {
       // Although we have per-scene durations, a final Whisper pass on the stitched file
       // ensures that timeRange and word-level captions are perfectly aligned with the reality of narration.mp3.
       if (fs.existsSync(globalAudioPath)) {
+        if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
         console.log(`[NanoBanana] Running final Whisper sync for word-perfect timings...`)
         try {
           if (!(await this.getTranscriptionService())) {
@@ -1169,6 +1177,7 @@ export class NanoBananaEngine {
       const needsTranscription = fs.existsSync(globalAudioPath)
 
       if (needsTranscription) {
+        if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
         console.log(`[NanoBanana] ASS captions enabled — running Whisper transcription for word timings...`)
         try {
           // Auto-initialize Whisper if needed
@@ -1229,6 +1238,7 @@ export class NanoBananaEngine {
         currentTime += duration
       })
       script.totalDuration = currentTime
+      if (onProgress) await onProgress(27, 'Audio timing estimated. Starting composition...')
     }
 
     // --- SCENE COMPOSITION ---
@@ -1246,6 +1256,7 @@ export class NanoBananaEngine {
         )
       }
 
+      let completedScenesCount = 0
       for (let i = startSceneIndex; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
 
@@ -1269,6 +1280,7 @@ export class NanoBananaEngine {
               locationImageMap.set(scene.locationId, lastSceneImageBase64)
             }
           }
+          completedScenesCount++ // Count as completed since it's skipped
           continue
         }
 
@@ -1281,18 +1293,12 @@ export class NanoBananaEngine {
           if (scene.locationId && !locationImageMap.has(scene.locationId)) {
             locationImageMap.set(scene.locationId, lastSceneImageBase64)
           }
+          completedScenesCount++ // Count as completed since it's already there
           continue
         }
 
-        // Report progress for scene generation
-        // Map scene progress to the 15-85% range
-        const sceneProgress =
-          15 + Math.round(((i - startSceneIndex + 1) / (script.scenes.length - startSceneIndex)) * 70 * 0.9)
-        const progressMessage = `Generating scene ${i + 1}/${script.scenes.length}...`
-        if (onProgress) {
-          await onProgress(sceneProgress, progressMessage, { currentSceneIndex: i })
-        }
-        console.log(`[NanoBanana] ${progressMessage} (${sceneProgress.toFixed(0)}%)`)
+        const progressMessage = `Preparing scene ${i + 1}/${script.scenes.length}...`
+        console.log(`[NanoBanana] ${progressMessage}`)
 
         // Perform task execution (parallelized internally if needed)
         await this.generationQueue.add(async () => {
@@ -1348,6 +1354,18 @@ export class NanoBananaEngine {
             }
 
             await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt, script, memory)
+
+            // Update Progress inside the task execution
+            completedScenesCount++
+            const sceneProgress =
+              27 + Math.round(((startSceneIndex + completedScenesCount) / script.scenes.length) * 58)
+
+            if (onProgress) {
+              await onProgress(sceneProgress, `Generated scene ${i + 1}/${script.scenes.length}...`, {
+                currentSceneIndex: i
+              })
+            }
+
             if (onSceneGenerated) {
               console.log(`[NanoBanana] Scene ${i + 1} generated. Triggering visualization callback...`)
               await onSceneGenerated(scene, script, i + 1, sceneProgress)
@@ -1422,14 +1440,14 @@ export class NanoBananaEngine {
           },
           async (p, m) => {
             if (onProgress) {
-              // Map assembler 0-100% to 85-98% engine range
-              const assemblyProgress = 85 + Math.round((p / 100) * 13)
+              // Map assembler 0-100% to 85-100% engine range
+              const assemblyProgress = 85 + Math.round((p / 100) * 15)
               await onProgress(assemblyProgress, m)
             }
           }
         )
         console.log(`\n✅ VIDEO ASSEMBLY COMPLETE: ${finalVideoPath}`)
-        if (onProgress) await onProgress(99, 'Video finalized! Saving results...')
+        if (onProgress) await onProgress(100, 'Video finalized! Saving results...')
       } catch (assemblyError) {
         console.error(`\n❌ VIDEO ASSEMBLY FAILED:`, assemblyError)
       }
