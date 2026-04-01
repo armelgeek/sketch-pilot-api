@@ -1619,6 +1619,164 @@ export class VideosController implements Routes {
       }
     )
 
+    // PATCH /v1/videos/:id/script
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}/script',
+        tags: ['Videos'],
+        summary: 'Update video script and scenes',
+        description: 'Allows saving manual edits to a generated script before final assembly.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                // Accepts any valid JSON representation of the script
+                schema: z.record(z.any())
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Script updated successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: { description: 'Unauthorized' },
+          404: {
+            description: 'Video not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const { id } = c.req.valid('param')
+        const scriptUpdates = c.req.valid('json')
+
+        const { UpdateScriptUseCase } = await import('@/application/use-cases/video/update-script.use-case')
+        const updateScriptUseCase = new UpdateScriptUseCase()
+        const result = await updateScriptUseCase.execute({ videoId: id, userId: user.id, scriptUpdates })
+
+        if (!result.success) {
+          if (result.error === 'Video not found or unauthorized') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error }, 400)
+        }
+
+        return c.json({ success: true }, 200)
+      }
+    )
+
+    // POST /v1/videos/:id/assemble
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/assemble',
+        tags: ['Videos'],
+        summary: 'Trigger final video assembly',
+        description: 'Starts the final assembly phase for a video in scenes_generated state.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          202: {
+            description: 'Assembly enqueued successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), jobId: z.string() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: { description: 'Unauthorized' },
+          404: {
+            description: 'Video not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const { id } = c.req.valid('param')
+
+        const { AssembleVideoUseCase } = await import('@/application/use-cases/video/assemble-video.use-case')
+        const assembleUseCase = new AssembleVideoUseCase()
+        const result = await assembleUseCase.execute({ videoId: id, userId: user.id })
+
+        if (!result.success) {
+          if (result.error === 'Video not found or unauthorized') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error }, 400)
+        }
+
+        return c.json({ success: true, jobId: result.jobId }, 202)
+      }
+    )
+
+    // POST /v1/videos/:id/audio
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/audio',
+        tags: ['Videos'],
+        summary: 'Generate audio and transcription',
+        description: 'Triggers isolated audio synthesis and Whisper transcription, updating timeline durations.',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  kokoroVoicePreset: z.string().optional(),
+                  backgroundMusic: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          202: {
+            description: 'Audio generation enqueued successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), jobId: z.string() }) } }
+          },
+          400: {
+            description: 'Bad request',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          401: { description: 'Unauthorized' },
+          404: {
+            description: 'Video not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const { id } = c.req.valid('param')
+        const options = c.req.valid('json')
+
+        const { GenerateAudioUseCase } = await import('@/application/use-cases/video/generate-audio.use-case')
+        const generateAudioUseCase = new GenerateAudioUseCase()
+        const result = await generateAudioUseCase.execute({ videoId: id, userId: user.id, options })
+
+        if (!result.success) {
+          if (result.error === 'Video not found or unauthorized') return c.json({ error: result.error }, 404)
+          return c.json({ error: result.error }, 400)
+        }
+
+        return c.json({ success: true, jobId: result.jobId }, 202)
+      }
+    )
+
     // PATCH /v1/videos/:id/music
     this.controller.openapi(
       createRoute({

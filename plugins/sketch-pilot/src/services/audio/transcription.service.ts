@@ -6,7 +6,10 @@ export interface TranscriptionResult {
 }
 
 export interface TranscriptionService {
-  transcribe: (audioPath: string) => Promise<TranscriptionResult>
+  transcribe: (
+    audioPath: string,
+    onProgress?: (progress: number, message: string) => void
+  ) => Promise<TranscriptionResult>
 }
 
 export type TranscriptionProvider = 'whisper-openai' | 'whisper-local' | 'assemblyai'

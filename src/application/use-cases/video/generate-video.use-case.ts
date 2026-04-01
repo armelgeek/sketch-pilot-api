@@ -1,7 +1,7 @@
 import { videoGenerationOptionsSchema, type VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
-import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
+import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
@@ -39,6 +39,7 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     repromptSceneIndex: (options as any).repromptSceneIndex,
     customSpec: customSpec || options.customSpec,
     scriptOnly: options.scriptOnly,
+    generateOnlyScenes: !options.scriptOnly, // Default to two-pass generation: Stop after scenes
     animationMode: options.animationMode,
     aspectRatio: options.aspectRatio,
     resolution: options.resolution,
@@ -132,6 +133,11 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
 
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
 
+      // CRITICAL: Clear any existing lock for this videoId to prevent 'deferred' jobs
+      // if we are starting a fresh generation (e.g. after a deletion or restart)
+      const lockKey = `active-video-job:${videoId}`
+      await redisClient.del(lockKey)
+
       // Enqueue the BullMQ job
       // Fix 3: Use videoId as BullMQ jobId for automatic deduplication.
       // If the same video is enqueued twice, BullMQ will deduplicate based on jobId,
@@ -146,7 +152,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
 
       const queue = getVideoQueue()
       await queue.add('generate-video', jobData, {
-        jobId: videoId, // BullMQ deduplication key
+        jobId, // Unique jobId to allow sequential passes
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 }
       })

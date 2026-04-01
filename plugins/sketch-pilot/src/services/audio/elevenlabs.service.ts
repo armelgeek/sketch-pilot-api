@@ -17,13 +17,11 @@ export class ElevenLabsService implements AudioService {
   private readonly modelId: string
 
   constructor(
-    apiKey: string,
+    apiKey?: string,
     voiceId: string = 'I0ZNjxaJrLklKmZK1mlA', // Default: Bella voice
     modelId: string = 'eleven_monolingual_v1'
   ) {
-    this.client = new ElevenLabsClient({
-      apiKey
-    })
+    this.client = new ElevenLabsClient(apiKey ? { apiKey } : {})
 
     this.voiceId = voiceId
     this.modelId = modelId

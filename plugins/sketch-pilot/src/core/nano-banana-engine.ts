@@ -571,6 +571,7 @@ export class NanoBananaEngine {
       videoMeta: hasVideo ? { clipDuration, totalDuration, loop: true } : undefined,
       animationMode,
       cameraAction: (scene as any).cameraAction,
+      transition: (scene as any).transition,
       pauseBefore: (scene as any).pauseBefore,
       pauseAfter: (scene as any).pauseAfter,
       aspectRatio
@@ -625,7 +626,10 @@ export class NanoBananaEngine {
    * Synchronizes scene timings with global narration audio and updates manifests.
    * Useful for re-syncing an existing project directory before assembly.
    */
-  async syncTimings(projectDir: string): Promise<void> {
+  async syncTimings(
+    projectDir: string,
+    onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
+  ): Promise<void> {
     const scriptPath = path.join(projectDir, 'script.json')
     const globalAudioPath = path.join(projectDir, 'narration.mp3')
 
@@ -651,7 +655,11 @@ export class NanoBananaEngine {
 
     const transcriptionService = (await this.getTranscriptionService())!
     console.log(`[NanoBanana-Sync] Transcribing global audio for project: ${path.basename(projectDir)}`)
-    const transcriptionResult = await transcriptionService.transcribe(globalAudioPath)
+    const transcriptionResult = await transcriptionService.transcribe(globalAudioPath, (p, msg) => {
+      if (onProgress) {
+        onProgress(Math.round(p), `Transcription: ${msg}`)
+      }
+    })
     const globalWordTimings = transcriptionResult.wordTimings
 
     console.log(`[NanoBanana-Sync] Mapping word timings to scenes...`)
@@ -1070,7 +1078,13 @@ export class NanoBananaEngine {
           }
 
           const transcriptionService = (await this.getTranscriptionService())!
-          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath)
+          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath, async (p, msg) => {
+            if (onProgress) {
+              // Transcription takes the 26-35% range
+              const transProgress = 26 + Math.round(p * 0.09)
+              await onProgress(transProgress, `Synchronisation vocale : ${p}%`)
+            }
+          })
           const assemblyWordTimings = transcriptionResult.wordTimings
 
           // Map word timings back to scenes (Refines TimeRange from synthesis durations to real audio detection)
@@ -1100,6 +1114,18 @@ export class NanoBananaEngine {
       if (onTimingSync) {
         console.log(`[NanoBanana] Timing sync reached. Triggering callback...`)
         await onTimingSync(script)
+      }
+
+      // AUDIO-ONLY MODE: Return early — skip all image compositing below
+      if (validOptions.generateOnlyAudio) {
+        console.log(`[NanoBanana] generateOnlyAudio=true — Audio & transcription complete. Skipping image generation.`)
+        return {
+          script,
+          projectId: projectName,
+          outputPath: projectDir,
+          generatedAt: new Date().toISOString(),
+          metadata: { generationTimeMs: Date.now() - startTime }
+        }
       }
     } else if (validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
@@ -1192,7 +1218,12 @@ export class NanoBananaEngine {
           }
 
           const transcriptionService = (await this.getTranscriptionService())!
-          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath)
+          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath, async (p, msg) => {
+            if (onProgress) {
+              const transProgress = 26 + Math.round(p * 0.09)
+              await onProgress(transProgress, `Synchronisation vocale : ${p}%`)
+            }
+          })
           const assemblyWordTimings = transcriptionResult.wordTimings
 
           // Map word timings back to scenes (using existing TimeRange from script)
@@ -1440,8 +1471,9 @@ export class NanoBananaEngine {
           },
           async (p, m) => {
             if (onProgress) {
-              // Map assembler 0-100% to 85-100% engine range
-              const assemblyProgress = 85 + Math.round((p / 100) * 15)
+              const assemblyProgress = validOptions.generateOnlyAssembly
+                ? Math.round(p)
+                : 85 + Math.round((p / 100) * 15)
               await onProgress(assemblyProgress, m)
             }
           }

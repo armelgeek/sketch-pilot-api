@@ -15,7 +15,10 @@ export class WhisperOpenAiService implements TranscriptionService {
     })
   }
 
-  async transcribe(audioPath: string): Promise<TranscriptionResult> {
+  async transcribe(
+    audioPath: string,
+    onProgress?: (progress: number, message: string) => void
+  ): Promise<TranscriptionResult> {
     console.log(`[WhisperOpenAi] Transcribing: ${audioPath}`)
 
     try {

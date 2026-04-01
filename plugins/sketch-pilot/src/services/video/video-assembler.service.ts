@@ -2054,7 +2054,7 @@ export class VideoAssembler {
       }
 
       const useAuto = globalOptions.autoTransitions !== false
-      const transition = this.resolveTransition(undefined, sceneTension, useAuto)
+      const transition = this.resolveTransition((scene as any).transition, sceneTension, useAuto)
       return { clipPath: finalClip, transition }
     } catch (error) {
       console.error(`[VideoAssembler] Scene ${scene.id} failed:`, error)

@@ -271,63 +271,95 @@ export class VideoScriptGenerator {
           `[VideoScriptGen] Pass 1 Retry Validation: ${validation.ok ? 'OK' : 'STILL SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
         )
 
-        // Hard Failure if still significantly below target after retry (Fix v8-retry-fail)
-        if (validation.actualWords < pass1.targetWords * 0.8) {
-          console.error(
-            `[VideoScriptGen] ❌ Final narration too short (${validation.actualWords}/${validation.targetWords}). Aborting to maintain quality.`
+        // Final narration check (Fix v8-no-fail)
+        const warningThreshold = pass1.targetWords * 0.9
+
+        if (narrationText.length < 50) {
+          // Only warn if it's practically empty
+          console.warn(`[VideoScriptGen] ⚠️ Narration is effectively empty. Proceeding anyway.`)
+        }
+
+        if (validation.actualWords < warningThreshold) {
+          console.warn(
+            `[VideoScriptGen] ⚠️ Narration is shorter than target (${validation.actualWords}/${validation.targetWords} words). Proceeding anyway to save tokens.`
           )
-          throw new Error(
-            `Script under-generation: final narration is only ${validation.actualWords} words, but the video requires at least ${Math.round(pass1.targetWords * 0.8)} words for proper coverage.`
-          )
+          if (onProgress) await onProgress(9, 'Studio: Proceeding with available narration...')
         }
       }
     }
 
     // ─── PASS 2: STRUCTURING ────────────────────────────────────────────────
     console.log(`[VideoScriptGen] Pass 2: Structuring narration into scenes...`)
-    if (onProgress) await onProgress(10, 'Studio: Sculpting scenes and visual prompts...')
 
-    const p2 = this.promptManager.buildPass2Prompts(narrationText, topic, options)
+    const actualWords = narrationText.trim().split(/\s+/).filter(Boolean).length
+    const isLongForm = actualWords > 800
+    const chunks = isLongForm ? this.splitNarrationIntoChunks(narrationText, 300) : [narrationText]
 
-    // We use a small retry loop for structuring in case of JSON formatting issues
-    const MAX_P2_RETRIES = 3
-    let structuredResult: any = null
+    let allScenes: any[] = []
+    let finalScript: any = null
 
-    for (let attempt = 1; attempt <= MAX_P2_RETRIES; attempt++) {
-      try {
-        if (onProgress) {
-          const msg =
-            attempt > 1
-              ? `Studio: Sculpting scenes (Attempt ${attempt}/3)...`
-              : 'Studio: Sculpting scenes and visual prompts...'
-          await onProgress(10 + (attempt - 1) * 10, msg)
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkText = chunks[i]
+      const chunkContext = isLongForm
+        ? {
+            chunkIndex: i,
+            totalChunks: chunks.length,
+            startSceneNumber: allScenes.length + 1
+          }
+        : undefined
+
+      const p2 = this.promptManager.buildPass2Prompts(chunkText, topic, options, chunkContext)
+
+      const MAX_P2_RETRIES = 3
+      let chunkResult: any = null
+
+      for (let attempt = 1; attempt <= MAX_P2_RETRIES; attempt++) {
+        try {
+          if (onProgress) {
+            const step = 10 + (i / chunks.length) * 60
+            const msg =
+              chunks.length > 1
+                ? `Studio: Sculpting scenes part ${i + 1}/${chunks.length}...`
+                : attempt > 1
+                  ? `Studio: Sculpting scenes (Attempt ${attempt}/3)...`
+                  : 'Studio: Sculpting scenes and visual prompts...'
+            await onProgress(Math.round(step), msg)
+          }
+          const jsonText = await this.llmService.generateContent(p2.user, p2.system, 'application/json')
+          if (!jsonText) throw new Error('Empty Pass 2 response')
+
+          const parsed = this.parseJsonResponse(jsonText)
+          if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
+            throw new Error("Missing 'scenes' array in structured output")
+          }
+          chunkResult = parsed
+          break
+        } catch (error: any) {
+          console.warn(`[VideoScriptGen] Pass 2 (Chunk ${i + 1}) attempt ${attempt} failed: ${error.message}`)
+          if (attempt === MAX_P2_RETRIES) throw error
         }
-        const jsonText = await this.llmService.generateContent(p2.user, p2.system, 'application/json')
-        if (!jsonText) throw new Error('Empty Pass 2 response')
+      }
 
-        structuredResult = this.parseJsonResponse(jsonText)
-        if (!structuredResult.scenes || !Array.isArray(structuredResult.scenes)) {
-          throw new Error("Missing 'scenes' array in structured output")
-        }
-
-        // Successfully parsed and structured
-        break
-      } catch (error: any) {
-        console.warn(`[VideoScriptGen] Pass 2 attempt ${attempt} failed: ${error.message}`)
-        if (attempt === MAX_P2_RETRIES) throw error
+      if (chunkResult) {
+        allScenes = [...allScenes, ...chunkResult.scenes]
+        if (!finalScript) finalScript = chunkResult
       }
     }
+
+    finalScript.scenes = allScenes
+    finalScript.fullNarration = narrationText
+    finalScript.totalWordCount = actualWords
+    finalScript.sceneCount = allScenes.length
 
     // ─── POST-STRUCTURING INTEGRITY ─────────────────────────────────────────
 
     // 1. Fix fullNarration drift (locked narration rule enforcement)
-    const { script: fixedScript, driftFixed, driftWords } = this.promptManager.fixFullNarrationDrift(structuredResult)
+    const { script: fixedScript, driftFixed, driftWords } = this.promptManager.fixFullNarrationDrift(finalScript)
     if (driftFixed) {
       console.log(`[VideoScriptGen] Fixed fullNarration drift (${driftWords} words corrected)`)
     }
 
     // 2. Scene-level validation & Micro-corrections (Fix v5)
-    // This handles long sentences, third-person drift, etc.
     if (onProgress) await onProgress(70, 'Studio: Running micro-corrections and quality checks...')
     const refinement = await this.promptManager.validateAndCorrectAllScenes(fixedScript.scenes, {
       complete: async (prompt: string) => {
@@ -415,7 +447,27 @@ export class VideoScriptGenerator {
    * Parse and clean a raw LLM text response into a JS object.
    * Includes a repair phase for truncated JSON (common in long scripts).
    */
-  private parseJsonResponse(text: unknown): any {
+  private splitNarrationIntoChunks(text: string, chunkSize: number = 300): string[] {
+    const sentences = text.match(/[^.!?]+[.!?]+(\s+|$)/g) || [text]
+    const chunks: string[] = []
+    let currentChunk = ''
+
+    for (const s of sentences) {
+      const prospectiveChunk = (currentChunk + s).trim()
+      const wordCount = prospectiveChunk.split(/\s+/).length
+      if (wordCount > chunkSize && currentChunk.length > 0) {
+        chunks.push(currentChunk.trim())
+        currentChunk = s
+      } else {
+        currentChunk += s
+      }
+    }
+    if (currentChunk) chunks.push(currentChunk.trim())
+
+    return chunks
+  }
+
+  private parseJsonResponse(text: string): any {
     if (typeof text === 'object') return text
 
     let cleaned = (text as string)

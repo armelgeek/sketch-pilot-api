@@ -23,7 +23,16 @@ export enum QualityMode {
   HIGH_QUALITY = 'high-quality'
 }
 
-export type VideoType = 'explainer' | 'marketing' | 'educational' | 'storytelling' | 'tutorial' | 'social' | 'other'
+export type VideoType =
+  | 'explainer'
+  | 'Explainer'
+  | 'marketing'
+  | 'educational'
+  | 'storytelling'
+  | 'tutorial'
+  | 'social'
+  | 'Narrative System'
+  | 'other'
 export type VideoGenre = 'professional' | 'casual' | 'cinematic' | 'corporate' | 'humorous' | 'documentary' | 'other'
 
 /**
@@ -106,8 +115,27 @@ export type SoundEffect = z.infer<typeof soundEffectSchema>
  */
 export const cameraActionSchema = z.object({
   type: z
-    .enum(['zoom-in', 'zoom-out', 'shake', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'static'])
-    .or(z.string().transform(() => 'static' as const))
+    .enum([
+      'zoom-in',
+      'zoom-out',
+      'shake',
+      'pan-left',
+      'pan-right',
+      'pan-up',
+      'pan-down',
+      'static',
+      'breathing',
+      'ken-burns-static',
+      'zoom-in-pan-right',
+      'zoom-in-pan-left',
+      'zoom-in-pan-up',
+      'zoom-in-pan-down',
+      'zoom-out-pan-right',
+      'zoom-out-pan-left',
+      'dutch-tilt',
+      'snap-zoom'
+    ])
+    .or(z.string().transform((val) => val as any))
     .default('static'),
   intensity: z
     .enum(['low', 'medium', 'high'])
@@ -127,8 +155,31 @@ export const cameraActionSchema = z.object({
 
 export type CameraAction = z.infer<typeof cameraActionSchema>
 
-// Transition configuration removed in favor of camera acceleration transitions
-export type TransitionType = 'cut' | 'none'
+// Transition types supported by xfade
+export const transitionTypeSchema = z.enum([
+  'none',
+  'fade',
+  'blur',
+  'crossfade',
+  'zoom',
+  'wipeleft',
+  'wiperight',
+  'wipeup',
+  'wipedown',
+  'slideleft',
+  'slideright',
+  'slideup',
+  'slidedown',
+  'circlecrop',
+  'rectcrop',
+  'distance',
+  'fadeblack',
+  'fadewhite',
+  'radial',
+  'smoothleft',
+  'smoothright'
+])
+export type TransitionType = z.infer<typeof transitionTypeSchema>
 
 /**
  * Enriched scene with all details needed for generation
@@ -175,7 +226,8 @@ export const enrichedSceneSchema = z.object({
     .array(z.string())
     .default([])
     .describe('List of strategic pause locations (e.g. "after sentence 1", "before the reveal")'),
-  thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene')
+  thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene'),
+  transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene')
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
@@ -387,14 +439,17 @@ export function computeSceneCountRange(durationSeconds: number): SceneCountRange
   if (durationSeconds <= 45) sps = 10
   else if (durationSeconds <= 90) sps = 12
   else if (durationSeconds <= 180) sps = 14
-  else sps = 16
+  else sps = 20 // Slower scaling for long videos to keep scene count manageable
 
-  const ideal = Math.max(2, Math.round(durationSeconds / sps))
+  let ideal = Math.max(2, Math.round(durationSeconds / sps))
+
+  // Hard cap at 30 scenes for cost/token efficiency (user request Fix v8-token-saver)
+  if (ideal > 30) ideal = 30
 
   // Use a tighter range to force LLM toward the ideal
   return {
     min: Math.max(2, Math.round(ideal * 0.9)),
-    max: Math.round(ideal * 1.2),
+    max: ideal,
     ideal
   }
 }
@@ -502,7 +557,8 @@ export const videoGenerationOptionsSchema = z
       .default(15)
       .describe('Maximum duration of a single scene in seconds'),
     theme: z
-      .enum(['script-system', 'psychology'])
+      .enum(['script-system', 'psychology', 'Narrative System', 'Explainer', 'explainer'])
+      .or(z.string())
       .optional()
       .describe('The thematic specification to use for prompt generation'),
 

@@ -25,8 +25,19 @@ export class WhisperLocalService implements TranscriptionService {
     this.language = config.language
   }
 
-  async transcribe(audioPath: string): Promise<TranscriptionResult> {
+  async transcribe(
+    audioPath: string,
+    onProgress?: (progress: number, message: string) => void
+  ): Promise<TranscriptionResult> {
     console.log(`[WhisperLocal] Transcribing: ${path.basename(audioPath)} (model: ${this.model})`)
+
+    // 1. Obtenir la durée totale pour calculer le % de progression
+    let totalDuration = 0
+    try {
+      totalDuration = await this.getAudioDuration(audioPath)
+    } catch (error) {
+      console.warn(`[WhisperLocal] Failed to get audio duration:`, error)
+    }
 
     const baseDir = path.dirname(audioPath)
     const fileName = path.basename(audioPath, path.extname(audioPath))
@@ -37,7 +48,12 @@ export class WhisperLocalService implements TranscriptionService {
 
     try {
       // ✅ spawn avec tableau d'args — aucune injection shell possible
-      await this.runWhisper(audioPath, outputDir)
+      await this.runWhisper(audioPath, outputDir, (currentTime) => {
+        if (onProgress && totalDuration > 0) {
+          const progress = Math.min(99, Math.round((currentTime / totalDuration) * 100))
+          onProgress(progress, `Transcription local : ${progress}%`)
+        }
+      })
 
       // ✅ Lire le premier .json trouvé — plus robuste que reconstruire le nom
       const jsonPath = this.findOutputJson(outputDir, fileName)
@@ -64,7 +80,29 @@ export class WhisperLocalService implements TranscriptionService {
   // Private helpers
   // ─────────────────────────────────────────────────────────────────────────────
 
-  private runWhisper(audioPath: string, outputDir: string): Promise<void> {
+  private async getAudioDuration(audioPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const args = [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        audioPath
+      ]
+      const proc = spawn('ffprobe', args)
+      let output = ''
+      proc.stdout.on('data', (data) => (output += data.toString()))
+      proc.on('close', (code) => {
+        if (code === 0) resolve(parseFloat(output.trim()))
+        else reject(new Error(`ffprobe exited with code ${code}`))
+      })
+      proc.on('error', reject)
+    })
+  }
+
+  private runWhisper(audioPath: string, outputDir: string, onUpdate?: (time: number) => void): Promise<void> {
     const args = [
       audioPath,
       '--model',
@@ -83,9 +121,21 @@ export class WhisperLocalService implements TranscriptionService {
     return new Promise<void>((resolve, reject) => {
       const proc = spawn('whisper', args)
 
+      // Regex pour parser la progression Whisper : [00:00.000 --> 00:05.120]
+      const timeMarkerRegex = /\[(\d{2}):(\d{2}\.\d{3}) --> (\d{2}):(\d{2}\.\d{3})\]/
+
       proc.stderr.on('data', (chunk) => {
-        // Whisper écrit sa progression sur stderr — utile pour le debug
-        process.stdout.write(`[WhisperLocal] ${chunk}`)
+        const line = chunk.toString()
+        process.stdout.write(`[WhisperLocal] ${line}`)
+
+        if (onUpdate) {
+          const match = line.match(timeMarkerRegex)
+          if (match) {
+            const minutes = parseInt(match[3], 10)
+            const seconds = parseFloat(match[4])
+            onUpdate(minutes * 60 + seconds)
+          }
+        }
       })
 
       proc.on('close', (code) => {

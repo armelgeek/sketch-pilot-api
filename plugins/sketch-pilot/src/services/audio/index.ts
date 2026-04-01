@@ -76,9 +76,6 @@ export const AudioServiceFactory = {
         )
       }
       case 'elevenlabs': {
-        if (!config.apiKey) {
-          throw new Error('API key is required for ElevenLabs provider')
-        }
         const { ElevenLabsService } = await import('./elevenlabs.service')
         return new ElevenLabsService(
           config.apiKey,

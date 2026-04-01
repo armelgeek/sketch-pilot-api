@@ -1151,7 +1151,8 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
   public buildStructuringUserPrompt(
     validatedNarration: string,
     topic: string,
-    options: VideoGenerationOptions
+    options: VideoGenerationOptions,
+    noPrune: boolean = false
   ): string {
     const wps = this.getWordsPerSecond(options)
     const duration = this.getEffectiveDuration(options)
@@ -1177,16 +1178,17 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
       "preset": "hook | reveal | mirror | bridge | conclusion",
       "pacing": "fast | medium | slow",
       "breathingPoints": ["string"],
-      "narration": "string — use the source text. You may selectively prune or condense IF the input is too long for the ${duration}s target.",
+      "narration": "string — use the source text.${noPrune ? ' DO NOT PRUNE OR CONDENSE.' : ` You may selectively prune or condense IF the input is too long for the ${duration}s target.`}",
       "wordCount": "number",
       "estimatedDuration": "number",
       "summary": "string",
-      "cameraAction": "string",
+      "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | snap-zoom | dutch-tilt | zoom-in-pan-right | zoom-in-pan-down | shaking)",
+      "transition": "none | fade | blur | crossfade | zoom | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | slideup | slidedown",
       "imagePrompt": "string",
       "animationPrompt": "string"
     }
   ]
-}`
+} \``
 
     return `TOPIC: ${topic}
 LANGUAGE: ${lang}
@@ -1201,7 +1203,7 @@ ${validatedNarration}
 
 YOUR TASK:
 Split the narration above into scenes following the SPLITTING RULES.
-⚠️ If the narration is too long for the ${duration}s target (~${targetWords} words), selectively prune less impactful sentences or condense redundant phrasing while maintaining the core emotional arc and conclusion.
+${noPrune ? `⚠️ MANDATORY: Use the narration VERBATIM. DO NOT SKIP, PRUNE, OR CONDENSE ANY TEXT. Every word provided in the source must appear in a scene field.` : `⚠️ If the narration is too long for the ${duration}s target (~${targetWords} words), selectively prune less impactful sentences or condense redundant phrasing while maintaining the core emotional arc and conclusion.`}
 Fill all metadata fields for each scene.
 Return only valid JSON matching this exact format:
 ${outputFormat}`
@@ -1248,11 +1250,28 @@ ${outputFormat}`
   public buildPass2Prompts(
     validatedNarration: string,
     topic: string,
-    options: VideoGenerationOptions
+    options: VideoGenerationOptions,
+    chunkContext?: {
+      chunkIndex: number
+      totalChunks: number
+      startSceneNumber: number
+    }
   ): { system: string; user: string } {
+    let userPrompt = this.buildStructuringUserPrompt(validatedNarration, topic, options, !!chunkContext)
+
+    if (chunkContext) {
+      userPrompt += `\n\n⚠️ CHUNK MODE: This is part ${chunkContext.chunkIndex + 1} of ${chunkContext.totalChunks} of the full narration.\n`
+      userPrompt += `Structure ONLY this specific block into scenes.\n`
+      userPrompt += `VERBATIM RULE: You MUST structure the entire text of this chunk without omitting a single word.\n`
+      userPrompt += `Scene numbering MUST start at ${chunkContext.startSceneNumber}.\n`
+      if (chunkContext.chunkIndex > 0) {
+        userPrompt += `Maintain continuity from the previous part.\n`
+      }
+    }
+
     return {
       system: this.buildStructuringSystemPrompt(options),
-      user: this.buildStructuringUserPrompt(validatedNarration, topic, options)
+      user: userPrompt
     }
   }
 
@@ -1368,20 +1387,28 @@ What NEVER appears in this voice:
       Ensure scenes follow a logical progression. Keep environments and actions consistent unless a change is clearly motivated.
 
       Camera Dynamics & Transitions:
-      Each scene MUST use a dynamic camera action chosen to match the emotional and narrative context of the scene.
+      Each scene MUST use a dynamic camera action and a visual transition to the next scene.
+      
+      Available transition values:
+      — none          → Standard cut. Use for fast-paced sequences or internal lists.
+      — fade          → Smooth transparency transition.
+      — blur          → Dreamy, soft transition. Good for mood shifts.
+      — crossfade     → Classic overlap.
+      — wipeleft/right → Directional motion. Good for temporal progression.
+      — zoom          → Energetic focus shift.
 
       Available cameraAction values:
       — breathing          → Calm / contemplative scenes.
-      — zoom-in            → Slow zoom for calm, contemplative, or intimate moments.
-      — zoom-out           → Slow pullback for tension rising or context reveal.
-      — pan-right          → Narrative progression, moving forward in time.
-      — pan-left           → Flashback, going back in time, reversal.
-      — ken-burns-static   → Static Ken Burns for calm, scenic, or reflective moments.
-      — zoom-in-pan-right  → Tension rising combined with forward motion.
-      — dutch-tilt         → Unease, instability, psychological tension.
-      — snap-zoom          → Revelation or shock. Use snapAtSec and peakZoom (e.g. 1.6).
-      — shake              → Action, beat sync, high intensity.
-      — zoom-in-pan-down   → Action or beat sync with downward energy.
+      — zoom-in            → Focus on detail, intimacy, or revelation.
+      — zoom-out           → Context reveal, tension rising, or closure.
+      — pan-right          → Progress, moving forward, active narration.
+      — pan-left           → Reversal, flashback, or second thought.
+      — ken-burns-static   → Subtle elegance for landscape/background shots.
+      — zoom-in-pan-right  → Dynamic forward energy with focus.
+      — dutch-tilt         → Psychological unease or instability.
+      — snap-zoom          → Shock, revelation, or high-energy sync.
+      — shake              → Intensity, beat-sync, or physical impact.
+      — zoom-in-pan-down   → Heavy energy, grounding the narrative.
 
       PACING ARC:
       1. THE HOOK (0-15%): High impact, drops viewer mid-thought.

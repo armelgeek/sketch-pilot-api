@@ -212,8 +212,37 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       projectId: effectiveProjectId
     }
 
-    // 3. SCRIPT & RENDER PHASE
-    if (options.generateFromScript && videoRecord.script) {
+    // 3b. AUDIO-ONLY PATH — Lightweight initialization for audio/transcription step.
+    // Sets generateOnlyAudio: true in genOptions, which tells NanoBanana to skip image generation.
+    if (options.generateOnlyAudio) {
+      if (!videoRecord.script) throw new Error('No script found for audio generation. Run storyboard first.')
+      await reportProgress(job, videoId, 'audio_generation', 10, 'Initializing audio generation...')
+      // `generateOnlyAudio: true` in genOptions instructs NanoBanana to skip all visual/scene generation
+      genOptions.generateOnlyAudio = true
+      genOptions.skipImageGeneration = true
+      const audioResult = await videoGenerationService.renderVideoFromScript({
+        videoId,
+        topic,
+        userId,
+        script: videoRecord.script as any,
+        options: genOptions,
+        projectId: effectiveProjectId,
+        onProgress: async (p: number, m: string, meta?: any) =>
+          await reportProgress(job, videoId, 'audio_generation', Math.round(10 + (p / 100) * 80), m, meta),
+        onTimingSync: async (syncedScript: any) => {
+          console.info(`[VideoWorker] Audio timing sync complete. Updating DB...`)
+          await videoRepository.updateStatus(videoId, {
+            script: syncedScript as any,
+            scenes: syncedScript.scenes as any
+          })
+        },
+        onSceneGenerated: undefined
+      })
+      pkg = {
+        script: audioResult?.script ?? videoRecord.script,
+        outputPath: path.join(process.cwd(), 'output', effectiveProjectId)
+      } as any
+    } else if (options.generateFromScript && videoRecord.script) {
       const skipScript = checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       if (!skipScript) {
         await reportProgress(job, videoId, 'rendering', 15, 'Rendering video...')
@@ -350,10 +379,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     if (!pkg) throw new Error('Video package failed to initialize.')
 
     // 4. NARRATION PERSISTENCE (If only audio requested)
-    if (
-      options.generateOnlyAudio &&
-      !checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.NARRATION_GENERATION)
-    ) {
+    if (options.generateOnlyAudio) {
       await reportProgress(job, videoId, 'upload_audio', 90, 'Uploading audio results...')
       const narrationMp3 = fs.existsSync(path.join(pkg.outputPath, 'global_narration.mp3'))
         ? path.join(pkg.outputPath, 'global_narration.mp3')
@@ -371,6 +397,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           )
         : undefined
 
+      console.info(`[VideoWorker] Audio generation complete for ${videoId}. Setting status to narration_generated.`)
       await videoRepository.updateStatus(videoId, {
         status: 'narration_generated',
         progress: 100,
