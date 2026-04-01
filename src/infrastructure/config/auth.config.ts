@@ -95,7 +95,7 @@ export const auth = betterAuth({
   trustedOrigins:
     process.env.NODE_ENV === 'production'
       ? [process.env.PRODUCTION_URL || 'http://localhost:3000', process.env.REACT_APP_URL || 'http://localhost:5173']
-      : [process.env.BETTER_AUTH_URL || 'http://localhost:3000', process.env.REACT_APP_URL || 'http://localhost:5173'],
+      : ['http://localhost:3000'],
   user: {
     modelName: 'users',
     additionalFields: {

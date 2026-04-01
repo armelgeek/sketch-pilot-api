@@ -13,13 +13,10 @@ export const VideoTypeSpecificationSchema = z.object({
   rules: z.array(z.string()),
   formatting: z.string(),
   instructions: z.array(z.string()),
-  assetSystemInstruction: z.string().optional(),
-  assetPromptTemplate: z.string().optional(),
-  wordsPerSecondBase: z.number().optional(),
-  wordsPerSecondFactors: z.record(z.number()).optional(),
-  defaultFontSize: z.number().optional(),
-  defaultFontFamily: z.string().optional(),
-  defaultBackgroundPrompt: z.string().optional()
+  characterDescription: z.string().optional(),
+  scenePresets: z.record(z.any()).optional(),
+  visualRules: z.array(z.string()).optional(),
+  orchestration: z.array(z.string()).optional()
 })
 
 export const PromptSchema = VideoTypeSpecificationSchema.extend({

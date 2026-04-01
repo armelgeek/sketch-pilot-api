@@ -163,7 +163,10 @@ export const enrichedSceneSchema = z.object({
     .default(false)
     .describe('If true, this scene reuses the visual background of the previous scene for perfect continuity'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
-  preset: z.enum(['hook', 'reveal', 'mirror']).optional().describe('Strategic role of the scene'),
+  preset: z
+    .enum(['hook', 'reveal', 'mirror', 'bridge', 'conclusion'])
+    .optional()
+    .describe('Strategic role of the scene'),
   pacing: z
     .enum(['fast', 'medium', 'slow'])
     .default('medium')
@@ -363,23 +366,44 @@ export type TranscriptionConfig = z.infer<typeof transcriptionConfigSchema>
 export const MIN_SCENE_DURATION = 3
 
 /**
- * Compute a sensible scene count from a video duration.
- * Rule: roughly 1 scene per 10 seconds, clamped between 2 and 10.
- *
- * Examples:
- *   20 s  → 2 scenes
- *   30 s  → 3 scenes
- *   60 s  → 6 scenes
- *  120 s  → 10 scenes (max)
+ * Scene count configuration for a video duration.
+ */
+export interface SceneCountRange {
+  min: number
+  max: number
+  ideal: number
+}
+
+/**
+ * Compute a sensible scene count range from a video duration.
+ * Rule: roughly 1 scene per 10–45 seconds depending on total length.
+ * No upper cap — long videos get as many scenes as needed.
+ */
+export function computeSceneCountRange(durationSeconds: number): SceneCountRange {
+  // Smoothly scaling seconds per scene (SPS)
+  // Short videos: 10-12s/scene
+  // Long videos: 15-18s/scene
+  let sps = 15
+  if (durationSeconds <= 45) sps = 10
+  else if (durationSeconds <= 90) sps = 12
+  else if (durationSeconds <= 180) sps = 14
+  else sps = 16
+
+  const ideal = Math.max(2, Math.round(durationSeconds / sps))
+
+  // Use a tighter range to force LLM toward the ideal
+  return {
+    min: Math.max(2, Math.round(ideal * 0.9)),
+    max: Math.round(ideal * 1.2),
+    ideal
+  }
+}
+
+/**
+ * Compute a sensible scene count from a video duration (legacy ideal value).
  */
 export function computeSceneCount(durationSeconds: number): number {
-  if (durationSeconds <= 30) return Math.max(2, Math.round(durationSeconds / 12))
-  if (durationSeconds <= 60) return Math.max(3, Math.round(durationSeconds / 15))
-  if (durationSeconds <= 120) return Math.max(4, Math.round(durationSeconds / 18))
-  if (durationSeconds <= 300) return Math.max(6, Math.round(durationSeconds / 20))
-  // For very long videos (5-15 mins), we cap the scene count to 15 to avoid LLM context/output truncation.
-  // This ensures the full JSON script fits in a single response (approx 18-20k characters).
-  return Math.max(12, Math.min(15, Math.round(durationSeconds / 60)))
+  return computeSceneCountRange(durationSeconds).ideal
 }
 
 /**

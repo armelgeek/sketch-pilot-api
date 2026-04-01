@@ -39,7 +39,7 @@ export class ScriptGenerationService {
    * Does not consume video credits — script-only operation.
    */
   async generateScript(topic: string, options: GenerateScriptOptions = {}): Promise<CompleteVideoScript> {
-    const provider = (options.llmProvider as LLMServiceConfig['provider']) || 'gemini'
+    const provider = (options.llmProvider as LLMServiceConfig['provider']) || 'openai'
     const apiKey =
       provider === 'openai'
         ? process.env.OPENAI_API_KEY

@@ -2,15 +2,15 @@ import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
-import { Worker, type Job } from 'bullmq'
+import { DelayedError, Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
+import { redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { CompleteVideoPackage } from '@/domain/types/video-script.types'
-import type { VideoJobData } from '@/infrastructure/config/queue.config'
 
 /**
  * FIXED Video Generation Worker
@@ -154,11 +154,30 @@ function findLastCompletedSceneIndex(scenesDir: string, script: any): number {
   return lastIndex
 }
 
+// Uses Redis instead of local memory to track active jobs
+// and prevent concurrent processing across multiple workers.
+
 /**
  * Process a single video generation job.
  */
 async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
+
+  const lockKey = `active-video-job:${videoId}`
+
+  // Defer if another job is already processing this videoId
+  const existingJobId = await redisClient.get(lockKey)
+  if (existingJobId && existingJobId !== job.id) {
+    console.warn(`[VideoWorker] Job ${job.id} deferred — videoId ${videoId} already processing in job ${existingJobId}`)
+    await job.moveToDelayed(Date.now() + 15_000, job.token)
+    throw new DelayedError()
+  }
+
+  if (job.id) {
+    // Set lock valid for 2 hours just in case worker crashes
+    await redisClient.set(lockKey, job.id, 'EX', 2 * 3600)
+  }
+
   let pkg: CompleteVideoPackage | null = null
   let effectiveProjectId = ''
 
@@ -268,15 +287,20 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         })
       }
     } else if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
-      await reportProgress(job, videoId, 'script_generation', 10, 'Generating script...')
+      await reportProgress(job, videoId, 'script_generation', 5, 'Studio: Initializing pipeline...')
       pkg = await videoGenerationService.generateVideo({
         videoId,
         topic,
         userId,
         options: genOptions,
         projectId: effectiveProjectId,
-        onProgress: async (p, m, meta) =>
-          await reportProgress(job, videoId, 'asset_generation', Math.round(25 + (p / 100) * 60), m, meta),
+        onProgress: async (p, m, meta) => {
+          // p is 0-100 from NanoBananaEngine
+          // Engine maps Script Gen to 0-15, Then Assets to 15-100.
+          // We want to map Engine 0-100 to Job 10-90.
+          const jobProgress = Math.round(10 + (p / 100) * 80)
+          await reportProgress(job, videoId, 'generation', jobProgress, m, meta)
+        },
         onTimingSync: async (syncedScript) => {
           console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
           await videoRepository.updateStatus(videoId, {
@@ -492,8 +516,16 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
     if (isCompleted && pkg?.outputPath && fs.existsSync(pkg.outputPath)) {
       try {
-        fs.rmSync(pkg.outputPath, { recursive: true, force: true })
-        console.info(`[VideoWorker] Cleanup successful project: ${pkg.outputPath}`)
+        // Protect against premature cleanup if another job is still active for this videoId
+        const currentLock = await redisClient.get(lockKey)
+        const stillActive = currentLock && currentLock !== job.id
+
+        if (stillActive) {
+          console.warn(`[VideoWorker] Skipping cleanup — another job may still need ${pkg.outputPath}`)
+        } else {
+          fs.rmSync(pkg.outputPath, { recursive: true, force: true })
+          console.info(`[VideoWorker] Cleanup successful project: ${pkg.outputPath}`)
+        }
       } catch (error) {
         console.warn(`[VideoWorker] Cleanup failed:`, error)
       }
@@ -503,6 +535,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       )
     }
     if (job.id) jobProgressMap.delete(job.id)
+    if (job.id) {
+      const lockOwner = await redisClient.get(lockKey)
+      if (lockOwner === job.id) {
+        await redisClient.del(lockKey)
+      }
+    }
   }
 }
 

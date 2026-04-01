@@ -19,11 +19,7 @@ export async function authMiddleware(c: Context, next: Next) {
   try {
     const session = await auth.api.getSession({ headers: c.req.raw.headers })
 
-    if (!session) {
-      throw new UnauthorizedError('Invalid session')
-    }
-
-    c.set('user', session.user as unknown as AuthUser)
+    c.set('user', session?.user as unknown as AuthUser)
     await next()
   } catch (error) {
     if (error instanceof UnauthorizedError) {

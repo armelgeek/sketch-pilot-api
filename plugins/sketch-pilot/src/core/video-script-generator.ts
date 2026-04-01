@@ -1,6 +1,9 @@
 /* eslint-disable no-control-regex */
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   completeVideoScriptSchema,
+  computeSceneCountRange,
   MIN_SCENE_DURATION,
   suggestSceneDuration,
   type CompleteVideoScript,
@@ -22,6 +25,98 @@ type RawScene = Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'> & {
   contextType?: string
   sceneNumber?: number
   soundEffects?: Array<{ id?: string; [key: string]: unknown }>
+}
+
+// ─── Candidate scoring ───────────────────────────────────────────────────────
+
+interface ScriptCandidate {
+  parsed: any
+  score: number
+  attempt: number
+  issues: string[]
+}
+
+/**
+ * Score a parsed script against the target word count and structural rules.
+ *
+ * Score breakdown (0–1 scale):
+ *   wordProximity      0.40 — how close actual words are to target (linear, capped at ±40%)
+ *   noNarrativeGap     0.25 — fullNarration matches sum of scenes (≤5% drift = full points)
+ *   noDensityFailure   0.25 — all scenes meet their minimum word density
+ *   sceneStructure     0.10 — scenes array exists and has a reasonable count
+ *
+ * Higher is better. A perfect script scores 1.0.
+ */
+function scoreCandidate(
+  parsed: any,
+  targetWords: number,
+  effectiveDuration: number,
+  minWordsPerScene: number
+): { score: number; issues: string[] } {
+  const issues: string[] = []
+  let score = 0
+
+  if (!parsed?.scenes || !Array.isArray(parsed.scenes)) {
+    return { score: 0, issues: ['Missing scenes array'] }
+  }
+
+  // ── 1. Word proximity (0.40) ──────────────────────────────────────────────
+  const actualWords: number = parsed.scenes.reduce(
+    (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
+    0
+  )
+  const ratio = actualWords / Math.max(targetWords, 1)
+  // Linear score: 1.0 at ratio=1.0, 0.0 at ratio≤0.60 or ratio≥1.40
+  const wordScore = Math.max(0, 1 - Math.abs(ratio - 1) / 0.4)
+  score += wordScore * 0.4
+
+  if (ratio < 0.75) issues.push(`Under-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
+  if (ratio > 1.15) issues.push(`Over-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
+
+  // ── 2. Narrative consistency (0.25) ───────────────────────────────────────
+  const fullNarrationWords = (parsed.fullNarration || '').trim().split(/\s+/).filter(Boolean).length
+  const drift = fullNarrationWords > 0 ? Math.abs(actualWords - fullNarrationWords) / Math.max(actualWords, 1) : 0
+  const narrativeScore = fullNarrationWords === 0 ? 0.5 : Math.max(0, 1 - drift / 0.02) // ≤2% drift = full score
+  score += narrativeScore * 0.25
+
+  if (drift > 0.02 && fullNarrationWords > 0) {
+    issues.push(
+      `Narrative drift: fullNarration=${fullNarrationWords}w vs scenes sum=${actualWords}w (${Math.round(drift * 100)}% off)`
+    )
+  }
+
+  // ── 3. Scene density (0.25) ───────────────────────────────────────────────
+  let failingScenes = 0
+  for (const [index, scene] of parsed.scenes.entries()) {
+    const narration = scene.narration || ''
+    const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
+    const isHook = scene.preset === 'hook' || index === 0
+    const baseThreshold = 0.85
+    const effectiveMinWords = isHook
+      ? Math.max(20, Math.round(minWordsPerScene * 0.3))
+      : Math.round(minWordsPerScene * baseThreshold)
+
+    if (sceneWords < effectiveMinWords) {
+      failingScenes++
+      issues.push(`Scene ${index + 1} (${scene.preset || 'unknown'}) too short: ${sceneWords}/${effectiveMinWords}w`)
+    }
+  }
+  const densityScore = (1 - failingScenes / Math.max(parsed.scenes.length, 1)) ** 2
+  score += densityScore * 0.25
+
+  // ── 4. Scene structure (0.10) ─────────────────────────────────────────────
+  const range = computeSceneCountRange(effectiveDuration)
+  const sceneCount = parsed.scenes.length
+
+  // Strict structure score: deviation from ideal is penalized
+  const sceneDiff = Math.abs(sceneCount - range.ideal)
+  const structureScore = Math.max(0, 1 - (sceneDiff / Math.max(range.ideal, 1)) * 2)
+  score += structureScore * 0.1
+
+  if (sceneCount < range.min) issues.push(`Too few scenes: ${sceneCount} (min=${range.min})`)
+  if (sceneCount > range.max) issues.push(`Too many scenes: ${sceneCount} (max=${range.max})`)
+
+  return { score, issues }
 }
 
 // ─── VideoScriptGenerator ────────────────────────────────────────────────────
@@ -82,18 +177,44 @@ export class VideoScriptGenerator {
       emotionalArc: baseScript.emotionalArc
     }
 
+    let validated: CompleteVideoScript
     try {
-      return completeVideoScriptSchema.parse(completeScript)
+      validated = completeVideoScriptSchema.parse(completeScript)
     } catch (validationError: any) {
       console.error('[VideoScriptGen] Schema validation failed:', validationError.errors || validationError.message)
       throw new Error(`Script validation failed: ${validationError.message}`)
     }
+
+    // ── Debug: persist generated script JSON ──────────────────────────────
+    try {
+      const debugDir = path.join(process.cwd(), 'uploads', 'output')
+      if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true })
+      const timestamp = new Date().toISOString().replaceAll(/[:.]/g, '-')
+      const debugPath = path.join(debugDir, `debug_script_${timestamp}.json`)
+      fs.writeFileSync(debugPath, JSON.stringify(validated, null, 2), 'utf-8')
+      console.log(`[VideoScriptGen] 📄 Debug script saved → ${debugPath}`)
+    } catch (error) {
+      console.warn('[VideoScriptGen] Could not save debug script JSON:', error)
+    }
+
+    return validated
   }
 
   // ─── Private: Structure ───────────────────────────────────────────────────
 
   /**
    * Call the LLM and parse the raw JSON response into a structured object.
+   *
+   * SCORING STRATEGY (replaces hard-fail on every attempt):
+   *   Every attempt is scored and stored as a candidate.
+   *   At the end, the best-scoring candidate is used — even if imperfect.
+   *   A 500 is only thrown if zero valid JSON was ever produced.
+   *
+   *   Score weights:
+   *     0.40 — word count proximity to target
+   *     0.25 — fullNarration ↔ scenes consistency
+   *     0.25 — per-scene density (no scenes under minimum)
+   *     0.10 — basic structure (scenes array, count in range)
    */
   private async generateVideoStructure(
     topic: string,
@@ -110,147 +231,184 @@ export class VideoScriptGenerator {
     backgroundMusic?: string
   }> {
     const effectiveDuration = this.promptManager.getEffectiveDuration(options)
-    const wps = this.promptManager.getWordsPerSecond(options)
-    const safetyFactor = this.promptManager.getPublicSafetyFactor(options)
-    const targetWords = Math.round(effectiveDuration * wps * safetyFactor)
 
-    const { systemPrompt, userPrompt } = await this.promptManager.buildScriptGenerationPrompts(
-      topic,
-      options,
-      targetWords
+    // ─── PASS 1: NARRATION ONLY ─────────────────────────────────────────────
+    console.log(`[VideoScriptGen] Pass 1: Generating narration only (Targeting ~${effectiveDuration}s)...`)
+    if (onProgress) await onProgress(5, 'Studio: Crafting narration flow...')
+
+    const { pass1 } = this.promptManager.buildTwoPassPrompts(topic, options)
+    let narrationText = await this.llmService.generateContent(pass1.user, pass1.system)
+
+    if (!narrationText) {
+      throw new Error('[VideoScriptGen] Pass 1 failed: LLM returned empty narration')
+    }
+
+    // Pass 1 Validation & Optional Retry
+    let validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
+    console.log(
+      `[VideoScriptGen] Pass 1 Validation: ${validation.ok ? 'OK' : 'TOO SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
     )
 
-    console.log(`[VideoScriptGen] Calling LLM for structure (Target: ${targetWords} words)...`)
+    if (!validation.ok) {
+      console.log(`[VideoScriptGen] Narration too short. Triggering one-time expansion retry...`)
+      if (onProgress) await onProgress(8, 'Studio: Expanding narration for better depth...')
 
-    const MAX_RETRIES = 5
-    let latestParsed: any = null
-    let lastError: Error | null = null
-    let feedback = ''
+      const retryUser = this.promptManager.buildNarrationRetryUserPrompt(
+        topic,
+        narrationText,
+        options,
+        pass1.targetWords,
+        validation.actualWords,
+        2
+      )
+      const continuation = await this.llmService.generateContent(retryUser, pass1.system)
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        console.log(`[VideoScriptGen] Generation attempt ${attempt}/${MAX_RETRIES}...`)
-        if (onProgress) await onProgress(5, `Studio: Generation progress (Attempt ${attempt}/${MAX_RETRIES})...`)
-
-        const currentUserPrompt =
-          attempt === 1
-            ? userPrompt
-            : `${userPrompt}\n\n⚠️ PREVIOUS ATTEMPT FAILED VALIDATION:\n${feedback}\n\nPlease try again and ENSURE you meet all the requirements, especially the word count and sentence count per scene. You MUST expand each scene narration to meet the minimum word count.`
-
-        const text = await this.llmService.generateContent(currentUserPrompt, systemPrompt, 'application/json')
-        if (!text) throw new Error('API returned empty generated content or timeout')
-
-        if (onProgress) await onProgress(8, 'Studio: Validating script structure...')
-
-        const parsed = this.parseJsonResponse(text)
-
-        if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
-          throw new Error("Generated script JSON is missing 'scenes' array")
-        }
-
-        // --- BREVITY CHECK ---
-        const actualWords = parsed.scenes.reduce(
-          (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
-          0
-        )
-
-        const minWordsPerScene = Math.min(150, Math.floor(targetWords / (parsed.scenes.length || 1)))
-        const minSentencesPerScene = minWordsPerScene < 45 ? 2 : 3
-
+      if (continuation) {
+        // Append the continuation to the original text
+        narrationText = `${narrationText.trim()} ${continuation.trim()}`
+        validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
         console.log(
-          `[VideoScriptGen] [VAL_DEBUG] scenes_count=${parsed.scenes.length}, actual_words=${actualWords}, target_words=${targetWords}, min_words/scene=${minWordsPerScene}`
+          `[VideoScriptGen] Pass 1 Retry Validation: ${validation.ok ? 'OK' : 'STILL SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
         )
 
-        // 1. Validate density per scene
-        for (const [index, scene] of parsed.scenes.entries()) {
-          const narration = scene.narration || ''
-          const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
-          const sentences = narration.split(/[.!?]+/).filter((s: string) => s.trim().length > 0)
-          const isHook = scene.preset === 'hook' || index === 0
-
-          // Preset-aware density validation
-          const baseThreshold = effectiveDuration > 300 ? 0.5 : 0.6
-          const effectiveMinWords = isHook
-            ? Math.max(20, Math.round(minWordsPerScene * 0.3)) // Hooks can be very short (min 20 words)
-            : Math.round(minWordsPerScene * baseThreshold)
-
-          if (sceneWords < effectiveMinWords) {
-            const errorMsg = `SCENE DENSITY FAILURE: Scene ${index + 1} (${scene.preset || 'unknown'} preset) is too short (${sceneWords}/${effectiveMinWords} words). ${isHook ? 'Hooks must be percutant but still descriptive.' : 'You MUST expand this scene narration significantly.'}`
-            console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
-            throw new Error(errorMsg)
-          }
-
-          const effectiveMinSentences = isHook ? 2 : minSentencesPerScene
-          if (sentences.length < effectiveMinSentences) {
-            const errorMsg = `STRUCTURAL FAILURE: Scene ${index + 1} has only ${sentences.length}/${effectiveMinSentences} sentences. ${isHook ? 'Even hooks need at least 2 clear sentences.' : `Each scene's narration MUST contain AT LEAST ${minSentencesPerScene} full sentences.`}`
-            console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
-            throw new Error(errorMsg)
-          }
-        }
-
-        // 2. Validate total word count & consistency
-        // Thresholds are relaxed vs OpenAI because Gemini tends to be more concise.
-        // The goal is catching egregiously short or long scripts, and ensuring consistency.
-        let totalThreshold = 0.75
-        const totalUpperBound = 1.15 // Max 15% over-generation allowed
-        if (effectiveDuration > 300) totalThreshold = 0.65
-        else if (effectiveDuration > 60) totalThreshold = 0.7
-
-        const fullNarrationWords = (parsed.fullNarration || '').trim().split(/\s+/).filter(Boolean).length
-
-        console.log(
-          `[VideoScriptGen] [VAL_DEBUG] scenes_count=${parsed.scenes.length}, actual_words=${actualWords}, full_narration_words=${fullNarrationWords}, target_words=${targetWords}, min_words/scene=${minWordsPerScene}`
-        )
-
-        // A. Check for under-generation
-        if (actualWords < targetWords * totalThreshold && effectiveDuration >= 30) {
-          const errorMsg = `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${Math.round(targetWords * totalThreshold)} words total. PLEASE ELABORATE extensively on every scene.`
-          console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
-          throw new Error(errorMsg)
-        }
-
-        // B. Check for over-generation (to prevent rushed audio/visual sync)
-        if (actualWords > targetWords * totalUpperBound && effectiveDuration >= 30) {
-          const errorMsg = `TOTAL NARRATION TOO LONG: The script has ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, the maximum allowed is ${Math.round(targetWords * totalUpperBound)} words. PLEASE TRIM and CONDENSE your narration significantly.`
-          console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
-          throw new Error(errorMsg)
-        }
-
-        // C. Check for consistency between global narration and individual scenes
-        // If there's a > 5% mismatch, the script is likely broken or hallucinated.
-        const drift = Math.abs(actualWords - fullNarrationWords)
-        if (drift > actualWords * 0.05 && fullNarrationWords > 0) {
-          const errorMsg = `NARRATIVE INCONSISTENCY: The 'fullNarration' (${fullNarrationWords} words) does not match the sum of your scene narrations (${actualWords} words). Please ensure they are identical.`
-          console.warn(`[VideoScriptGen] 🚨 [VAL_DEBUG] ${errorMsg}`)
-          throw new Error(errorMsg)
-        }
-
-        console.log(`[VideoScriptGen] ✓ Script accepted: ${actualWords}/${targetWords} words.`)
-
-        latestParsed = parsed
-        break
-      } catch (error: unknown) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-        feedback = lastError.message
-        console.warn(`[VideoScriptGen] Attempt ${attempt} failed: ${feedback}`)
-
-        if (attempt < MAX_RETRIES) {
-          const delay = 1000 // Fixed short delay for retries to keep it snappy
-          console.log(`[VideoScriptGen] Retrying with feedback in ${delay}ms...`)
-          await new Promise((res) => setTimeout(res, delay))
+        // Hard Failure if still significantly below target after retry (Fix v8-retry-fail)
+        if (validation.actualWords < pass1.targetWords * 0.8) {
+          console.error(
+            `[VideoScriptGen] ❌ Final narration too short (${validation.actualWords}/${validation.targetWords}). Aborting to maintain quality.`
+          )
+          throw new Error(
+            `Script under-generation: final narration is only ${validation.actualWords} words, but the video requires at least ${Math.round(pass1.targetWords * 0.8)} words for proper coverage.`
+          )
         }
       }
     }
 
-    if (!latestParsed) {
-      console.error('[VideoScriptGen] All retry attempts failed.')
-      throw lastError || new Error('Failed to generate video structure after multiple attempts')
+    // ─── PASS 2: STRUCTURING ────────────────────────────────────────────────
+    console.log(`[VideoScriptGen] Pass 2: Structuring narration into scenes...`)
+    if (onProgress) await onProgress(10, 'Studio: Sculpting scenes and visual prompts...')
+
+    const p2 = this.promptManager.buildPass2Prompts(narrationText, topic, options)
+
+    // We use a small retry loop for structuring in case of JSON formatting issues
+    const MAX_P2_RETRIES = 3
+    let structuredResult: any = null
+
+    for (let attempt = 1; attempt <= MAX_P2_RETRIES; attempt++) {
+      try {
+        if (onProgress) {
+          const msg =
+            attempt > 1
+              ? `Studio: Sculpting scenes (Attempt ${attempt}/3)...`
+              : 'Studio: Sculpting scenes and visual prompts...'
+          await onProgress(10 + (attempt - 1) * 10, msg)
+        }
+        const jsonText = await this.llmService.generateContent(p2.user, p2.system, 'application/json')
+        if (!jsonText) throw new Error('Empty Pass 2 response')
+
+        structuredResult = this.parseJsonResponse(jsonText)
+        if (!structuredResult.scenes || !Array.isArray(structuredResult.scenes)) {
+          throw new Error("Missing 'scenes' array in structured output")
+        }
+
+        // Successfully parsed and structured
+        break
+      } catch (error: any) {
+        console.warn(`[VideoScriptGen] Pass 2 attempt ${attempt} failed: ${error.message}`)
+        if (attempt === MAX_P2_RETRIES) throw error
+      }
     }
 
-    latestParsed.scenes = this.postProcessScenes(latestParsed.scenes)
-    latestParsed.scenes = this.assignTimeRanges(latestParsed.scenes, options)
+    // ─── POST-STRUCTURING INTEGRITY ─────────────────────────────────────────
 
-    return latestParsed
+    // 1. Fix fullNarration drift (locked narration rule enforcement)
+    const { script: fixedScript, driftFixed, driftWords } = this.promptManager.fixFullNarrationDrift(structuredResult)
+    if (driftFixed) {
+      console.log(`[VideoScriptGen] Fixed fullNarration drift (${driftWords} words corrected)`)
+    }
+
+    // 2. Scene-level validation & Micro-corrections (Fix v5)
+    // This handles long sentences, third-person drift, etc.
+    if (onProgress) await onProgress(70, 'Studio: Running micro-corrections and quality checks...')
+    const refinement = await this.promptManager.validateAndCorrectAllScenes(fixedScript.scenes, {
+      complete: async (prompt: string) => {
+        return await this.llmService.generateContent(prompt, '', 'application/json')
+      }
+    })
+    fixedScript.scenes = refinement.correctedScenes
+
+    // 3. Final structural assignments
+    if (onProgress) await onProgress(90, 'Studio: Finalizing script structure...')
+    fixedScript.scenes = this.postProcessScenes(fixedScript.scenes)
+    fixedScript.scenes = this.assignTimeRanges(fixedScript.scenes, options)
+
+    if (onProgress) await onProgress(100, 'Studio: Script generation complete!')
+    console.log(`[VideoScriptGen] ✓ Two-pass generation complete. Final word count: ${fixedScript.totalWordCount}`)
+
+    return fixedScript
+  }
+
+  /**
+   * Build a human-readable feedback string summarising the primary validation
+   * failures of a parsed attempt. Used as the ⚠️ PREVIOUS ATTEMPT FAILED block
+   * injected into the next attempt's user prompt.
+   */
+  private buildValidationFeedback(
+    parsed: any,
+    actualWords: number,
+    fullNarrationWords: number,
+    targetWords: number,
+    effectiveDuration: number,
+    minWordsPerScene: number
+  ): string {
+    const lines: string[] = []
+
+    // Word count
+    const ratio = actualWords / Math.max(targetWords, 1)
+    if (ratio < 0.75) {
+      lines.push(
+        `TOTAL NARRATION TOO SHORT: The script has only ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, we require at least ${Math.round(targetWords * 0.75)} words total. PLEASE ELABORATE extensively on every scene.`
+      )
+    } else if (ratio > 1.15) {
+      lines.push(
+        `TOTAL NARRATION TOO LONG: The script has ${actualWords} words, but for a ${Math.round(effectiveDuration)}s video, the maximum allowed is ${Math.round(targetWords * 1.15)} words. PLEASE TRIM and CONDENSE your narration significantly.`
+      )
+    }
+
+    // Narrative consistency
+    const drift = fullNarrationWords > 0 ? Math.abs(actualWords - fullNarrationWords) / Math.max(actualWords, 1) : 0
+    if (drift > 0.05 && fullNarrationWords > 0) {
+      lines.push(
+        `NARRATIVE INCONSISTENCY: The 'fullNarration' (${fullNarrationWords} words) does not match the sum of your scene narrations (${actualWords} words). Please ensure they are identical.`
+      )
+    }
+
+    // Per-scene density
+    if (parsed?.scenes) {
+      for (const [index, scene] of parsed.scenes.entries()) {
+        const narration = scene.narration || ''
+        const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
+        const sentences = narration.split(/[.!?]+/).filter((s: string) => s.trim().length > 0)
+        const isHook = scene.preset === 'hook' || index === 0
+        const baseThreshold = 0.85
+        const effectiveMinWords = isHook
+          ? Math.max(20, Math.round(minWordsPerScene * 0.3))
+          : Math.round(minWordsPerScene * baseThreshold)
+        const effectiveMinSentences = isHook ? 2 : minWordsPerScene < 45 ? 2 : 3
+
+        if (sceneWords < effectiveMinWords) {
+          lines.push(
+            `SCENE DENSITY FAILURE: Scene ${index + 1} (${scene.preset || 'unknown'} preset) is too short (${sceneWords}/${effectiveMinWords} words). ${isHook ? 'Hooks must be percutant but still descriptive.' : 'You MUST expand this scene narration significantly.'}`
+          )
+        }
+        if (sentences.length < effectiveMinSentences) {
+          lines.push(
+            `STRUCTURAL FAILURE: Scene ${index + 1} has only ${sentences.length}/${effectiveMinSentences} sentences. ${isHook ? 'Even hooks need at least 2 clear sentences.' : `Each scene's narration MUST contain AT LEAST ${effectiveMinSentences} full sentences.`}`
+          )
+        }
+      }
+    }
+
+    return lines.join('\n') || 'Unknown validation failure — please review all scene narrations.'
   }
 
   /**

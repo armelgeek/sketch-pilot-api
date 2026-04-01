@@ -23,13 +23,10 @@ function toPrompt(row: typeof prompts.$inferSelect): Prompt {
     rules: config.rules || [],
     formatting: config.formatting,
     instructions: config.instructions || [],
-
-    // NEW: Advanced Studio Specs
-    assetSystemInstruction: config.assetSystemInstruction,
-    assetPromptTemplate: config.assetPromptTemplate,
-    wordsPerSecondBase: config.wordsPerSecondBase,
-    wordsPerSecondFactors: config.wordsPerSecondFactors,
-    defaultBackgroundPrompt: config.defaultBackgroundPrompt,
+    characterDescription: config.characterDescription,
+    scenePresets: config.scenePresets,
+    visualRules: config.visualRules,
+    orchestration: config.orchestration,
 
     createdAt: row.createdAt,
     updatedAt: row.updatedAt

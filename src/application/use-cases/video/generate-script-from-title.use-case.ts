@@ -67,10 +67,10 @@ export class GenerateScriptFromTitleUseCase extends IUseCase<
       })
 
       // 3. Generate script using Gemini
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
-      if (!apiKey) throw new Error('GEMINI_API_KEY is not configured')
+      const apiKey = process.env.OPENAI_API_KEY || ''
+      if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
 
-      const llm = await LLMServiceFactory.create({ provider: 'gemini', apiKey })
+      const llm = await LLMServiceFactory.create({ provider: 'openai', apiKey })
 
       const videoDuration = options?.duration || 60
       const pointCount =
@@ -84,10 +84,9 @@ CRITICAL INSTRUCTIONS:
    - Intro: 2-3 punchy sentences + Visual description.
    - Center: exactly ${pointCount} key points. Each point: 1-2 line explanation + Visual description.
    - Outro: 2-3 sentences leaving a memorable final reflection + Visual description.
-3. VISUAL DESCRIPTIONS: For each part, provide a 1-sentence "Visual:" instruction. These must describe dense, realistic B&W settings with 5+ objects, focused on a single character @Name.
-4. TONE: Create tension → reveal psychological insight → turn the mirror on the viewer.
-5. STRICTLY AVOID internal system words like "Prompt", "Template", "System", or repeating the title too often.
-6. TEXT ONLY: no Markdown, no symbols, no headings. Plain text with line breaks.
+3. TONE: Create tension → reveal psychological insight → turn the mirror on the viewer.
+4. STRICTLY AVOID internal system words like "Prompt", "Template", "System", or repeating the title too often.
+5. TEXT ONLY: no Markdown, no symbols, no headings. Plain text with line breaks.
 
 Format for the script (plain text, no Markdown):
 Intro

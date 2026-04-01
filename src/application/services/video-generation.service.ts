@@ -58,7 +58,7 @@ export class VideoGenerationService {
       apiKey: options.imageProvider === 'grok' ? process.env.XAI_API_KEY || apiKey : apiKey
     }
 
-    const llmProvider = (options.llmProvider as LLMProvider) || 'gemini'
+    const llmProvider = (options.llmProvider as LLMProvider) || 'openai'
     const llmApiKey =
       llmProvider === 'openai'
         ? process.env.OPENAI_API_KEY

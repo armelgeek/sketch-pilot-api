@@ -68,10 +68,10 @@ export class SuggestTopicsUseCase extends IUseCase<SuggestTopicsParams, SuggestT
       })
 
       // 3. Generate topics using LLM
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
-      if (!apiKey) throw new Error('GEMINI_API_KEY is not configured')
+      const apiKey = process.env.OPENAI_API_KEY || ''
+      if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
 
-      const llm = await LLMServiceFactory.create({ provider: 'gemini', apiKey })
+      const llm = await LLMServiceFactory.create({ provider: 'openai', apiKey })
 
       const language = options.language || 'en-US'
       const type = options.videoType || 'general'
