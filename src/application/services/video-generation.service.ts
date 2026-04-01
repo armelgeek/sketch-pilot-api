@@ -41,10 +41,15 @@ export class VideoGenerationService {
     // 2. Resolve Voice
     const effectiveVoiceId = options.kokoroVoicePreset as string | undefined
 
+    let provider = (options.audioProvider as AudioServiceConfig['provider']) || 'elevenlabs'
+    // Banni Kokoro : Forcer ElevenLabs coûte que coûte
+    if ((provider as string) === 'kokoro') provider = 'elevenlabs'
+
     const audioConfig: AudioServiceConfig = {
-      provider: (options.audioProvider as AudioServiceConfig['provider']) || 'kokoro',
+      provider,
       lang: options.language || 'en',
-      apiKey: process.env.HUGGING_FACE_TOKEN || apiKey,
+      apiKey:
+        provider === 'kokoro' ? process.env.HUGGING_FACE_TOKEN || apiKey : process.env.ELEVENLABS_API_KEY || apiKey,
       kokoroVoicePreset: effectiveVoiceId
     }
 

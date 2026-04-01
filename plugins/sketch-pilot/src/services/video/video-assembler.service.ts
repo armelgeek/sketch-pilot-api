@@ -1851,7 +1851,9 @@ export class VideoAssembler {
   }
 
   private getTransitionInDuration(sceneIndex: number, scenes: any[], scenesDir: string): number {
-    return 0.04
+    // If xfade is disabled (resolveTransition always returns 'cut'), we must not add padding.
+    // Padding without xfade causes visual drift compared to the absolute global audio timings.
+    return 0
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1913,7 +1915,8 @@ export class VideoAssembler {
     let rawDurationWithPadding = rawDuration
     if (hasGlobalAudio && sceneIndex > 0) rawDurationWithPadding += transitionInDur
 
-    const duration = Math.ceil(rawDurationWithPadding * OUTPUT_FPS) / OUTPUT_FPS
+    // Use float directly to avoid accumulated rounding errors which caused audio/video desync
+    const duration = rawDurationWithPadding
 
     try {
       const keywordVisualsJsonPath = path.join(sceneDir, 'keyword_visuals.json')

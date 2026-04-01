@@ -75,17 +75,21 @@ export const AudioServiceFactory = {
           config.audioEncoding || 'MP3'
         )
       }
+      case 'kokoro':
       case 'elevenlabs': {
         const { ElevenLabsService } = await import('./elevenlabs.service')
+        let validApiKey = config.apiKey
+        if (
+          validApiKey &&
+          (validApiKey.startsWith('hf_') || validApiKey.startsWith('sk-proj') || validApiKey.startsWith('AIza'))
+        ) {
+          validApiKey = undefined
+        }
         return new ElevenLabsService(
-          config.apiKey,
-          config.voiceId || 'EXAVITQu4vr4xnSDxMaL',
-          config.modelId || 'eleven_monolingual_v1'
+          validApiKey || process.env.ELEVENLABS_API_KEY,
+          config.kokoroVoicePreset || config.voiceId || 'pNInz6obpgDQGcFmaJgB', // Adam/Bella
+          config.modelId || 'eleven_turbo_v2_5'
         )
-      }
-      case 'kokoro': {
-        const { KokoroTTSService } = await import('./kokoro-tts.service')
-        return new KokoroTTSService(config.apiKey || '', config.lang || 'en-US', config.kokoroVoicePreset || 'af_heart')
       }
       case 'gemini-tts': {
         if (!config.apiKey) {

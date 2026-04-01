@@ -3,7 +3,7 @@ import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 export const voicePresets = pgTable('voice_presets', {
   id: text('id').primaryKey(),
   presetId: text('preset_id').notNull().unique(),
-  provider: text('provider').notNull().default('kokoro'),
+  provider: text('provider').notNull().default('elevenlabs'),
   name: text('name').notNull(),
   language: text('language').notNull().default('en-US'),
   gender: text('gender').notNull().default('female'),

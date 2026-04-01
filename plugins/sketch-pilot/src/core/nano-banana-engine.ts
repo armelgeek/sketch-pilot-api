@@ -74,7 +74,7 @@ export class NanoBananaEngine {
   private currentLLMProvider: LLMProvider = 'gemini'
   private currentTranscriptionConfig?: TranscriptionConfig
   private currentAssCaptionConfig?: AssCaptionConfig
-  private currentKokoroVoicePreset: KokoroVoicePreset = KokoroVoicePreset.AF_HEART
+  private currentKokoroVoicePreset: KokoroVoicePreset | string = KokoroVoicePreset.AF_HEART
 
   private readonly sceneCache: SceneCacheService
 
@@ -974,8 +974,8 @@ export class NanoBananaEngine {
     let lastSceneImageBase64: string | undefined
     const globalAudioPath = path.join(projectDir, 'narration.mp3')
 
-    // --- AUDIO GENERATION & TIMING SYNC (REAL-WORLD) ---
-    // Instead of one big file, we generate per-scene to get exact durations and avoid drift.
+    // --- AUDIO GENERATION & TIMING SYNC (NATIVE GLOBAL) ---
+    // We generate a SINGLE audio file with ElevenLabs to preserve narrative flow and context between scenes.
     const skipAudio =
       validOptions.skipAudio ||
       validOptions.generateOnlyAssembly ||
@@ -983,89 +983,31 @@ export class NanoBananaEngine {
       false
 
     if (!skipAudio) {
-      if (onProgress) await onProgress(16, 'Generating narration audio (per-scene)...')
-      console.log(`\n[NanoBanana] --- Generating Per-Scene Audio & Syncing Timings ---`)
+      if (onProgress) await onProgress(16, 'Generating global narration audio...')
+      console.log(`\n[NanoBanana] --- Generating Global Audio & Syncing Timings ---`)
 
-      let currentTime = 0
-      const audioFiles: string[] = []
-
-      for (let i = 0; i < script.scenes.length; i++) {
-        const scene = script.scenes[i]
-        const sceneDir = path.join(scenesDir, scene.id)
-        if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
-
-        const sceneAudioPath = path.join(sceneDir, 'narration.mp3')
-        const voiceId = validOptions.kokoroVoicePreset || KokoroVoicePreset.AF_HEART
-
-        // Always generate if it doesn't exist, or if forceRegenerateAudio is on
-        const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
-        if (forceRegen || !fs.existsSync(sceneAudioPath)) {
-          const wordCount = (scene.narration || '').split(/\s+/).filter(Boolean).length
-          console.log(`[NanoBanana] Scene ${i + 1}: Synthesizing ${wordCount} words...`)
-
-          try {
-            const audioService = await this.getAudioService()
-            const audioResult = await audioService.generateSpeech(scene.narration, sceneAudioPath, {
-              voice: voiceId,
-              voiceId,
-              pacing: (scene as any).pacing // Pass scene pacing for KokoroTTS speed adjustment
-            })
-
-            // Store duration and word timings in scene
-            ;(scene as any).audioDuration = audioResult.duration
-            ;(scene as any).globalWordTimings = audioResult.wordTimings
-            console.log(`[NanoBanana] ✓ Scene ${i + 1} Duration: ${audioResult.duration.toFixed(2)}s`)
-          } catch (audioError: any) {
-            console.warn(`[NanoBanana] ⚠ Scene audio generation failed for ${scene.id}: ${audioError.message}`)
-            // Fallback estimation if generation fails
-            const wordCount = (scene.narration || '').split(/\s+/).length
-            ;(scene as any).audioDuration = Math.max(3, wordCount / 2.5)
+      const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
+      if (forceRegen || !fs.existsSync(globalAudioPath)) {
+        console.log(`[NanoBanana] Synthesizing full script into global narration...`)
+        try {
+          const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+          const audioService = await this.getAudioService()
+          await audioService.generateSpeech(fullScriptText, globalAudioPath)
+          if (fs.existsSync(globalAudioPath)) {
+            script.globalAudio = 'narration.mp3'
+            console.log(`[NanoBanana] ✓ Narration generated successfully at ${globalAudioPath}`)
           }
-        } else {
-          // If audio exists, we need to know its duration to sync timings
-          // We can't easily get it without ffprobe here, so we might need a utility or store it in manifest
-          // For now, if it exists, we assume the script.json timings might be correct OR we should re-measure
-          console.log(`[NanoBanana] Scene ${i + 1} audio already exists at ${sceneAudioPath}`)
-          // If we have no duration, we might need to estimate or use existing timeRange
-          if (!(scene as any).audioDuration) {
-            ;(scene as any).audioDuration = scene.timeRange.end - scene.timeRange.start
-          }
+        } catch (error: any) {
+          console.error(`[NanoBanana] ❌ Narration generation failed: ${error.message}`)
         }
-
-        // Update TimeRange based on real duration
-        const duration = (scene as any).audioDuration || 5
-        scene.timeRange = { start: currentTime, end: currentTime + duration }
-        currentTime += duration
-
-        audioFiles.push(sceneAudioPath)
-
-        // Increment audio progress from 16 to 25%
-        if (onProgress) {
-          const audioProg = 16 + Math.round(((i + 1) / script.scenes.length) * 9)
-          await onProgress(audioProg, `Synthesized audio for scene ${i + 1}/${script.scenes.length}...`)
-        }
+      } else {
+        console.log(`[NanoBanana] Global narration already exists.`)
       }
 
-      script.totalDuration = currentTime
-      script.globalAudio = 'narration.mp3'
-
-      // Save the synchronized script EARLY
-      fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
-      console.log(`[NanoBanana] Synchronized script with real durations (${script.totalDuration.toFixed(2)}s)`)
-
-      // Stitch audio files into global narration.mp3
-      if (audioFiles.length > 0 && !fs.existsSync(globalAudioPath)) {
-        if (onProgress) await onProgress(25, 'Stitching audio tracks...')
-        console.log(`[NanoBanana] Stitching ${audioFiles.length} scenes into global narration.mp3...`)
-        await this.stitchAudioFiles(audioFiles, globalAudioPath)
-      }
-
-      // --- FINAL TRANSCRIPTION SYNC (GROUND TRUTH) ---
-      // Although we have per-scene durations, a final Whisper pass on the stitched file
-      // ensures that timeRange and word-level captions are perfectly aligned with the reality of narration.mp3.
+      // --- TRANSCRIPTION SYNC (GROUND TRUTH) ---
       if (fs.existsSync(globalAudioPath)) {
         if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
-        console.log(`[NanoBanana] Running final Whisper sync for word-perfect timings...`)
+        console.log(`[NanoBanana] Running Whisper sync for word-perfect timings...`)
         try {
           if (!(await this.getTranscriptionService())) {
             this.currentTranscriptionConfig = {
@@ -1080,14 +1022,13 @@ export class NanoBananaEngine {
           const transcriptionService = (await this.getTranscriptionService())!
           const transcriptionResult = await transcriptionService.transcribe(globalAudioPath, async (p, msg) => {
             if (onProgress) {
-              // Transcription takes the 26-35% range
               const transProgress = 26 + Math.round(p * 0.09)
               await onProgress(transProgress, `Synchronisation vocale : ${p}%`)
             }
           })
           const assemblyWordTimings = transcriptionResult.wordTimings
 
-          // Map word timings back to scenes (Refines TimeRange from synthesis durations to real audio detection)
+          // Map word timings back to scenes
           const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
           const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
 
@@ -1097,16 +1038,20 @@ export class NanoBananaEngine {
             if (timing.wordTimings.length > 0) {
               ;(scene as any).globalWordTimings = timing.wordTimings
             }
+
+            // Link scene audio fallback conceptually (since we now only have global audio)
+            ;(scene as any).audioDuration = timing.end - timing.start
           })
 
           if (mappedTimings.length > 0) {
             script.totalDuration = mappedTimings.at(-1)!.end
           }
           console.log(`[NanoBanana] ✓ Final timings updated from transcription (${script.totalDuration.toFixed(2)}s)`)
+
+          // Save the script with updated real durations so the Assembler sees the correct timeRanges!
+          fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
         } catch (error: any) {
-          console.warn(
-            `[NanoBanana] ⚠ Final transcription refinement failed: ${error.message}. Keeping synthesis durations.`
-          )
+          console.warn(`[NanoBanana] ⚠ Transcription mapping failed: ${error.message}`)
         }
       }
 

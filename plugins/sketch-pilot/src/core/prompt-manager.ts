@@ -386,7 +386,7 @@ export class PromptManager {
   // ─── Provider helpers ──────────────────────────────────────────────────────
 
   private resolveProvider(options: VideoGenerationOptions): string {
-    return (options.audioProvider || 'kokoro').toLowerCase()
+    return (options.audioProvider || 'elevenlabs').toLowerCase()
   }
 
   private getSafetyFactor(options: VideoGenerationOptions): number {

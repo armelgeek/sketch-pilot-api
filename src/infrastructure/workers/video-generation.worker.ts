@@ -205,7 +205,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       language: options.language || storedOptions.language || 'en',
       llmProvider: options.llmProvider || storedOptions.llmProvider || 'gemini',
       imageProvider: options.imageProvider || storedOptions.imageProvider || 'gemini',
-      audioProvider: options.voiceProvider || storedOptions.audioProvider || 'kokoro',
+      audioProvider: options.voiceProvider || storedOptions.audioProvider || 'elevenlabs',
       qualityMode: options.qualityMode || storedOptions.qualityMode || 'standard',
       kokoroVoicePreset: options.kokoroVoicePreset || storedOptions.kokoroVoicePreset || options.voiceId,
       localProjectId: effectiveProjectId,

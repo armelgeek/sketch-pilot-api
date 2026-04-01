@@ -591,12 +591,12 @@ export const videoGenerationOptionsSchema = z
       .default('openai')
       .describe('Provider for script generation'),
     kokoroVoicePreset: z
-      .nativeEnum(KokoroVoicePreset)
+      .string()
       .default(KokoroVoicePreset.AF_HEART)
-      .describe('Voice preset for Kokoro TTS'),
+      .describe('Voice ID or Preset for Audio Provider (e.g. Kokoro, ElevenLabs)'),
     audioProvider: z
       .enum(['demo', 'google-tts', 'openai-tts', 'elevenlabs', 'kokoro'])
-      .default('kokoro')
+      .default('elevenlabs')
       .describe('Provider for audio generation'),
     language: z.string().default('en-US').describe('Language for the video (e.g. "en-US", "fr-FR")'),
     wordsPerMinute: z.number().optional().describe('Target speaking speed in words per minute (e.g. 150)'),

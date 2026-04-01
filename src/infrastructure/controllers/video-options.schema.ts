@@ -12,7 +12,7 @@ export const VideoOptionsSchema = z
     audioProvider: z
       .enum(['kokoro', 'google-tts', 'openai-tts', 'elevenlabs', 'demo'])
       .optional()
-      .openapi({ example: 'kokoro', description: 'AI provider for audio generation' }),
+      .openapi({ example: 'elevenlabs', description: 'AI provider for audio generation' }),
     kokoroVoicePreset: z
       .string()
       .optional()
