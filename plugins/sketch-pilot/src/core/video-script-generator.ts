@@ -313,6 +313,9 @@ export class VideoScriptGenerator {
       const MAX_P2_RETRIES = 3
       let chunkResult: any = null
 
+      let bestCandidate: ScriptCandidate | null = null
+      let lastFeedback = ''
+
       for (let attempt = 1; attempt <= MAX_P2_RETRIES; attempt++) {
         try {
           if (onProgress) {
@@ -325,18 +328,61 @@ export class VideoScriptGenerator {
                   : 'Studio: Sculpting scenes and visual prompts...'
             await onProgress(Math.round(step), msg)
           }
-          const jsonText = await this.llmService.generateContent(p2.user, p2.system, 'application/json')
+          const promptOverride =
+            attempt > 1 && lastFeedback
+              ? `${p2.user}\n\n[WARNING: PREVIOUS ATTEMPT FAILED EVALUATION]\n${lastFeedback}`
+              : p2.user
+          const jsonText = await this.llmService.generateContent(promptOverride, p2.system, 'application/json')
           if (!jsonText) throw new Error('Empty Pass 2 response')
 
           const parsed = this.parseJsonResponse(jsonText)
           if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
             throw new Error("Missing 'scenes' array in structured output")
           }
-          chunkResult = parsed
-          break
+
+          const actualWords = parsed.scenes.reduce(
+            (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
+            0
+          )
+          const fullWords = chunkText.trim().split(/\s+/).filter(Boolean).length
+          const minWords = Math.max(20, Math.floor(fullWords / Math.max(1, parsed.scenes.length)) * 0.75)
+
+          const { score, issues } = scoreCandidate(parsed, fullWords, effectiveDuration / chunks.length, minWords)
+          const candidate: ScriptCandidate = { parsed, score, attempt, issues }
+
+          if (!bestCandidate || score > bestCandidate.score) {
+            bestCandidate = candidate
+          }
+
+          if (score >= 0.85) {
+            console.log(`[VideoScriptGen] Pass 2 Evaluation: VERY GOOD (Score ${score.toFixed(2)}). Accepting.`)
+            break
+          } else {
+            console.log(
+              `[VideoScriptGen] Pass 2 Evaluation: POOR (Score ${score.toFixed(2)}). Attempt ${attempt}/${MAX_P2_RETRIES}. Issues: ${issues.join(', ')}`
+            )
+            lastFeedback = this.buildValidationFeedback(
+              parsed,
+              actualWords,
+              fullWords,
+              fullWords,
+              effectiveDuration / chunks.length,
+              minWords
+            )
+            if (attempt === MAX_P2_RETRIES) break
+          }
         } catch (error: any) {
           console.warn(`[VideoScriptGen] Pass 2 (Chunk ${i + 1}) attempt ${attempt} failed: ${error.message}`)
-          if (attempt === MAX_P2_RETRIES) throw error
+          if (attempt === MAX_P2_RETRIES && !bestCandidate) throw error
+        }
+      }
+
+      if (bestCandidate) {
+        chunkResult = bestCandidate.parsed
+        if (bestCandidate.score < 0.85) {
+          console.warn(
+            `[VideoScriptGen] Accepting IMPERFECT candidate (Score ${bestCandidate.score.toFixed(2)}). Issues: ${bestCandidate.issues.join(', ')}`
+          )
         }
       }
 

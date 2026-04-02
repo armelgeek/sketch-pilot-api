@@ -29,172 +29,208 @@ export class TimingMapper {
     )
   }
 
-  /**
-   * Maps transcription word timings to scenes.
-   */
+  private static levenshtein(a: string, b: string): number {
+    if (a.length === 0) return b.length
+    if (b.length === 0) return a.length
+    const lenA = a.length
+    const lenB = b.length
+    const matrix = Array.from({ length: lenA + 1 }, () => new Int32Array(lenB + 1))
+    for (let i = 0; i <= lenA; i++) matrix[i][0] = i
+    for (let j = 0; j <= lenB; j++) matrix[0][j] = j
+
+    for (let i = 1; i <= lenA; i++) {
+      for (let j = 1; j <= lenB; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1
+        matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
+      }
+    }
+    return matrix[lenA][lenB]
+  }
+
+  private static wordDistance(w1: string, w2: string): number {
+    if (w1 === w2) return 0
+    if (w1.length >= 3 && w2.length >= 3) {
+      if (w1.startsWith(w2) || w2.startsWith(w1)) return 0.2
+      if (w1.endsWith(w2) || w2.endsWith(w1)) return 0.2
+      if (w1.includes(w2) || w2.includes(w1)) return 0.3
+    }
+    const maxLen = Math.max(w1.length, w2.length)
+    if (maxLen === 0) return 0
+    return this.levenshtein(w1, w2) / maxLen
+  }
+
   static mapScenes(
     sceneNarrations: { sceneId: string; narration: string }[],
     transcribedWords: WordTiming[]
   ): SceneTiming[] {
     if (sceneNarrations.length === 0) return []
 
-    const results: SceneTiming[] = []
-    let searchFrom = 0
-
-    // Pass 1: Identifiy anchors (scenes with good matches)
+    // 1. Flatten all target words with their assigned scene ID
+    interface TargetWord {
+      word: string
+      sceneId: string
+    }
+    const targetWords: TargetWord[] = []
     for (const scene of sceneNarrations) {
-      const targetWords = this.normalize(scene.narration).split(' ').filter(Boolean)
-
-      if (targetWords.length === 0 || transcribedWords.length === 0) {
-        const previousEnd = results.length > 0 ? results.at(-1)!.end : 0
-        results.push({ sceneId: scene.sceneId, start: previousEnd, end: previousEnd, wordTimings: [] })
-        continue
+      const words = this.normalize(scene.narration).split(' ').filter(Boolean)
+      for (const w of words) {
+        targetWords.push({ word: w, sceneId: scene.sceneId })
       }
+    }
 
-      // Find best match in transcription
-      let bestScore = -1
-      let bestStartIdx = -1
-      let bestEndIdx = -1
-      const n = targetWords.length
+    if (targetWords.length === 0 || transcribedWords.length === 0) {
+      return sceneNarrations.map((s, idx) => ({
+        sceneId: s.sceneId,
+        start: idx * 5,
+        end: (idx + 1) * 5,
+        wordTimings: []
+      }))
+    }
 
-      // Search window optimization: try to find the sequence in transcription
-      for (let i = searchFrom; i < transcribedWords.length; i++) {
-        let narIdx = 0
-        let wIdx = i
-        let matchCount = 0
-        let gapCount = 0
-        const GAP_LIMIT = 8
-        const windowEnd = Math.min(i + Math.ceil(n * 1.5) + 10, transcribedWords.length) // Slightly wider window
+    const N = transcribedWords.length
+    const M = targetWords.length
 
-        while (narIdx < n && wIdx < windowEnd) {
-          const ww = this.normalize(transcribedWords[wIdx].word)
-          const nw = targetWords[narIdx]
-          if (ww === nw || ww.startsWith(nw) || nw.startsWith(ww)) {
-            matchCount++
-            narIdx++
-            gapCount = 0
-          } else {
-            gapCount++
-            if (gapCount > GAP_LIMIT) break
-          }
-          wIdx++
+    // Use Float32Array to avoid massive objects / memory overhead.
+    const dp = new Float32Array((N + 1) * (M + 1))
+
+    // Gap penalty is slightly higher than 1 to strongly encourage substitutions
+    // even with bad matches (e.g. "effort" vs "est fort" is better substituted than 2 insertions).
+    const GAP_PENALTY = 1.2
+
+    for (let i = 0; i <= N; i++) dp[i * (M + 1) + 0] = i * GAP_PENALTY
+    for (let j = 0; j <= M; j++) dp[0 * (M + 1) + j] = j * GAP_PENALTY
+
+    // Precompute transposed distances for speed if M*N is large
+    const distCache = new Map<string, number>()
+
+    for (let i = 1; i <= N; i++) {
+      const transWord = this.normalize(transcribedWords[i - 1].word)
+      for (let j = 1; j <= M; j++) {
+        const targWord = targetWords[j - 1].word
+        const cacheKey = `${transWord}|${targWord}`
+        let dist = distCache.get(cacheKey)
+        if (dist === undefined) {
+          dist = this.wordDistance(transWord, targWord)
+          distCache.set(cacheKey, dist)
         }
 
-        const score = matchCount / n
-        if (score > bestScore) {
-          bestScore = score
-          bestStartIdx = i
-          bestEndIdx = wIdx - 1
-          if (score > 0.9) break // Optimization: good enough
-        }
+        const del = dp[(i - 1) * (M + 1) + j] + GAP_PENALTY // insertion in transcript (transcribed word not in target)
+        const ins = dp[i * (M + 1) + (j - 1)] + GAP_PENALTY // deletion in transcript (target word skipped by TTS)
+        const sub = dp[(i - 1) * (M + 1) + (j - 1)] + dist // substitution/match
+
+        dp[i * (M + 1) + j] = Math.min(del, ins, sub)
       }
+    }
 
-      const MIN_SCORE = 0.15
+    // Backtrack to find optimal path
+    const assignedSceneMap: (string | null)[] = Array.from({ length: N }, () => null)
+    let currI = N
+    let currJ = M
 
-      if (bestStartIdx >= 0 && bestScore >= MIN_SCORE) {
-        const sceneWordTimings = transcribedWords.slice(bestStartIdx, bestEndIdx + 1)
-        results.push({
-          sceneId: scene.sceneId,
-          start: sceneWordTimings[0].start,
-          end: sceneWordTimings.at(-1)!.end,
-          wordTimings: sceneWordTimings
-        })
-        searchFrom = bestEndIdx + 1
+    while (currI > 0 && currJ > 0) {
+      const currentCost = dp[currI * (M + 1) + currJ]
+
+      const transWord = this.normalize(transcribedWords[currI - 1].word)
+      const targWord = targetWords[currJ - 1].word
+      const cacheKey = `${transWord}|${targWord}`
+      const dist = distCache.get(cacheKey)!
+
+      const del = dp[(currI - 1) * (M + 1) + currJ] + GAP_PENALTY
+      const ins = dp[currI * (M + 1) + (currJ - 1)] + GAP_PENALTY
+      const sub = dp[(currI - 1) * (M + 1) + (currJ - 1)] + dist
+
+      // Notice rounding issues with floating points? Using arbitrary small epsilon for comparison.
+      if (Math.abs(currentCost - sub) < 0.0001) {
+        // Paired A[currI-1] to B[currJ-1]
+        assignedSceneMap[currI - 1] = targetWords[currJ - 1].sceneId
+        currI--
+        currJ--
+      } else if (Math.abs(currentCost - del) < 0.0001) {
+        // Deletion (unmatched transcribed word)
+        assignedSceneMap[currI - 1] = null // Will fill in post-processing
+        currI--
       } else {
-        const previousEnd = results.length > 0 ? results.at(-1)!.end : 0
+        // Insertion (skipped target word)
+        currJ--
+      }
+    }
+    // Any remaining currI > 0 means they are unmatched
+    while (currI > 0) {
+      assignedSceneMap[currI - 1] = null
+      currI--
+    }
+
+    // Forward fill `null` values with nearest scene ID
+    let currentValidScene: string | null = null
+    for (let i = 0; i < N; i++) {
+      if (assignedSceneMap[i]) {
+        currentValidScene = assignedSceneMap[i]
+      } else if (currentValidScene) {
+        assignedSceneMap[i] = currentValidScene
+      }
+    }
+    // Backward fill for any leading nulls
+    currentValidScene = null
+    for (let i = N - 1; i >= 0; i--) {
+      if (assignedSceneMap[i]) {
+        currentValidScene = assignedSceneMap[i]
+      } else if (currentValidScene) {
+        assignedSceneMap[i] = currentValidScene
+      }
+    }
+
+    // In rare case where nothing matched at all
+    if (!currentValidScene) {
+      return sceneNarrations.map((s, idx) => ({
+        sceneId: s.sceneId,
+        start: idx * 5,
+        end: (idx + 1) * 5,
+        wordTimings: []
+      }))
+    }
+
+    // Build the final array
+    const results: SceneTiming[] = []
+    let lastEnd = 0
+
+    for (const scene of sceneNarrations) {
+      const timings = transcribedWords.filter((tw, i) => assignedSceneMap[i] === scene.sceneId)
+      if (timings.length > 0) {
+        const start = timings[0].start
+        const end = timings.at(-1)!.end
         results.push({
           sceneId: scene.sceneId,
-          start: previousEnd,
-          end: previousEnd + n * 0.4, // Temporary estimation
+          start,
+          end: Math.max(end, start + 0.1),
+          wordTimings: timings
+        })
+        lastEnd = end
+      } else {
+        results.push({
+          sceneId: scene.sceneId,
+          start: lastEnd,
+          end: lastEnd + 2, // fallback
           wordTimings: []
         })
+        lastEnd += 2
       }
     }
 
-    // Pass 2: Proportional distribution for unmatched "islands"
-    // We look for sequences of scenes with no wordTimings between two "anchors"
-    let i = 0
-    while (i < results.length) {
-      if (results[i].wordTimings.length > 0) {
-        // This is an anchor, its internal timing is respected
-        i++
-        continue
-      }
-
-      // Start of a gap
-      const gapStartIdx = i
-      let gapEndIdx = i
-      while (gapEndIdx < results.length && results[gapEndIdx].wordTimings.length === 0) {
-        gapEndIdx++
-      }
-      // Gap is [gapStartIdx, gapEndIdx - 1]
-
-      // Boundary timestamps
-      const prevAnchorEnd = gapStartIdx === 0 ? 0 : results[gapStartIdx - 1].end
-      let nextAnchorStart: number
-      if (gapEndIdx < results.length) {
-        nextAnchorStart = results[gapEndIdx].start
-      } else {
-        // End of script, use transcription end or a safe buffer
-        const lastTranscribedEnd = transcribedWords.length > 0 ? transcribedWords.at(-1)!.end : 0
-        // Reduced forced gap duration at the end (from +5s to +1s or transcription end)
-        nextAnchorStart = Math.max(prevAnchorEnd + 1, lastTranscribedEnd)
-      }
-
-      const totalGapDuration = Math.max(0.1, nextAnchorStart - prevAnchorEnd)
-
-      // Calculate total words in this gap to distribute time proportionally
-      let totalWordsInGap = 0
-      for (let k = gapStartIdx; k < gapEndIdx; k++) {
-        totalWordsInGap += Math.max(1, this.normalize(sceneNarrations[k].narration).split(' ').length)
-      }
-
-      let currentPos = prevAnchorEnd
-      for (let k = gapStartIdx; k < gapEndIdx; k++) {
-        const sceneWords = Math.max(1, this.normalize(sceneNarrations[k].narration).split(' ').length)
-        const sceneDuration = (sceneWords / totalWordsInGap) * totalGapDuration
-        results[k].start = currentPos
-        results[k].end = currentPos + sceneDuration
-        currentPos += sceneDuration
-      }
-
-      i = gapEndIdx
-    }
-
-    // Final pass: Ensure continuity and anchor starts to word timings if available
+    // Final borders cleanup to ensure strict contiguity
     for (let j = 0; j < results.length; j++) {
-      if (j === 0) {
-        results[j].start = 0
-      } else {
-        // If this scene is an anchor (has word timings), its start is the first word's start
-        // Otherwise, it starts where the previous scene ended
-        if (results[j].wordTimings.length > 0) {
-          const firstWordStart = results[j].wordTimings[0].start
-          results[j].start = firstWordStart
-          // Adjust previous scene end to match this start perfectly
-          results[j - 1].end = firstWordStart
+      if (j > 0) {
+        if (results[j].wordTimings.length > 0 && results[j - 1].wordTimings.length > 0) {
+          const borderTime = results[j].wordTimings[0].start
+          results[j - 1].end = borderTime
+          results[j].start = borderTime
         } else {
           results[j].start = results[j - 1].end
         }
       }
-
-      // Calculate end for this scene
-      if (results[j].wordTimings.length > 0) {
-        const lastWordEnd = results[j].wordTimings.at(-1)!.end
-
-        // If there's a next scene, the current scene ends at the next scene's start
-        if (j < results.length - 1) {
-          const nextSceneStart =
-            results[j + 1].wordTimings.length > 0
-              ? results[j + 1].wordTimings[0].start
-              : results[j + 1].start || lastWordEnd + 0.1 // Fallback
-          results[j].end = Math.max(lastWordEnd + 0.1, nextSceneStart)
-        } else {
-          // Last scene: reduced cushion from 1.0s to 0.3s for tighter ending
-          results[j].end = lastWordEnd + 0.3
-        }
+      // Cushion the absolute final scene so it doesn't cut prematurely
+      if (j === results.length - 1 && results[j].wordTimings.length > 0) {
+        results[j].end = results[j].wordTimings.at(-1)!.end + 0.2
       }
-      // If not an anchor, results[j].end was already estimated/distributed in Pass 2
     }
 
     return results

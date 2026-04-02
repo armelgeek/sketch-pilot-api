@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -444,6 +445,15 @@ export class NanoBananaEngine {
     } catch (error) {
       console.warn(`[NanoBanana] Failed to create thumbnail: ${error}`)
     }
+  }
+
+  /**
+   * Quick hash for file modification and size to detect changes for caching.
+   */
+  private getFileHashInfo(filePath: string): string {
+    if (!fs.existsSync(filePath)) return ''
+    const stat = fs.statSync(filePath)
+    return `${stat.mtimeMs}-${stat.size}`
   }
 
   /**
@@ -987,71 +997,106 @@ export class NanoBananaEngine {
       console.log(`\n[NanoBanana] --- Generating Global Audio & Syncing Timings ---`)
 
       const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
-      if (forceRegen || !fs.existsSync(globalAudioPath)) {
-        console.log(`[NanoBanana] Synthesizing full script into global narration...`)
+
+      const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+      const audioCacheKey = crypto
+        .createHash('md5')
+        .update(`${fullScriptText}:${this.currentKokoroVoicePreset}`)
+        .digest('hex')
+      const audioHashPath = path.join(projectDir, 'audio_hash.txt')
+
+      let scriptMatches = false
+      if (fs.existsSync(audioHashPath)) {
+        const savedHash = fs.readFileSync(audioHashPath, 'utf8')
+        if (savedHash === audioCacheKey) scriptMatches = true
+      }
+
+      if (forceRegen || !fs.existsSync(globalAudioPath) || !scriptMatches) {
+        console.log(`[NanoBanana] Synthesizing full script into global narration (Cache miss or force)...`)
         try {
-          const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
           const audioService = await this.getAudioService()
           await audioService.generateSpeech(fullScriptText, globalAudioPath)
           if (fs.existsSync(globalAudioPath)) {
             script.globalAudio = 'narration.mp3'
+            fs.writeFileSync(audioHashPath, audioCacheKey)
             console.log(`[NanoBanana] ✓ Narration generated successfully at ${globalAudioPath}`)
           }
         } catch (error: any) {
           console.error(`[NanoBanana] ❌ Narration generation failed: ${error.message}`)
         }
       } else {
-        console.log(`[NanoBanana] Global narration already exists.`)
+        console.log(`[NanoBanana] Global narration matches script hash. Skipping audio generation.`)
       }
+
+      const audioStatHash = this.getFileHashInfo(globalAudioPath)
+      const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
+
+      let cachedTranscriptValid = false
+      if (
+        fs.existsSync(transcriptHashPath) &&
+        fs.existsSync(globalAudioPath) &&
+        fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
+      ) {
+        cachedTranscriptValid = true
+      }
+      const hasTimings = script.scenes.some((s: any) => s.globalWordTimings && s.globalWordTimings.length > 0)
 
       // --- TRANSCRIPTION SYNC (GROUND TRUTH) ---
       if (fs.existsSync(globalAudioPath)) {
-        if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
-        console.log(`[NanoBanana] Running Whisper sync for word-perfect timings...`)
-        try {
-          if (!(await this.getTranscriptionService())) {
-            this.currentTranscriptionConfig = {
-              provider: 'whisper-local',
-              model: 'base',
-              device: 'cpu',
-              language: validOptions.language?.split('-')[0] || 'en'
+        if (cachedTranscriptValid && hasTimings) {
+          console.log(`[NanoBanana] Audio file unchanged and timings exist. Skipping Whisper transcription.`)
+        } else {
+          if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
+          console.log(`[NanoBanana] Running Whisper sync for word-perfect timings...`)
+          try {
+            if (!(await this.getTranscriptionService())) {
+              this.currentTranscriptionConfig = {
+                provider: 'whisper-local',
+                model: 'base',
+                device: 'cpu',
+                language: validOptions.language?.split('-')[0] || 'en'
+              }
+              this.transcriptionService = await TranscriptionServiceFactory.create(
+                this.currentTranscriptionConfig as any
+              )
             }
-            this.transcriptionService = await TranscriptionServiceFactory.create(this.currentTranscriptionConfig as any)
+
+            const transcriptionService = (await this.getTranscriptionService())!
+            const transcriptionResult = await transcriptionService.transcribe(globalAudioPath, async (p, msg) => {
+              if (onProgress) {
+                const transProgress = 26 + Math.round(p * 0.09)
+                await onProgress(transProgress, `Synchronisation vocale : ${p}%`)
+              }
+            })
+            const assemblyWordTimings = transcriptionResult.wordTimings
+
+            // Map word timings back to scenes
+            const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
+            const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
+
+            mappedTimings.forEach((timing: any, idx: number) => {
+              const scene = script.scenes[idx]
+              scene.timeRange = { start: timing.start, end: timing.end }
+              if (timing.wordTimings.length > 0) {
+                ;(scene as any).globalWordTimings = timing.wordTimings
+              }
+
+              // Link scene audio fallback conceptually (since we now only have global audio)
+              ;(scene as any).audioDuration = timing.end - timing.start
+            })
+
+            if (mappedTimings.length > 0) {
+              script.totalDuration = mappedTimings.at(-1)!.end
+            }
+
+            fs.writeFileSync(transcriptHashPath, audioStatHash)
+            console.log(`[NanoBanana] ✓ Final timings updated from transcription (${script.totalDuration.toFixed(2)}s)`)
+
+            // Save the script with updated real durations so the Assembler sees the correct timeRanges!
+            fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
+          } catch (error: any) {
+            console.warn(`[NanoBanana] ⚠ Transcription mapping failed: ${error.message}`)
           }
-
-          const transcriptionService = (await this.getTranscriptionService())!
-          const transcriptionResult = await transcriptionService.transcribe(globalAudioPath, async (p, msg) => {
-            if (onProgress) {
-              const transProgress = 26 + Math.round(p * 0.09)
-              await onProgress(transProgress, `Synchronisation vocale : ${p}%`)
-            }
-          })
-          const assemblyWordTimings = transcriptionResult.wordTimings
-
-          // Map word timings back to scenes
-          const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
-          const mappedTimings = TimingMapper.mapScenes(sceneNarrations, assemblyWordTimings)
-
-          mappedTimings.forEach((timing: any, idx: number) => {
-            const scene = script.scenes[idx]
-            scene.timeRange = { start: timing.start, end: timing.end }
-            if (timing.wordTimings.length > 0) {
-              ;(scene as any).globalWordTimings = timing.wordTimings
-            }
-
-            // Link scene audio fallback conceptually (since we now only have global audio)
-            ;(scene as any).audioDuration = timing.end - timing.start
-          })
-
-          if (mappedTimings.length > 0) {
-            script.totalDuration = mappedTimings.at(-1)!.end
-          }
-          console.log(`[NanoBanana] ✓ Final timings updated from transcription (${script.totalDuration.toFixed(2)}s)`)
-
-          // Save the script with updated real durations so the Assembler sees the correct timeRanges!
-          fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
-        } catch (error: any) {
-          console.warn(`[NanoBanana] ⚠ Transcription mapping failed: ${error.message}`)
         }
       }
 
@@ -1145,7 +1190,19 @@ export class NanoBananaEngine {
       // --- TRANSCRIPTION FOR ASS CAPTIONS (assembly-only) ---
       // If assCaptions is enabled and word timings are not already in the script, run Whisper to get them.
       // This is needed so VideoAssembler.generateGlobalASS produces word-highlighted subtitles.
-      const needsTranscription = fs.existsSync(globalAudioPath)
+      const audioStatHash = this.getFileHashInfo(globalAudioPath)
+      const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
+      let cachedTranscriptValid = false
+      if (
+        fs.existsSync(transcriptHashPath) &&
+        fs.existsSync(globalAudioPath) &&
+        fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
+      ) {
+        cachedTranscriptValid = true
+      }
+      const hasTimings = script.scenes.some((s: any) => s.globalWordTimings && s.globalWordTimings.length > 0)
+
+      const needsTranscription = fs.existsSync(globalAudioPath) && (!cachedTranscriptValid || !hasTimings)
 
       if (needsTranscription) {
         if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
@@ -1189,6 +1246,7 @@ export class NanoBananaEngine {
             script.totalDuration = mappedTimings.at(-1)!.end
           }
 
+          fs.writeFileSync(transcriptHashPath, audioStatHash)
           console.log(
             `[NanoBanana] ✓ Transcription complete — word timings injected into ${mappedTimings.length} scenes`
           )
@@ -1203,6 +1261,10 @@ export class NanoBananaEngine {
             `[NanoBanana] ⚠ Transcription failed, ASS captions will use scene text fallback: ${error.message}`
           )
         }
+      } else if (fs.existsSync(globalAudioPath)) {
+        console.log(
+          `[NanoBanana] Audio file unchanged and timings exist. Skipping Whisper transcription (assembly-only mode).`
+        )
       }
     } else if (skipAudio && !validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Audio skipped. Estimating timing based on text length for scenes...`)

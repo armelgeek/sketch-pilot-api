@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import ffmpeg from 'fluent-ffmpeg'
@@ -93,6 +94,17 @@ export class VideoAssembler {
 
   private clampZ(expr: string): string {
     return `max(1.001,${expr})`
+  }
+
+  private getFileMTime(filePath: string): number {
+    try {
+      if (fs.existsSync(filePath)) {
+        return fs.statSync(filePath).mtimeMs
+      }
+    } catch {
+      /* ignore */
+    }
+    return 0
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -394,9 +406,9 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       ffmpeg(videoPath)
         .complexFilter([
-          `vignette=angle=0.12[vignetted]`,
-          `[vignetted]noise=alls=3:allf=t[polished]`,
-          `[polished]eq=contrast=1.05:brightness=0.02[brightened]`,
+          `vignette=a=PI/5[vignetted]`,
+          `[vignetted]noise=c0s=5:c0f=t+u[polished]`,
+          `[polished]eq=contrast=1.05:brightness=0.02:saturation=1.05[brightened]`,
           assPath
             ? `[brightened]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
             : `[brightened]copy[outv]`
@@ -852,22 +864,33 @@ export class VideoAssembler {
           zBaseExpr = `1.0+(${DZ}*${EASING})`
           const driftX = `${PAN_X_HALF}*0.3`
           const driftY = `${PAN_Y_HALF}*0.3`
+
+          let bx = `${CX}`
+          let by = `${CY}`
+
+          // Pattern Interrupt for long scenes lacking other visual stimulation
+          if (duration >= 6 && keywordVisuals.length === 0) {
+            const half = (duration / 2).toFixed(2)
+            bx = `if(lt(t,${half}), ${CX}, ${CX}+(${PAN_X_HALF}*0.18))`
+            by = `if(lt(t,${half}), ${CY}, ${CY}+(${PAN_Y_HALF}*0.18))`
+          }
+
           switch (driftDir) {
             case 0:
-              xRaw = `${CX}+${driftX}*(${EASING})`
-              yRaw = `${CY}+${driftY}*(${EASING})`
+              xRaw = `${bx}+${driftX}*(${EASING})`
+              yRaw = `${by}+${driftY}*(${EASING})`
               break
             case 1:
-              xRaw = `${CX}-${driftX}*(${EASING})`
-              yRaw = `${CY}-${driftY}*(${EASING})`
+              xRaw = `${bx}-${driftX}*(${EASING})`
+              yRaw = `${by}-${driftY}*(${EASING})`
               break
             case 2:
-              xRaw = `${CX}+${driftX}*(${EASING})`
-              yRaw = `${CY}-${driftY}*(${EASING})`
+              xRaw = `${bx}+${driftX}*(${EASING})`
+              yRaw = `${by}-${driftY}*(${EASING})`
               break
             default:
-              xRaw = `${CX}-${driftX}*(${EASING})`
-              yRaw = `${CY}+${driftY}*(${EASING})`
+              xRaw = `${bx}-${driftX}*(${EASING})`
+              yRaw = `${by}+${driftY}*(${EASING})`
               break
           }
           break
@@ -900,7 +923,9 @@ export class VideoAssembler {
           ffmpegCommand.input(kv.imagePath).inputOptions(['-loop 1'])
           const inputIdx = idx + 1
           const nextOutput = `[v_kv_${idx}]`
-          complexFilter += `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}[kv_s_${idx}];`
+          const startFade = Math.max(0, kv.start)
+          const outFade = Math.max(0, kv.end - 0.3)
+          complexFilter += `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1[kv_s_${idx}];`
           complexFilter += `${lastOutput}[kv_s_${idx}]overlay=enable='between(t,${kv.start},${kv.end})'${
             idx === keywordVisuals.length - 1 ? '' : nextOutput
           };`
@@ -1010,8 +1035,10 @@ export class VideoAssembler {
           const inputIdx = 1 + layerCount + idx
           const kvInputLabel = `kv_input_${idx}`
           const kvOutputLabel = `kv_final_${idx}`
+          const startFade = Math.max(0, kv.start)
+          const outFade = Math.max(0, kv.end - 0.3)
 
-          filterChain += `[${inputIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[${kvInputLabel}];`
+          filterChain += `[${inputIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1[${kvInputLabel}];`
           filterChain += `[${lastOutput}][${kvInputLabel}]overlay=enable='between(t,${kv.start},${kv.end})'[${kvOutputLabel}];`
           lastOutput = kvOutputLabel
         })
@@ -1151,9 +1178,11 @@ export class VideoAssembler {
           const inputIdx = idx + 1
           const kvScaled = `[kv_s_${idx}]`
           const overlayOut = idx === keywordVisuals.length - 1 ? '[outv]' : `[v_kv_${idx}]`
+          const startFade = Math.max(0, kv.start)
+          const outFade = Math.max(0, kv.end - 0.3)
 
           complexFilterParts.push(
-            `[${inputIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}${kvScaled}`
+            `[${inputIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1${kvScaled}`
           )
           complexFilterParts.push(
             `${lastOutput}${kvScaled}overlay=enable='between(t,${kv.start},${kv.end})'${overlayOut}`
@@ -1434,6 +1463,13 @@ export class VideoAssembler {
   // ─────────────────────────────────────────────────────────────────────────
 
   private resolveTransition(suggested: string | undefined, tension: number, useAuto: boolean): string {
+    if (suggested && suggested !== 'none' && suggested !== 'cut') return suggested
+
+    if (useAuto) {
+      if (tension > 7) return 'swish'
+      if (tension <= 3) return 'fade'
+    }
+
     return 'cut'
   }
 
@@ -1851,9 +1887,22 @@ export class VideoAssembler {
   }
 
   private getTransitionInDuration(sceneIndex: number, scenes: any[], scenesDir: string): number {
-    // If xfade is disabled (resolveTransition always returns 'cut'), we must not add padding.
-    // Padding without xfade causes visual drift compared to the absolute global audio timings.
-    return 0
+    if (sceneIndex === 0) return 0
+
+    // We add visual padding to the generated clip so that when stitchClips applies
+    // the visual xfade (which eats into the video duration), the final stitched video
+    // length exactly matches the absolute Global Audio length.
+    const prevScene = scenes[sceneIndex - 1]
+    const suggested = prevScene.transition || 'cut'
+    const tension = prevScene.tension || 5
+    const transition = this.resolveTransition(suggested, tension, true)
+
+    if (!transition || transition === 'cut' || transition === 'none') {
+      return 0
+    }
+
+    const xf = this.getXfadeTransition(transition)
+    return xf ? xf.duration : 0.04
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1942,9 +1991,60 @@ export class VideoAssembler {
 
       const staticSeed = sceneIndex
 
-      if (animationMode === 'ai' && fs.existsSync(videoPath)) {
+      // Enforce static animation for short scenes to avoid zoompan jitter/cutting
+      let finalAnimationMode = animationMode
+      if (animationMode === 'panning' && duration < 3) {
+        finalAnimationMode = 'static'
+      }
+
+      // ── Smart Cache Verification ──
+      const imgMTime = this.getFileMTime(imagePath)
+      const audioMTime = this.getFileMTime(audioPath)
+      const kvMTime = this.getFileMTime(keywordVisualsJsonPath)
+      const manifestMTime = this.getFileMTime(manifestPath)
+
+      const hashData = {
+        duration,
+        animationMode: finalAnimationMode,
+        cameraAction,
+        wordTimings,
+        sceneTension,
+        backgroundColor: (scene as any).backgroundColor,
+        globalOptions: {
+          resolution: globalOptions.resolution,
+          aspectRatio: globalOptions.aspectRatio,
+          autoTransitions: globalOptions.autoTransitions,
+          narrationVolume: globalOptions.narrationVolume
+        },
+        hasGlobalAudio,
+        transitionInDur,
+        imgMTime,
+        audioMTime,
+        kvMTime,
+        manifestMTime
+      }
+
+      const cacheKey = crypto.createHash('md5').update(JSON.stringify(hashData)).digest('hex')
+      const cacheFilePath = path.join(sceneDir, 'assembler_cache.json')
+
+      if (fs.existsSync(cacheFilePath)) {
+        try {
+          const cache = JSON.parse(fs.readFileSync(cacheFilePath, 'utf8'))
+          if (cache.hash === cacheKey && fs.existsSync(cache.clipPath)) {
+            console.log(`[VideoAssembler] ⚡ Cache HIT for scene ${scene.id} (Hash: ${cacheKey.substring(0, 8)})`)
+            const useAutoTrans = globalOptions.autoTransitions !== false
+            const trans = this.resolveTransition((scene as any).transition, sceneTension, useAutoTrans)
+            return { clipPath: cache.clipPath, transition: trans }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // If cache misses, proceed with FFmpeg generation
+      if (finalAnimationMode === 'ai' && fs.existsSync(videoPath)) {
         await this.processAiClip(videoPath, duration, clipOutputPath, aspectRatio, globalOptions.resolution)
-      } else if (animationMode === 'static' || animationMode === 'none') {
+      } else if (finalAnimationMode === 'static' || finalAnimationMode === 'none') {
         await this.createStaticClip(
           imagePath,
           duration,
@@ -1957,7 +2057,7 @@ export class VideoAssembler {
           staticSeed,
           sceneTension // ← tension passed through
         )
-      } else if (animationMode === 'composition' && manifestData.layers?.length > 0) {
+      } else if (finalAnimationMode === 'composition' && manifestData.layers?.length > 0) {
         const layers = manifestData.layers.map((l: any) => ({
           ...l,
           path: path.join(sceneDir, l.path)
@@ -2058,9 +2158,36 @@ export class VideoAssembler {
 
       const useAuto = globalOptions.autoTransitions !== false
       const transition = this.resolveTransition((scene as any).transition, sceneTension, useAuto)
+
+      // Save to cache
+      fs.writeFileSync(cacheFilePath, JSON.stringify({ hash: cacheKey, clipPath: finalClip, transition }))
+
       return { clipPath: finalClip, transition }
     } catch (error) {
       console.error(`[VideoAssembler] Scene ${scene.id} failed:`, error)
+
+      if (!fs.existsSync(clipOutputPath)) {
+        console.warn(`[VideoAssembler] GENERATING EMERGENCY FALLBACK CLIP for scene ${scene.id} due to FFMPEG crash!`)
+        try {
+          const resPreset = globalOptions.resolution || '720p'
+          const resolutionStr = this.getResolution(globalOptions.aspectRatio || '16:9', resPreset as string)
+          const [bw, bh] = resolutionStr.split('x').map(Number)
+          await new Promise<void>((resolve, reject) => {
+            ffmpeg()
+              .input(`color=c=black:s=${bw}x${bh}`)
+              .inputFormat('lavfi')
+              .duration(duration)
+              .outputOptions(['-c:v libx264', '-preset ultrafast', '-pix_fmt yuv420p', `-r ${OUTPUT_FPS}`])
+              .output(clipOutputPath)
+              .on('end', () => resolve())
+              .on('error', (e) => reject(e))
+              .run()
+          })
+          console.log(`[VideoAssembler] Emergency fallback clip generated successfully!`)
+        } catch (fbError) {
+          console.error(`[VideoAssembler] Even the EMERGENCY fallback failed!`, fbError)
+        }
+      }
       return { clipPath: clipOutputPath, transition: undefined }
     }
   }
