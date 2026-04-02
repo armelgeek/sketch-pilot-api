@@ -37,25 +37,16 @@ export class ScriptsController implements Routes {
           }
         },
         responses: {
-          200: {
-            description: 'Generated script',
+          202: {
+            description: 'Generation enqueued',
             content: {
               'application/json': {
                 schema: z.object({
-                  topic: z.string(),
+                  jobId: z.string(),
                   videoId: z.string().optional(),
-                  script: z.object({
-                    title: z.string().optional(),
-                    description: z.string().optional(),
-                    duration: z.number().optional(),
-                    language: z.string().optional(),
-                    scenes: z.array(z.any()).optional()
-                  }),
-                  metadata: z.object({
-                    sceneCount: z.number(),
-                    estimatedDuration: z.number(),
-                    language: z.string()
-                  })
+                  status: z.string(),
+                  message: z.string(),
+                  streamUrl: z.string()
                 })
               }
             }
@@ -78,23 +69,20 @@ export class ScriptsController implements Routes {
 
         const { result } = await generateScriptUseCase.run({ userId: user.id, topic, options })
 
-        if (!result.success || !result.script) {
-          return c.json({ error: result.error || 'Failed to generate script' }, 500)
+        if (!result.success || !result.jobId) {
+          return c.json({ error: result.error || 'Failed to enqueue script generation' }, 500)
         }
 
-        const script = result.script
-        return c.json({
-          topic,
-          videoId: result.videoId,
-          script: {
-            title: (script as any).titles?.main || (script as any).title || topic,
-            description: (script as any).titles?.subtitle || (script as any).description || '',
-            duration: script.totalDuration,
-            language: options?.language || 'en',
-            scenes: script.scenes
+        return c.json(
+          {
+            jobId: result.jobId,
+            videoId: result.videoId,
+            status: 'queued',
+            message: 'Script generation in progress...',
+            streamUrl: `/api/v1/videos/jobs/${result.jobId}/stream`
           },
-          metadata: result.metadata!
-        })
+          202
+        )
       }
     )
 

@@ -19,18 +19,25 @@ export interface VideoTypeSpecification {
   task: string
   goals: string[]
   structure: string
-  rules: string[]
-  formatting: string
-  outputFormat: string
-  instructions: string[]
+
+  // High-level category (optional)
+  category?: string
+
+  // Technical rules (now optional, handled by modular templates)
+  rules?: string[]
+  formatting?: string
+  outputFormat?: string
+  instructions?: string[]
 
   // --- Support for advanced storytelling attributes ---
   scenePresets?: Record<string, any>
   visualRules?: string[]
   orchestration?: string[]
+
   /** Global description of the main character to maintain consistency */
   characterDescription?: string
 
+  // Specialty rules (merged with BASE_SPEC)
   narrativeRules?: string[]
   styleRules?: string[]
   engagementRules?: string[]
@@ -46,4 +53,5 @@ export interface VideoTypeSpecification {
   patternInterrupts?: string[]
   antiBoringRules?: string[]
   conclusionRules?: string[]
+  expansionRules?: string[]
 }

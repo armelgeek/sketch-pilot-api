@@ -7,6 +7,7 @@ export interface SceneMemoryInput {
   id: string
   locationId?: string | null
   background?: string | null
+  imagePrompt?: string | null
 }
 
 /**
@@ -68,11 +69,12 @@ export class SceneMemoryBuilder {
 
   private processLocation(scene: SceneMemoryInput, memory: SceneMemory): void {
     const locationId = scene.locationId
-    if (!locationId || !scene.background) return
+    const prompt = scene.background || scene.imagePrompt
+    if (!locationId || !prompt) return
 
     if (!memory.locations.has(locationId)) {
       memory.locations.set(locationId, {
-        prompt: scene.background,
+        prompt,
         referenceImageId: scene.id
       })
     }

@@ -60,7 +60,7 @@ function buildCinematicSnapZoom(
 
   return (
     `if(lt(on,${snapFrame}),` +
-    `${baseZoom}+${((peakZoom - baseZoom) * 0.05).toFixed(4)}*(on/${snapFrame}),` +
+    `${baseZoom}+${(peakZoom - baseZoom).toFixed(4)}*pow(on/${snapFrame},3),` +
     `${overshootZoom.toFixed(4)}+(${baseZoom}-${overshootZoom.toFixed(4)})*` +
     `(1-exp(-${k.toFixed(3)}*(on/${ZOOMPAN_INTERNAL_FPS}-${snapAtSec.toFixed(3)})))` +
     `)`
@@ -117,7 +117,7 @@ export class VideoAssembler {
     projectDir: string,
     animationMode: 'panning' | 'ai' | 'composition' | 'static' | 'none',
     globalOptions: VideoGenerationOptions,
-    onProgress?: (progress: number, message: string) => Promise<void>
+    onProgress?: (progress: number, message: string, payload?: any) => Promise<void>
   ): Promise<string> {
     const hasGlobalAudio = !!globalOptions.globalAudioPath
     console.log(`[VideoAssembler] Assembling video in ${animationMode} mode...`)
@@ -156,7 +156,13 @@ export class VideoAssembler {
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
     const audioOverlap = hasGlobalAudio ? 0 : (globalOptions.audioOverlap ?? 0.3)
-    await this.stitchClips(finalClips, finalVideoNoMusic, finalTransitions, audioOverlap)
+    await this.stitchClips(
+      finalClips,
+      finalVideoNoMusic,
+      finalTransitions,
+      audioOverlap,
+      onProgress ? async (p, msg, payload) => await onProgress(40 + (p / 100) * 15, msg, payload) : undefined
+    )
 
     // --- GLOBAL AUDIO OVERLAY ---
     let finalVisualPath = finalVideoNoMusic
@@ -189,10 +195,15 @@ export class VideoAssembler {
 
     if (onProgress) await onProgress(70, 'Applying cinematic polish...')
     const polishedVideoPath = path.join(projectDir, 'final_video_polished.mp4')
-    finalVisualPath = await this.applyProfessionalPolish(finalVisualPath, polishedVideoPath, {
-      ...globalOptions,
-      globalAssPath
-    })
+    finalVisualPath = await this.applyProfessionalPolish(
+      finalVisualPath,
+      polishedVideoPath,
+      {
+        ...globalOptions,
+        globalAssPath
+      },
+      onProgress ? async (p, msg, payload) => await onProgress(70 + (p / 100) * 20, msg, payload) : undefined
+    )
 
     if (globalOptions.branding) {
       const brandedVideoPath = path.join(projectDir, 'final_video_branded.mp4')
@@ -213,7 +224,13 @@ export class VideoAssembler {
         const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
         const musicPath = this.musicService.getTrackPath(musicTrack.path)
         const musicVol = globalOptions.backgroundMusicVolume ?? 0.15
-        return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
+        return await this.addBackgroundMusic(
+          finalVisualPath,
+          musicPath,
+          videoWithMusicPath,
+          musicVol,
+          onProgress ? async (p, msg, payload) => await onProgress(90 + (p / 100) * 8, msg, payload) : undefined
+        )
       }
     }
 
@@ -234,7 +251,8 @@ export class VideoAssembler {
     videoPath: string,
     musicPath: string,
     outputPath: string,
-    volume: number = 0.1
+    volume: number = 0.1,
+    onProgress?: (progress: number, msg: string, payload?: any) => Promise<void>
   ): Promise<string> {
     console.log(`[VideoAssembler] Adding background music with volume ${volume}...`)
     return new Promise(async (resolve, reject) => {
@@ -393,7 +411,8 @@ export class VideoAssembler {
   async applyProfessionalPolish(
     videoPath: string,
     outputPath: string,
-    options?: VideoGenerationOptions & { globalAssPath?: string }
+    options?: VideoGenerationOptions & { globalAssPath?: string },
+    onProgress?: (progress: number, msg: string, payload?: any) => Promise<void>
   ): Promise<string> {
     console.log(
       `[VideoAssembler] Applying professional visual polish (Vignette, Noise${options?.globalAssPath ? ', Subtitles' : ''})...`
@@ -404,6 +423,7 @@ export class VideoAssembler {
     const assPath = options?.globalAssPath
 
     return new Promise((resolve, reject) => {
+      let lastEmit = 0
       ffmpeg(videoPath)
         .complexFilter([
           `vignette=a=PI/5[vignetted]`,
@@ -414,6 +434,20 @@ export class VideoAssembler {
             : `[brightened]copy[outv]`
         ])
         .outputOptions(['-map [outv]', '-map 0:a?', '-c:v libx264', `-preset ${preset}`, `-crf ${crf}`, '-shortest'])
+        .on('progress', (p) => {
+          if (onProgress && p.percent) {
+            const now = Date.now()
+            if (now - lastEmit > 500) {
+              lastEmit = now
+              onProgress(Math.round(p.percent), `Applying cinematic polish...`, {
+                type: 'ffmpeg_progress',
+                percent: p.percent,
+                fps: p.currentFps,
+                timemark: p.timemark
+              }).catch(() => {})
+            }
+          }
+        })
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => {
@@ -715,10 +749,9 @@ export class VideoAssembler {
       const { xOscExpr, yOscExpr } = this.buildOrganicOscillation(2, oscSeed)
       const osc = (axis: 'x' | 'y') => (wantsOrganic ? `+(${axis === 'x' ? xOscExpr : yOscExpr})` : '')
 
-      // Reference centres
-      // We add a tiny offset fraction to x and y to help prevent zoompan integer rounding wobble
-      const CX = `iw/2-(iw/zoom/2)+0.01`
-      const CY = `ih/2-(ih/zoom/2)+0.01`
+      // We add a tiny time-based sub-pixel offset to help prevent zoompan integer rounding jitter
+      const CX = `iw/2-(iw/zoom/2)+0.01+0.001*on`
+      const CY = `ih/2-(ih/zoom/2)+0.01+0.001*on`
 
       // ── Tension-adapted zoom and easing ────────────────────────────────────
       const t = Math.max(1, Math.min(10, sceneTension))
@@ -857,42 +890,18 @@ export class VideoAssembler {
           break
         }
 
-        // ── Default: cinematic push-in with diagonal drift ──────────────────
-        // Varies by image path so every scene gets a different drift direction.
+        case 'ken-burns-static':
+          // Subtle, elegant centered zoom-in
+          zBaseExpr = `1.0+(0.10*${EASING})`
+          xRaw = CX
+          yRaw = CY
+          break
+
+        // ── Default: centered cinematic push-in ──────────────────────────────
         default: {
-          const driftDir = Math.abs(imagePath.length % 4)
           zBaseExpr = `1.0+(${DZ}*${EASING})`
-          const driftX = `${PAN_X_HALF}*0.3`
-          const driftY = `${PAN_Y_HALF}*0.3`
-
-          let bx = `${CX}`
-          let by = `${CY}`
-
-          // Pattern Interrupt for long scenes lacking other visual stimulation
-          if (duration >= 6 && keywordVisuals.length === 0) {
-            const half = (duration / 2).toFixed(2)
-            bx = `if(lt(t,${half}), ${CX}, ${CX}+(${PAN_X_HALF}*0.18))`
-            by = `if(lt(t,${half}), ${CY}, ${CY}+(${PAN_Y_HALF}*0.18))`
-          }
-
-          switch (driftDir) {
-            case 0:
-              xRaw = `${bx}+${driftX}*(${EASING})`
-              yRaw = `${by}+${driftY}*(${EASING})`
-              break
-            case 1:
-              xRaw = `${bx}-${driftX}*(${EASING})`
-              yRaw = `${by}-${driftY}*(${EASING})`
-              break
-            case 2:
-              xRaw = `${bx}+${driftX}*(${EASING})`
-              yRaw = `${by}-${driftY}*(${EASING})`
-              break
-            default:
-              xRaw = `${bx}-${driftX}*(${EASING})`
-              yRaw = `${by}+${driftY}*(${EASING})`
-              break
-          }
+          xRaw = `${CX}${osc('x')}`
+          yRaw = `${CY}${osc('y')}`
           break
         }
       }
@@ -911,7 +920,16 @@ export class VideoAssembler {
         `zoompan=z='${zExpr}':d=${internalFrameCount}:x='${x}':y='${y}':s=${w}x${h}:fps=${ZOOMPAN_INTERNAL_FPS}`,
         `fps=${OUTPUT_FPS}`,
         `scale=${w}:${h}:flags=lanczos`
-      ].join(',')
+      ]
+
+      if (type === 'dutch-tilt') {
+        const tiltDeg = cameraAction?.tiltDeg ?? 1.8
+        const angleRad = (tiltDeg * Math.PI) / 180
+        const rotExpr = `${angleRad.toFixed(4)}*sin(2*PI*t/${duration.toFixed(2)})`
+        filterString.push(`rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`)
+      }
+
+      const finalFilter = filterString.join(',')
 
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
 
@@ -934,12 +952,8 @@ export class VideoAssembler {
 
         ffmpegCommand.complexFilter(complexFilter)
       } else {
-        ffmpegCommand.outputOptions(['-vf', filterString])
+        ffmpegCommand.outputOptions(['-vf', finalFilter])
       }
-
-      const baseOutputPath = outputPath
-      const needsDutchTiltPass = type === 'dutch-tilt'
-      const intermediateOutput = needsDutchTiltPass ? outputPath.replace('.mp4', '_pre_tilt.mp4') : outputPath
 
       ffmpegCommand
         .outputOptions([
@@ -951,17 +965,11 @@ export class VideoAssembler {
           '-pix_fmt yuv420p',
           `-r ${OUTPUT_FPS}`
         ])
-        .save(intermediateOutput)
+        .save(outputPath)
         .on('end', async () => {
-          if (needsDutchTiltPass) {
-            const tiltDeg = cameraAction?.tiltDeg ?? 1.8
-            const finalPath = await this.applyDutchTilt(intermediateOutput, baseOutputPath, tiltDeg, true, duration)
-            resolve(finalPath)
-          } else {
-            resolve(intermediateOutput)
-          }
+          resolve(outputPath)
         })
-        .on('error', (err) => reject(new Error(`Panning clip creation failed: ${err.message}`)))
+        .on('error', (err: any) => reject(new Error(`Panning clip creation failed: ${err.message}`)))
     })
   }
 
@@ -1097,8 +1105,9 @@ export class VideoAssembler {
       // Calm = smootherstep, intense = easeOutCubic
       const EASING = t <= 5 ? SS : EOC
 
-      const CX = `iw/2-(iw/zoom/2)`
-      const CY = `ih/2-(ih/zoom/2)`
+      // We add a tiny time-based sub-pixel offset to help prevent zoompan integer rounding jitter
+      const CX = `iw/2-(iw/zoom/2)+0.01+0.001*on`
+      const CY = `ih/2-(ih/zoom/2)+0.01+0.001*on`
       const PX = `(iw-(iw/zoom))`
       const PY = `(ih-(ih/zoom))`
       const PXH = `((iw-(iw/zoom))/2)`
@@ -1140,15 +1149,11 @@ export class VideoAssembler {
           baseZ = ZS
           baseY = `${PY}*(1-(${EASING}))`
           break
-        case 6: // Push-in diagonal ↘
+        case 6: // Push-in centred (Harmonized)
           baseZ = `1.0+(${DZ}*1.5*${EASING})`
-          baseX = `${CX}+${PXH}*(${EASING})`
-          baseY = `${CY}+${PYH}*(${EASING})`
           break
-        case 7: // Push-in diagonal ↖
-          baseZ = `1.0+(${DZ}*1.5*${EASING})`
-          baseX = `${CX}-${PXH}*(${EASING})`
-          baseY = `${CY}-${PYH}*(${EASING})`
+        case 7: // Pull-out reveal (Harmonized)
+          baseZ = `${ZS}-(${DZ}*1.5*${EASING})`
           break
       }
 
@@ -1516,7 +1521,8 @@ export class VideoAssembler {
     clips: string[],
     outputPath: string,
     transitions: (string | undefined)[] = [],
-    audioOverlap: number = 0.1
+    audioOverlap: number = 0.1,
+    onProgress?: (progress: number, msg: string, payload?: any) => Promise<void>
   ): Promise<string> {
     if (clips.length === 0) throw new Error('No clips to stitch')
     if (clips.length === 1) {
@@ -1530,7 +1536,7 @@ export class VideoAssembler {
     })
 
     if (!hasTransitions && audioOverlap <= 0) {
-      return this.stitchClipsSimple(clips, outputPath)
+      return this.stitchClipsSimple(clips, outputPath, onProgress)
     }
 
     console.log(`[VideoAssembler] Stitching ${clips.length} clips with xfade transitions...`)
@@ -1647,6 +1653,7 @@ export class VideoAssembler {
 
     filterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex
 
+    let lastEmit = 0
     return new Promise<string>((resolve, reject) => {
       command
         .complexFilter(filterComplex)
@@ -1661,6 +1668,20 @@ export class VideoAssembler {
           '-c:a aac',
           '-movflags +faststart'
         ])
+        .on('progress', (p) => {
+          if (onProgress && p.percent) {
+            const now = Date.now()
+            if (now - lastEmit > 500) {
+              lastEmit = now
+              onProgress(Math.round(p.percent), `Stitching clips...`, {
+                type: 'ffmpeg_progress',
+                percent: p.percent,
+                fps: p.currentFps,
+                timemark: p.timemark
+              }).catch(() => {})
+            }
+          }
+        })
         .on('start', (cmd) => console.log(`[VideoAssembler] xfade command: ${cmd.slice(0, 300)}...`))
         .on('error', (err, stdout, stderr) => {
           console.error('[VideoAssembler] xfade stitching failed:', err.message)
@@ -1676,7 +1697,11 @@ export class VideoAssembler {
     })
   }
 
-  private async stitchClipsSimple(clips: string[], outputPath: string): Promise<string> {
+  private async stitchClipsSimple(
+    clips: string[],
+    outputPath: string,
+    onProgress?: (progress: number, msg: string, payload?: any) => Promise<void>
+  ): Promise<string> {
     return new Promise((resolve, reject) => {
       const command = ffmpeg()
       const listFileName = path.join(path.dirname(outputPath), 'concat_list.txt')

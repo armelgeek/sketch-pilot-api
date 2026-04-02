@@ -40,14 +40,14 @@ interface ScriptCandidate {
  * Score a parsed script against the target word count and structural rules.
  *
  * Score breakdown (0–1 scale):
- *   wordProximity      0.40 — how close actual words are to target (linear, capped at ±40%)
- *   noNarrativeGap     0.25 — fullNarration matches sum of scenes (≤5% drift = full points)
- *   noDensityFailure   0.25 — all scenes meet their minimum word density
- *   sceneStructure     0.10 — scenes array exists and has a reasonable count
+ *   wordProximity      0.35 — how close actual words are to target (linear, capped at ±40%)
+ *   noNarrativeGap     0.20 — fullNarration matches sum of scenes (≤5% drift = full points)
+ *   noDensityFailure   0.20 — all scenes meet their minimum word density
+ *   sceneStructure     0.25 — scenes array exists and has a reasonable count
  *
  * Higher is better. A perfect script scores 1.0.
  */
-function scoreCandidate(
+export function scoreCandidate(
   parsed: any,
   targetWords: number,
   effectiveDuration: number,
@@ -60,7 +60,7 @@ function scoreCandidate(
     return { score: 0, issues: ['Missing scenes array'] }
   }
 
-  // ── 1. Word proximity (0.40) ──────────────────────────────────────────────
+  // ── 1. Word proximity (0.35) ──────────────────────────────────────────────
   const actualWords: number = parsed.scenes.reduce(
     (acc: number, s: any) => acc + (s.narration || '').trim().split(/\s+/).filter(Boolean).length,
     0
@@ -68,16 +68,16 @@ function scoreCandidate(
   const ratio = actualWords / Math.max(targetWords, 1)
   // Linear score: 1.0 at ratio=1.0, 0.0 at ratio≤0.60 or ratio≥1.40
   const wordScore = Math.max(0, 1 - Math.abs(ratio - 1) / 0.4)
-  score += wordScore * 0.4
+  score += wordScore * 0.35
 
   if (ratio < 0.75) issues.push(`Under-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
   if (ratio > 1.15) issues.push(`Over-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
 
-  // ── 2. Narrative consistency (0.25) ───────────────────────────────────────
+  // ── 2. Narrative consistency (0.20) ───────────────────────────────────────
   const fullNarrationWords = (parsed.fullNarration || '').trim().split(/\s+/).filter(Boolean).length
   const drift = fullNarrationWords > 0 ? Math.abs(actualWords - fullNarrationWords) / Math.max(actualWords, 1) : 0
   const narrativeScore = fullNarrationWords === 0 ? 0.5 : Math.max(0, 1 - drift / 0.02) // ≤2% drift = full score
-  score += narrativeScore * 0.25
+  score += narrativeScore * 0.2
 
   if (drift > 0.02 && fullNarrationWords > 0) {
     issues.push(
@@ -85,7 +85,7 @@ function scoreCandidate(
     )
   }
 
-  // ── 3. Scene density (0.25) ───────────────────────────────────────────────
+  // ── 3. Scene density (0.20) ───────────────────────────────────────────────
   let failingScenes = 0
   for (const [index, scene] of parsed.scenes.entries()) {
     const narration = scene.narration || ''
@@ -102,16 +102,16 @@ function scoreCandidate(
     }
   }
   const densityScore = (1 - failingScenes / Math.max(parsed.scenes.length, 1)) ** 2
-  score += densityScore * 0.25
+  score += densityScore * 0.2
 
-  // ── 4. Scene structure (0.10) ─────────────────────────────────────────────
+  // ── 4. Scene structure & Variety (0.25) ───────────────────────────────────
   const range = computeSceneCountRange(effectiveDuration)
   const sceneCount = parsed.scenes.length
 
-  // Strict structure score: deviation from ideal is penalized
+  // Increased penalty for structure deviation to ensure visual variety
   const sceneDiff = Math.abs(sceneCount - range.ideal)
-  const structureScore = Math.max(0, 1 - (sceneDiff / Math.max(range.ideal, 1)) * 2)
-  score += structureScore * 0.1
+  const structureScore = Math.max(0, 1 - (sceneDiff / Math.max(range.ideal, 1)) * 1.5) // Higher multiplier = steeper penalty
+  score += structureScore * 0.25
 
   if (sceneCount < range.min) issues.push(`Too few scenes: ${sceneCount} (min=${range.min})`)
   if (sceneCount > range.max) issues.push(`Too many scenes: ${sceneCount} (max=${range.max})`)
@@ -143,10 +143,9 @@ export class VideoScriptGenerator {
     options: VideoGenerationOptions,
     onProgress?: (progress: number, message: string, metadata?: Record<string, any>) => Promise<void>
   ): Promise<CompleteVideoScript> {
-    console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
-
+    if (onProgress) await onProgress(2, 'Studio: Initializing script engine...')
     const baseScript = await this.generateVideoStructure(topic, options, onProgress)
-    if (onProgress) await onProgress(10, 'Studio: Script structure finalized. Building visuals...')
+    if (onProgress) await onProgress(20, 'Studio: Script structure finalized. Building visuals...')
 
     const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, onProgress)
 
@@ -236,22 +235,28 @@ export class VideoScriptGenerator {
     console.log(`[VideoScriptGen] Pass 1: Generating narration only (Targeting ~${effectiveDuration}s)...`)
     if (onProgress) await onProgress(5, 'Studio: Crafting narration flow...')
 
-    const { pass1 } = this.promptManager.buildTwoPassPrompts(topic, options)
+    const { pass1 } = await this.promptManager.buildTwoPassPrompts(topic, options)
     let narrationText = await this.llmService.generateContent(pass1.user, pass1.system)
 
     if (!narrationText) {
       throw new Error('[VideoScriptGen] Pass 1 failed: LLM returned empty narration')
     }
 
-    // Pass 1 Validation & Optional Retry
-    let validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
-    console.log(
-      `[VideoScriptGen] Pass 1 Validation: ${validation.ok ? 'OK' : 'TOO SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
-    )
+    // Pass 1 Validation & Optional Retry loop (Up to 2 expansions)
+    const MAX_P1_RETRIES = 2
+    for (let attempt = 1; attempt <= MAX_P1_RETRIES; attempt++) {
+      const validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
+      console.log(
+        `[VideoScriptGen] Pass 1 Validation (Attempt ${attempt}): ${validation.ok ? 'OK' : 'TOO SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
+      )
 
-    if (!validation.ok) {
-      console.log(`[VideoScriptGen] Narration too short. Triggering one-time expansion retry...`)
-      if (onProgress) await onProgress(8, 'Studio: Expanding narration for better depth...')
+      if (validation.ok) break
+
+      console.log(
+        `[VideoScriptGen] Narration too short (${validation.actualWords}w). Triggering expansion retry ${attempt}/${MAX_P1_RETRIES}...`
+      )
+      if (onProgress)
+        await onProgress(7 + attempt, `Studio: Expanding narration for better depth (Attempt ${attempt})...`)
 
       const retryUser = this.promptManager.buildNarrationRetryUserPrompt(
         topic,
@@ -259,32 +264,14 @@ export class VideoScriptGenerator {
         options,
         pass1.targetWords,
         validation.actualWords,
-        2
+        2 // Mode '2' is continuation
       )
       const continuation = await this.llmService.generateContent(retryUser, pass1.system)
 
       if (continuation) {
-        // Append the continuation to the original text
         narrationText = `${narrationText.trim()} ${continuation.trim()}`
-        validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
-        console.log(
-          `[VideoScriptGen] Pass 1 Retry Validation: ${validation.ok ? 'OK' : 'STILL SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
-        )
-
-        // Final narration check (Fix v8-no-fail)
-        const warningThreshold = pass1.targetWords * 0.9
-
-        if (narrationText.length < 50) {
-          // Only warn if it's practically empty
-          console.warn(`[VideoScriptGen] ⚠️ Narration is effectively empty. Proceeding anyway.`)
-        }
-
-        if (validation.actualWords < warningThreshold) {
-          console.warn(
-            `[VideoScriptGen] ⚠️ Narration is shorter than target (${validation.actualWords}/${validation.targetWords} words). Proceeding anyway to save tokens.`
-          )
-          if (onProgress) await onProgress(9, 'Studio: Proceeding with available narration...')
-        }
+      } else {
+        break // No more continuation from LLM
       }
     }
 
@@ -300,15 +287,26 @@ export class VideoScriptGenerator {
 
     for (let i = 0; i < chunks.length; i++) {
       const chunkText = chunks[i]
-      const chunkContext = isLongForm
+
+      // [AMÉLIO] Context-aware chunking: pass visual summary of previous chunk to next chunk
+      const prevChunkEndScene = allScenes.length > 0 ? allScenes.at(-1) : null
+      const visualContext = prevChunkEndScene
         ? {
-            chunkIndex: i,
-            totalChunks: chunks.length,
-            startSceneNumber: allScenes.length + 1
+            prevSceneId: prevChunkEndScene.id,
+            prevLocation: prevChunkEndScene.locationPrompt || prevChunkEndScene.locationId,
+            prevAction: prevChunkEndScene.animationPrompt,
+            prevCharacterState: (prevChunkEndScene as any).characterState || 'neutral'
           }
         : undefined
 
-      const p2 = this.promptManager.buildPass2Prompts(chunkText, topic, options, chunkContext)
+      const chunkContext = {
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        startSceneNumber: allScenes.length + 1,
+        visualSummary: visualContext
+      }
+
+      const p2 = await this.promptManager.buildPass2Prompts(chunkText, topic, options, chunkContext)
 
       const MAX_P2_RETRIES = 3
       let chunkResult: any = null
@@ -319,7 +317,7 @@ export class VideoScriptGenerator {
       for (let attempt = 1; attempt <= MAX_P2_RETRIES; attempt++) {
         try {
           if (onProgress) {
-            const step = 10 + (i / chunks.length) * 60
+            const step = 20 + (i / chunks.length) * 50 // 20% to 70%
             const msg =
               chunks.length > 1
                 ? `Studio: Sculpting scenes part ${i + 1}/${chunks.length}...`
@@ -406,7 +404,7 @@ export class VideoScriptGenerator {
     }
 
     // 2. Scene-level validation & Micro-corrections (Fix v5)
-    if (onProgress) await onProgress(70, 'Studio: Running micro-corrections and quality checks...')
+    if (onProgress) await onProgress(80, 'Studio: Running micro-corrections and quality checks...')
     const refinement = await this.promptManager.validateAndCorrectAllScenes(fixedScript.scenes, {
       complete: async (prompt: string) => {
         return await this.llmService.generateContent(prompt, '', 'application/json')
@@ -415,7 +413,7 @@ export class VideoScriptGenerator {
     fixedScript.scenes = refinement.correctedScenes
 
     // 3. Final structural assignments
-    if (onProgress) await onProgress(90, 'Studio: Finalizing script structure...')
+    if (onProgress) await onProgress(95, 'Studio: Finalizing script structure...')
     fixedScript.scenes = this.postProcessScenes(fixedScript.scenes)
     fixedScript.scenes = this.assignTimeRanges(fixedScript.scenes, options)
 
@@ -574,24 +572,38 @@ export class VideoScriptGenerator {
       repaired = repaired.substring(0, lastObjectOpen).trim().replaceAll(/,\s*$/g, '')
     }
 
+    // [AMÉLIO] Final cleanup: if we end in a key, comma or open bracket/brace, remove it
+    // We assume inString is false because we just closed any open quotes above
+    repaired = repaired.trim()
+    // Remove trailing comma
+    repaired = repaired.replace(/,\s*$/, '')
+    // Remove trailing "key": or "key": { or "key": [
+    // This is safer than just closing them if they're empty/truncated
+    repaired = repaired.replace(/,\s*"[^"]*"\s*:\s*[[{]?\s*$/, '')
+    repaired = repaired.replace(/"[^"]*"\s*:\s*[[{]?\s*$/, '')
+    // Final comma/bracket cleanup
+    repaired = repaired.replace(/,\s*$/, '')
+    repaired = repaired.replace(/[[{]\s*$/, '')
+
+    // [AMÉLIO] Recalculate stack AFTER cleanup to avoid syntax errors from removed fragments
     const stack: string[] = []
-    let inString = false
-    let escaped = false
+    let finalInString = false
+    let finalEscaped = false
 
     for (const char of repaired) {
-      if (escaped) {
-        escaped = false
+      if (finalEscaped) {
+        finalEscaped = false
         continue
       }
       if (char === '\\') {
-        escaped = true
+        finalEscaped = true
         continue
       }
       if (char === '"') {
-        inString = !inString
+        finalInString = !finalInString
         continue
       }
-      if (!inString) {
+      if (!finalInString) {
         if (char === '{' || char === '[') stack.push(char === '{' ? '}' : ']')
         else if ((char === '}' || char === ']') && stack.length > 0 && stack.at(-1) === char) stack.pop()
       }

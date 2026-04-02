@@ -386,14 +386,36 @@ export class AssCaptionService {
           const isHormozi = this.style === 'hormozi'
           const maxWords = isHormozi ? 3 : this.wordsPerLine
 
-          if (isHormozi && currentChunk.length > maxWords) {
-            for (let j = 0; j < currentChunk.length; j += maxWords) {
-              const miniChunk = currentChunk.slice(j, j + maxWords)
-              lines.push({
-                words: miniChunk,
-                lineStartMs: miniChunk[0]!.startMs,
-                lineEndMs: miniChunk.at(-1)!.startMs + miniChunk.at(-1)!.durationMs
-              })
+          // [AMÉLIO] Hormozi split: if forcing 3 words leads to 90% width overflow,
+          // split into smaller pieces (2 + 1) to prevent clipping.
+          if (isHormozi && currentChunk.length > 1) {
+            const currentW =
+              currentChunk.reduce((s, w) => s + this.estimateWordWidthPx(this.cleanWord(w.word), this.fontSize), 0) +
+              this.wordSpacing * (currentChunk.length - 1)
+            if (currentW > this.width * 0.9 && currentChunk.length > 2) {
+              // Forced split of a 3-word chunk that is too wide
+              const half = Math.ceil(currentChunk.length / 2)
+              const firstHalf = currentChunk.slice(0, half)
+              const secondHalf = currentChunk.slice(half)
+
+              const chunks = [firstHalf, secondHalf]
+              for (const chunk of chunks) {
+                lines.push({
+                  words: chunk,
+                  lineStartMs: chunk[0]!.startMs,
+                  lineEndMs: chunk.at(-1)!.startMs + chunk.at(-1)!.durationMs
+                })
+              }
+            } else {
+              // Normal Hormozi or non-overflowing
+              for (let j = 0; j < currentChunk.length; j += maxWords) {
+                const miniChunk = currentChunk.slice(j, j + maxWords)
+                lines.push({
+                  words: miniChunk,
+                  lineStartMs: miniChunk[0]!.startMs,
+                  lineEndMs: miniChunk.at(-1)!.startMs + miniChunk.at(-1)!.durationMs
+                })
+              }
             }
           } else {
             lines.push({
@@ -500,10 +522,13 @@ export class AssCaptionService {
 
   private getBaseCharWidthRatio(fontFamily: string): number {
     const name = fontFamily.toLowerCase()
-    if (name.includes('bebas')) return 0.56
-    if (name.includes('montserrat')) return 1
-    if (name.includes('ubuntu')) return 0.98
-    if (name.includes('arial')) return 0.97
+    if (name.includes('bebas')) return 0.54 // Slim condensed
+    if (name.includes('montserrat')) return 1 // Reference
+    if (name.includes('ubuntu')) return 0.94 // Condensed
+    if (name.includes('arial')) return 0.91 // Standard sans
+    if (name.includes('roboto')) return 0.93 // Standard sans
+    if (name.includes('inter')) return 0.94 // Modern sans
+    if (name.includes('outfit')) return 0.96 // Modern rounded/wide
     return 0.95
   }
 
@@ -618,17 +643,29 @@ export class AssCaptionService {
   }
 
   // [AMÉLIO] estimateWordWidthPx: emoji code points (single Unicode scalar)
-  // receive a 1.0 width ratio instead of the generic 0.6 fallback, which was
-  // wildly off since emoji are typically square glyphs.
+  // receive a 1.0 width ratio. Advanced ZWJ sequences (families, skin tones)
+  // are detected via a segmented regex/iterator to avoid triple-counting width.
   private estimateWordWidthPx(word: string, fontSize: number): number {
     let units = 0
-    // Spread into grapheme clusters so multi-byte emoji count as one glyph
-    for (const ch of [...word]) {
-      if (/\p{Emoji}/u.test(ch) && ch.codePointAt(0)! > 127) {
-        // Emoji: treat as a square glyph ≈ 1.0× fontSize
+    // Split into clusters to handle multi-byte characters accurately
+    // Note: Array.from is necessary for emoji-safe iteration across surrogate pairs
+    const chars = Array.from(word)
+
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]
+
+      // ZWJ Sequence Handling: Emoji + ZWJ + Next Char should count as one unit
+      // Using Unicode Property Escapes (\p{...}) requires ES2018/u flag
+      const isEmoji = /\p{Emoji}/u.test(ch) && (ch.codePointAt(0) || 0) > 127
+      if (isEmoji) {
         units += 1
+        // Peek ahead for ZWJ (U+200D) or Emoji Modifiers and skip joined components
+        while (i + 1 < chars.length && (chars[i + 1] === '\u200D' || /\p{Emoji_Modifier}/u.test(chars[i + 1]))) {
+          i++ // skip joiner or modifier
+          if (i + 1 < chars.length) i++ // skip the joined char too
+        }
       } else {
-        units += AssCaptionService.CHAR_ADV[ch] ?? 0.6
+        units += (AssCaptionService.CHAR_ADV as any)[ch] ?? 0.6
       }
     }
     return Math.max(1, Math.round(units * fontSize * this.charWidthRatio))

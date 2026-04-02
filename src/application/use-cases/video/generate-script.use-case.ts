@@ -1,8 +1,9 @@
-import { ScriptGenerationService, type GenerateScriptOptions } from '@/application/services/script-generation.service'
-import { IUseCase } from '@/domain/types'
+import { IUseCase } from '@/domain/types/use-case.type'
+import { getVideoQueue } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
+import type { GenerateScriptOptions } from '@/application/services/script-generation.service'
 import type { CompleteVideoScript } from '@sketch-pilot/types/video-script.types'
 
 type GenerateScriptParams = {
@@ -15,6 +16,7 @@ type GenerateScriptResponse = {
   success: boolean
   script?: CompleteVideoScript
   videoId?: string
+  jobId?: string
   metadata?: {
     sceneCount: number
     estimatedDuration: number
@@ -23,7 +25,6 @@ type GenerateScriptResponse = {
   error?: string
 }
 
-const scriptGenerationService = new ScriptGenerationService()
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 
@@ -65,36 +66,59 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         }
       })
 
-      const script = await scriptGenerationService.generateScript(topic, options)
-
+      // 2. Create Video and Job record
       const videoId = crypto.randomUUID()
+      const jobId = crypto.randomUUID()
+
       await videoRepository.create({
         id: videoId,
         userId,
         topic,
-        status: 'draft',
-        progress: 100,
-        options,
+        status: 'queued',
+        progress: 0,
+        options: { ...options, scriptOnly: true, creditsUsed: cost, planConsumed, extraConsumed },
         language: options.language || 'en',
         characterModelId: options.characterModelId,
-        script,
-        scenes: script.scenes
+        creditsUsed: cost
       })
+
+      await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
+
+      // 3. Enqueue the BullMQ job
+      const queue = getVideoQueue()
+      await queue.add(
+        'generate-video',
+        {
+          jobId,
+          userId,
+          videoId,
+          topic,
+          options: {
+            ...options,
+            scriptOnly: true
+          }
+        },
+        {
+          jobId,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 }
+        }
+      )
 
       return {
         success: true,
-        script,
         videoId,
+        jobId,
         metadata: {
-          sceneCount: script.scenes?.length ?? 0,
-          estimatedDuration: script.totalDuration ?? options.duration ?? 60,
+          sceneCount: 0, // Will be updated by worker
+          estimatedDuration: options.duration ?? 60,
           language: options.language ?? 'en'
         }
       }
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Script generation failed'
+        error: error instanceof Error ? error.message : 'Script generation failed to enqueue'
       }
     }
   }

@@ -352,7 +352,20 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       if (pkg.script) {
         if (pkg.script.scenes) await uploadSceneImages(videoId, pkg.script.scenes, pkg.outputPath)
-        await videoRepository.updateStatus(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
+
+        // Extract title from script
+        let videoTitle = videoRecord.topic
+        if (pkg.script.titles && Array.isArray(pkg.script.titles) && pkg.script.titles.length > 0) {
+          videoTitle = pkg.script.titles[0]
+        } else if ((pkg.script as any).title) {
+          videoTitle = (pkg.script as any).title
+        }
+
+        await videoRepository.updateStatus(videoId, {
+          script: pkg.script as any,
+          scenes: pkg.script.scenes as any,
+          title: videoTitle
+        })
       }
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       const serialized = checkpointStorage.save(checkpoint)

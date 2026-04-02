@@ -15,6 +15,7 @@ export class VideoRepository {
     id: string
     userId: string
     topic: string
+    title?: string
     status?: string
     progress?: number
     options?: any
@@ -30,6 +31,7 @@ export class VideoRepository {
         id: data.id,
         userId: data.userId,
         topic: data.topic,
+        title: data.title,
         status: data.status || 'queued',
         progress: data.progress || 0,
         options: data.options,
@@ -78,6 +80,7 @@ export class VideoRepository {
       script?: any
       scenes?: any
       options?: any
+      title?: string
       completedAt?: Date
     }
   ) {
