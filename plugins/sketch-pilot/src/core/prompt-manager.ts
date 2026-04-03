@@ -137,6 +137,56 @@ const PRESET_MIN_SENTENCES = {
 } as const
 
 // ─── Scaffold slot definitions — used ONLY in correction/retry prompts ────────
+const CAMERA_ACTIONS_LIST = [
+  'breathing',
+  'zoom-in',
+  'zoom-out',
+  'pan-right',
+  'pan-left',
+  'ken-burns-static',
+  'zoom-in-pan-right',
+  'dutch-tilt',
+  'snap-zoom',
+  'shake',
+  'zoom-in-pan-down'
+]
+
+const TRANSITIONS_LIST = [
+  'fade',
+  'crossfade',
+  'blur',
+  'zoomin',
+  'dissolve',
+  'circlecrop',
+  'circleopen',
+  'circleclose',
+  'pixelize',
+  'hblur',
+  'radial',
+  'distance',
+  'smoothleft',
+  'smoothright',
+  'wipeleft',
+  'wiperight',
+  'wipeup',
+  'wipedown',
+  'slideleft',
+  'slideright',
+  'slideup',
+  'slidedown',
+  'fadeblack',
+  'fadewhite'
+]
+
+const PRODUCTION_SUGGESTIONS_GUIDE = `
+PRESET → PRODUCTION SUGGESTIONS:
+  hook       → camera: snap-zoom, dutch-tilt | transition: zoomin, circleopen
+  reveal     → camera: zoom-in, pan-right | transition: crossfade, wipeleft, circlecrop
+  mirror     → camera: breathing, ken-burns-static | transition: blur, radial, distance
+  bridge     → camera: shake, dutch-tilt | transition: pixelize, wipeup
+  conclusion → camera: zoom-out, ken-burns-static | transition: smoothdown, fadeblack
+`
+
 const PRESET_SCAFFOLD: Record<string, { slots: string[]; description: string }> = {
   hook: {
     description: 'Percutant & High Impact opener',
@@ -1141,19 +1191,12 @@ IMAGE PROMPT RULES:
 — Explain exactly what is materially present on screen: physical subjects, physical setting, and literal physical actions.
 
 CAMERA ACTIONS:
-  breathing | zoom-in | zoom-out | pan-right | pan-left | ken-burns-static |
-  zoom-in-pan-right | dutch-tilt | snap-zoom | shake | zoom-in-pan-down
+  ${CAMERA_ACTIONS_LIST.join(' | ')}
 
 TRANSITIONS (rich options):
-  fade | crossfade | blur | zoomin | circlecrop | circleopen | pixelize | 
-  hblur | radial | distance | smoothleft | smoothright | wipeleft | wiperight
+  ${TRANSITIONS_LIST.join(' | ')}
 
-PRESET → PRODUCTION SUGGESTIONS (not mandatory):
-  hook       → camera: snap-zoom, dutch-tilt | transition: zoomin, circleopen
-  reveal     → camera: zoom-in, pan-right | transition: crossfade, wipeleft, circlecrop
-  mirror     → camera: breathing, ken-burns-static | transition: blur, radial, distance
-  bridge     → camera: shake, dutch-tilt | transition: pixelize, wipeup
-  conclusion → camera: zoom-out, ken-burns-static | transition: smoothdown, fadeblack
+${PRODUCTION_SUGGESTIONS_GUIDE}
 
 BACKGROUND MUSIC (mood mapping):
   - chill, lo-fi, educational: "lofi-1" (Chill Lo-Fi)
@@ -1200,8 +1243,8 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
       "wordCount": "number",
       "estimatedDuration": "number",
       "summary": "string",
-      "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | snap-zoom | dutch-tilt | zoom-in-pan-right | zoom-in-pan-down | shake)",
-      "transition": "none | fade | blur | crossfade | zoomin | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | smoothleft | smoothright | circlecrop | pixelize | hblur",
+      "cameraAction": "string (${CAMERA_ACTIONS_LIST.join(' | ')})",
+      "transition": "none | ${TRANSITIONS_LIST.join(' | ')}",
       "imagePrompt": "string (Literal, concrete, photographable visual description. NO metaphors.)",
       "animationPrompt": "string"
     }
@@ -1596,7 +1639,7 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
           "wordCount": "number — word count of this narration field",
           "estimatedDuration": "number (words ÷ ${effectiveWps.toFixed(1)} — spoken seconds for this scene)",
           "summary": "string",
-          "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | ken-burns-static | zoom-in-pan-right | dutch-tilt | snap-zoom | shake | zoom-in-pan-down)",
+          "cameraAction": "string (${CAMERA_ACTIONS_LIST.join(' | ')})",
           "imagePrompt": "string (Detailed visual prompt)",
           "animationPrompt": "string"
         }
