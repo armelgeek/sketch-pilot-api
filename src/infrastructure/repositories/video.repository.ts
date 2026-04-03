@@ -79,6 +79,7 @@ export class VideoRepository {
       scenes?: any
       options?: any
       completedAt?: Date
+      title?: string
     }
   ) {
     const updateData: any = { ...data }

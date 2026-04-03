@@ -1,8 +1,9 @@
-import { ScriptGenerationService, type GenerateScriptOptions } from '@/application/services/script-generation.service'
 import { IUseCase } from '@/domain/types'
+import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
+import type { GenerateScriptOptions } from '@/application/services/script-generation.service'
 import type { CompleteVideoScript } from '@sketch-pilot/types/video-script.types'
 
 type GenerateScriptParams = {
@@ -15,6 +16,7 @@ type GenerateScriptResponse = {
   success: boolean
   script?: CompleteVideoScript
   videoId?: string
+  jobId?: string
   metadata?: {
     sceneCount: number
     estimatedDuration: number
@@ -23,7 +25,6 @@ type GenerateScriptResponse = {
   error?: string
 }
 
-const scriptGenerationService = new ScriptGenerationService()
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 
@@ -65,29 +66,52 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         }
       })
 
-      const script = await scriptGenerationService.generateScript(topic, options)
-
       const videoId = crypto.randomUUID()
+      const jobId = crypto.randomUUID()
+
       await videoRepository.create({
         id: videoId,
         userId,
         topic,
-        status: 'draft',
-        progress: 100,
-        options,
+        status: 'queued',
+        progress: 0,
+        options: { ...options, scriptOnly: true },
         language: options.language || 'en',
-        characterModelId: options.characterModelId,
-        script,
-        scenes: script.scenes
+        characterModelId: options.characterModelId
+      })
+
+      // Update the status to lock as queued with the jobId
+      await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
+
+      // CRITICAL: Clear any existing active lock in redis
+      const lockKey = `active-video-job:${videoId}`
+      await redisClient.del(lockKey)
+
+      const jobData: VideoJobData = {
+        jobId: videoId, // use videoId for deduplication
+        userId,
+        videoId,
+        topic,
+        options: {
+          ...options,
+          scriptOnly: true,
+          generateOnlyScenes: false
+        }
+      }
+
+      await getVideoQueue().add(`generate-${videoId}`, jobData, {
+        jobId: videoId,
+        removeOnComplete: 10,
+        removeOnFail: 20
       })
 
       return {
         success: true,
-        script,
+        jobId,
         videoId,
         metadata: {
-          sceneCount: script.scenes?.length ?? 0,
-          estimatedDuration: script.totalDuration ?? options.duration ?? 60,
+          sceneCount: options.sceneCount ?? 6,
+          estimatedDuration: options.duration ?? 60,
           language: options.language ?? 'en'
         }
       }

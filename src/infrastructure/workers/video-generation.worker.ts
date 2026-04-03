@@ -276,7 +276,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           }
         })
         if (pkg.script && options.repromptSceneIndex === undefined) {
-          await videoRepository.updateStatus(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
+          const validScript = pkg.script as any
+          let title = videoId
+          if (validScript.titles && validScript.titles.length > 0) {
+            title = validScript.titles[0]
+          }
+          await videoRepository.updateStatus(videoId, { script: validScript, scenes: validScript.scenes, title })
         }
         checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
         const serialized = checkpointStorage.save(checkpoint)
@@ -352,7 +357,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       if (pkg.script) {
         if (pkg.script.scenes) await uploadSceneImages(videoId, pkg.script.scenes, pkg.outputPath)
-        await videoRepository.updateStatus(videoId, { script: pkg.script as any, scenes: pkg.script.scenes as any })
+
+        const validScript = pkg.script as any
+        let title = videoId
+        if (validScript.titles && validScript.titles.length > 0) {
+          title = validScript.titles[0]
+        }
+        await videoRepository.updateStatus(videoId, { script: validScript, scenes: validScript.scenes, title })
       }
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       const serialized = checkpointStorage.save(checkpoint)

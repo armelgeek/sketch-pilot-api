@@ -78,21 +78,13 @@ export class ScriptsController implements Routes {
 
         const { result } = await generateScriptUseCase.run({ userId: user.id, topic, options })
 
-        if (!result.success || !result.script) {
+        if (!result.success || (!result.script && !result.jobId)) {
           return c.json({ error: result.error || 'Failed to generate script' }, 500)
         }
-
-        const script = result.script
         return c.json({
           topic,
+          jobId: result.jobId,
           videoId: result.videoId,
-          script: {
-            title: (script as any).titles?.main || (script as any).title || topic,
-            description: (script as any).titles?.subtitle || (script as any).description || '',
-            duration: script.totalDuration,
-            language: options?.language || 'en',
-            scenes: script.scenes
-          },
           metadata: result.metadata!
         })
       }
