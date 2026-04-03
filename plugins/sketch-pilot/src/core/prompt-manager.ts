@@ -1132,6 +1132,14 @@ fullNarration RULE:
   Set this AFTER filling all scene narration fields, by concatenating them verbatim.
   Any word-count discrepancy > 2% = auto-rejected.
 
+IMAGE PROMPT RULES:
+— MUST be LITERAL and PHOTOGRAPHABLE. Absolutely NO metaphors or abstract symbolism.
+— BAD: "A brain transforming into a tree, symbolizing growth."
+— BAD: "A web of interconnected glowing thoughts."
+— GOOD: "A close-up of a student writing in a notebook in a brightly lit classroom."
+— GOOD: "A pair of hands planting a small green sapling in dark soil."
+— Explain exactly what is materially present on screen: physical subjects, physical setting, and literal physical actions.
+
 CAMERA ACTIONS:
   breathing | zoom-in | zoom-out | pan-right | pan-left | ken-burns-static |
   zoom-in-pan-right | dutch-tilt | snap-zoom | shake | zoom-in-pan-down
@@ -1184,7 +1192,7 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
       "summary": "string",
       "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | snap-zoom | dutch-tilt | zoom-in-pan-right | zoom-in-pan-down | shaking)",
       "transition": "none | fade | blur | crossfade | zoom | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | slideup | slidedown",
-      "imagePrompt": "string",
+      "imagePrompt": "string (Literal, concrete, photographable visual description. NO metaphors.)",
       "animationPrompt": "string"
     }
   ]
