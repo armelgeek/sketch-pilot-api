@@ -96,6 +96,7 @@ export class GenerateNarrationUseCase extends IUseCase<GenerateNarrationParams, 
         topic: video.topic,
         options: {
           ...videoOptions,
+          scriptOnly: false,
           generateOnlyAudio: true, // ONLY NARRATION
           generateFromScript: true, // DONT REGEN SCRIPT
           customSpec: spec || videoOptions.customSpec

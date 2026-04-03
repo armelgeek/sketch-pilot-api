@@ -126,12 +126,6 @@ export const cameraActionSchema = z.object({
       'static',
       'breathing',
       'ken-burns-static',
-      'zoom-in-pan-right',
-      'zoom-in-pan-left',
-      'zoom-in-pan-up',
-      'zoom-in-pan-down',
-      'zoom-out-pan-right',
-      'zoom-out-pan-left',
       'dutch-tilt',
       'snap-zoom'
     ])
@@ -211,6 +205,17 @@ export const enrichedSceneSchema = z.object({
     ),
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
   animationPrompt: z.string().optional().describe('Animation instructions for movement'),
+  cameraAction: z
+    .union([
+      cameraActionSchema,
+      z.string().transform((val) => ({
+        type: val,
+        intensity: 'medium' as const,
+        timestamp: 0
+      }))
+    ])
+    .optional()
+    .describe('Cinematic camera movement for the scene'),
   // Dynamism fields
   // Dynamism fields (transitionToNext removed in favor of camera acceleration)
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),

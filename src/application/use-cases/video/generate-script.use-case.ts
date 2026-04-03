@@ -100,7 +100,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
       }
 
       await getVideoQueue().add(`generate-${videoId}`, jobData, {
-        jobId: videoId,
+        jobId,
         removeOnComplete: 10,
         removeOnFail: 20
       })

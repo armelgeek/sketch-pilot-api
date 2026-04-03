@@ -86,22 +86,28 @@ function scoreCandidate(
   }
 
   // ── 3. Scene density (0.25) ───────────────────────────────────────────────
-  let failingScenes = 0
+  let densityIntegrity = 0
   for (const [index, scene] of parsed.scenes.entries()) {
     const narration = scene.narration || ''
     const sceneWords = narration.trim().split(/\s+/).filter(Boolean).length
     const isHook = scene.preset === 'hook' || index === 0
     const baseThreshold = 0.85
     const effectiveMinWords = isHook
-      ? Math.max(20, Math.round(minWordsPerScene * 0.3))
+      ? Math.max(15, Math.round(minWordsPerScene * 0.3))
       : Math.round(minWordsPerScene * baseThreshold)
 
-    if (sceneWords < effectiveMinWords) {
-      failingScenes++
+    const sceneRatio = Math.min(1, sceneWords / Math.max(effectiveMinWords, 1))
+
+    // If it's very close (>= 90%), give it a pass or very high score
+    // If it's below 90%, start penalizing linearly
+    const sceneScore = sceneRatio >= 0.9 ? 1 : sceneRatio
+    densityIntegrity += sceneScore
+
+    if (sceneRatio < 0.9) {
       issues.push(`Scene ${index + 1} (${scene.preset || 'unknown'}) too short: ${sceneWords}/${effectiveMinWords}w`)
     }
   }
-  const densityScore = (1 - failingScenes / Math.max(parsed.scenes.length, 1)) ** 2
+  const densityScore = (densityIntegrity / Math.max(parsed.scenes.length, 1)) ** 2
   score += densityScore * 0.25
 
   // ── 4. Scene structure (0.10) ─────────────────────────────────────────────
@@ -358,8 +364,8 @@ export class VideoScriptGenerator {
             bestCandidate = candidate
           }
 
-          if (score >= 0.85) {
-            console.log(`[VideoScriptGen] Pass 2 Evaluation: VERY GOOD (Score ${score.toFixed(2)}). Accepting.`)
+          if (score >= 0.8) {
+            console.log(`[VideoScriptGen] Pass 2 Evaluation: GOOD (Score ${score.toFixed(2)}). Accepting.`)
             break
           } else {
             console.log(
@@ -383,7 +389,7 @@ export class VideoScriptGenerator {
 
       if (bestCandidate) {
         chunkResult = bestCandidate.parsed
-        if (bestCandidate.score < 0.85) {
+        if (bestCandidate.score < 0.8) {
           console.warn(
             `[VideoScriptGen] Accepting IMPERFECT candidate (Score ${bestCandidate.score.toFixed(2)}). Issues: ${bestCandidate.issues.join(', ')}`
           )
@@ -850,6 +856,13 @@ export class VideoScriptGenerator {
         '\n#### AI Production Prompts',
         `**🖼️ Image Prompt:**\n> ${scene.imagePrompt}`,
         `**🎬 Animation Prompt:**\n> ${scene.animationPrompt}`,
+        `**🎥 Camera Action:** ${
+          scene.cameraAction
+            ? typeof scene.cameraAction === 'object'
+              ? (scene.cameraAction as any).type
+              : scene.cameraAction
+            : 'static'
+        }`,
         '',
         '---'
       )

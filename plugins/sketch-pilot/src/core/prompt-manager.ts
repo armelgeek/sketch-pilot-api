@@ -112,19 +112,15 @@ const PROVIDER_SAFETY_FACTOR: Record<string, number> = {
 const DEFAULT_WPS = 2.37
 const DEFAULT_SAFETY_FACTOR = 1.05
 
-const PACING_FACTORS = {
-  fast: 1.2,
-  medium: 1,
-  slow: 0.8
-}
+
 
 // ─── Per-preset absolute minimum word counts ─────────────────────────────────
 export const PRESET_MIN_WORDS = {
-  hook: 25,
-  reveal: 45,
-  mirror: 40,
-  conclusion: 40,
-  bridge: 35
+  hook: 15,
+  reveal: 25,
+  mirror: 20,
+  conclusion: 20,
+  bridge: 18
 } as const
 
 // Minimum sentence counts per preset — used in validation and retry feedback only
@@ -144,11 +140,9 @@ const CAMERA_ACTIONS_LIST = [
   'pan-right',
   'pan-left',
   'ken-burns-static',
-  'zoom-in-pan-right',
   'dutch-tilt',
   'snap-zoom',
-  'shake',
-  'zoom-in-pan-down'
+  'shake'
 ]
 
 const TRANSITIONS_LIST = [
@@ -467,9 +461,9 @@ export class PromptManager {
     }
     return this.spec
       ? {
-          description: this.spec.characterDescription || '',
-          images: []
-        }
+        description: this.spec.characterDescription || '',
+        images: []
+      }
       : undefined
   }
 
@@ -768,16 +762,16 @@ IMPORTANT:
 
   // ─── Batch validator + corrector for all scenes ───────────────────────────
 
-  public async validateAndCorrectAllScenes(
-    scenes: Array<{ sceneNumber: number; preset: string; narration: string }>,
+  public async validateAndCorrectAllScenes<T extends { sceneNumber: number; preset: string; narration: string }>(
+    scenes: T[],
     llmClient?: { complete: (prompt: string) => Promise<string> }
   ): Promise<{
-    correctedScenes: Array<{ sceneNumber: number; preset: string; narration: string }>
+    correctedScenes: T[]
     allViolations: Array<{ sceneNumber: number; violations: string[] }>
     needsRetry: boolean
     isValid: boolean
   }> {
-    const correctedScenes: Array<{ sceneNumber: number; preset: string; narration: string }> = []
+    const correctedScenes: T[] = []
     const allViolations: Array<{ sceneNumber: number; violations: string[] }> = []
 
     for (const scene of scenes) {
@@ -867,16 +861,16 @@ IMPORTANT:
         const scaffold = PRESET_SCAFFOLD[preset]
         const missingSlotsHint = scaffold
           ? `\n      Missing content likely: ${scaffold.slots
-              .slice(Math.max(0, scaffold.slots.length - 2))
-              .map((s) => s.split('—')[0].trim())
-              .join(', ')}`
+            .slice(Math.max(0, scaffold.slots.length - 2))
+            .map((s) => s.split('—')[0].trim())
+            .join(', ')}`
           : ''
 
         sceneDiagnoses.push(
           `  • Scene ${sceneNum} (preset: ${preset}):` +
-            `\n      Current: ~${currentWords} words (~${currentDuration}s spoken)` +
-            `\n      Required: ≥${minWords} words (~${targetSceneDuration}s) / ≥${minSentences} sentences` +
-            `\n      Deficit: ~${Math.max(0, targetSceneDuration - currentDuration)} seconds of missing narration${missingSlotsHint}`
+          `\n      Current: ~${currentWords} words (~${currentDuration}s spoken)` +
+          `\n      Required: ≥${minWords} words (~${targetSceneDuration}s) / ≥${minSentences} sentences` +
+          `\n      Deficit: ~${Math.max(0, targetSceneDuration - currentDuration)} seconds of missing narration${missingSlotsHint}`
         )
       }
     } else if (validationError) {
@@ -887,20 +881,18 @@ IMPORTANT:
     const overallLong = actualWords > targetWords * 1.12
 
     const mandatoryRules = [
-      `1. ${
-        overallLong
-          ? `TRIM every scene — merge content or remove filler.`
-          : `Expand failing scenes — go deeper into the core idea. More specific. More human.`
+      `1. ${overallLong
+        ? `TRIM every scene — merge content or remove filler.`
+        : `Expand failing scenes — go deeper into the core idea. More specific. More human.`
       }`,
       `2. Every "reveal" scene needs: observation → explanation → one absurd-specific image → consequence → bridge.`,
       `3. Every "mirror" scene needs: name the feeling → normalize it → open one door.`,
       `4. Every "hook" scene needs: drop them in mid-thought → twist the knife → closing sentence that moves forward → leave unresolved.`,
       `5. Each content beat = ${overallLong ? 'exactly 1' : 'minimum 1'} full sentence. A one-word beat is invalid.`,
       `6. "..." counts as punctuation, NOT as a word. Do NOT pad with dots.`,
-      `7. ${
-        overallLong
-          ? 'DENSE & PUNCHY: fewer words, more precision. Cut adverbs. Cut filler.'
-          : 'DO NOT reproduce the same short narrations. Genuinely expand the ideas.'
+      `7. ${overallLong
+        ? 'DENSE & PUNCHY: fewer words, more precision. Cut adverbs. Cut filler.'
+        : 'DO NOT reproduce the same short narrations. Genuinely expand the ideas.'
       }`,
       `8. After writing each scene, estimate its spoken duration (~${wps.toFixed(1)} words/second) — it must match the target.`,
       `9. THIRD-PERSON DRIFT: Max 1 consecutive "they/their/he/she" sentence — return to "you" immediately after.`,
@@ -934,13 +926,12 @@ If you are not certain it is a real established figure, replace it with approxim
 ╚══════════════════════════════════════════════════════════════════════╝
 
 SPOKEN DURATION: Your script runs ~${actualDuration}s. It must run ~${targetDuration}s.
-${
-  missingSeconds > 0
-    ? `❌ You are missing ~${missingSeconds} seconds of spoken narration (≈${deficit} words).`
-    : actualWords > targetWords * 1.15
-      ? `❌ Your script is ~${actualDuration - targetDuration}s TOO LONG (≈${actualWords - targetWords} extra words).`
-      : `✅ Total duration is acceptable, but structural rules were violated (see below).`
-}
+${missingSeconds > 0
+        ? `❌ You are missing ~${missingSeconds} seconds of spoken narration (≈${deficit} words).`
+        : actualWords > targetWords * 1.15
+          ? `❌ Your script is ~${actualDuration - targetDuration}s TOO LONG (≈${actualWords - targetWords} extra words).`
+          : `✅ Total duration is acceptable, but structural rules were violated (see below).`
+      }
 
 FAILING SCENES:
 ${sceneDiagnoses.join('\n\n')}
@@ -1245,7 +1236,7 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
       "summary": "string",
       "cameraAction": "string (${CAMERA_ACTIONS_LIST.join(' | ')})",
       "transition": "none | ${TRANSITIONS_LIST.join(' | ')}",
-      "imagePrompt": "string (Literal, concrete, photographable visual description. NO metaphors.)",
+      "imagePrompt": "string",
       "animationPrompt": "string"
     }
   ]
@@ -1553,14 +1544,13 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
        - ⚠️ NARRATION DRIFT (IRON RULE): Use a baseline of **${wps.toFixed(1)} words per second**. 
          - A ${totalDuration}s video MUST have ~**${targetWordCountTotal} words**.
          - If your script is too short, the video will have dead silence. If too long, it will be cut off.
-         - Do NOT guess. Count your words.${
-           totalDuration >= 180
-             ? `
+         - Do NOT guess. Count your words.${totalDuration >= 180
+        ? `
         - ⚠️ GRANULARITY (Mandatory): For this long-form video, you MUST use at least **${range.min} to ${range.max} scenes** (Target: **${range.ideal}**).
         - ⚠️ POINT SPLITTING: If the input topic has only ~10 points but the target is ~${range.ideal} scenes, you MUST split each point into multiple sequential scenes (e.g. "Concept" -> "Sensory Detail" -> "Connection"). 
         - ⚠️ NO COPY-PASTING: Expand each seed sentence from the topic into a full narrative block (~${avgWordsPerScene} words per scene).`
-             : ''
-         }`
+        : ''
+      }`
     )
 
     instructions.push(
@@ -1739,10 +1729,6 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
 
     let paragraph = (scene.imagePrompt || scene.summary || '').trim()
 
-    if (characterDescription && !paragraph.toLowerCase().includes(characterDescription.toLowerCase().slice(0, 10))) {
-      paragraph = `MAIN CHARACTER: ${characterDescription}. ACTION: ${paragraph}`
-    }
-
     if (scene.locationId) {
       const memorized = memory?.locations.get(scene.locationId)
       if (memorized && !paragraph.toLowerCase().includes(memorized.prompt.toLowerCase().slice(0, 20))) {
@@ -1861,20 +1847,20 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
     const hardConstraint =
       targetWordCount && targetDuration
         ? [
-            `⛔ HARD CONSTRAINT — WORD COUNT (violating this = automatic rejection on any attempt):`,
-            `   Total narration across ALL scenes: **~${targetWordCount} words** (~${targetDuration}s at ${effectiveWps.toFixed(1)} w/s).`,
-            `   • Scene count: **flexible from ${range.min} to ${range.max} scenes** (Target: ~${range.ideal}).`,
-            `   • ⚠️ GRANULARITY: For this ${targetDuration}s video, you MUST use at least **${range.min} to ${range.max} scenes** (Target: **${range.ideal}**).`,
-            `   • ⚠️ POINT SPLITTING: Split each point of the input topic into multiple scenes. DO NOT do a 1:1 mapping.`,
-            `   • Preset minimums (per scene): hook ≥ ${PRESET_MIN_WORDS.hook} | reveal ≥ ${PRESET_MIN_WORDS.reveal} | mirror ≥ ${PRESET_MIN_WORDS.mirror} | bridge ≥ ${PRESET_MIN_WORDS.bridge} | conclusion ≥ ${PRESET_MIN_WORDS.conclusion} words.`,
-            `   • ⚠️ BRIDGE: Use a 'bridge' scene just before the end to pivot and build final tension.`,
-            `   • ⚠️ FINAL SCENE: The last scene MUST use the **conclusion** preset for a definitive resolution.`,
-            `   • Any scene under its preset minimum = auto-rejected.`,
-            `   • After writing each scene: count words, divide by ${effectiveWps.toFixed(1)} = spoken seconds.`,
-            `   • Check your running total before moving to the next scene.`,
-            `   • You are free to use as many scenes as required (within the ${range.min}-${range.max} range) — but total words MUST reach ${targetWordCount}.`,
-            ``
-          ].join('\n')
+          `⛔ HARD CONSTRAINT — WORD COUNT (violating this = automatic rejection on any attempt):`,
+          `   Total narration across ALL scenes: **~${targetWordCount} words** (~${targetDuration}s at ${effectiveWps.toFixed(1)} w/s).`,
+          `   • Scene count: **flexible from ${range.min} to ${range.max} scenes** (Target: ~${range.ideal}).`,
+          `   • ⚠️ GRANULARITY: For this ${targetDuration}s video, you MUST use at least **${range.min} to ${range.max} scenes** (Target: **${range.ideal}**).`,
+          `   • ⚠️ POINT SPLITTING: Split each point of the input topic into multiple scenes. DO NOT do a 1:1 mapping.`,
+          `   • Preset minimums (per scene): hook ≥ ${PRESET_MIN_WORDS.hook} | reveal ≥ ${PRESET_MIN_WORDS.reveal} | mirror ≥ ${PRESET_MIN_WORDS.mirror} | bridge ≥ ${PRESET_MIN_WORDS.bridge} | conclusion ≥ ${PRESET_MIN_WORDS.conclusion} words.`,
+          `   • ⚠️ BRIDGE: Use a 'bridge' scene just before the end to pivot and build final tension.`,
+          `   • ⚠️ FINAL SCENE: The last scene MUST use the **conclusion** preset for a definitive resolution.`,
+          `   • Any scene under its preset minimum = auto-rejected.`,
+          `   • After writing each scene: count words, divide by ${effectiveWps.toFixed(1)} = spoken seconds.`,
+          `   • Check your running total before moving to the next scene.`,
+          `   • You are free to use as many scenes as required (within the ${range.min}-${range.max} range) — but total words MUST reach ${targetWordCount}.`,
+          ``
+        ].join('\n')
         : ''
 
     const lines = [
@@ -1913,8 +1899,8 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
       if (overlap.length === 0) {
         violations.push(
           `Scene ${current.sceneNumber} → ${next.sceneNumber}: No semantic bridge detected.\n` +
-            `  Bridge: "${lastSentence.slice(0, 80)}"\n` +
-            `  Opening: "${firstSentence.slice(0, 80)}"`
+          `  Bridge: "${lastSentence.slice(0, 80)}"\n` +
+          `  Opening: "${firstSentence.slice(0, 80)}"`
         )
       }
     }
@@ -1928,8 +1914,8 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
       if (resolved.length < 2) {
         violations.push(
           `Narrative drift: Hook introduces concepts not resolved in subsequent scenes.\n` +
-            `  Hook keywords: ${hookKeywords.slice(0, 6).join(', ')}\n` +
-            `  Rest coverage: ${resolved.join(', ') || 'none'}`
+          `  Hook keywords: ${hookKeywords.slice(0, 6).join(', ')}\n` +
+          `  Rest coverage: ${resolved.join(', ') || 'none'}`
         )
       }
     }

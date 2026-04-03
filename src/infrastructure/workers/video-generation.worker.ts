@@ -28,6 +28,7 @@ const creditsRepository = new CreditsRepository()
 
 const VIDEO_QUEUE_NAME = 'video-generation'
 const DEFAULT_VIDEO_DURATION = 60 // 1 minute default if not specified
+const OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'output')
 
 // Use a simple global map to track progress for SSE reporting
 const jobProgressMap = new Map<string, any>()
@@ -240,7 +241,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       pkg = {
         script: audioResult?.script ?? videoRecord.script,
-        outputPath: path.join(process.cwd(), 'output', effectiveProjectId)
+        outputPath: path.join(OUTPUT_DIR, effectiveProjectId)
       } as any
     } else if (options.generateFromScript && videoRecord.script) {
       const skipScript = checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
@@ -264,7 +265,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           },
           onSceneGenerated: async (scene, script, index, progress) => {
             console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-            await uploadSceneImages(videoId, [scene], effectiveProjectId)
+            const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
+            await uploadSceneImages(videoId, [scene], absoluteOutputPath)
             await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
               currentSceneIndex: index - 1, // Store 0-based index for frontend
               scene
@@ -308,7 +310,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           },
           onSceneGenerated: async (scene, script, index, progress) => {
             console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-            await uploadSceneImages(videoId, [scene], effectiveProjectId)
+            const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
+            await uploadSceneImages(videoId, [scene], absoluteOutputPath)
             await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
               currentSceneIndex: index - 1, // Store 0-based index for frontend
               scene
@@ -344,7 +347,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         },
         onSceneGenerated: async (scene, script, index, progress) => {
           console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-          await uploadSceneImages(videoId, [scene], effectiveProjectId)
+          const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
+          await uploadSceneImages(videoId, [scene], absoluteOutputPath)
           await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
             currentSceneIndex: index - 1, // Store 0-based index for frontend
             scene
@@ -382,7 +386,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         return
       }
     } else if (videoRecord.script) {
-      pkg = { script: videoRecord.script, outputPath: path.join(process.cwd(), 'output', effectiveProjectId) } as any
+      pkg = { script: videoRecord.script, outputPath: path.join(OUTPUT_DIR, effectiveProjectId) } as any
       const scenesDir = path.join(pkg!.outputPath, 'scenes')
       genOptions.resumeFromSceneIndex = findLastCompletedSceneIndex(scenesDir, pkg!.script)
     }

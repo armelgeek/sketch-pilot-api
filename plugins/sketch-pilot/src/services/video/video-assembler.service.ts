@@ -797,42 +797,6 @@ export class VideoAssembler {
           yRaw = `${CY}-${PAN_Y_HALF}*(${SS})${osc('y')}`
           break
 
-        case 'zoom-in-pan-right':
-          zBaseExpr = `1.0+(${DZ}*${SS})`
-          xRaw = `${CX}+(((iw-(iw/zoom))/2))*(${SS})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'zoom-in-pan-left':
-          zBaseExpr = `1.0+(${DZ}*${SS})`
-          xRaw = `${CX}-(((iw-(iw/zoom))/2))*(${SS})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'zoom-in-pan-up':
-          zBaseExpr = `1.0+(${DZ}*${EASING})`
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}-(((ih-(ih/zoom))/2))*(${EASING})${osc('y')}`
-          break
-
-        case 'zoom-in-pan-down':
-          zBaseExpr = `1.0+(${DZ}*${EASING})`
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}+(((ih-(ih/zoom))/2))*(${EASING})${osc('y')}`
-          break
-
-        case 'zoom-out-pan-right':
-          zBaseExpr = `${ZS}-(${DZ}*${EASING})`
-          xRaw = `${CX}+(((iw-(iw/zoom))/2))*(${EASING})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'zoom-out-pan-left':
-          zBaseExpr = `${ZS}-(${DZ}*${EASING})`
-          xRaw = `${CX}-(((iw-(iw/zoom))/2))*(${EASING})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
         case 'snap-zoom': {
           const snapAt = cameraAction?.snapAtSec ?? duration * 0.25
           const peakZoom = cameraAction?.peakZoom ?? (t >= 7 ? 1.6 : 1.4)

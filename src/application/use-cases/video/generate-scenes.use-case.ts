@@ -101,6 +101,7 @@ export class GenerateScenesUseCase extends IUseCase<GenerateScenesParams, Genera
         topic: video.topic,
         options: {
           ...videoOptions,
+          scriptOnly: false,
           generateOnlyScenes: true,
           skipAudio: true,
           generateFromScript: true,
