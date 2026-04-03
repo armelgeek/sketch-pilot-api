@@ -407,9 +407,7 @@ export class VideoAssembler {
     return new Promise((resolve, reject) => {
       ffmpeg(videoPath)
         .complexFilter([
-          `vignette=a=PI/5[vignetted]`,
-          `[vignetted]noise=c0s=5:c0f=t+u[polished]`,
-          `[polished]eq=contrast=1.05:brightness=0.02:saturation=1.05[brightened]`,
+          `eq=contrast=1.05:brightness=0.02:saturation=1.05[brightened]`,
           assPath
             ? `[brightened]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
             : `[brightened]copy[outv]`
@@ -847,6 +845,13 @@ export class VideoAssembler {
           yRaw = CY
           break
         }
+
+        case 'ken-burns-static':
+          // Extremely subtle cinematic drift
+          zBaseExpr = `1.02+(0.03*${SS})`
+          xRaw = `${CX}+(${PAN_X_HALF}*0.15*${SS})${osc('x')}`
+          yRaw = `${CY}+(${PAN_Y_HALF}*0.15*${SS})${osc('y')}`
+          break
 
         case 'dutch-tilt':
           zBaseExpr = `1.05+(0.08*${SS})`

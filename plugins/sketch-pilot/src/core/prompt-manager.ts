@@ -1146,9 +1146,9 @@ CAMERA ACTIONS:
 
 PRESET → CAMERA SUGGESTIONS (not mandatory):
   hook       → snap-zoom or dutch-tilt
-  reveal     → zoom-in or zoom-in-pan-right
-  mirror     → breathing or ken-burns-static
-  bridge     → dutch-tilt or shake
+  reveal     → zoom-in, zoom-in-pan-right, or pan-right
+  mirror     → breathing, ken-burns-static, or pan-left
+  bridge     → dutch-tilt, shake, or zoom-in-pan-down
   conclusion → zoom-out or ken-burns-static
 
 OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the JSON.`
@@ -1190,7 +1190,7 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
       "wordCount": "number",
       "estimatedDuration": "number",
       "summary": "string",
-      "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | snap-zoom | dutch-tilt | zoom-in-pan-right | zoom-in-pan-down | shaking)",
+      "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | snap-zoom | dutch-tilt | zoom-in-pan-right | zoom-in-pan-down | shake)",
       "transition": "none | fade | blur | crossfade | zoom | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | slideup | slidedown",
       "imagePrompt": "string (Literal, concrete, photographable visual description. NO metaphors.)",
       "animationPrompt": "string"
