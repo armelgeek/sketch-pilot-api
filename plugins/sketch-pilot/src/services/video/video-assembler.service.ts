@@ -211,10 +211,15 @@ export class VideoAssembler {
       if (onProgress) await onProgress(90, 'Mixing background music...')
       const musicTrack = this.musicService.getTrackForMood(bgMusic)
       if (musicTrack) {
+        console.log(
+          `[VideoAssembler] Selected music track: ${musicTrack.name} (id: ${musicTrack.id}) for mood: ${bgMusic}`
+        )
         const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
         const musicPath = this.musicService.getTrackPath(musicTrack.path)
-        const musicVol = globalOptions.backgroundMusicVolume ?? 0.15
+        const musicVol = globalOptions.backgroundMusicVolume ?? 0.22
         return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
+      } else {
+        console.warn(`[VideoAssembler] No music track found for mood: ${bgMusic}`)
       }
     }
 

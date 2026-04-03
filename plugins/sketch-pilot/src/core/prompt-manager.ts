@@ -1144,12 +1144,22 @@ CAMERA ACTIONS:
   breathing | zoom-in | zoom-out | pan-right | pan-left | ken-burns-static |
   zoom-in-pan-right | dutch-tilt | snap-zoom | shake | zoom-in-pan-down
 
-PRESET → CAMERA SUGGESTIONS (not mandatory):
-  hook       → snap-zoom or dutch-tilt
-  reveal     → zoom-in, zoom-in-pan-right, or pan-right
-  mirror     → breathing, ken-burns-static, or pan-left
-  bridge     → dutch-tilt, shake, or zoom-in-pan-down
-  conclusion → zoom-out or ken-burns-static
+TRANSITIONS (rich options):
+  fade | crossfade | blur | zoomin | circlecrop | circleopen | pixelize | 
+  hblur | radial | distance | smoothleft | smoothright | wipeleft | wiperight
+
+PRESET → PRODUCTION SUGGESTIONS (not mandatory):
+  hook       → camera: snap-zoom, dutch-tilt | transition: zoomin, circleopen
+  reveal     → camera: zoom-in, pan-right | transition: crossfade, wipeleft, circlecrop
+  mirror     → camera: breathing, ken-burns-static | transition: blur, radial, distance
+  bridge     → camera: shake, dutch-tilt | transition: pixelize, wipeup
+  conclusion → camera: zoom-out, ken-burns-static | transition: smoothdown, fadeblack
+
+BACKGROUND MUSIC (mood mapping):
+  - chill, lo-fi, educational: "lofi-1" (Chill Lo-Fi)
+  - upbeat, business, motivational: "upbeat-1" (Upbeat Corporate)
+  - sad, emotional, story, quiet: "ambient-1" (Soft Ambient)
+  - fun, entertainment, kids: "fun-1" (Funky Groove)
 
 OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the JSON.`
   }
@@ -1176,7 +1186,7 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
   "emotionalArc": ["string"],
   "titles": ["string (5 YouTube title options)"],
   "theme": "string",
-  "backgroundMusic": "string",
+  "backgroundMusic": "string (lofi-1 | upbeat-1 | ambient-1 | fun-1)",
   "fullNarration": "string — verbatim join of all scene narration fields",
   "totalWordCount": ${targetWords},
   "scenes": [
@@ -1191,7 +1201,7 @@ OUTPUT: Valid JSON only. No markdown. No backticks. No explanation outside the J
       "estimatedDuration": "number",
       "summary": "string",
       "cameraAction": "string (breathing | zoom-in | zoom-out | pan-right | pan-left | snap-zoom | dutch-tilt | zoom-in-pan-right | zoom-in-pan-down | shake)",
-      "transition": "none | fade | blur | crossfade | zoom | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | slideup | slidedown",
+      "transition": "none | fade | blur | crossfade | zoomin | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | smoothleft | smoothright | circlecrop | pixelize | hblur",
       "imagePrompt": "string (Literal, concrete, photographable visual description. NO metaphors.)",
       "animationPrompt": "string"
     }
@@ -1574,7 +1584,7 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
       "fullNarration": "string — ⚠️ CRITICAL: Exact concatenation of all scene narration fields joined by a single space. Write scenes first, then copy verbatim. DO NOT write independently. Must produce ~${effectiveDuration}s of spoken audio.",
       "totalWordCount": "number (self-reported total. Must be within ±10% of ${targetWordCountTotal} words / ~${effectiveDuration}s spoken. ⛔ Counts below ${Math.round((targetWordCountTotal ?? 0) * 0.85)} = auto-rejected)",
       "theme": "string",
-      "backgroundMusic": "string",
+      "backgroundMusic": "string (lofi-1 | upbeat-1 | ambient-1 | fun-1)",
       "scenes": [
         {
           "sceneNumber": 1,
