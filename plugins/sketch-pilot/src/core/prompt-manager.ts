@@ -1297,7 +1297,16 @@ ${outputFormat}`
     const drift = Math.abs(sceneWords - fullNarrationWords)
     const driftPct = fullNarrationWords > 0 ? drift / fullNarrationWords : 1
 
-    if (driftPct > 0.02) {
+    // Mild drift (2-15%): just warn. Do NOT overwrite — avoids creating logical jumps.
+    if (driftPct > 0.02 && driftPct <= 0.15) {
+      console.warn(
+        `[PromptManager] Mild fullNarration drift: ${Math.round(driftPct * 100)}% (${drift}w). Keeping original to avoid logical gaps.`
+      )
+      return { script, driftFixed: false, driftWords: drift }
+    }
+
+    // Severe drift (>15%): auto-correct from scenes (something went very wrong).
+    if (driftPct > 0.15) {
       script.fullNarration = sceneNarrations
       script.totalWordCount = sceneWords
       return { script, driftFixed: true, driftWords: drift }

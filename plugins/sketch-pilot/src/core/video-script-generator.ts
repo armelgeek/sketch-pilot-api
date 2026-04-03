@@ -40,10 +40,10 @@ interface ScriptCandidate {
  * Score a parsed script against the target word count and structural rules.
  *
  * Score breakdown (0–1 scale):
- *   wordProximity      0.40 — how close actual words are to target (linear, capped at ±40%)
- *   noNarrativeGap     0.25 — fullNarration matches sum of scenes (≤5% drift = full points)
- *   noDensityFailure   0.25 — all scenes meet their minimum word density
- *   sceneStructure     0.10 — scenes array exists and has a reasonable count
+ *   wordProximity       0.35 — actual vs target word count within ±40%
+ *   narrativeConsistency 0.25 — fullNarration drift ≤2%
+ *   noDensityFailure    0.25 — all scenes meet their minimum word density
+ *   sceneStructure      0.15 — scenes count close to ideal (heavily penalized if out of min–max)
  *
  * Higher is better. A perfect script scores 1.0.
  */
@@ -68,7 +68,7 @@ function scoreCandidate(
   const ratio = actualWords / Math.max(targetWords, 1)
   // Linear score: 1.0 at ratio=1.0, 0.0 at ratio≤0.60 or ratio≥1.40
   const wordScore = Math.max(0, 1 - Math.abs(ratio - 1) / 0.4)
-  score += wordScore * 0.4
+  score += wordScore * 0.35
 
   if (ratio < 0.75) issues.push(`Under-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
   if (ratio > 1.15) issues.push(`Over-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
@@ -108,10 +108,14 @@ function scoreCandidate(
   const range = computeSceneCountRange(effectiveDuration)
   const sceneCount = parsed.scenes.length
 
-  // Strict structure score: deviation from ideal is penalized
+  // Strict structure score: deviation from ideal is penalized harshly outside min–max bounds
   const sceneDiff = Math.abs(sceneCount - range.ideal)
-  const structureScore = Math.max(0, 1 - (sceneDiff / Math.max(range.ideal, 1)) * 2)
-  score += structureScore * 0.1
+  let structureScore = Math.max(0, 1 - (sceneDiff / Math.max(range.ideal, 1)) * 2)
+  // Hard penalty: if count is completely outside min–max, cap at 0.2
+  if (sceneCount < range.min || sceneCount > range.max) {
+    structureScore = Math.min(structureScore, 0.2)
+  }
+  score += structureScore * 0.15
 
   if (sceneCount < range.min) issues.push(`Too few scenes: ${sceneCount} (min=${range.min})`)
   if (sceneCount > range.max) issues.push(`Too many scenes: ${sceneCount} (max=${range.max})`)

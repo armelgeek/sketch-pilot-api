@@ -58,9 +58,10 @@ function buildCinematicSnapZoom(
   const snapFrame = Math.round(snapAtSec * ZOOMPAN_INTERNAL_FPS)
   const k = 6 / decaySec
 
+  // Fix: Use ease-in cubic for the pre-snap rise (was only 5% linear which caused visible jump)
   return (
     `if(lt(on,${snapFrame}),` +
-    `${baseZoom}+${((peakZoom - baseZoom) * 0.05).toFixed(4)}*(on/${snapFrame}),` +
+    `${baseZoom}+(${peakZoom - baseZoom}).toFixed(4)*pow(on/${snapFrame},3),` +
     `${overshootZoom.toFixed(4)}+(${baseZoom}-${overshootZoom.toFixed(4)})*` +
     `(1-exp(-${k.toFixed(3)}*(on/${ZOOMPAN_INTERNAL_FPS}-${snapAtSec.toFixed(3)})))` +
     `)`
@@ -716,9 +717,9 @@ export class VideoAssembler {
       const osc = (axis: 'x' | 'y') => (wantsOrganic ? `+(${axis === 'x' ? xOscExpr : yOscExpr})` : '')
 
       // Reference centres
-      // We add a tiny offset fraction to x and y to help prevent zoompan integer rounding wobble
-      const CX = `iw/2-(iw/zoom/2)+0.01`
-      const CY = `ih/2-(ih/zoom/2)+0.01`
+      // +0.001*on forces FFmpeg to use sub-pixel interpolation, eliminating micro-jitter on slow zoompan moves
+      const CX = `iw/2-(iw/zoom/2)+0.001*on`
+      const CY = `ih/2-(ih/zoom/2)+0.001*on`
 
       // ── Tension-adapted zoom and easing ────────────────────────────────────
       const t = Math.max(1, Math.min(10, sceneTension))
@@ -754,50 +755,54 @@ export class VideoAssembler {
 
       switch (type) {
         case 'zoom-in':
-          zBaseExpr = `1.0+(${DZ}*${EASING})`
+          zBaseExpr = `1.0+(${DZ}*${SS})`
           xRaw = `${CX}${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'zoom-out':
-          zBaseExpr = `${ZS}-(${DZ}*${EASING})`
+          zBaseExpr = `${ZS}-(${DZ}*${SS})`
           xRaw = `${CX}${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'pan-right':
+          // Start at center, glide right
           zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${PAN_X_FULL}*(${EASING})${osc('x')}`
+          xRaw = `${CX}+${PAN_X_HALF}*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'pan-left':
+          // Start at center, glide left
           zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${PAN_X_FULL}*(1-(${EASING}))${osc('x')}`
+          xRaw = `${CX}-${PAN_X_HALF}*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'pan-down':
+          // Start at center, glide down
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}${osc('x')}`
-          yRaw = `${PAN_Y_FULL}*(${EASING})${osc('y')}`
+          yRaw = `${CY}+${PAN_Y_HALF}*(${SS})${osc('y')}`
           break
 
         case 'pan-up':
+          // Start at center, glide up
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}${osc('x')}`
-          yRaw = `${PAN_Y_FULL}*(1-(${EASING}))${osc('y')}`
+          yRaw = `${CY}-${PAN_Y_HALF}*(${SS})${osc('y')}`
           break
 
         case 'zoom-in-pan-right':
-          zBaseExpr = `1.0+(${DZ}*${EASING})`
-          xRaw = `${CX}+(((iw-(iw/zoom))/2))*(${EASING})${osc('x')}`
+          zBaseExpr = `1.0+(${DZ}*${SS})`
+          xRaw = `${CX}+(((iw-(iw/zoom))/2))*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'zoom-in-pan-left':
-          zBaseExpr = `1.0+(${DZ}*${EASING})`
-          xRaw = `${CX}-(((iw-(iw/zoom))/2))*(${EASING})${osc('x')}`
+          zBaseExpr = `1.0+(${DZ}*${SS})`
+          xRaw = `${CX}-(((iw-(iw/zoom))/2))*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
@@ -937,9 +942,37 @@ export class VideoAssembler {
         ffmpegCommand.outputOptions(['-vf', filterString])
       }
 
+      let cameraFilterString = filterString
+
+      // Dutch Tilt: integrate rotation directly into FFmpeg filtergraph (single pass, no quality loss)
+      if (type === 'dutch-tilt') {
+        const tiltDeg = cameraAction?.tiltDeg ?? 1.8
+        const angleRad = ((tiltDeg * Math.PI) / 180).toFixed(4)
+        const rotExpr = `${angleRad}*sin(2*PI*t/${duration.toFixed(2)})`
+        cameraFilterString = `${filterString},rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`
+      }
+
       const baseOutputPath = outputPath
-      const needsDutchTiltPass = type === 'dutch-tilt'
-      const intermediateOutput = needsDutchTiltPass ? outputPath.replace('.mp4', '_pre_tilt.mp4') : outputPath
+      const needsDutchTiltPass = false // Dutch tilt is now integrated into the main filtergraph above
+      const intermediateOutput = outputPath
+
+      if (keywordVisuals.length > 0) {
+        let lastOutput = '[v_base]'
+        let complexFilter = `[0:v]${cameraFilterString}[v_base];`
+        keywordVisuals.forEach((kv, idx) => {
+          ffmpegCommand.input(kv.imagePath).inputOptions(['-loop 1'])
+          const inputIdx = idx + 1
+          const nextOutput = `[v_kv_${idx}]`
+          const startFade = Math.max(0, kv.start)
+          const outFade = Math.max(0, kv.end - 0.3)
+          complexFilter += `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1[kv_s_${idx}];`
+          complexFilter += `${lastOutput}[kv_s_${idx}]overlay=enable='between(t,${kv.start},${kv.end})'${idx === keywordVisuals.length - 1 ? '' : nextOutput};`
+          lastOutput = nextOutput
+        })
+        ffmpegCommand.complexFilter(complexFilter)
+      } else {
+        ffmpegCommand.outputOptions(['-vf', cameraFilterString])
+      }
 
       ffmpegCommand
         .outputOptions([
@@ -952,15 +985,7 @@ export class VideoAssembler {
           `-r ${OUTPUT_FPS}`
         ])
         .save(intermediateOutput)
-        .on('end', async () => {
-          if (needsDutchTiltPass) {
-            const tiltDeg = cameraAction?.tiltDeg ?? 1.8
-            const finalPath = await this.applyDutchTilt(intermediateOutput, baseOutputPath, tiltDeg, true, duration)
-            resolve(finalPath)
-          } else {
-            resolve(intermediateOutput)
-          }
-        })
+        .on('end', () => resolve(intermediateOutput))
         .on('error', (err) => reject(new Error(`Panning clip creation failed: ${err.message}`)))
     })
   }
@@ -1097,8 +1122,9 @@ export class VideoAssembler {
       // Calm = smootherstep, intense = easeOutCubic
       const EASING = t <= 5 ? SS : EOC
 
-      const CX = `iw/2-(iw/zoom/2)`
-      const CY = `ih/2-(ih/zoom/2)`
+      // +0.001*on forces FFmpeg to use sub-pixel interpolation, reducing micro-jitter
+      const CX = `iw/2-(iw/zoom/2)+0.001*on`
+      const CY = `ih/2-(ih/zoom/2)+0.001*on`
       const PX = `(iw-(iw/zoom))`
       const PY = `(ih-(ih/zoom))`
       const PXH = `((iw-(iw/zoom))/2)`
@@ -1477,26 +1503,98 @@ export class VideoAssembler {
     type: string | undefined,
     maxAllowedDuration?: number
   ): { name: string; duration: number } | null {
-    const map: Record<string, { name: string; duration: number }> = {
-      fade: { name: 'fade', duration: 0.6 },
+    if (!type || type === 'cut' || type === 'none') return null
+
+    // Native FFmpeg xfade transition names — pass through directly with sensible duration
+    const nativeXfade = new Set([
+      'fade',
+      'fadeblack',
+      'fadewhite',
+      'distance',
+      'wipeleft',
+      'wiperight',
+      'wipeup',
+      'wipedown',
+      'slideleft',
+      'slideright',
+      'slideup',
+      'slidedown',
+      'smoothleft',
+      'smoothright',
+      'smoothup',
+      'smoothdown',
+      'circlecrop',
+      'rectcrop',
+      'circleopen',
+      'circleclose',
+      'vertopen',
+      'vertclose',
+      'horzopen',
+      'horzclose',
+      'dissolve',
+      'pixelize',
+      'diagtl',
+      'diagtr',
+      'diagbl',
+      'diagbr',
+      'hlslice',
+      'hrslice',
+      'vuslice',
+      'vdslice',
+      'hblur',
+      'fadegrays',
+      'squeezev',
+      'squeezeh',
+      'zoomin',
+      'squeezeh',
+      'hlwind',
+      'hrwind',
+      'vuwind',
+      'vdwind',
+      'coverleft',
+      'coverright',
+      'coverup',
+      'coverdown',
+      'revealleft',
+      'revealright',
+      'revealup',
+      'revealdown'
+    ])
+
+    // Alias mapping: LLM-generated names → valid FFmpeg xfade names
+    const aliasMap: Record<string, { name: string; duration: number }> = {
+      crossfade: { name: 'dissolve', duration: 0.6 },
+      blur: { name: 'hblur', duration: 0.5 },
+      zoom: { name: 'zoomin', duration: 0.5 },
+      'zoom-in': { name: 'zoomin', duration: 0.5 },
+      wipe: { name: 'wipeleft', duration: 0.5 },
+      slide: { name: 'slideleft', duration: 0.5 },
       'slide-left': { name: 'slideleft', duration: 0.5 },
       'slide-right': { name: 'slideright', duration: 0.5 },
       'slide-up': { name: 'slideup', duration: 0.5 },
       'slide-down': { name: 'slidedown', duration: 0.5 },
-      wipe: { name: 'wipeleft', duration: 0.6 },
-      'zoom-in': { name: 'circleopen', duration: 0.6 },
       pop: { name: 'fadeblack', duration: 0.4 },
-      swish: { name: 'smoothleft', duration: 0.4 }
-    }
-    if (!type || type === 'cut' || type === 'none') return null
-
-    const transition = map[type] || { name: 'fade', duration: 0.5 }
-
-    if (maxAllowedDuration !== undefined && transition.duration > maxAllowedDuration) {
-      transition.duration = maxAllowedDuration
+      swish: { name: 'smoothleft', duration: 0.4 },
+      flash: { name: 'fadewhite', duration: 0.4 },
+      circle: { name: 'circleopen', duration: 0.5 }
     }
 
-    return transition
+    let result: { name: string; duration: number }
+
+    if (aliasMap[type]) {
+      result = { ...aliasMap[type] }
+    } else if (nativeXfade.has(type)) {
+      result = { name: type, duration: 0.5 }
+    } else {
+      console.warn(`[VideoAssembler] Unknown transition "${type}", defaulting to fade`)
+      result = { name: 'fade', duration: 0.5 }
+    }
+
+    if (maxAllowedDuration !== undefined && result.duration > maxAllowedDuration) {
+      result.duration = maxAllowedDuration
+    }
+
+    return result
   }
 
   // ─────────────────────────────────────────────────────────────────────────

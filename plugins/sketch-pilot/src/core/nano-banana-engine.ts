@@ -1286,7 +1286,10 @@ export class NanoBananaEngine {
       (validOptions.generateOnlyAudio || validOptions.generateOnlyAssembly) && validOptions.repromptSceneIndex == null
     if (!skipComposition) {
       const startSceneIndex = validOptions.resumeFromSceneIndex ?? 0
-      const locationImageMap = new Map<string, string>()
+
+      // Memoization promises to prevent data races during parallel task execution
+      const sceneImagePromises = new Map<number, Promise<string | undefined>>()
+      const locationImagePromises = new Map<string, Promise<string | undefined>>()
 
       if (startSceneIndex > 0) {
         console.log(
@@ -1295,71 +1298,53 @@ export class NanoBananaEngine {
       }
 
       let completedScenesCount = 0
+
       for (let i = startSceneIndex; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
 
-        // If we are only re-prompting a specific scene, skip others
-        // BUT we must still load the lastSceneImageBase64 from the preceding scene to maintain continuity if requested.
         const repromptVal =
           validOptions.repromptSceneIndex != null ? String(validOptions.repromptSceneIndex) : undefined
         const isTargetScene =
           repromptVal !== undefined &&
-          (repromptVal === String(i) || // 0-based match
-            repromptVal === String(i + 1) || // 1-based match
-            repromptVal === scene.id) // ID match
-
-        if (repromptVal !== undefined && !isTargetScene) {
-          const expectedSceneDir = path.join(scenesDir, scene.id)
-          const expectedImagePath = path.join(expectedSceneDir, 'scene.webp')
-          if (fs.existsSync(expectedImagePath)) {
-            lastSceneImageBase64 = fs.readFileSync(expectedImagePath).toString('base64')
-            // Also seed the location map from existing files during a skip/resume
-            if (scene.locationId && !locationImageMap.has(scene.locationId)) {
-              locationImageMap.set(scene.locationId, lastSceneImageBase64)
-            }
-          }
-          completedScenesCount++ // Count as completed since it's skipped
-          continue
-        }
+          (repromptVal === String(i) || repromptVal === String(i + 1) || repromptVal === scene.id)
 
         const expectedSceneDir = path.join(scenesDir, scene.id)
         const expectedImagePath = path.join(expectedSceneDir, 'scene.webp')
-        if (fs.existsSync(expectedImagePath) && repromptVal === undefined) {
-          console.log(`[NanoBanana] Scene ${i + 1} already has an image, skipping generation to allow resumption...`)
-          lastSceneImageBase64 = fs.readFileSync(expectedImagePath).toString('base64')
-          // Also seed the location map from existing files during a skip/resume
-          if (scene.locationId && !locationImageMap.has(scene.locationId)) {
-            locationImageMap.set(scene.locationId, lastSceneImageBase64)
+
+        // If skipped or resuming and image exists
+        if (
+          (repromptVal !== undefined && !isTargetScene) ||
+          (fs.existsSync(expectedImagePath) && repromptVal === undefined)
+        ) {
+          if (fs.existsSync(expectedImagePath)) {
+            const b64 = fs.readFileSync(expectedImagePath).toString('base64')
+            sceneImagePromises.set(i, Promise.resolve(b64))
+
+            if (scene.locationId && !locationImagePromises.has(scene.locationId)) {
+              locationImagePromises.set(scene.locationId, Promise.resolve(b64))
+            }
+          } else {
+            sceneImagePromises.set(i, Promise.resolve(undefined))
           }
-          completedScenesCount++ // Count as completed since it's already there
+          completedScenesCount++
           continue
         }
 
         const progressMessage = `Preparing scene ${i + 1}/${script.scenes.length}...`
         console.log(`[NanoBanana] ${progressMessage}`)
 
-        // Perform task execution (parallelized internally if needed)
-        await this.generationQueue.add(async () => {
-          const repromptVal =
-            validOptions.repromptSceneIndex != null ? String(validOptions.repromptSceneIndex) : undefined
+        const taskPromise = this.generationQueue.add(async () => {
           const isReprompt =
             repromptVal !== undefined &&
-            (repromptVal === String(i) || // 0-based match
-              repromptVal === String(i + 1) || // 1-based match
-              repromptVal === scene.id) // ID match
+            (repromptVal === String(i) || repromptVal === String(i + 1) || repromptVal === scene.id)
 
           if (isReprompt) {
             console.log(`[NanoBanana] 🎯 Target MATCHED for reprompt: Index=${i}, Value=${repromptVal}`)
           }
 
-          // Load previous scene image if this scene continues from it
-          if (scene.continueFromPrevious && i > 0 && !lastSceneImageBase64) {
-            const prevScene = script.scenes[i - 1]
-            const prevSceneDir = path.join(scenesDir, prevScene.id)
-            const prevImagePath = path.join(prevSceneDir, 'scene.webp')
-            if (fs.existsSync(prevImagePath)) {
-              lastSceneImageBase64 = fs.readFileSync(prevImagePath).toString('base64')
-            }
+          let localPreviousImageBase64: string | undefined
+          if (scene.continueFromPrevious && i > 0) {
+            localPreviousImageBase64 = await sceneImagePromises.get(i - 1)
           }
 
           const sceneDir = path.join(scenesDir, scene.id)
@@ -1367,23 +1352,19 @@ export class NanoBananaEngine {
             fs.mkdirSync(sceneDir, { recursive: true })
           }
 
-          // Determine scene-specific reference images
-          // 1. High Priority: Global Style
           const sceneBaseImages: (string | { name: string; data: string })[] = []
           sceneBaseImages.push(...baseImages)
 
-          // 3. Context/Anchor: Location
-          // We add this LAST so it acts as a background context rather than a subject reference.
-          // IMPORTANT: Skip location anchoring during manual REPROMPTS to allow the user to escape a bad style/DNA.
           if (scene.locationId && !isReprompt) {
-            const locationRef = locationImageMap.get(scene.locationId)
+            const locationRef = await locationImagePromises.get(scene.locationId)
             if (locationRef) {
               console.log(`[NanoBanana] ⚓ Anchoring background for ${scene.id} to location: ${scene.locationId}`)
               sceneBaseImages.push({ name: 'LOCATION', data: locationRef })
             }
           }
 
-          // Compose scene
+          let generatedImageB64: string | undefined
+
           try {
             const memory = (script as any).memory || {
               locations: new Map(),
@@ -1391,17 +1372,28 @@ export class NanoBananaEngine {
               weather: ''
             }
 
-            await this.composeScene(scene, sceneBaseImages, sceneDir, lastSceneImageBase64, isReprompt, script, memory)
+            await this.composeScene(
+              scene,
+              sceneBaseImages,
+              sceneDir,
+              localPreviousImageBase64,
+              isReprompt,
+              script,
+              memory
+            )
 
-            // Update Progress inside the task execution
             completedScenesCount++
             const sceneProgress =
               27 + Math.round(((startSceneIndex + completedScenesCount) / script.scenes.length) * 58)
 
             if (onProgress) {
-              await onProgress(sceneProgress, `Generated scene ${i + 1}/${script.scenes.length}...`, {
-                currentSceneIndex: i
-              })
+              await onProgress(
+                sceneProgress,
+                `Génération des scènes (${startSceneIndex + completedScenesCount}/${script.scenes.length})...`,
+                {
+                  currentSceneIndex: i
+                }
+              )
             }
 
             if (onSceneGenerated) {
@@ -1409,26 +1401,21 @@ export class NanoBananaEngine {
               await onSceneGenerated(scene, script, i + 1, sceneProgress)
             }
 
-            // Skip redundant per-scene audio generation as it is now done in the INITIAL phase
-            // However, we ensure the manifest correctly references the already generated audio if needed
-            const sceneAudioPath = path.join(sceneDir, 'narration.mp3')
-            if (fs.existsSync(sceneAudioPath)) {
-              // (scene as any).audioDuration and (scene as any).globalWordTimings are already injected
-            }
-
-            // Update continuity tracking
             const lastImagePath = path.join(sceneDir, 'scene.webp')
             if (fs.existsSync(lastImagePath)) {
-              lastSceneImageBase64 = fs.readFileSync(lastImagePath).toString('base64')
-              // Store this scene as the visual anchor for its locationId
-              if (scene.locationId && !locationImageMap.has(scene.locationId)) {
-                locationImageMap.set(scene.locationId, lastSceneImageBase64)
-              }
+              generatedImageB64 = fs.readFileSync(lastImagePath).toString('base64')
             }
           } catch (sceneError) {
             console.error(`[NanoBanana] Failed to generate scene ${scene.id}:`, sceneError)
           }
+          return generatedImageB64
         })
+
+        sceneImagePromises.set(i, taskPromise)
+
+        if (scene.locationId && !locationImagePromises.has(scene.locationId)) {
+          locationImagePromises.set(scene.locationId, taskPromise)
+        }
       }
     }
 

@@ -617,18 +617,29 @@ export class AssCaptionService {
       .trim()
   }
 
-  // [AMÉLIO] estimateWordWidthPx: emoji code points (single Unicode scalar)
-  // receive a 1.0 width ratio instead of the generic 0.6 fallback, which was
-  // wildly off since emoji are typically square glyphs.
+  // Uses Intl.Segmenter to correctly split grapheme clusters, including
+  // ZWJ sequences (family/couple emojis, skin tone modifiers) that would
+  // otherwise be counted as multiple characters when spread with [...word].
+  private static readonly _segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
   private estimateWordWidthPx(word: string, fontSize: number): number {
     let units = 0
-    // Spread into grapheme clusters so multi-byte emoji count as one glyph
-    for (const ch of [...word]) {
-      if (/\p{Emoji}/u.test(ch) && ch.codePointAt(0)! > 127) {
-        // Emoji: treat as a square glyph ≈ 1.0× fontSize
+    const segments = AssCaptionService._segmenter.segment(word)
+    for (const { segment: ch } of segments) {
+      // Check if this grapheme cluster is an emoji (use first code point)
+      const cp = ch.codePointAt(0)!
+      if (cp > 0x7f && /\p{Emoji}/u.test(ch)) {
+        // Emoji (including ZWJ sequences): treat as square glyph ≈ 1.0× fontSize
         units += 1
+      } else if (ch.length === 1) {
+        // Single ASCII-range character: look it up in the CHAR_ADV table
+        units +=
+          AssCaptionService.CHAR_ADV[ch] ??
+          // Smarter fallback based on character class instead of flat 0.6
+          (/[A-Z]/.test(ch) ? 0.62 : /[a-z]/.test(ch) ? 0.52 : /\d/.test(ch) ? 0.62 : 0.4)
       } else {
-        units += AssCaptionService.CHAR_ADV[ch] ?? 0.6
+        // Multi-char non-emoji cluster (e.g. combining diacritics): treat as single char
+        units += AssCaptionService.CHAR_ADV[ch[0]!] ?? 0.52
       }
     }
     return Math.max(1, Math.round(units * fontSize * this.charWidthRatio))
