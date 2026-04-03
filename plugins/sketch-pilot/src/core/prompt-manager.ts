@@ -1549,14 +1549,18 @@ Any word-count discrepancy between fullNarration and sum(scenes.narration) = AUT
 
        ### Duration & Scene Flexibility (CRITICAL)
        - You are NOT limited to a fixed number of scenes.
-        - Total MUST be ~${totalDuration}s (±10%).${
-          totalDuration >= 180
-            ? `
+       - Total MUST be ~${totalDuration}s (±10%).
+       - ⚠️ NARRATION DRIFT (IRON RULE): Use a baseline of **${wps.toFixed(1)} words per second**. 
+         - A ${totalDuration}s video MUST have ~**${targetWordCountTotal} words**.
+         - If your script is too short, the video will have dead silence. If too long, it will be cut off.
+         - Do NOT guess. Count your words.${
+           totalDuration >= 180
+             ? `
         - ⚠️ GRANULARITY (Mandatory): For this long-form video, you MUST use at least **${range.min} to ${range.max} scenes** (Target: **${range.ideal}**).
         - ⚠️ POINT SPLITTING: If the input topic has only ~10 points but the target is ~${range.ideal} scenes, you MUST split each point into multiple sequential scenes (e.g. "Concept" -> "Sensory Detail" -> "Connection"). 
         - ⚠️ NO COPY-PASTING: Expand each seed sentence from the topic into a full narrative block (~${avgWordsPerScene} words per scene).`
-            : ''
-        }`
+             : ''
+         }`
     )
 
     instructions.push(

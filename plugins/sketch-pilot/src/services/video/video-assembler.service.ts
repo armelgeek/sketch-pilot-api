@@ -1571,22 +1571,58 @@ export class VideoAssembler {
       'revealdown'
     ])
 
+    // Default durations based on transition visual complexity
+    const defaultDurations: Record<string, number> = {
+      // 1. Rich/Complex (Slow & Premium)
+      circleopen: 0.85,
+      circleclose: 0.85,
+      pixelize: 0.8,
+      radial: 0.8,
+      zoomin: 0.75,
+      distance: 0.7,
+      hblur: 0.7,
+      circlecrop: 0.7,
+      dissolve: 0.6,
+      crossfade: 0.6,
+
+      // 2. Standard (Smooth & Balanced)
+      wipeleft: 0.5,
+      wiperight: 0.5,
+      wipeup: 0.5,
+      wipedown: 0.5,
+      slideleft: 0.5,
+      slideright: 0.5,
+      slideup: 0.5,
+      slidedown: 0.5,
+      smoothleft: 0.5,
+      smoothright: 0.5,
+      smoothup: 0.5,
+      smoothdown: 0.5,
+
+      // 3. Simple (Snappy & Fast)
+      fade: 0.4,
+      fadeblack: 0.4,
+      fadewhite: 0.4,
+      cut: 0
+    }
+
     // Alias mapping: LLM-generated names → valid FFmpeg xfade names
+    // Note: We assign explicit durations here for these aliases
     const aliasMap: Record<string, { name: string; duration: number }> = {
-      crossfade: { name: 'dissolve', duration: 0.6 },
-      blur: { name: 'hblur', duration: 0.5 },
-      zoom: { name: 'zoomin', duration: 0.5 },
-      'zoom-in': { name: 'zoomin', duration: 0.5 },
-      wipe: { name: 'wipeleft', duration: 0.5 },
-      slide: { name: 'slideleft', duration: 0.5 },
-      'slide-left': { name: 'slideleft', duration: 0.5 },
-      'slide-right': { name: 'slideright', duration: 0.5 },
-      'slide-up': { name: 'slideup', duration: 0.5 },
-      'slide-down': { name: 'slidedown', duration: 0.5 },
-      pop: { name: 'fadeblack', duration: 0.4 },
-      swish: { name: 'smoothleft', duration: 0.4 },
-      flash: { name: 'fadewhite', duration: 0.4 },
-      circle: { name: 'circleopen', duration: 0.5 }
+      crossfade: { name: 'dissolve', duration: defaultDurations.dissolve },
+      blur: { name: 'hblur', duration: defaultDurations.hblur },
+      zoom: { name: 'zoomin', duration: defaultDurations.zoomin },
+      'zoom-in': { name: 'zoomin', duration: defaultDurations.zoomin },
+      wipe: { name: 'wipeleft', duration: defaultDurations.wipeleft },
+      slide: { name: 'slideleft', duration: defaultDurations.slideleft },
+      'slide-left': { name: 'slideleft', duration: defaultDurations.slideleft },
+      'slide-right': { name: 'slideright', duration: defaultDurations.slideright },
+      'slide-up': { name: 'slideup', duration: defaultDurations.slideup },
+      'slide-down': { name: 'slidedown', duration: defaultDurations.slidedown },
+      pop: { name: 'fadeblack', duration: defaultDurations.fadeblack },
+      swish: { name: 'smoothleft', duration: defaultDurations.smoothleft },
+      flash: { name: 'fadewhite', duration: defaultDurations.fadewhite },
+      circle: { name: 'circleopen', duration: defaultDurations.circleopen }
     }
 
     let result: { name: string; duration: number }
@@ -1594,14 +1630,15 @@ export class VideoAssembler {
     if (aliasMap[type]) {
       result = { ...aliasMap[type] }
     } else if (nativeXfade.has(type)) {
-      result = { name: type, duration: 0.5 }
+      result = { name: type, duration: defaultDurations[type] || 0.5 }
     } else {
       console.warn(`[VideoAssembler] Unknown transition "${type}", defaulting to fade`)
-      result = { name: 'fade', duration: 0.5 }
+      result = { name: 'fade', duration: defaultDurations.fade }
     }
 
     if (maxAllowedDuration !== undefined && result.duration > maxAllowedDuration) {
-      result.duration = maxAllowedDuration
+      // Transition cannot be longer than the clips it connects
+      result.duration = Math.max(0.04, maxAllowedDuration)
     }
 
     return result
