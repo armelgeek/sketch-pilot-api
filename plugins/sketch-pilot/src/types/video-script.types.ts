@@ -318,7 +318,12 @@ export const completeVideoScriptSchema = z.object({
     .optional()
     .describe('Suggested mood/genre for background music'),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('16:9').describe('Aspect ratio of the video'),
-  globalAudio: z.string().optional().describe('Path to the global audio narration file if used')
+  globalAudio: z.string().optional().describe('Path to the global audio narration file if used'),
+  audioHash: z.string().optional().describe('MD5 hash of narration text + voice to detect if audio needs regeneration'),
+  transcriptHash: z
+    .string()
+    .optional()
+    .describe('Hash/Marker to detect if transcription timings are still valid for the current audio')
 })
 
 export type CompleteVideoScript = z.infer<typeof completeVideoScriptSchema>

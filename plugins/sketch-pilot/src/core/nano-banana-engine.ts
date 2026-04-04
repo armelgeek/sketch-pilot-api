@@ -78,6 +78,7 @@ export class NanoBananaEngine {
   private currentKokoroVoicePreset: KokoroVoicePreset | string = KokoroVoicePreset.AF_HEART
 
   private readonly sceneCache: SceneCacheService
+  private readonly imageEncodingCache = new Map<string, { name?: string; data: string }>()
 
   // Store config for service re-initialization
   private readonly apiKey: string
@@ -234,9 +235,19 @@ export class NanoBananaEngine {
         if (typeof img === 'object') {
           // If it's already an object, assume data is base64 or a URL
           if (img.data.startsWith('http')) {
+            // Check cache
+            if (this.imageEncodingCache.has(img.data)) {
+              console.log(`[NanoBanana] Using cached encoding for: ${img.data}`)
+              const cached = this.imageEncodingCache.get(img.data)!
+              encodedImages.push({ name: img.name || cached.name, data: cached.data })
+              continue
+            }
+
             const response = await axios.get(img.data, { responseType: 'arraybuffer' })
             const base64 = Buffer.from(response.data, 'binary').toString('base64')
-            encodedImages.push({ name: img.name, data: base64 })
+            const result = { name: img.name, data: base64 }
+            this.imageEncodingCache.set(img.data, result)
+            encodedImages.push(result)
           } else {
             encodedImages.push(img)
           }
@@ -245,15 +256,32 @@ export class NanoBananaEngine {
 
         const url = img as string
         if (url.startsWith('http')) {
+          // Check cache
+          if (this.imageEncodingCache.has(url)) {
+            console.log(`[NanoBanana] Using cached encoding for: ${url}`)
+            encodedImages.push(this.imageEncodingCache.get(url)!)
+            continue
+          }
+
           console.log(`[NanoBanana] Downloading and encoding reference image: ${url}`)
           const response = await axios.get(url, { responseType: 'arraybuffer' })
           const base64 = Buffer.from(response.data, 'binary').toString('base64')
-          encodedImages.push({ data: base64 })
+          const result = { data: base64 }
+          this.imageEncodingCache.set(url, result)
+          encodedImages.push(result)
         } else if (url.length < 1000 && (url.includes('/') || url.includes('\\'))) {
+          // Check cache for file paths too
+          if (this.imageEncodingCache.has(url)) {
+            encodedImages.push(this.imageEncodingCache.get(url)!)
+            continue
+          }
+
           // Likely a file path if it's short and contains separators
           if (fs.existsSync(url)) {
             const data = fs.readFileSync(url).toString('base64')
-            encodedImages.push({ data })
+            const result = { data }
+            this.imageEncodingCache.set(url, result)
+            encodedImages.push(result)
           } else {
             // If it's not a path and not a URL, it might be raw base64 already
             encodedImages.push({ data: url })
@@ -1009,6 +1037,9 @@ export class NanoBananaEngine {
       if (fs.existsSync(audioHashPath)) {
         const savedHash = fs.readFileSync(audioHashPath, 'utf8')
         if (savedHash === audioCacheKey) scriptMatches = true
+      } else if (script.audioHash === audioCacheKey) {
+        scriptMatches = true
+        console.log(`[NanoBanana] Audio hash matches script object.`)
       }
 
       if (forceRegen || !fs.existsSync(globalAudioPath) || !scriptMatches) {
@@ -1018,6 +1049,7 @@ export class NanoBananaEngine {
           await audioService.generateSpeech(fullScriptText, globalAudioPath)
           if (fs.existsSync(globalAudioPath)) {
             script.globalAudio = 'narration.mp3'
+            script.audioHash = audioCacheKey // Store hash in script for persistence
             fs.writeFileSync(audioHashPath, audioCacheKey)
             console.log(`[NanoBanana] ✓ Narration generated successfully at ${globalAudioPath}`)
           }
@@ -1038,6 +1070,9 @@ export class NanoBananaEngine {
         fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
       ) {
         cachedTranscriptValid = true
+      } else if (script.transcriptHash === audioStatHash && fs.existsSync(globalAudioPath)) {
+        cachedTranscriptValid = true
+        console.log(`[NanoBanana] Transcript hash matches script object.`)
       }
       const hasTimings = script.scenes.some((s: any) => s.globalWordTimings && s.globalWordTimings.length > 0)
 
@@ -1089,6 +1124,7 @@ export class NanoBananaEngine {
               script.totalDuration = mappedTimings.at(-1)!.end
             }
 
+            script.transcriptHash = audioStatHash // Store hash in script for persistence
             fs.writeFileSync(transcriptHashPath, audioStatHash)
             console.log(`[NanoBanana] ✓ Final timings updated from transcription (${script.totalDuration.toFixed(2)}s)`)
 
@@ -1120,6 +1156,12 @@ export class NanoBananaEngine {
     } else if (validOptions.generateOnlyAssembly) {
       console.log(`[NanoBanana] Assembly-only mode: Loading existing global audio and script mappings...`)
 
+      const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+      const audioCacheKey = crypto
+        .createHash('md5')
+        .update(`${fullScriptText}:${this.currentKokoroVoicePreset}`)
+        .digest('hex')
+
       const forceRegen = (options as any).forceRegenerateAudio || (validOptions as any).forceRegenerateAudio
 
       // If voice changed, delete cached narration so it gets re-generated with the new voice
@@ -1143,9 +1185,12 @@ export class NanoBananaEngine {
         try {
           const narrationResponse = await axios.get(script.globalAudio, { responseType: 'arraybuffer' })
           fs.writeFileSync(globalAudioPath, Buffer.from(narrationResponse.data))
-          script.globalAudio = 'narration.mp3'
-          downloaded = true
-          console.log(`[NanoBanana] ✓ Narration downloaded to ${globalAudioPath}`)
+          if (fs.existsSync(globalAudioPath)) {
+            script.globalAudio = 'narration.mp3'
+            script.audioHash = audioCacheKey
+            downloaded = true
+            console.log(`[NanoBanana] ✓ Narration downloaded to ${globalAudioPath}`)
+          }
         } catch (error: any) {
           console.warn(`[NanoBanana] ⚠ Failed to download narration from MinIO: ${error.message}`)
         }
@@ -1159,6 +1204,7 @@ export class NanoBananaEngine {
             await audioService.generateSpeech(fullScriptText, globalAudioPath)
             if (fs.existsSync(globalAudioPath)) {
               script.globalAudio = 'narration.mp3'
+              script.audioHash = audioCacheKey
               console.log(`[NanoBanana] ✓ Narration re-generated from script at ${globalAudioPath}`)
             }
           } catch (error: any) {
@@ -1178,6 +1224,7 @@ export class NanoBananaEngine {
           await audioService.generateSpeech(fullScriptText, globalAudioPath)
           if (fs.existsSync(globalAudioPath)) {
             script.globalAudio = 'narration.mp3'
+            script.audioHash = audioCacheKey
             console.log(`[NanoBanana] ✓ Narration re-generated from script at ${globalAudioPath}`)
           }
         } catch (error: any) {
@@ -1199,6 +1246,9 @@ export class NanoBananaEngine {
         fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
       ) {
         cachedTranscriptValid = true
+      } else if (script.transcriptHash === audioStatHash && fs.existsSync(globalAudioPath)) {
+        cachedTranscriptValid = true
+        console.log(`[NanoBanana] Transcript hash matches script object (assembly-only).`)
       }
       const hasTimings = script.scenes.some((s: any) => s.globalWordTimings && s.globalWordTimings.length > 0)
 
@@ -1246,6 +1296,7 @@ export class NanoBananaEngine {
             script.totalDuration = mappedTimings.at(-1)!.end
           }
 
+          script.transcriptHash = audioStatHash // Store hash in script for persistence
           fs.writeFileSync(transcriptHashPath, audioStatHash)
           console.log(
             `[NanoBanana] ✓ Transcription complete — word timings injected into ${mappedTimings.length} scenes`

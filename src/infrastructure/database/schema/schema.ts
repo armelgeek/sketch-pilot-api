@@ -20,6 +20,8 @@ export const users = pgTable('users', {
   utmCampaign: text('utm_campaign'),
   utmTerm: text('utm_term'),
   utmContent: text('utm_content'),
+  niche: text('niche'),
+  defaultCharacterId: text('default_character_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

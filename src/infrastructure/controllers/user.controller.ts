@@ -1,9 +1,12 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { eq } from 'drizzle-orm'
 import { CreateAdminUserUseCase } from '@/application/use-cases/user/create-admin-user.use-case'
 import { DeleteUserUseCase } from '@/application/use-cases/user/delete-user.use-case'
 import { UpdateUserUseCase } from '@/application/use-cases/user/update-user.use-case'
 import { auth } from '../config/auth.config'
 import { sendEmail } from '../config/mail.config'
+import { db } from '../database/db'
+import * as schema from '../database/schema'
 import { requireAdmin } from '../middlewares/admin.middleware'
 import { UserRepository } from '../repositories/user.repository'
 import type { Routes } from '../../domain/types'
@@ -20,6 +23,48 @@ export class UserController implements Routes {
   public initRoutes() {
     // All /v1/admin/* routes require admin role
     this.controller.use('/v1/admin/*', requireAdmin)
+
+    // PATCH /v1/users/me
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/users/me',
+        tags: ['User'],
+        summary: 'Update current user preferences',
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  defaultCharacterId: z.string().optional(),
+                  niche: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Success',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const { defaultCharacterId, niche } = c.req.valid('json')
+
+        if (defaultCharacterId !== undefined) {
+          await db.update(schema.users).set({ defaultCharacterId }).where(eq(schema.users.id, user.id))
+        }
+        if (niche !== undefined) {
+          await db.update(schema.users).set({ niche }).where(eq(schema.users.id, user.id))
+        }
+
+        return c.json({ success: true })
+      }
+    )
 
     // GET /v1/users/session
     this.controller.openapi(
