@@ -3,8 +3,8 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { v4 as uuidv4 } from 'uuid'
 import type { Routes } from '@/domain/types'
 import { uploadBuffer } from '../config/storage.config'
-import { authMiddleware } from '../middlewares/auth.middleware'
 import { requireAdmin } from '../middlewares/admin.middleware'
+import { authMiddleware } from '../middlewares/auth.middleware'
 import { CharacterModelRepository } from '../repositories/character-model.repository'
 
 const CharacterModelSchema = z.object({
@@ -82,7 +82,11 @@ export class CharacterModelController implements Routes {
                   voiceId: z.string().optional().openapi({ description: 'Default voice preset ID' }),
                   stylePrefix: z.string().optional().openapi({ description: 'Style prefix for image prompts' }),
                   artistPersona: z.string().optional().openapi({ description: 'Artist persona description' }),
-                  isStandard: z.string().optional().default('true').openapi({ description: 'Whether this is a standard base character' }),
+                  isStandard: z
+                    .string()
+                    .optional()
+                    .default('true')
+                    .openapi({ description: 'Whether this is a standard base character' }),
                   image: z.instanceof(File).optional().openapi({ description: 'Reference image for the character' })
                 })
               }
@@ -210,7 +214,16 @@ export class CharacterModelController implements Routes {
           const formData = await c.req.formData()
           const updates: Record<string, any> = {}
 
-          const fields = ['name', 'description', 'gender', 'age', 'voiceId', 'stylePrefix', 'artistPersona', 'isStandard']
+          const fields = [
+            'name',
+            'description',
+            'gender',
+            'age',
+            'voiceId',
+            'stylePrefix',
+            'artistPersona',
+            'isStandard'
+          ]
           for (const field of fields) {
             const val = formData.get(field)
             if (val !== null) updates[field] = val as string
@@ -225,7 +238,10 @@ export class CharacterModelController implements Routes {
             const key = `character-models/${id}.${ext}`
             const thumbnailUrl = await uploadBuffer(key, buffer, mimeType)
             updates.thumbnailUrl = thumbnailUrl
-            updates.images = [thumbnailUrl, ...(existing.images || []).filter((u: string) => u !== existing.thumbnailUrl)]
+            updates.images = [
+              thumbnailUrl,
+              ...(existing.images || []).filter((u: string) => u !== existing.thumbnailUrl)
+            ]
           }
 
           const updated = await this.repository.update(id, updates)

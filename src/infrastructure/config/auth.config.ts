@@ -111,7 +111,10 @@ export const auth = betterAuth({
       utmMedium: { type: 'string' },
       utmCampaign: { type: 'string' },
       utmTerm: { type: 'string' },
-      utmContent: { type: 'string' }
+      utmContent: { type: 'string' },
+      defaultCharacterId: { type: 'string' },
+      defaultPromptId: { type: 'string' },
+      language: { type: 'string' }
     },
     changeEmail: {
       enabled: true,

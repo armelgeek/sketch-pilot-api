@@ -28,6 +28,9 @@ export class UserRepository implements UserRepositoryInterface {
       banReason: user.banReason,
       banExpires: user.banExpires || null,
       stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterId: user.defaultCharacterId || undefined,
+      defaultPromptId: user.defaultPromptId || undefined,
+      language: user.language || 'fr-FR',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -50,6 +53,9 @@ export class UserRepository implements UserRepositoryInterface {
       banReason: user.banReason,
       banExpires: user.banExpires || null,
       stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterId: user.defaultCharacterId || undefined,
+      defaultPromptId: user.defaultPromptId || undefined,
+      language: user.language || 'fr-FR',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }))
@@ -110,6 +116,9 @@ export class UserRepository implements UserRepositoryInterface {
       image: user.image || undefined,
       isAdmin: user.isAdmin,
       stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterId: user.defaultCharacterId || undefined,
+      defaultPromptId: user.defaultPromptId || undefined,
+      language: user.language || 'fr-FR',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt || null,
@@ -145,6 +154,10 @@ export class UserRepository implements UserRepositoryInterface {
       banned: user.banned,
       banReason: user.banReason,
       banExpires: user.banExpires || null,
+      stripeCustomerId: user.stripeCustomerId || undefined,
+      defaultCharacterId: user.defaultCharacterId || undefined,
+      defaultPromptId: user.defaultPromptId || undefined,
+      language: user.language || 'fr-FR',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }
@@ -163,6 +176,9 @@ export class UserRepository implements UserRepositoryInterface {
     if (data.banned !== undefined) updateData.banned = data.banned
     if (data.banReason !== undefined) updateData.banReason = data.banReason
     if (data.banExpires !== undefined) updateData.banExpires = data.banExpires
+    if (data.defaultCharacterId !== undefined) updateData.defaultCharacterId = data.defaultCharacterId
+    if (data.defaultPromptId !== undefined) updateData.defaultPromptId = data.defaultPromptId
+    if (data.language !== undefined) updateData.language = data.language
 
     const [updatedUser] = await db.update(users).set(updateData).where(eq(users.id, id)).returning()
     if (!updatedUser) throw new Error('User not found')
@@ -182,6 +198,9 @@ export class UserRepository implements UserRepositoryInterface {
       banReason: updatedUser.banReason,
       banExpires: updatedUser.banExpires || null,
       stripeCustomerId: updatedUser.stripeCustomerId || undefined,
+      defaultCharacterId: updatedUser.defaultCharacterId || undefined,
+      defaultPromptId: updatedUser.defaultPromptId || undefined,
+      language: updatedUser.language || 'fr-FR',
       createdAt: updatedUser.createdAt,
       updatedAt: updatedUser.updatedAt
     }

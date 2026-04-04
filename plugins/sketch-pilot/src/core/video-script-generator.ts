@@ -5,6 +5,7 @@ import {
   completeVideoScriptSchema,
   computeSceneCountRange,
   MIN_SCENE_DURATION,
+  QualityMode,
   suggestSceneDuration,
   type CompleteVideoScript,
   type EnrichedScene,
@@ -240,7 +241,29 @@ export class VideoScriptGenerator {
     scenes: RawScene[]
     backgroundMusic?: string
   }> {
+    const isHighQuality = options.qualityMode === QualityMode.HIGH_QUALITY
+    const isStandard = options.qualityMode === QualityMode.STANDARD || !options.qualityMode
+    const isLowCost = options.qualityMode === QualityMode.LOW_COST
     const effectiveDuration = this.promptManager.getEffectiveDuration(options)
+
+    // ─── OPTION A: SINGLE-PASS (EXPRESS MODE) ───────────────────────────────
+    // For low-cost or if explicitly requested "very fast"
+    if (isLowCost) {
+      console.log(`[VideoScriptGen] 🚀 EXPRESS MODE: Single-pass script generation...`)
+      if (onProgress) await onProgress(5, 'Studio: Generating script in one-pass...')
+      const prompts = await this.promptManager.buildScriptGenerationPrompts(topic, options)
+      const jsonText = await this.llmService.generateContent(
+        prompts.userPrompt,
+        prompts.systemPrompt,
+        'application/json'
+      )
+      const parsed = this.parseJsonResponse(jsonText)
+
+      // Basic structural assignments
+      parsed.scenes = this.postProcessScenes(parsed.scenes)
+      parsed.scenes = this.assignTimeRanges(parsed.scenes, options)
+      return parsed
+    }
 
     // ─── PASS 1: NARRATION ONLY ─────────────────────────────────────────────
     console.log(`[VideoScriptGen] Pass 1: Generating narration only (Targeting ~${effectiveDuration}s)...`)
@@ -320,7 +343,7 @@ export class VideoScriptGenerator {
 
       const p2 = this.promptManager.buildPass2Prompts(chunkText, topic, options, chunkContext)
 
-      const MAX_P2_RETRIES = 3
+      const MAX_P2_RETRIES = isHighQuality ? 2 : 1
       let chunkResult: any = null
 
       let bestCandidate: ScriptCandidate | null = null
@@ -364,7 +387,7 @@ export class VideoScriptGenerator {
             bestCandidate = candidate
           }
 
-          if (score >= 0.8) {
+          if (score >= 0.7) {
             console.log(`[VideoScriptGen] Pass 2 Evaluation: GOOD (Score ${score.toFixed(2)}). Accepting.`)
             break
           } else {
@@ -389,7 +412,7 @@ export class VideoScriptGenerator {
 
       if (bestCandidate) {
         chunkResult = bestCandidate.parsed
-        if (bestCandidate.score < 0.8) {
+        if (bestCandidate.score < 0.7) {
           console.warn(
             `[VideoScriptGen] Accepting IMPERFECT candidate (Score ${bestCandidate.score.toFixed(2)}). Issues: ${bestCandidate.issues.join(', ')}`
           )
@@ -417,11 +440,17 @@ export class VideoScriptGenerator {
 
     // 2. Scene-level validation & Micro-corrections (Fix v5)
     if (onProgress) await onProgress(70, 'Studio: Running micro-corrections and quality checks...')
-    const refinement = await this.promptManager.validateAndCorrectAllScenes(fixedScript.scenes, {
-      complete: async (prompt: string) => {
-        return await this.llmService.generateContent(prompt, '', 'application/json')
-      }
-    })
+
+    const refinement = await this.promptManager.validateAndCorrectAllScenes(
+      fixedScript.scenes,
+      isHighQuality
+        ? {
+            complete: async (prompt: string) => {
+              return await this.llmService.generateContent(prompt, '', 'application/json')
+            }
+          }
+        : undefined
+    )
     fixedScript.scenes = refinement.correctedScenes
 
     // 3. Final structural assignments
@@ -778,37 +807,37 @@ export class VideoScriptGenerator {
       weather: ''
     }
 
-    // Generate image/animation prompts with progressive memory context
-    const enriched: EnrichedScene[] = []
-    for (let i = 0; i < baseScenes.length; i++) {
-      const resolvedScene = baseScenes[i]
-      if (onProgress) {
-        // Map 10-100% of enrichment phase to the progress range
-        const progressVal = 10 + Math.round((i / baseScenes.length) * 90)
-        await onProgress(progressVal, `Studio: Refining visuals for scene ${i + 1}/${baseScenes.length}...`)
-      }
-      // 1. Process this scene into memory FIRST
-      memoryBuilder.processScene(resolvedScene as any, sceneMemory)
+    // 1. Process ALL scenes into memory FIRST (synchronous and fast)
+    baseScenes.forEach((s) => memoryBuilder.processScene(s as any, sceneMemory))
 
-      const imagePrompt = await this.promptGenerator.generateImagePrompt(
-        resolvedScene as EnrichedScene,
-        false,
-        aspectRatio,
-        imageStyle,
-        sceneMemory
-      )
+    // 2. Generate prompts in PARALLEL
+    const enriched = await Promise.all(
+      baseScenes.map(async (resolvedScene, i) => {
+        if (onProgress) {
+          const progressVal = 10 + Math.round((i / baseScenes.length) * 90)
+          await onProgress(progressVal, `Studio: Refining visuals for scene ${i + 1}/${baseScenes.length}...`)
+        }
 
-      const animationPromptText =
-        resolvedScene.animationPrompt != null
-          ? resolvedScene.animationPrompt
-          : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
+        const imagePrompt = await this.promptGenerator.generateImagePrompt(
+          resolvedScene as EnrichedScene,
+          false,
+          aspectRatio,
+          imageStyle,
+          sceneMemory
+        )
 
-      enriched.push({
-        ...resolvedScene,
-        imagePrompt: imagePrompt.prompt,
-        animationPrompt: animationPromptText
-      } as EnrichedScene)
-    }
+        const animationPromptText =
+          resolvedScene.animationPrompt != null
+            ? resolvedScene.animationPrompt
+            : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
+
+        return {
+          ...resolvedScene,
+          imagePrompt: imagePrompt.prompt,
+          animationPrompt: animationPromptText
+        } as EnrichedScene
+      })
+    )
 
     return enriched
   }
