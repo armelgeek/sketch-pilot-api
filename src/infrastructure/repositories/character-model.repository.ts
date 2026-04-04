@@ -3,6 +3,19 @@ import { db } from '../database/db'
 import { characterModels, type CharacterModel, type NewCharacterModel } from '../database/schema/character-model.schema'
 
 export class CharacterModelRepository {
+  async findAll(): Promise<CharacterModel[]> {
+    return await db.select().from(characterModels).orderBy(characterModels.createdAt)
+  }
+
+  async findAllStandard(): Promise<CharacterModel[]> {
+    // isStandard is stored as text 'true'/'false' (see character-model.schema.ts)
+    return await db
+      .select()
+      .from(characterModels)
+      .where(eq(characterModels.isStandard, 'true'))
+      .orderBy(characterModels.createdAt)
+  }
+
   async findAllByUserId(userId: string): Promise<CharacterModel[]> {
     return await db.select().from(characterModels).where(eq(characterModels.userId, userId))
   }

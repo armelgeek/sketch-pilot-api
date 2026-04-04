@@ -12,6 +12,7 @@ export const characterModels = pgTable('character_models', {
   stylePrefix: text('style_prefix'),
   artistPersona: text('artist_persona'),
   images: jsonb('images').$type<string[]>().default([]),
+  thumbnailUrl: text('thumbnail_url'),
   userId: varchar('user_id', { length: 255 }).references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()

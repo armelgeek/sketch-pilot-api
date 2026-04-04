@@ -17,11 +17,15 @@ Ce document répertorie les points de terminaison de l'API destinés à la gesti
 
 | Méthode | Chemin | Description | Accès |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/v1/admin/character-models` | Télécharger et enregistrer un nouveau modèle (image de référence) | **Admin** |
-| `PATCH` | `/v1/admin/character-models/{id}` | Modifier les métadonnées d'un modèle (nom, standard) | **Admin** |
-| `DELETE` | `/v1/admin/character-models/{id}` | Supprimer un modèle de personnage | **Admin** |
-| `GET` | `/v1/character-models` | Lister tous les modèles disponibles pour les utilisateurs | Public |
-| `PATCH` | `/v1/users/me/character-model` | Définir le modèle par défaut pour l'utilisateur connecté | Utilisateur |
+| `GET` | `/v1/admin/character-models` | Lister tous les modèles (vue admin complète) | **Admin** |
+| `POST` | `/v1/admin/character-models` | Télécharger et enregistrer un nouveau modèle de base (image de référence) | **Admin** |
+| `PATCH` | `/v1/admin/character-models/{id}` | Modifier les métadonnées ou l'image d'un modèle de base | **Admin** |
+| `DELETE` | `/v1/admin/character-models/{id}` | Supprimer un modèle de personnage de base | **Admin** |
+| `GET` | `/v1/character-models` | Lister tous les modèles de base disponibles pour la sélection | Public |
+| `GET` | `/v1/characters` | Lister les personnages personnels de l'utilisateur connecté | Utilisateur |
+| `POST` | `/v1/characters` | Créer un personnage personnel | Utilisateur |
+| `PATCH` | `/v1/characters/{id}` | Mettre à jour un personnage personnel | Utilisateur |
+| `DELETE` | `/v1/characters/{id}` | Supprimer un personnage personnel | Utilisateur |
 
 ## 📝 Gestion des Prompts Dynamiques
 
