@@ -7,7 +7,7 @@ import type { ImageService, ImageServiceConfig } from './index'
  */
 export class GeminiImageService implements ImageService {
   private client: GoogleGenAI
-  private modelId: string = 'imagen-3.0-generate-001'
+  private modelId: string = 'gemini-2.5-flash-image'
   private styleSuffix: string
   private systemPrompt: string
   private defaultQuality: 'ultra-low' | 'low' | 'medium' | 'high'
