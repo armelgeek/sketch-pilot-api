@@ -267,14 +267,23 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
             const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
             await uploadSceneImages(videoId, [scene], absoluteOutputPath)
+
+            const updatePayload: any = {
+              script: script as any,
+              scenes: script.scenes as any
+            }
+
+            // If it's the first scene, set it as the video-level thumbnailUrl
+            if (index === 1 && scene.thumbnailUrl) {
+              updatePayload.thumbnailUrl = scene.thumbnailUrl
+              console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
+            }
+
             await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
               currentSceneIndex: index - 1, // Store 0-based index for frontend
               scene
             })
-            await videoRepository.updateStatus(videoId, {
-              script: script as any,
-              scenes: script.scenes as any
-            })
+            await videoRepository.updateStatus(videoId, updatePayload)
           }
         })
         if (pkg.script && options.repromptSceneIndex === undefined) {
@@ -312,14 +321,23 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
             const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
             await uploadSceneImages(videoId, [scene], absoluteOutputPath)
+
+            const updatePayload: any = {
+              script: script as any,
+              scenes: script.scenes as any
+            }
+
+            // If it's the first scene, set it as the video-level thumbnailUrl
+            if (index === 1 && scene.thumbnailUrl) {
+              updatePayload.thumbnailUrl = scene.thumbnailUrl
+              console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
+            }
+
             await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
               currentSceneIndex: index - 1, // Store 0-based index for frontend
               scene
             })
-            await videoRepository.updateStatus(videoId, {
-              script: script as any,
-              scenes: script.scenes as any
-            })
+            await videoRepository.updateStatus(videoId, updatePayload)
           }
         })
       }
@@ -349,14 +367,23 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
           const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
           await uploadSceneImages(videoId, [scene], absoluteOutputPath)
+
+          const updatePayload: any = {
+            script: script as any,
+            scenes: script.scenes as any
+          }
+
+          // If it's the first scene, set it as the video-level thumbnailUrl
+          if (index === 1 && scene.thumbnailUrl) {
+            updatePayload.thumbnailUrl = scene.thumbnailUrl
+            console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
+          }
+
           await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
             currentSceneIndex: index - 1, // Store 0-based index for frontend
             scene
           })
-          await videoRepository.updateStatus(videoId, {
-            script: script as any,
-            scenes: script.scenes as any
-          })
+          await videoRepository.updateStatus(videoId, updatePayload)
         }
       })
       if (pkg.script) {
@@ -510,10 +537,20 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
 
       const videoUrl = videoFilePath ? await uploadVideoToMinio(videoId, videoFilePath) : undefined
-      const thumbnailJpg = path.join(pkg.outputPath, 'thumbnail.jpg')
-      const thumbnailUrl = fs.existsSync(thumbnailJpg)
-        ? await uploadBuffer(`videos/${videoId}/thumbnail.jpg`, fs.readFileSync(thumbnailJpg), 'image/jpeg')
+      const thumbnailJpgRoot = path.join(pkg.outputPath, 'thumbnail.jpg')
+      let thumbnailUrl = fs.existsSync(thumbnailJpgRoot)
+        ? await uploadBuffer(`videos/${videoId}/thumbnail.jpg`, fs.readFileSync(thumbnailJpgRoot), 'image/jpeg')
         : undefined
+
+      // Fallback: If no global thumbnail, pick the first scene's thumbnail
+      if (!thumbnailUrl && pkg.script?.scenes?.length > 0) {
+        const firstScene = pkg.script.scenes[0]
+        if (firstScene.thumbnailUrl) {
+          // Use existing scene thumbnail URL with cache buster
+          thumbnailUrl = `${firstScene.thumbnailUrl.split('?')[0]}?v=${Date.now()}`
+          console.info(`[VideoWorker] Fallback video thumbnail used from Scene 0 for ${videoId}`)
+        }
+      }
 
       const duration = Math.round(pkg.script?.totalDuration ?? DEFAULT_VIDEO_DURATION)
       await videoRepository.updateStatus(videoId, {
