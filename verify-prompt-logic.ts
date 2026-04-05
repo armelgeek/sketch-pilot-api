@@ -9,7 +9,7 @@ async function verify() {
       audienceDefault: 'Test Audience',
       task: 'Test Task',
       goals: [],
-      structure: '',
+      structure: [],
       rules: [],
       formatting: '',
       outputFormat: '',
@@ -22,11 +22,11 @@ async function verify() {
   const wps = pm.getWordsPerSecond(options)
   const safety = pm.getPublicSafetyFactor(options)
 
-  console.info(`Kokoro WPS: ${wps} (Expected: 2.2)`)
-  console.info(`Kokoro Safety Factor: ${safety} (Expected: 1.0)`)
+  console.info(`Kokoro WPS: ${wps} (Expected: 2.45)`)
+  console.info(`Kokoro Safety Factor: ${safety} (Expected: 1.05)`)
 
-  if (wps !== 2.2) console.error('FAIL: WPS should be 2.2')
-  if (safety !== 1) console.error('FAIL: Safety Factor should be 1.0')
+  if (wps !== 2.45) console.error('FAIL: WPS should be 2.45')
+  if (safety !== 1.05) console.error('FAIL: Safety Factor should be 1.05')
 
   const sceneWithChars: any = {
     id: 'scene-1',
@@ -50,7 +50,7 @@ async function verify() {
 
   console.info('\n--- System Prompt Narration Instructions ---')
   const systemPrompt = await pm.buildScriptSystemPrompt(options)
-  if (systemPrompt.includes('2.20 words/second')) {
+  if (systemPrompt.includes('2.45 words/second')) {
     console.info('PASS: System prompt contains correct WPS')
   } else {
     console.error('FAIL: System prompt does not contain correct WPS')

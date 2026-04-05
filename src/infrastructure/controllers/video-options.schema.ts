@@ -57,6 +57,10 @@ export const VideoOptionsSchema = z
     characterModelId: z
       .string()
       .optional()
-      .openapi({ example: 'uuid', description: 'ID of the character model to use' })
+      .openapi({ example: 'uuid', description: 'ID of the character model to use' }),
+    thumbnailVariations: z
+      .array(z.string())
+      .optional()
+      .openapi({ description: 'Persisted thumbnail variations generated for this video' })
   })
   .openapi('VideoOptions')

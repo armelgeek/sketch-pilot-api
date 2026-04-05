@@ -18,14 +18,14 @@ export interface VideoTypeSpecification {
   audienceDefault: string
   task: string
   goals: string[]
-  structure: string
+  structure: string[]
   rules: string[]
   formatting: string
   outputFormat: string
   instructions: string[]
 
   // --- Support for advanced storytelling attributes ---
-  scenePresets?: Record<string, any>
+  scenePresets?: Record<string, { minWords: number; minSentences: number; description?: string; rules?: string[] }>
   visualRules?: string[]
   orchestration?: string[]
   /** Global description of the main character to maintain consistency */
@@ -42,6 +42,7 @@ export interface VideoTypeSpecification {
   internalCheck?: string[]
   identityTriggers?: string[]
   curiosityRules?: string[]
+  expansionRules?: string[]
   escalationRules?: string[]
   patternInterrupts?: string[]
   antiBoringRules?: string[]

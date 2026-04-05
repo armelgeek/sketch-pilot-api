@@ -113,14 +113,20 @@ export class VideoAssembler {
   // ─────────────────────────────────────────────────────────────────────────
 
   async assembleVideo(
-    script: CompleteVideoScript,
-    scenesDir: string,
-    projectDir: string,
-    animationMode: 'panning' | 'ai' | 'composition' | 'static' | 'none',
-    globalOptions: VideoGenerationOptions,
+    args: {
+      projectId: string
+      script: CompleteVideoScript
+      outputPath: string
+      options: VideoGenerationOptions
+      globalAudioPath?: string
+    },
     onProgress?: (progress: number, message: string) => Promise<void>
   ): Promise<string> {
-    const hasGlobalAudio = !!globalOptions.globalAudioPath
+    const { script, outputPath: projectDir, options: globalOptions } = args
+    const animationMode = globalOptions.animationMode || 'panning'
+    const scenesDir = path.join(projectDir, 'scenes')
+    const hasGlobalAudio = !!args.globalAudioPath || !!globalOptions.globalAudioPath
+    const globalAudioPath = args.globalAudioPath || globalOptions.globalAudioPath
     console.log(`[VideoAssembler] Assembling video in ${animationMode} mode...`)
 
     const sceneTasks = script.scenes.map((_, i) => i)
@@ -156,19 +162,19 @@ export class VideoAssembler {
     const finalTransitions = processedTransitions
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
-    const audioOverlap = hasGlobalAudio ? 0 : (globalOptions.audioOverlap ?? 0.3)
+    const audioOverlap = hasGlobalAudio ? 0.05 : (globalOptions.audioOverlap ?? 0.3)
     await this.stitchClips(finalClips, finalVideoNoMusic, finalTransitions, audioOverlap)
 
     // --- GLOBAL AUDIO OVERLAY ---
     let finalVisualPath = finalVideoNoMusic
-    if (hasGlobalAudio && fs.existsSync(globalOptions.globalAudioPath!)) {
+    if (hasGlobalAudio && globalAudioPath && fs.existsSync(globalAudioPath)) {
       if (onProgress) await onProgress(55, 'Syncing global narration...')
-      console.log(`[VideoAssembler] Overlaying global audio: ${globalOptions.globalAudioPath}`)
+      console.log(`[VideoAssembler] Overlaying global audio: ${globalAudioPath}`)
       const videoWithGlobalAudio = path.join(projectDir, 'final_video_with_global_audio.mp4')
       const narrationVol = globalOptions.narrationVolume ?? 1
       await new Promise<void>((resolve, reject) => {
         ffmpeg(finalVideoNoMusic)
-          .input(globalOptions.globalAudioPath!)
+          .input(globalAudioPath!)
           .complexFilter([`[1:a]volume=${narrationVol.toFixed(2)}[a_weighted]`])
           .outputOptions(['-c:v copy', '-map 0:v:0', '-map [a_weighted]', '-shortest'])
           .save(videoWithGlobalAudio)
@@ -779,6 +785,12 @@ export class VideoAssembler {
         case 'pan-left':
           // Start at center, glide left
           zBaseExpr = panZoomScale.toFixed(4)
+          xRaw = `${CX}-${PAN_X_HALF}*(${SS})${osc('x')}`
+          yRaw = `${CY}${osc('y')}`
+          break
+
+        case 'zoom-out-pan-left':
+          zBaseExpr = `${ZS}-(${DZ}*${SS})`
           xRaw = `${CX}-${PAN_X_HALF}*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
@@ -1532,7 +1544,8 @@ export class VideoAssembler {
       'revealleft',
       'revealright',
       'revealup',
-      'revealdown'
+      'revealdown',
+      'radial'
     ])
 
     // Default durations based on transition visual complexity
@@ -1675,16 +1688,18 @@ export class VideoAssembler {
     const clipLabels: string[] = []
     const audioLabels: string[] = []
 
+    const normalizationFilter = 'compand=0.3,0.3:1,1:-90/-60,-60/-40,-40/-15,-20/-10,0/-7:1:0:-30:1'
+
     for (let i = 0; i < n; i++) {
       const vLabel = `[v_in_${i}]`
       const aLabel = `[a_in_${i}]`
       if (hasAudio[i]) {
         filterComplex += `[${inputCounter}:v]null${vLabel};`
-        filterComplex += `[${inputCounter}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100${aLabel};`
+        filterComplex += `[${inputCounter}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100,${normalizationFilter}${aLabel};`
         inputCounter++
       } else {
         filterComplex += `[${inputCounter}:v]null${vLabel};`
-        filterComplex += `[${inputCounter + 1}:a]atrim=duration=${durations[i]},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100${aLabel};`
+        filterComplex += `[${inputCounter + 1}:a]atrim=duration=${durations[i]},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100,${normalizationFilter}${aLabel};`
         inputCounter += 2
       }
       clipLabels.push(vLabel)

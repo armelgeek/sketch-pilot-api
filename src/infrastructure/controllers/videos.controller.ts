@@ -9,6 +9,7 @@ import { GenerateFinalVideoUseCase } from '@/application/use-cases/video/generat
 import { GenerateNarrationUseCase } from '@/application/use-cases/video/generate-narration.use-case'
 import { GenerateScenesUseCase } from '@/application/use-cases/video/generate-scenes.use-case'
 import { GenerateScriptFromTitleUseCase } from '@/application/use-cases/video/generate-script-from-title.use-case'
+import { GenerateThumbnailUseCase } from '@/application/use-cases/video/generate-thumbnail.use-case'
 import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-video.use-case'
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
@@ -36,6 +37,7 @@ const configureBrandingUseCase = new ConfigureBrandingUseCase()
 const suggestTopicsUseCase = new SuggestTopicsUseCase()
 const generateScriptFromTitleUseCase = new GenerateScriptFromTitleUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
+const generateThumbnailUseCase = new GenerateThumbnailUseCase()
 const videoGenerationService = new VideoGenerationService()
 
 export class VideosController implements Routes {
@@ -997,6 +999,7 @@ export class VideosController implements Routes {
                       duration: z.number().nullable().optional(),
                       genre: z.string().nullable().optional(),
                       type: z.string().nullable().optional(),
+                      characterModelId: z.string().nullable().optional(),
                       createdAt: z.string(),
                       creditsUsed: z.number()
                     })
@@ -1039,6 +1042,7 @@ export class VideosController implements Routes {
             thumbnailUrl: v.thumbnailUrl,
             videoUrl: v.videoUrl,
             duration: v.duration,
+            characterModelId: (v as any).characterModelId,
             createdAt: v.createdAt.toISOString(),
             creditsUsed: v.creditsUsed
           })),
@@ -1083,6 +1087,7 @@ export class VideosController implements Routes {
                   type: z.string().nullable().optional(),
                   language: z.string().nullable().optional(),
                   options: VideoOptionsSchema.optional(),
+                  characterModelId: z.string().nullable().optional(),
                   script: z.any().optional(),
                   scenes: z.any().optional(),
                   creditsUsed: z.number(),
@@ -1126,6 +1131,7 @@ export class VideosController implements Routes {
           duration: video.duration,
           language: video.language,
           options: video.options,
+          characterModelId: (video as any).characterModelId,
           script: video.script,
           scenes: video.scenes,
           creditsUsed: video.creditsUsed,
@@ -2199,6 +2205,7 @@ export class VideosController implements Routes {
                   topic: z.string().optional(),
                   status: z.string().optional(),
                   script: z.any().optional(),
+                  thumbnailUrl: z.string().optional(),
                   options: VideoOptionsSchema.partial().optional()
                 })
               }
@@ -2239,6 +2246,78 @@ export class VideosController implements Routes {
         }
 
         return c.json({ success: true, video: result.video })
+      }
+    )
+
+    // POST /v1/videos/:id/generate-thumbnail
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/generate-thumbnail',
+        tags: ['Videos'],
+        summary: 'Generate AI thumbnails for a video',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  title: z.string().min(1),
+                  inspirationUrl: z.string().optional(),
+                  characterId: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Thumbnails generated',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  variations: z.array(z.string()),
+                  creditsRequired: z.number()
+                })
+              }
+            }
+          },
+          402: {
+            description: 'Insufficient credits',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const { title, inspirationUrl, characterId } = c.req.valid('json')
+
+        const response = await generateThumbnailUseCase.run({
+          userId: user.id,
+          videoId: id,
+          title,
+          inspirationUrl,
+          characterId
+        })
+
+        const result = response.result
+        if (!result.success) {
+          if (result.insufficientCredits) {
+            return c.json({ error: result.error }, 402)
+          }
+          return c.json({ error: result.error || 'Failed to generate thumbnails' }, 500)
+        }
+
+        return c.json({
+          success: true,
+          variations: result.variations,
+          creditsRequired: result.creditsRequired
+        })
       }
     )
   }

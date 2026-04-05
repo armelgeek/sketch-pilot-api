@@ -9,7 +9,7 @@ export const VideoTypeSpecificationSchema = z.object({
   audienceDefault: z.string(),
   task: z.string(),
   goals: z.array(z.string()),
-  structure: z.string(),
+  structure: z.array(z.string()),
   rules: z.array(z.string()),
   formatting: z.string(),
   instructions: z.array(z.string()),

@@ -225,10 +225,7 @@ export const enrichedSceneSchema = z.object({
     .default(false)
     .describe('If true, this scene reuses the visual background of the previous scene for perfect continuity'),
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
-  preset: z
-    .enum(['hook', 'reveal', 'mirror', 'bridge', 'conclusion'])
-    .optional()
-    .describe('Strategic role of the scene'),
+  preset: z.string().optional().describe('Strategic role of the scene (e.g. hook, reveal, etc.)'),
   pacing: z
     .enum(['fast', 'medium', 'slow'])
     .default('medium')
@@ -299,6 +296,7 @@ export function computeAudioCoverage(videoDuration: number, audioDuration: numbe
  * Complete video script with all scenes
  */
 export const completeVideoScriptSchema = z.object({
+  id: z.string().optional(),
   titles: z.array(z.string()).describe('A list of proposed titles for the video (propose at least 3)'),
   theme: z.string().optional(),
   topic: z.string().optional().describe('The primary topic or subject of the video'),

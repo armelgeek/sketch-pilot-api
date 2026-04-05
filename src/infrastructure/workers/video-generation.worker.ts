@@ -340,6 +340,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             await videoRepository.updateStatus(videoId, updatePayload)
           }
         })
+        checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)
+        const serialized = checkpointStorage.save(checkpoint)
+        await videoRepository.updateStatus(videoId, {
+          options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
+        })
       }
     } else if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
       await reportProgress(job, videoId, 'script_generation', 5, 'Studio: Initializing pipeline...')

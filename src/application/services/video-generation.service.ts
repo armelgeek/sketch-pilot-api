@@ -176,6 +176,20 @@ export class VideoGenerationService {
   }
 
   /**
+   * Generate AI thumbnails.
+   */
+  async generateThumbnails(input: {
+    title: string
+    inspirationUrl?: string
+    options?: Partial<VideoGenerationOptions>
+    outputDir?: string
+  }): Promise<string[]> {
+    const { title, inspirationUrl, options = {}, outputDir } = input
+    const engine = await this.buildEngine(options)
+    return await engine.generateAIThumbnail(title, inspirationUrl, outputDir)
+  }
+
+  /**
    * Robustly fetch an image as a Buffer.
    */
   private async fetchImageBuffer(urlOrPath: string): Promise<Buffer> {

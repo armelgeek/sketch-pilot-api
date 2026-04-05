@@ -44,7 +44,8 @@ export const CREDIT_COSTS = {
   SUGGEST_TOPIC: 5,
   EXPORT_720P: 5,
   EXPORT_1080P: 10,
-  STUDIO_PASS_SURCHARGE: 5 // Fee for ScriptDoctor + ArtDirector + Director passes
+  STUDIO_PASS_SURCHARGE: 5, // Fee for ScriptDoctor + ArtDirector + Director passes
+  THUMBNAIL_GENERATION: 5
 }
 
 export const PLAN_MONTHLY_LIMITS: Record<string, number> = {

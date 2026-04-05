@@ -1,0 +1,13 @@
+
+> sketch-pilot-backend@0.1.2 lint
+> eslint .
+
+
+/home/armel/dev/griboo/sketch-pilot-api/plugins/sketch-pilot/src/core/nano-banana-engine.ts
+  313:18  warning  Delete `·`               prettier/prettier
+  501:17  warning  Replace `··;·` with `;`  prettier/prettier
+  502:24  warning  Delete `·`               prettier/prettier
+
+✖ 3 problems (0 errors, 3 warnings)
+  0 errors and 3 warnings potentially fixable with the `--fix` option.
+

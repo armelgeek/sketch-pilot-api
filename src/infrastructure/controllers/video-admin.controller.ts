@@ -108,6 +108,7 @@ export class VideoAdminController implements Routes {
                       status: z.string(),
                       progress: z.number(),
                       currentStep: z.string().nullable().optional(),
+                      characterModelId: z.string().nullable().optional(),
                       errorMessage: z.string().nullable().optional(),
                       createdAt: z.string()
                     })
@@ -145,6 +146,7 @@ export class VideoAdminController implements Routes {
             status: v.status,
             progress: v.progress,
             currentStep: v.currentStep,
+            characterModelId: (v as any).characterModelId,
             errorMessage: v.errorMessage,
             createdAt: v.createdAt.toISOString()
           })),

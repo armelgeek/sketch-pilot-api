@@ -18,6 +18,7 @@ const CharacterModelSchema = z.object({
   stylePrefix: z.string().nullable(),
   artistPersona: z.string().nullable(),
   images: z.array(z.string()).default([]),
+  thumbnailInspirations: z.array(z.string()).nullable().default([]),
   thumbnailUrl: z.string().nullable(),
   userId: z.string().nullable(),
   createdAt: z.string(),
@@ -359,14 +360,15 @@ export class CharacterModelController implements Routes {
               'application/json': {
                 schema: z.object({
                   name: z.string(),
-                  description: z.string().optional(),
-                  gender: z.string().optional(),
-                  age: z.string().optional(),
-                  voiceId: z.string().optional(),
-                  stylePrefix: z.string().optional(),
-                  artistPersona: z.string().optional(),
-                  images: z.array(z.string()).optional(),
-                  thumbnailUrl: z.string().optional()
+                  description: z.string().nullable().optional(),
+                  gender: z.string().nullable().optional(),
+                  age: z.string().nullable().optional(),
+                  voiceId: z.string().nullable().optional(),
+                  stylePrefix: z.string().nullable().optional(),
+                  artistPersona: z.string().nullable().optional(),
+                  images: z.array(z.string()).nullable().optional(),
+                  thumbnailInspirations: z.array(z.string()).nullable().optional(),
+                  thumbnailUrl: z.string().nullable().optional()
                 })
               }
             }
@@ -400,6 +402,7 @@ export class CharacterModelController implements Routes {
           artistPersona: body.artistPersona || null,
           thumbnailUrl: body.thumbnailUrl || null,
           images: body.images || [],
+          thumbnailInspirations: body.thumbnailInspirations || [],
           createdAt: new Date(),
           updatedAt: new Date()
         })
@@ -422,14 +425,15 @@ export class CharacterModelController implements Routes {
               'application/json': {
                 schema: z.object({
                   name: z.string().optional(),
-                  description: z.string().optional(),
-                  gender: z.string().optional(),
-                  age: z.string().optional(),
-                  voiceId: z.string().optional(),
-                  stylePrefix: z.string().optional(),
-                  artistPersona: z.string().optional(),
-                  images: z.array(z.string()).optional(),
-                  thumbnailUrl: z.string().optional()
+                  description: z.string().nullable().optional(),
+                  gender: z.string().nullable().optional(),
+                  age: z.string().nullable().optional(),
+                  voiceId: z.string().nullable().optional(),
+                  stylePrefix: z.string().nullable().optional(),
+                  artistPersona: z.string().nullable().optional(),
+                  images: z.array(z.string()).nullable().optional(),
+                  thumbnailInspirations: z.array(z.string()).nullable().optional(),
+                  thumbnailUrl: z.string().nullable().optional()
                 })
               }
             }

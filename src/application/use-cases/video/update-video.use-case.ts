@@ -9,6 +9,7 @@ type UpdateVideoParams = {
     options?: any
     topic?: string
     status?: string
+    thumbnailUrl?: string
   }
 }
 

@@ -19,8 +19,7 @@ import { SceneMemoryBuilder } from './scene-memory'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type RawScene = Omit<EnrichedScene, 'imagePrompt' | 'animationPrompt'> & {
-  animationPrompt?: string
+type RawScene = EnrichedScene & {
   props?: string[]
   narration?: string
   contextType?: string
@@ -246,11 +245,15 @@ export class VideoScriptGenerator {
     const isLowCost = options.qualityMode === QualityMode.LOW_COST
     const effectiveDuration = this.promptManager.getEffectiveDuration(options)
 
-    // ─── OPTION A: SINGLE-PASS (EXPRESS MODE) ───────────────────────────────
-    // For low-cost or if explicitly requested "very fast"
-    if (isLowCost) {
-      console.log(`[VideoScriptGen] 🚀 EXPRESS MODE: Single-pass script generation...`)
-      if (onProgress) await onProgress(5, 'Studio: Generating script in one-pass...')
+    // ─── OPTION A: UNIFIED SINGLE-PASS (EXPRESS/STANDARD) ─────────────────────
+    // For standard or low-cost, we now use a single pass to generate both
+    // script structure and visual prompts (image/animation) at once.
+    if (isLowCost || isStandard) {
+      const modeName = isLowCost ? 'EXPRESS (Low-Cost)' : 'UNIFIED (Standard)'
+      console.log(`[VideoScriptGen] 🚀 ${modeName} MODE: Single-pass script generation...`)
+      if (onProgress)
+        await onProgress(5, `Studio: Generating ${isStandard ? 'standard' : 'express'} script & visuals...`)
+
       const prompts = await this.promptManager.buildScriptGenerationPrompts(topic, options)
       const jsonText = await this.llmService.generateContent(
         prompts.userPrompt,
@@ -443,6 +446,7 @@ export class VideoScriptGenerator {
 
     const refinement = await this.promptManager.validateAndCorrectAllScenes(
       fixedScript.scenes,
+      options,
       isHighQuality
         ? {
             complete: async (prompt: string) => {
@@ -810,21 +814,29 @@ export class VideoScriptGenerator {
     // 1. Process ALL scenes into memory FIRST (synchronous and fast)
     baseScenes.forEach((s) => memoryBuilder.processScene(s as any, sceneMemory))
 
-    // 2. Generate prompts in PARALLEL
+    // 2. Generate prompts in PARALLEL (only for scenes lacking them)
     const enriched = await Promise.all(
       baseScenes.map(async (resolvedScene, i) => {
+        // If the scene already has prompts (Unified Pass), skip LLM/Template generation
+        if (resolvedScene.imagePrompt && resolvedScene.animationPrompt) {
+          return resolvedScene as EnrichedScene
+        }
+
         if (onProgress) {
           const progressVal = 10 + Math.round((i / baseScenes.length) * 90)
           await onProgress(progressVal, `Studio: Refining visuals for scene ${i + 1}/${baseScenes.length}...`)
         }
 
-        const imagePrompt = await this.promptGenerator.generateImagePrompt(
-          resolvedScene as EnrichedScene,
-          false,
-          aspectRatio,
-          imageStyle,
-          sceneMemory
-        )
+        // Fallback to template/prompt generator if missing
+        const imagePrompt = resolvedScene.imagePrompt
+          ? { prompt: resolvedScene.imagePrompt }
+          : await this.promptGenerator.generateImagePrompt(
+              resolvedScene as EnrichedScene,
+              false,
+              aspectRatio,
+              imageStyle,
+              sceneMemory
+            )
 
         const animationPromptText =
           resolvedScene.animationPrompt != null
