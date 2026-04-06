@@ -112,6 +112,7 @@ export class NanoBananaEngine {
     }
     return this._audioService
   }
+
   async getAnimationService(): Promise<AnimationService> {
     if (!this._animationService)
       this._animationService = await AnimationServiceFactory.create(
@@ -119,6 +120,7 @@ export class NanoBananaEngine {
       )
     return this._animationService
   }
+
   async getImageService(): Promise<ImageService> {
     if (!this._imageService) {
       this._imageService = await ImageServiceFactory.create(
@@ -131,6 +133,7 @@ export class NanoBananaEngine {
     }
     return this._imageService
   }
+
   async getLlmService(): Promise<LLMService> {
     if (!this._llmService) {
       this._llmService = await LLMServiceFactory.create(
@@ -235,18 +238,13 @@ export class NanoBananaEngine {
 
   async generateAIThumbnail(title: string, inspirationUrl?: string, outputDir?: string): Promise<string[]> {
     const prompt = await this.promptManager.buildThumbnailPrompt(title, inspirationUrl)
-
     const results: string[] = []
     const baseDir = outputDir || path.join(this.outputDir, `thumb-${Date.now()}`)
     if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true })
-
     const referenceImages = inspirationUrl ? [{ data: inspirationUrl }] : []
     const characterImages = await this.promptManager.resolveCharacterImages()
     const encodedRefs = await this.downloadAndEncodeImages([...referenceImages, ...characterImages])
-
     const systemInstruction = await this.promptManager.buildImageSystemInstruction(encodedRefs.length > 0)
-
-    // Generate 4 variations
     for (let i = 0; i < 4; i++) {
       const filename = path.join(baseDir, `thumb_${i}.webp`)
       const imageService = await this.getImageService()
@@ -257,7 +255,6 @@ export class NanoBananaEngine {
       })
       results.push(url)
     }
-
     return results
   }
 
@@ -304,7 +301,7 @@ export class NanoBananaEngine {
     }
 
     try {
-      const finalPath = await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
+      await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
       await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
     } catch {
       if (!fs.existsSync(imagePath))
@@ -506,9 +503,106 @@ export class NanoBananaEngine {
     const skipAudio = valid.skipAudio || valid.generateOnlyScenes
     const skipComposition = (valid.generateOnlyAudio || valid.generateOnlyAssembly) && valid.repromptSceneIndex == null
 
+    // ─── AUDIO (assembly-only mode) ───────────────────────────────────────────
+    if (valid.generateOnlyAssembly) {
+      const globalAudioPath = path.join(projectDir, 'narration.mp3')
+      const forceRegen = (options as any).forceRegenerateAudio
+
+      if (forceRegen && fs.existsSync(globalAudioPath)) {
+        console.log(`[NanoBanana] forceRegenerateAudio=true — suppression cache narration`)
+        fs.unlinkSync(globalAudioPath)
+      }
+
+      if (fs.existsSync(globalAudioPath)) {
+        // ✅ Priority 1: Audio déjà présent localement
+        script.globalAudio = 'narration.mp3'
+        console.log(`[NanoBanana] Narration trouvée localement.`)
+      } else if ((script as any).narrationUrl) {
+        // ✅ Priority 2: Télécharger depuis narrationUrl
+        console.log(`[NanoBanana] Téléchargement narration depuis narrationUrl: ${(script as any).narrationUrl}`)
+        try {
+          const narRes = await axios.get((script as any).narrationUrl, { responseType: 'arraybuffer' })
+          fs.writeFileSync(globalAudioPath, Buffer.from(narRes.data))
+          script.globalAudio = 'narration.mp3'
+          console.log(`[NanoBanana] ✓ Narration téléchargée depuis MinIO.`)
+        } catch (error: any) {
+          console.warn(`[NanoBanana] ⚠ Téléchargement narration échoué: ${error.message}. Régénération...`)
+          try {
+            const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+            const audioService = await this.getAudioService()
+            await audioService.generateSpeech(fullScriptText, globalAudioPath)
+            if (fs.existsSync(globalAudioPath)) script.globalAudio = 'narration.mp3'
+          } catch (error: any) {
+            console.error(`[NanoBanana] ❌ Régénération narration échouée: ${error.message}`)
+          }
+        }
+      } else {
+        // ✅ Priority 3: Régénération depuis le texte (dernier recours)
+        console.log(`[NanoBanana] No local narration and no URL. Regenerating from script text...`)
+        try {
+          const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
+          const audioService = await this.getAudioService()
+          await audioService.generateSpeech(fullScriptText, globalAudioPath)
+          if (fs.existsSync(globalAudioPath)) script.globalAudio = 'narration.mp3'
+        } catch (error: any) {
+          console.error(`[NanoBanana] ❌ Narration re-generation failed: ${error.message}.`)
+        }
+      }
+
+      // ─── TRANSCRIPTION (seulement si captions activées) ───────────────────
+      const captionsEnabled = this.currentAssCaptionConfig?.enabled ?? valid.assCaptions?.enabled ?? false
+      if (captionsEnabled && fs.existsSync(globalAudioPath)) {
+        const audioStatHash = this.getFileHashInfo(globalAudioPath)
+        const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
+        const cachedTranscriptValid =
+          fs.existsSync(transcriptHashPath) && fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
+        const hasTimings = script.scenes.some((s: any) => s.globalWordTimings?.length > 0)
+        const needsTranscription = !cachedTranscriptValid || !hasTimings
+
+        if (needsTranscription) {
+          if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
+          console.log(`[NanoBanana] ASS captions activées — transcription Whisper...`)
+          try {
+            const { TranscriptionServiceFactory } = await import('../services/audio/transcription.service')
+            const transcriptionService = await TranscriptionServiceFactory.create({
+              provider: 'whisper-local',
+              model: 'base',
+              device: 'cpu',
+              language: valid.language?.split('-')[0] || 'en'
+            } as any)
+            const result = await transcriptionService.transcribe(globalAudioPath, async (p: number) => {
+              if (onProgress) await onProgress(26 + Math.round(p * 0.09), `Synchronisation vocale: ${p}%`)
+            })
+            const { TimingMapper } = await import('../utils/timing-mapper')
+            const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
+            const mappedTimings = TimingMapper.mapScenes(sceneNarrations, result.wordTimings)
+            mappedTimings.forEach((timing: any, idx: number) => {
+              const scene = script.scenes[idx]
+              scene.timeRange = { start: timing.start, end: timing.end }
+              if (timing.wordTimings.length > 0) (scene as any).globalWordTimings = timing.wordTimings
+            })
+            if (mappedTimings.length > 0) script.totalDuration = mappedTimings.at(-1)!.end
+            fs.writeFileSync(transcriptHashPath, audioStatHash)
+            console.log(`[NanoBanana] ✓ Transcription complète — ${mappedTimings.length} scènes synchronisées`)
+          } catch (error: any) {
+            console.warn(`[NanoBanana] ⚠ Transcription échouée: ${error.message}`)
+          }
+        } else {
+          console.log(`[NanoBanana] Audio inchangé et timings existants — transcription ignorée.`)
+        }
+      } else if (!captionsEnabled) {
+        console.log(`[NanoBanana] ASS captions désactivées — transcription ignorée.`)
+      }
+
+      if (onTimingSync) await onTimingSync(script)
+      fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
+    }
+
+    // ─── COMPOSITION DES SCÈNES ───────────────────────────────────────────────
     if (!skipComposition) {
       const sceneImagePromises = new Map<number, Promise<string | undefined>>()
       let completed = 0
+
       for (let i = 0; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
         const isTarget =
@@ -516,6 +610,29 @@ export class NanoBananaEngine {
           (String(valid.repromptSceneIndex) === String(i) || String(valid.repromptSceneIndex) === scene.id)
         const sceneDir = path.join(scenesDir, scene.id)
         const sceneImg = path.join(sceneDir, 'scene.webp')
+
+        // ✅ Téléchargement depuis imageUrl si image absente localement
+        if (!fs.existsSync(sceneImg) && (scene as any).imageUrl && !isTarget) {
+          console.log(`[NanoBanana] 📥 Scene ${scene.id} absente, téléchargement: ${(scene as any).imageUrl}`)
+          try {
+            if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
+            const res = await axios.get((scene as any).imageUrl, { responseType: 'arraybuffer' })
+            fs.writeFileSync(sceneImg, Buffer.from(res.data))
+            console.log(`[NanoBanana] ✓ Scene ${scene.id} téléchargée depuis MinIO.`)
+            const b64 = fs.readFileSync(sceneImg).toString('base64')
+            sceneImagePromises.set(i, Promise.resolve(b64))
+            completed++
+            const pr = 15 + Math.round((completed / script.scenes.length) * 70)
+            if (onProgress) await onProgress(pr, `Scène ${completed}/${script.scenes.length}`)
+            if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, pr)
+            continue
+          } catch (downloadError: any) {
+            console.warn(
+              `[NanoBanana] ⚠ Téléchargement échoué pour ${scene.id}: ${downloadError.message}. Régénération...`
+            )
+            // pas de continue → tombe dans le task normal
+          }
+        }
 
         const task = this.generationQueue.add(async () => {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
@@ -542,9 +659,11 @@ export class NanoBananaEngine {
         sceneImagePromises.set(i, task)
       }
     }
+
     await this.generationQueue.onIdle()
 
-    if (!skipAudio || valid.repromptSceneIndex != null) {
+    // ─── AUDIO + TIMING (mode normal, non assembly-only) ─────────────────────
+    if (!valid.generateOnlyAssembly && (!skipAudio || valid.repromptSceneIndex != null)) {
       let currentTime = 0
       const files: string[] = []
       for (const s of script.scenes) {
@@ -561,17 +680,19 @@ export class NanoBananaEngine {
         }
       }
       script.totalDuration = currentTime
-      const globalAudio = path.join(projectDir, 'narration.mp3')
+      const globalAudioPath = path.join(projectDir, 'narration.mp3')
       if (files.length > 0) {
-        await this.stitchAudioFiles(files, globalAudio)
+        await this.stitchAudioFiles(files, globalAudioPath)
         script.globalAudio = 'narration.mp3'
       }
       if (onTimingSync) await onTimingSync(script)
       fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
     }
 
+    // ─── ASSEMBLAGE FINAL ─────────────────────────────────────────────────────
     if (!valid.generateOnlyAudio && !valid.generateOnlyScenes) {
       try {
+        const globalAudioPath = path.join(projectDir, 'narration.mp3')
         const assembler = new VideoAssembler()
         await assembler.assembleVideo(
           {
@@ -579,7 +700,7 @@ export class NanoBananaEngine {
             script,
             outputPath: projectDir,
             options: valid,
-            globalAudioPath: path.join(projectDir, 'narration.mp3')
+            globalAudioPath: fs.existsSync(globalAudioPath) ? globalAudioPath : undefined
           },
           async (p, m) => {
             if (onProgress) await onProgress(85 + Math.round((p / 100) * 15), m)
@@ -668,20 +789,28 @@ export class NanoBananaEngine {
     const cp = await import('node:child_process')
     return new Promise((res) => {
       cp.exec(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${filePath}"`, (err, stdout) => {
-        if (err) {
-          return res(0)
-        }
+        if (err) return res(0)
         const d = parseFloat(stdout?.trim() || '0')
         res(isNaN(d) ? 0 : d)
       })
     })
   }
 
+  private getFileHashInfo(filePath: string): string {
+    if (!fs.existsSync(filePath)) return ''
+    const stat = fs.statSync(filePath)
+    return `${stat.mtimeMs}-${stat.size}`
+  }
+
   clearImageCache(): void {
     this.sceneCache.clear()
   }
+
   getCacheStats(): { entries: number; cacheFile: string } {
-    return { entries: Object.keys((this.sceneCache as any).cache).length, cacheFile: (this.sceneCache as any).filePath }
+    return {
+      entries: Object.keys((this.sceneCache as any).cache).length,
+      cacheFile: (this.sceneCache as any).filePath
+    }
   }
 
   private async cleanupProject(projectDir: string, mode: 'intermediate' | 'full' = 'intermediate'): Promise<void> {
