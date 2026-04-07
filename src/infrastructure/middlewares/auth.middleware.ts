@@ -28,3 +28,15 @@ export async function authMiddleware(c: Context, next: Next) {
     throw new UnauthorizedError('Authentication failed')
   }
 }
+
+export async function requireAdmin(c: Context, next: Next) {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  const user = session?.user
+
+  if (!user || user.role !== 'admin') {
+    throw new UnauthorizedError('Unauthorized: Admin access required')
+  }
+
+  c.set('user', user as unknown as AuthUser)
+  await next()
+}

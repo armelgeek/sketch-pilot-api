@@ -1,12 +1,11 @@
 /* eslint-disable node/prefer-global/process */
 import { LLMServiceFactory } from '@sketch-pilot/services/llm'
 import { IUseCase } from '@/domain/types'
-import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 
 type SuggestTopicsParams = {
   userId: string
-  planId?: string
   options: {
     language?: string
     videoType?: string
@@ -34,15 +33,14 @@ type SuggestTopicsResponse = {
 const creditsRepository = new CreditsRepository()
 
 export class SuggestTopicsUseCase extends IUseCase<SuggestTopicsParams, SuggestTopicsResponse> {
-  async execute({ userId, planId, options }: SuggestTopicsParams): Promise<SuggestTopicsResponse> {
+  async execute({ userId, options }: SuggestTopicsParams): Promise<SuggestTopicsResponse> {
     try {
       const cost = (CREDIT_COSTS as any).SUGGEST_TOPIC || 5
 
-      // 1. Check available credits
+      // 1. Check available credits (Check only, don't deduct yet)
       const credits = await creditsRepository.ensureUserCredits(userId)
-      const subscription = await creditsRepository.getActiveSubscription(userId)
-      const currentPlan = subscription?.plan || planId || 'free'
-      const planLimit = PLAN_MONTHLY_LIMITS[currentPlan] ?? PLAN_MONTHLY_LIMITS.free
+      await creditsRepository.getActiveSubscription(userId)
+      const planLimit = await creditsRepository.getCurrentPlanLimit(userId)
 
       const usedThisMonth = credits?.videosThisMonth ?? 0
       const extraCredits = credits?.extraCredits ?? 0
@@ -58,14 +56,7 @@ export class SuggestTopicsUseCase extends IUseCase<SuggestTopicsParams, SuggestT
         }
       }
 
-      // 2. Consume credits
-      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit)
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'suggest_topic',
-        amount: -cost,
-        metadata: { planConsumed, extraConsumed, options }
-      })
+      // 2. Prepare LLM generation
 
       // 3. Generate topics using LLM
       const apiKey = process.env.OPENAI_API_KEY || ''
@@ -129,6 +120,15 @@ Return ONLY a valid JSON object with a 'topics' key containing an array of 3 obj
       const cleanJson = response.replaceAll(/```json\n?|\n?```/g, '').trim()
       const parsed = JSON.parse(cleanJson)
       const topics = Array.isArray(parsed) ? parsed : parsed.topics || parsed.data || []
+
+      // 4. Success! Deduct credits now.
+      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit)
+      await creditsRepository.addTransaction({
+        userId,
+        type: 'suggest_topic',
+        amount: -cost,
+        metadata: { planConsumed, extraConsumed, options }
+      })
 
       return { success: true, topics: Array.isArray(topics) ? topics : [] }
     } catch (error) {

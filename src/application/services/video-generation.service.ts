@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import process from 'node:process'
 
 /**
@@ -162,7 +163,8 @@ export class VideoGenerationService {
       [],
       projectId,
       wrappedOnProgress,
-      input.onTimingSync
+      input.onTimingSync,
+      input.onSceneGenerated
     )
   }
 
@@ -183,10 +185,36 @@ export class VideoGenerationService {
     inspirationUrl?: string
     options?: Partial<VideoGenerationOptions>
     outputDir?: string
+    count?: number
   }): Promise<string[]> {
-    const { title, inspirationUrl, options = {}, outputDir } = input
+    const { title, inspirationUrl, options = {}, outputDir, count } = input
     const engine = await this.buildEngine(options)
-    return await engine.generateAIThumbnail(title, inspirationUrl, outputDir)
+    return await engine.generateAIThumbnail(title, inspirationUrl, outputDir, count)
+  }
+
+  /**
+   * Generate a single character image.
+   */
+  async generateCharacterImage(input: { prompt: string; baseModelId: string; outputDir?: string }): Promise<string> {
+    const { prompt, baseModelId, outputDir } = input
+    const engine = await this.buildEngine({ characterModelId: baseModelId })
+
+    const tempDir = outputDir || path.join(process.cwd(), 'uploads', 'temp', `char-${Date.now()}`)
+    if (!(await fs.stat(tempDir).catch(() => null))) {
+      await fs.mkdir(tempDir, { recursive: true })
+    }
+
+    const filename = path.join(tempDir, 'character.webp')
+
+    // Create a minimal scene for the engine to generate the image
+    const scene: any = {
+      id: 'char-gen',
+      imagePrompt: prompt,
+      locationId: 'studio'
+    }
+
+    const imageUrl = await engine.generateImage(scene, [], filename, true)
+    return imageUrl
   }
 
   /**

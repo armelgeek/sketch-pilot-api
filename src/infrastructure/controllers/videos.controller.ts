@@ -19,6 +19,7 @@ import { UpdateVideoUseCase } from '@/application/use-cases/video/update-video.u
 import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents, redisClient } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
+import { CreditsRepository } from '../repositories/credits.repository'
 import { VideoRepository } from '../repositories/video.repository'
 import { VideoOptionsSchema } from './video-options.schema'
 
@@ -39,6 +40,7 @@ const generateScriptFromTitleUseCase = new GenerateScriptFromTitleUseCase()
 const updateVideoUseCase = new UpdateVideoUseCase()
 const generateThumbnailUseCase = new GenerateThumbnailUseCase()
 const videoGenerationService = new VideoGenerationService()
+const creditsRepository = new CreditsRepository()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -184,7 +186,7 @@ export class VideosController implements Routes {
               enqueue('completed', {
                 jobId,
                 status: 'completed',
-                progress: 100,
+                progress: completedVideo?.progress || 100,
                 videoId: completedVideo?.id,
                 videoUrl: completedVideo?.videoUrl,
                 thumbnailUrl: completedVideo?.thumbnailUrl,
@@ -791,6 +793,127 @@ export class VideosController implements Routes {
       }
     )
 
+    // DELETE /v1/videos/:id
+    this.controller.openapi(
+      createRoute({
+        method: 'delete',
+        path: '/v1/videos/{id}',
+        tags: ['Videos'],
+        summary: 'Delete a video',
+        description: 'Permanently deletes a video and all its associated cloud storage assets if you are the owner.',
+        security: [{ Bearer: [] }],
+        request: { params: z.object({ id: z.string() }) },
+        responses: {
+          200: {
+            description: 'Video deleted',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Video not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          500: {
+            description: 'Server error',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+
+        try {
+          // Verify ownership
+          const video = await videoRepository.findByIdAndUserId(id, user.id)
+          if (!video) return c.json({ error: 'Video not found or not owned by you' }, 404)
+
+          // Delete cloud assets first
+          await deleteVideoAssets(id)
+
+          // Delete DB record
+          await videoRepository.delete(id, user.id)
+
+          return c.json({ success: true })
+        } catch (error: any) {
+          console.error(`[VideosController] Failed to delete video ${id}:`, error)
+          return c.json({ error: 'Failed to delete video' }, 500)
+        }
+      }
+    )
+
+    // PATCH /v1/videos/:id
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/videos/{id}',
+        tags: ['Videos'],
+        summary: 'Update video metadata',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  title: z.string().optional(),
+                  topic: z.string().optional(),
+                  script: z.any().optional(),
+                  scenes: z.any().optional(),
+                  options: z.any().optional(),
+                  status: z.string().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Video updated',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: z.any() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.param()
+        const data = c.req.valid('json')
+
+        try {
+          const video = await videoRepository.findByIdAndUserId(id, user.id)
+          if (!video) return c.json({ error: 'Video not found' }, 404)
+
+          const { result } = await updateVideoUseCase.run({
+            videoId: id,
+            userId: user.id,
+            data
+          })
+          if (!result.success) return c.json({ error: result.error }, 400)
+          const updated = result.video
+
+          return c.json({ success: true, data: updated })
+        } catch (error: any) {
+          console.error(`[VideosController] Failed to update video ${id}:`, error)
+          return c.json({ error: 'Failed to update video' }, 500)
+        }
+      }
+    )
+
     // POST /v1/videos/:id/cancel
     this.controller.openapi(
       createRoute({
@@ -846,6 +969,16 @@ export class VideosController implements Routes {
           }
         } catch (error) {
           console.warn(`[VideosController] ⚠ Could not remove job ${video.jobId} from queue (it may be locked):`, error)
+        }
+
+        // 1. Refund credits if any were used
+        if (video.creditsUsed && video.creditsUsed > 0) {
+          const opts = (video.options as any) || {}
+          console.info(`[VideosController] Cancelling video ${video.id}. Refunding ${video.creditsUsed} credits.`)
+          await creditsRepository.refundCredits(user.id, video.creditsUsed, video.id, {
+            planConsumed: opts.planConsumed || 0,
+            extraConsumed: opts.extraConsumed || 0
+          })
         }
 
         await videoRepository.updateStatus(video.id, { status: 'cancelled' })

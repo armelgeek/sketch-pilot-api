@@ -4,16 +4,57 @@ import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js'
 import { runFfmpeg } from '../../utils/ffmpeg-utils'
 import type { AudioGenerationResult, AudioService, WordTiming } from './index'
 
+// ─── Retry Helpers ────────────────────────────────────────────────────────────
+
+const NETWORK_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'])
+
+function isNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  if (code && NETWORK_ERROR_CODES.has(code)) return true
+  const msg = error.message.toLowerCase()
+  return (
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('socket') ||
+    msg.includes('econnreset') ||
+    msg.includes('fetch failed') ||
+    msg.includes('rate limit') // 429 — worth retrying
+  )
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  {
+    maxAttempts = 3,
+    baseDelayMs = 1000,
+    maxDelayMs = 15_000,
+    label = 'operation'
+  }: { maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number; label?: string } = {}
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (!isNetworkError(error) || attempt === maxAttempts) throw error
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs)
+      console.warn(`[ElevenLabs] ${label} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms…`, error)
+      await new Promise((r) => setTimeout(r, delay))
+    }
+  }
+  throw lastError
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
 export class ElevenLabsService implements AudioService {
   private readonly client: ElevenLabsClient
   private readonly voiceId: string
   private readonly modelId: string
 
-  constructor(
-    apiKey?: string,
-    voiceId: string = 'pNInz6obpgDQGcFmaJgB', // Default: Adam/Bella voice
-    modelId: string = 'eleven_turbo_v2_5'
-  ) {
+  constructor(apiKey?: string, voiceId: string = 'pNInz6obpgDQGcFmaJgB', modelId: string = 'eleven_turbo_v2_5') {
     this.client = new ElevenLabsClient(apiKey ? { apiKey } : {})
     this.voiceId = voiceId
     this.modelId = modelId
@@ -21,11 +62,7 @@ export class ElevenLabsService implements AudioService {
 
   private getActiveVoiceId(options?: any): string {
     const passedVoice = options?.voiceId || options?.voice
-    // ElevenLabs IDs are 20-character alphanumeric (e.g. pNInz6obpgDQGcFmaJgB)
-    // If it looks like a Kokoro voice (e.g. af_heart, am_adam, contains an underscore), ignore it
-    if (passedVoice && passedVoice.includes('_')) {
-      return this.voiceId
-    }
+    if (passedVoice && passedVoice.includes('_')) return this.voiceId
     return passedVoice || this.voiceId
   }
 
@@ -36,8 +73,6 @@ export class ElevenLabsService implements AudioService {
     this.ensureOutputDir(outputPath)
     const baseDir = path.dirname(outputPath)
     const baseName = path.basename(outputPath, path.extname(outputPath))
-
-    // Chunk text natively (max 5000 chars per API req) without injecting artificial SSML
     const chunks = this.splitTextIntoChunks(text, 3000)
     const tempFiles: string[] = []
 
@@ -47,68 +82,74 @@ export class ElevenLabsService implements AudioService {
       for (const [i, chunk] of chunks.entries()) {
         const segPath = path.join(baseDir, `${baseName}_chunk_${i}.mp3`)
 
-        const audioStream = await this.client.textToSpeech.convert(activeVoiceId, {
-          text: chunk,
-          modelId: this.modelId,
-          voiceSettings: { stability: 0.5, similarityBoost: 0.5 }
-        })
+        // ── Retry the ElevenLabs API call on network errors ──────────────────
+        const audioStream = await withRetry(
+          () =>
+            this.client.textToSpeech.convert(activeVoiceId, {
+              text: chunk,
+              modelId: this.modelId,
+              voiceSettings: { stability: 0.5, similarityBoost: 0.5 }
+            }),
+          { label: `TTS chunk ${i + 1}/${chunks.length}`, maxAttempts: 4 }
+        )
 
-        const fileStream = fs.createWriteStream(segPath)
-        await new Promise<void>((resolve, reject) => {
-          const reader = (audioStream as ReadableStream<Uint8Array>).getReader()
-          const pump = async () => {
-            try {
-              while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
-                fileStream.write(value)
+        // ── Retry the stream-to-disk write on transient I/O / network errors ─
+        await withRetry(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              const fileStream = fs.createWriteStream(segPath)
+              const reader = (audioStream as ReadableStream<Uint8Array>).getReader()
+              const pump = async () => {
+                try {
+                  while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) break
+                    fileStream.write(value)
+                  }
+                  fileStream.end()
+                  fileStream.on('finish', resolve)
+                  fileStream.on('error', reject)
+                } catch (error) {
+                  reject(error)
+                }
               }
-              fileStream.end()
-              fileStream.on('finish', resolve)
-              fileStream.on('error', reject)
-            } catch (error) {
-              reject(error)
-            }
-          }
-          pump()
-        })
+              pump()
+            }),
+          { label: `stream write chunk ${i + 1}`, maxAttempts: 3 }
+        )
+
         tempFiles.push(segPath)
       }
 
-      // Concat if multiple chunks
       if (tempFiles.length === 1) {
         fs.renameSync(tempFiles[0], outputPath)
       } else {
-        await this.concatenateAudioFiles(tempFiles, outputPath)
+        // ── Retry ffmpeg concat (rare but can fail on I/O blips) ─────────────
+        await withRetry(() => this.concatenateAudioFiles(tempFiles, outputPath), {
+          label: 'ffmpeg concat',
+          maxAttempts: 3
+        })
       }
 
-      // No artificial silencing or trimming requested by user.
-      // We rely entirely on ElevenLabs' native pacing and native trailing silence for natural breathing.
+      const realDuration = await withRetry(() => this.getRealDuration(outputPath), {
+        label: 'ffprobe duration',
+        maxAttempts: 3
+      })
 
-      const realDuration = await this.getRealDuration(outputPath)
-
-      // Word Timings equivalent
       const cleanText = text
         .replaceAll(/\.{3}|[.?!,;:\-—]/g, ' ')
         .replaceAll(/\s+/g, ' ')
         .trim()
-
       const wordTimings = this.estimateWordTimings(cleanText, realDuration)
 
       console.log(`[ElevenLabs] ✅ Speech generated: ${outputPath} (length: ${realDuration.toFixed(2)}s)`)
-
-      return {
-        audioPath: outputPath,
-        duration: realDuration,
-        wordTimings
-      }
+      return { audioPath: outputPath, duration: realDuration, wordTimings }
     } catch (error) {
       console.error(`[ElevenLabs] Error generating speech:`, error)
       throw new Error(
         `Failed to generate speech with ElevenLabs: ${error instanceof Error ? error.message : String(error)}`
       )
     } finally {
-      // Clean up temp files
       for (const f of tempFiles) {
         if (fs.existsSync(f) && f !== outputPath) fs.unlinkSync(f)
       }
@@ -121,7 +162,6 @@ export class ElevenLabsService implements AudioService {
     const sentences = text.match(/(.*?[.!?]+|.+$)/g) || [text]
     const chunks: string[] = []
     let currentChunk = ''
-
     for (const sentence of sentences) {
       if ((currentChunk + sentence).length > maxChars && currentChunk.length > 0) {
         chunks.push(currentChunk.trim())
@@ -138,7 +178,6 @@ export class ElevenLabsService implements AudioService {
     const listFile = `${outputPath}.list.txt`
     const fileListContent = filePaths.map((p) => `file '${path.resolve(p)}'`).join('\n')
     fs.writeFileSync(listFile, fileListContent)
-
     try {
       await runFfmpeg(['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outputPath])
     } finally {
@@ -150,8 +189,6 @@ export class ElevenLabsService implements AudioService {
     const dir = path.dirname(outputPath)
     if (dir && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
-
-  // ─── Word Timings Calculation ────────────────────────────────────────────
 
   private getWordSpeed(word: string): number {
     if (/[.!?…]$/.test(word)) return 1.4
@@ -166,7 +203,6 @@ export class ElevenLabsService implements AudioService {
     const MathTotal = words.reduce((a, w) => a + 1 / this.getWordSpeed(w), 0)
     const total = MathTotal > 0 ? MathTotal : 1
     const scale = totalDuration / total
-
     let currentTime = 0
     return words.map((word) => {
       const wordDuration = (1 / this.getWordSpeed(word)) * scale

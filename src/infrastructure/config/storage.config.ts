@@ -202,3 +202,32 @@ export async function deleteVideoAssets(videoId: string): Promise<void> {
     })
   )
 }
+
+/**
+ * Delete specific objects by their keys
+ */
+export async function deleteObjectsByKeys(keys: string[]): Promise<void> {
+  if (!keys.length) return
+  await storageClient.send(
+    new DeleteObjectsCommand({
+      Bucket: BUCKET,
+      Delete: {
+        Objects: keys.map((key) => ({ Key: key }))
+      }
+    })
+  )
+}
+
+/**
+ * Delete specific objects by their full URLs
+ */
+export async function deleteObjectsByUrls(urls: string[]): Promise<void> {
+  const keys = urls
+    .map((url) => {
+      if (!url.includes(CDN_URL)) return null
+      return url.split(`${CDN_URL}/`)[1]
+    })
+    .filter((k): k is string => !!k)
+
+  await deleteObjectsByKeys(keys)
+}

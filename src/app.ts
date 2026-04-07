@@ -38,6 +38,9 @@ export class App {
   private initializeRoutes(routes: Routes[]) {
     routes.forEach((route) => {
       route.initRoutes()
+      if (typeof (route as any).initAdminRoutes === 'function') {
+        ;(route as any).initAdminRoutes()
+      }
       this.app.route('/api', route.controller)
     })
     this.app.basePath('/api').route('/', router)
@@ -73,7 +76,10 @@ export class App {
       // Allow public access to config endpoints
       if (
         c.req.method === 'GET' &&
-        (c.req.path === '/api/v1/subscription-plans' || c.req.path.startsWith('/api/v1/config/'))
+        (c.req.path === '/api/v1/subscription-plans' ||
+          c.req.path.startsWith('/api/v1/config/') ||
+          c.req.path === '/api/v1/pricing/plans' ||
+          c.req.path === '/api/v1/pricing/packs')
       ) {
         return next()
       }

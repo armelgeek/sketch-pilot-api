@@ -1,6 +1,6 @@
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
-import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { GenerateScriptOptions } from '@/application/services/script-generation.service'
@@ -35,9 +35,8 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
       const cost = CREDIT_COSTS.SCRIPT_GENERATION
       const credits = await creditsRepository.ensureUserCredits(userId)
 
-      const sub = await creditsRepository.getActiveSubscription(userId)
-      const plan = sub?.plan || 'free'
-      const planLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
+      await creditsRepository.getActiveSubscription(userId)
+      const planLimit = await creditsRepository.getCurrentPlanLimit(userId)
 
       const consumedThisMonth = credits?.videosThisMonth ?? 0
       const extraCredits = credits?.extraCredits ?? 0
@@ -52,20 +51,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         }
       }
 
-      // Deduct with priority
-      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit)
-
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'consumption_script',
-        amount: -cost,
-        metadata: {
-          planConsumed,
-          extraConsumed,
-          plan
-        }
-      })
-
+      // 2. Prepare Video Record (Don't deduct yet, just mark as queued)
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
 
@@ -92,6 +78,8 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         userId,
         videoId,
         topic,
+        cost,
+        planLimit,
         options: {
           ...options,
           scriptOnly: true,

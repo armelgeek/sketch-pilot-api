@@ -6,10 +6,12 @@ type UpdateVideoParams = {
   userId: string
   data: {
     script?: any
+    scenes?: any
     options?: any
     topic?: string
     status?: string
     thumbnailUrl?: string
+    title?: string
   }
 }
 

@@ -64,6 +64,7 @@ export class AssembleVideoUseCase extends IUseCase<AssembleVideoParams, Assemble
       await videoRepository.updateStatus(videoId, {
         jobId,
         status: 'queued',
+        progress: 70, // Start assembly phase at 70%
         options: assemblyOptions
       })
 

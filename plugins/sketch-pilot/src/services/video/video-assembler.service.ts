@@ -58,7 +58,6 @@ function buildCinematicSnapZoom(
   const snapFrame = Math.round(snapAtSec * ZOOMPAN_INTERNAL_FPS)
   const k = 6 / decaySec
 
-  // Fix: Use ease-in cubic for the pre-snap rise (was only 5% linear which caused visible jump)
   return (
     `if(lt(on,${snapFrame}),` +
     `${baseZoom}+(${peakZoom - baseZoom}).toFixed(4)*pow(on/${snapFrame},3),` +
@@ -160,6 +159,9 @@ export class VideoAssembler {
 
     const finalClips = processedClips.filter(Boolean)
     const finalTransitions = processedTransitions
+
+    // ── DEBUG: log transitions before stitching ──
+    console.log(`[VideoAssembler] Transitions to apply:`, finalTransitions)
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
     const audioOverlap = hasGlobalAudio ? 0.05 : (globalOptions.audioOverlap ?? 0.3)
@@ -725,27 +727,17 @@ export class VideoAssembler {
       const { xOscExpr, yOscExpr } = this.buildOrganicOscillation(2, oscSeed)
       const osc = (axis: 'x' | 'y') => (wantsOrganic ? `+(${axis === 'x' ? xOscExpr : yOscExpr})` : '')
 
-      // Reference centres
       // +0.001*on forces FFmpeg to use sub-pixel interpolation, eliminating micro-jitter on slow zoompan moves
       const CX = `iw/2-(iw/zoom/2)+0.001*on`
       const CY = `ih/2-(ih/zoom/2)+0.001*on`
 
-      // ── Tension-adapted zoom and easing ────────────────────────────────────
       const t = Math.max(1, Math.min(10, sceneTension))
 
-      // For panning, we want minimal zoom so the image stays "the right size"
-      const panZoomScale = 1.08 // Only 8% zoom for panning to avoid cutting off the image
+      const panZoomScale = 1.08
       const P_DZ = (panZoomScale - 1).toFixed(4)
 
-      // For zooming, we want a noticeable, fast animation
-      const zoomScale =
-        t <= 3
-          ? 1.25 // Fast base
-          : t <= 6
-            ? 1.4
-            : 1.55
+      const zoomScale = t <= 3 ? 1.25 : t <= 6 ? 1.4 : 1.55
 
-      // Remove smootherstep for linear, noticeably faster movement
       const EASING = P
 
       const ZS = zoomScale.toFixed(4)
@@ -776,14 +768,12 @@ export class VideoAssembler {
           break
 
         case 'pan-right':
-          // Start at center, glide right
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}+${PAN_X_HALF}*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'pan-left':
-          // Start at center, glide left
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}-${PAN_X_HALF}*(${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
@@ -796,14 +786,12 @@ export class VideoAssembler {
           break
 
         case 'pan-down':
-          // Start at center, glide down
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}${osc('x')}`
           yRaw = `${CY}+${PAN_Y_HALF}*(${SS})${osc('y')}`
           break
 
         case 'pan-up':
-          // Start at center, glide up
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}${osc('x')}`
           yRaw = `${CY}-${PAN_Y_HALF}*(${SS})${osc('y')}`
@@ -828,7 +816,6 @@ export class VideoAssembler {
         }
 
         case 'ken-burns-static':
-          // Extremely subtle cinematic drift
           zBaseExpr = `1.02+(0.03*${SS})`
           xRaw = `${CX}+(${PAN_X_HALF}*0.15*${SS})${osc('x')}`
           yRaw = `${CY}+(${PAN_Y_HALF}*0.15*${SS})${osc('y')}`
@@ -848,8 +835,6 @@ export class VideoAssembler {
           break
         }
 
-        // ── Default: cinematic push-in with diagonal drift ──────────────────
-        // Varies by image path so every scene gets a different drift direction.
         default: {
           const driftDir = Math.abs(imagePath.length % 4)
           zBaseExpr = `1.0+(${DZ}*${EASING})`
@@ -859,7 +844,6 @@ export class VideoAssembler {
           let bx = `${CX}`
           let by = `${CY}`
 
-          // Pattern Interrupt for long scenes lacking other visual stimulation
           if (duration >= 6 && keywordVisuals.length === 0) {
             const half = (duration / 2).toFixed(2)
             bx = `if(lt(t,${half}), ${CX}, ${CX}+(${PAN_X_HALF}*0.18))`
@@ -888,7 +872,6 @@ export class VideoAssembler {
         }
       }
 
-      // Final clamp — never read outside the upscaled canvas
       const zExpr = this.clampZ(zBaseExpr)
       const x = this.clampX(xRaw)
       const y = this.clampY(yRaw)
@@ -906,31 +889,8 @@ export class VideoAssembler {
 
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
 
-      if (keywordVisuals.length > 0) {
-        let lastOutput = '[v_base]'
-        let complexFilter = `[0:v]${filterString}[v_base];`
-
-        keywordVisuals.forEach((kv, idx) => {
-          ffmpegCommand.input(kv.imagePath).inputOptions(['-loop 1'])
-          const inputIdx = idx + 1
-          const nextOutput = `[v_kv_${idx}]`
-          const startFade = Math.max(0, kv.start)
-          const outFade = Math.max(0, kv.end - 0.3)
-          complexFilter += `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1[kv_s_${idx}];`
-          complexFilter += `${lastOutput}[kv_s_${idx}]overlay=enable='between(t,${kv.start},${kv.end})'${
-            idx === keywordVisuals.length - 1 ? '' : nextOutput
-          };`
-          lastOutput = nextOutput
-        })
-
-        ffmpegCommand.complexFilter(complexFilter)
-      } else {
-        ffmpegCommand.outputOptions(['-vf', filterString])
-      }
-
-      let cameraFilterString = filterString
-
       // Dutch Tilt: integrate rotation directly into FFmpeg filtergraph (single pass, no quality loss)
+      let cameraFilterString = filterString
       if (type === 'dutch-tilt') {
         const tiltDeg = cameraAction?.tiltDeg ?? 1.8
         const angleRad = ((tiltDeg * Math.PI) / 180).toFixed(4)
@@ -938,23 +898,22 @@ export class VideoAssembler {
         cameraFilterString = `${filterString},rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`
       }
 
-      const baseOutputPath = outputPath
-      const needsDutchTiltPass = false // Dutch tilt is now integrated into the main filtergraph above
-      const intermediateOutput = outputPath
-
       if (keywordVisuals.length > 0) {
-        let lastOutput = '[v_base]'
-        let complexFilter = `[0:v]${cameraFilterString}[v_base];`
-        keywordVisuals.forEach((kv, idx) => {
-          ffmpegCommand.input(kv.imagePath).inputOptions(['-loop 1'])
-          const inputIdx = idx + 1
-          const nextOutput = `[v_kv_${idx}]`
-          const startFade = Math.max(0, kv.start)
-          const outFade = Math.max(0, kv.end - 0.3)
-          complexFilter += `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1[kv_s_${idx}];`
-          complexFilter += `${lastOutput}[kv_s_${idx}]overlay=enable='between(t,${kv.start},${kv.end})'${idx === keywordVisuals.length - 1 ? '' : nextOutput};`
-          lastOutput = nextOutput
-        })
+        const lastOutput = '[v_base]'
+        const complexFilter = `[0:v]${cameraFilterString}[v_base];${keywordVisuals
+          .map((kv, idx) => {
+            const inputIdx = idx + 1
+            const nextOutput = idx === keywordVisuals.length - 1 ? '' : `[v_kv_${idx}]`
+            const startFade = Math.max(0, kv.start)
+            const outFade = Math.max(0, kv.end - 0.3)
+            ffmpegCommand.input(kv.imagePath).inputOptions(['-loop 1'])
+            return [
+              `[${inputIdx}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},format=rgba,fade=t=in:st=${startFade}:d=0.3:alpha=1,fade=t=out:st=${outFade}:d=0.3:alpha=1[kv_s_${idx}]`,
+              `${lastOutput}[kv_s_${idx}]overlay=enable='between(t,${kv.start},${kv.end})'${nextOutput}`
+            ].join(';')
+          })
+          .join(';')}`
+
         ffmpegCommand.complexFilter(complexFilter)
       } else {
         ffmpegCommand.outputOptions(['-vf', cameraFilterString])
@@ -970,8 +929,8 @@ export class VideoAssembler {
           '-pix_fmt yuv420p',
           `-r ${OUTPUT_FPS}`
         ])
-        .save(intermediateOutput)
-        .on('end', () => resolve(intermediateOutput))
+        .save(outputPath)
+        .on('end', () => resolve(outputPath))
         .on('error', (err) => reject(new Error(`Panning clip creation failed: ${err.message}`)))
     })
   }
@@ -1100,15 +1059,12 @@ export class VideoAssembler {
 
       const t = Math.max(1, Math.min(10, sceneTension))
 
-      // Tension-adapted zoom
       const zoomScale = t <= 3 ? 1.12 : t <= 6 ? 1.2 : 1.3
       const ZS = zoomScale.toFixed(4)
       const DZ = (zoomScale - 1).toFixed(4)
 
-      // Calm = smootherstep, intense = easeOutCubic
       const EASING = t <= 5 ? SS : EOC
 
-      // +0.001*on forces FFmpeg to use sub-pixel interpolation, reducing micro-jitter
       const CX = `iw/2-(iw/zoom/2)+0.001*on`
       const CY = `ih/2-(ih/zoom/2)+0.001*on`
       const PX = `(iw-(iw/zoom))`
@@ -1116,7 +1072,6 @@ export class VideoAssembler {
       const PXH = `((iw-(iw/zoom))/2)`
       const PYH = `((ih-(ih/zoom))/2)`
 
-      // Deterministic hash for effect variety per scene
       let hash = 0
       for (let i = 0; i < imagePath.length; i++) {
         hash = imagePath.charCodeAt(i) + ((hash << 5) - hash)
@@ -1130,34 +1085,34 @@ export class VideoAssembler {
       let baseY = CY
 
       switch (effectIndex) {
-        case 0: // Push-in centred
+        case 0:
           baseZ = `1.0+(${DZ}*${EASING})`
           break
-        case 1: // Pull-out reveal
+        case 1:
           baseZ = `${ZS}-(${DZ}*${EASING})`
           break
-        case 2: // Pan left → right
+        case 2:
           baseZ = ZS
           baseX = `${PX}*(${EASING})`
           break
-        case 3: // Pan right → left
+        case 3:
           baseZ = ZS
           baseX = `${PX}*(1-(${EASING}))`
           break
-        case 4: // Pan top → bottom
+        case 4:
           baseZ = ZS
           baseY = `${PY}*(${EASING})`
           break
-        case 5: // Pan bottom → top
+        case 5:
           baseZ = ZS
           baseY = `${PY}*(1-(${EASING}))`
           break
-        case 6: // Push-in diagonal ↘
+        case 6:
           baseZ = `1.0+(${DZ}*1.5*${EASING})`
           baseX = `${CX}+${PXH}*(${EASING})`
           baseY = `${CY}+${PYH}*(${EASING})`
           break
-        case 7: // Push-in diagonal ↖
+        case 7:
           baseZ = `1.0+(${DZ}*1.5*${EASING})`
           baseX = `${CX}-${PXH}*(${EASING})`
           baseY = `${CY}-${PYH}*(${EASING})`
@@ -1474,12 +1429,22 @@ export class VideoAssembler {
   // TRANSITIONS
   // ─────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Resolves the transition name to use between two scenes.
+   *
+   * FIX: Added a default 'fade' for mid-range tension (4-7) when autoTransitions
+   * is enabled. Previously, tension values between 3 and 7 fell through to 'cut'
+   * even with useAuto=true, which silently disabled all transitions for typical content.
+   */
   private resolveTransition(suggested: string | undefined, tension: number, useAuto: boolean): string {
+    // 1. If the scene explicitly sets a non-trivial transition, always honour it
     if (suggested && suggested !== 'none' && suggested !== 'cut') return suggested
 
+    // 2. Auto-select based on tension when autoTransitions is enabled
     if (useAuto) {
-      if (tension > 7) return 'swish'
-      if (tension <= 3) return 'fade'
+      if (tension > 7) return 'swish' // High tension → snappy swish
+      if (tension <= 3) return 'fade' // Calm → soft fade
+      return 'fade' // FIX: mid-range (4-7) also gets fade instead of 'cut'
     }
 
     return 'cut'
@@ -1491,7 +1456,6 @@ export class VideoAssembler {
   ): { name: string; duration: number } | null {
     if (!type || type === 'cut' || type === 'none') return null
 
-    // Native FFmpeg xfade transition names — pass through directly with sensible duration
     const nativeXfade = new Set([
       'fade',
       'fadeblack',
@@ -1532,7 +1496,6 @@ export class VideoAssembler {
       'squeezev',
       'squeezeh',
       'zoomin',
-      'squeezeh',
       'hlwind',
       'hrwind',
       'vuwind',
@@ -1548,9 +1511,8 @@ export class VideoAssembler {
       'radial'
     ])
 
-    // Default durations based on transition visual complexity
     const defaultDurations: Record<string, number> = {
-      // 1. Rich/Complex (Slow & Premium)
+      // Rich/Complex
       circleopen: 0.85,
       circleclose: 0.85,
       pixelize: 0.8,
@@ -1561,8 +1523,7 @@ export class VideoAssembler {
       circlecrop: 0.7,
       dissolve: 0.6,
       crossfade: 0.6,
-
-      // 2. Standard (Smooth & Balanced)
+      // Standard
       wipeleft: 0.5,
       wiperight: 0.5,
       wipeup: 0.5,
@@ -1575,16 +1536,13 @@ export class VideoAssembler {
       smoothright: 0.5,
       smoothup: 0.5,
       smoothdown: 0.5,
-
-      // 3. Simple (Snappy & Fast)
+      // Simple
       fade: 0.4,
       fadeblack: 0.4,
       fadewhite: 0.4,
       cut: 0
     }
 
-    // Alias mapping: LLM-generated names → valid FFmpeg xfade names
-    // Note: We assign explicit durations here for these aliases
     const aliasMap: Record<string, { name: string; duration: number }> = {
       crossfade: { name: 'dissolve', duration: defaultDurations.dissolve },
       blur: { name: 'hblur', duration: defaultDurations.hblur },
@@ -1614,7 +1572,6 @@ export class VideoAssembler {
     }
 
     if (maxAllowedDuration !== undefined && result.duration > maxAllowedDuration) {
-      // Transition cannot be longer than the clips it connects
       result.duration = Math.max(0.04, maxAllowedDuration)
     }
 
@@ -1712,7 +1669,15 @@ export class VideoAssembler {
 
     for (let i = 1; i < n; i++) {
       const maxSafeOverlap = Math.min(durations[i - 1], durations[i]) / 2
-      const transition = this.getXfadeTransition(transitions[i - 1], maxSafeOverlap)
+
+      // FIX: transitions[i-1] holds the transition of scene i-1 (used between scene i-1 and i).
+      // Log for debugging visibility.
+      const rawTransition = transitions[i - 1]
+      const transition = this.getXfadeTransition(rawTransition, maxSafeOverlap)
+      console.log(
+        `[VideoAssembler] Scene ${i - 1}→${i} | raw="${rawTransition}" | resolved=${JSON.stringify(transition)}`
+      )
+
       const transitionDuration = transition ? transition.duration : 0.04
       const transitionName = transition ? transition.name : 'fade'
       const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.05
@@ -2013,9 +1978,6 @@ export class VideoAssembler {
   private getTransitionInDuration(sceneIndex: number, scenes: any[], scenesDir: string): number {
     if (sceneIndex === 0) return 0
 
-    // We add visual padding to the generated clip so that when stitchClips applies
-    // the visual xfade (which eats into the video duration), the final stitched video
-    // length exactly matches the absolute Global Audio length.
     const prevScene = scenes[sceneIndex - 1]
     const suggested = prevScene.transition || 'cut'
     const tension = prevScene.tension || 5
@@ -2088,7 +2050,6 @@ export class VideoAssembler {
     let rawDurationWithPadding = rawDuration
     if (hasGlobalAudio && sceneIndex > 0) rawDurationWithPadding += transitionInDur
 
-    // Use float directly to avoid accumulated rounding errors which caused audio/video desync
     const duration = rawDurationWithPadding
 
     try {
@@ -2115,7 +2076,6 @@ export class VideoAssembler {
 
       const staticSeed = sceneIndex
 
-      // Enforce static animation for short scenes to avoid zoompan jitter/cutting
       let finalAnimationMode = animationMode
       if (animationMode === 'panning' && duration < 3) {
         finalAnimationMode = 'static'
@@ -2165,7 +2125,6 @@ export class VideoAssembler {
         }
       }
 
-      // If cache misses, proceed with FFmpeg generation
       if (finalAnimationMode === 'ai' && fs.existsSync(videoPath)) {
         await this.processAiClip(videoPath, duration, clipOutputPath, aspectRatio, globalOptions.resolution)
       } else if (finalAnimationMode === 'static' || finalAnimationMode === 'none') {
@@ -2179,7 +2138,7 @@ export class VideoAssembler {
           wordTimings,
           processedKeywordVisuals,
           staticSeed,
-          sceneTension // ← tension passed through
+          sceneTension
         )
       } else if (finalAnimationMode === 'composition' && manifestData.layers?.length > 0) {
         const layers = manifestData.layers.map((l: any) => ({
@@ -2206,7 +2165,7 @@ export class VideoAssembler {
           cameraAction,
           wordTimings,
           processedKeywordVisuals,
-          sceneTension // ← tension passed through
+          sceneTension
         )
       }
 
@@ -2282,6 +2241,8 @@ export class VideoAssembler {
 
       const useAuto = globalOptions.autoTransitions !== false
       const transition = this.resolveTransition((scene as any).transition, sceneTension, useAuto)
+
+      console.log(`[VideoAssembler] Scene ${scene.id} (tension=${sceneTension}) → transition="${transition}"`)
 
       // Save to cache
       fs.writeFileSync(cacheFilePath, JSON.stringify({ hash: cacheKey, clipPath: finalClip, transition }))

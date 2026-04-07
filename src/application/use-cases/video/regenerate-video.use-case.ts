@@ -1,7 +1,7 @@
 import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, type VideoJobData } from '@/infrastructure/config/queue.config'
-import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -94,9 +94,8 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
       const totalCost = imageCostPerScene * sceneCount + CREDIT_COSTS.TTS_VOICE + CREDIT_COSTS.SUBTITLES + exportCost
 
       const credits = await creditsRepository.ensureUserCredits(userId)
-      const sub = await creditsRepository.getActiveSubscription(userId)
-      const actualPlan = sub?.plan || 'free'
-      const planLimit = PLAN_MONTHLY_LIMITS[actualPlan] ?? PLAN_MONTHLY_LIMITS.free
+      await creditsRepository.getActiveSubscription(userId)
+      const planLimit = await creditsRepository.getCurrentPlanLimit(userId)
 
       const consumedThisMonth = credits?.videosThisMonth ?? 0
       const extraCredits = credits?.extraCredits ?? 0
@@ -112,23 +111,7 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
         }
       }
 
-      // Deduct with priority
-      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, totalCost, planLimit)
-
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'consumption_regenerate',
-        amount: -totalCost,
-        videoId,
-        metadata: {
-          sceneCount,
-          imageProvider: videoOptions.imageProvider,
-          resolution: videoOptions.resolution,
-          planConsumed,
-          extraConsumed,
-          plan
-        }
-      })
+      // 2. Initial balance verification (Check only, don't deduct yet)
 
       const jobId = crypto.randomUUID()
 
@@ -152,6 +135,8 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
         userId,
         videoId,
         topic,
+        cost: totalCost,
+        planLimit: planLimit === -1 ? 0 : planLimit,
         options: toJobOptions(options, spec)
       }
 

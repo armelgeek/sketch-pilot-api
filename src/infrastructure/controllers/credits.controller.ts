@@ -1,11 +1,12 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import type { Routes } from '@/domain/types'
 import { stripe as stripeClient } from '../config/stripe.config'
-import { CREDIT_PACKS, PLAN_MONTHLY_LIMITS } from '../config/video.config'
 import { CreditsRepository } from '../repositories/credits.repository'
+import { PricingRepository } from '../repositories/pricing.repository'
 import type Stripe from 'stripe'
 
 const creditsRepository = new CreditsRepository()
+const pricingRepository = new PricingRepository()
 
 export class CreditsController implements Routes {
   public controller: OpenAPIHono
@@ -52,8 +53,11 @@ export class CreditsController implements Routes {
 
         const credits = await creditsRepository.ensureUserCredits(user.id)
         const sub = await creditsRepository.getActiveSubscription(user.id)
-        const plan = sub?.plan || 'free'
-        const monthlyLimit = PLAN_MONTHLY_LIMITS[plan] ?? PLAN_MONTHLY_LIMITS.free
+        const planId = sub?.plan || 'free'
+
+        // Fetch plan limit from DB
+        const planInfo = await pricingRepository.getPlanById(planId)
+        const monthlyLimit = planInfo?.monthlyLimit ?? 0
 
         const videosThisMonth = credits?.videosThisMonth ?? 0
         const extraCredits = credits?.extraCredits ?? 0
@@ -63,7 +67,7 @@ export class CreditsController implements Routes {
           : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString().split('T')[0]
 
         return c.json({
-          plan,
+          plan: planId,
           videosThisMonth,
           videosMonthlyLimit: monthlyLimit,
           extraCredits,
@@ -87,7 +91,7 @@ export class CreditsController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  packId: z.enum(['pack_100', 'pack_300', 'pack_600']),
+                  packId: z.string(),
                   successUrl: z.string().url(),
                   cancelUrl: z.string().url()
                 })
@@ -128,16 +132,16 @@ export class CreditsController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const { packId, successUrl, cancelUrl } = c.req.valid('json')
-        const pack = CREDIT_PACKS[packId]
+        const pack = await pricingRepository.getCreditPackById(packId)
         if (!pack) return c.json({ error: 'Invalid pack' }, 400)
 
-        if (!pack.priceId) {
+        if (!pack.stripePriceId) {
           return c.json({ error: 'Pack price not configured' }, 400)
         }
 
         const sessionParams: Stripe.Checkout.SessionCreateParams = {
           mode: 'payment',
-          line_items: [{ price: pack.priceId, quantity: 1 }],
+          line_items: [{ price: pack.stripePriceId, quantity: 1 }],
           success_url: successUrl,
           cancel_url: cancelUrl,
           metadata: {
@@ -160,8 +164,8 @@ export class CreditsController implements Routes {
           pack: {
             id: pack.id,
             credits: pack.credits,
-            price: pack.price,
-            currency: pack.currency
+            price: Number(pack.priceAmount),
+            currency: pack.currency || 'usd'
           }
         })
       }
@@ -173,12 +177,18 @@ export class CreditsController implements Routes {
         method: 'get',
         path: '/v1/credits/history',
         tags: ['Credits'],
-        summary: 'Get credit transaction history',
-        description: 'Returns credit purchase and consumption history.',
+        summary: 'Get credit transaction history (paginated)',
+        description: 'Returns paginated credit purchase and consumption history with full details.',
         security: [{ Bearer: [] }],
+        request: {
+          query: z.object({
+            page: z.coerce.number().min(1).default(1).optional(),
+            limit: z.coerce.number().min(1).max(100).default(10).optional()
+          })
+        },
         responses: {
           200: {
-            description: 'Transaction history',
+            description: 'Paginated transaction history',
             content: {
               'application/json': {
                 schema: z.object({
@@ -186,15 +196,21 @@ export class CreditsController implements Routes {
                     z.object({
                       id: z.string(),
                       type: z.string(),
+                      description: z.string(),
                       amount: z.number(),
                       price: z.number().nullable().optional(),
                       currency: z.string().nullable().optional(),
                       stripeSessionId: z.string().nullable().optional(),
                       packId: z.string().nullable().optional(),
                       videoId: z.string().nullable().optional(),
+                      metadata: z.any().nullable().optional(),
                       createdAt: z.string()
                     })
-                  )
+                  ),
+                  total: z.number(),
+                  page: z.number(),
+                  pages: z.number(),
+                  limit: z.number()
                 })
               }
             }
@@ -209,20 +225,37 @@ export class CreditsController implements Routes {
         const user = c.get('user')
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
-        const transactions = await creditsRepository.getCreditTransactions(user.id)
+        const { page = 1, limit = 10 } = c.req.valid('query')
+        const total = await creditsRepository.countCreditTransactions(user.id)
+        const transactions = await creditsRepository.getCreditTransactions(user.id, page, limit)
+
+        const descriptionMap: Record<string, string> = {
+          topup: 'Achat de crédits',
+          welcome_bonus: 'Bonus de bienvenue',
+          refund: 'Remboursement',
+          debit: 'Consommation vidéo',
+          admin_adjustment: 'Ajustement administrateur',
+          subscription_reset: 'Renouvellement mensuel'
+        }
 
         return c.json({
           transactions: transactions.map((t) => ({
             id: t.id,
             type: t.type,
+            description: descriptionMap[t.type] ?? t.type,
             amount: t.amount,
             price: t.price ? Number(t.price) : null,
             currency: t.currency,
             stripeSessionId: t.stripeSessionId,
             packId: t.packId,
             videoId: t.videoId,
+            metadata: t.metadata ?? null,
             createdAt: t.createdAt.toISOString()
-          }))
+          })),
+          total,
+          page,
+          pages: Math.ceil(total / limit),
+          limit
         })
       }
     )

@@ -236,16 +236,26 @@ export class NanoBananaEngine {
     throw lastError
   }
 
-  async generateAIThumbnail(title: string, inspirationUrl?: string, outputDir?: string): Promise<string[]> {
+  async generateAIThumbnail(
+    title: string,
+    inspirationUrl?: string,
+    outputDir?: string,
+    count: number = 1
+  ): Promise<string[]> {
     const prompt = await this.promptManager.buildThumbnailPrompt(title, inspirationUrl)
     const results: string[] = []
     const baseDir = outputDir || path.join(this.outputDir, `thumb-${Date.now()}`)
     if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true })
     const referenceImages = inspirationUrl ? [{ data: inspirationUrl }] : []
     const characterImages = await this.promptManager.resolveCharacterImages()
-    const encodedRefs = await this.downloadAndEncodeImages([...referenceImages, ...characterImages])
+    const thumbnailInspirations = await this.promptManager.resolveThumbnailInspirations()
+    const encodedRefs = await this.downloadAndEncodeImages([
+      ...referenceImages,
+      ...characterImages,
+      ...thumbnailInspirations
+    ])
     const systemInstruction = await this.promptManager.buildImageSystemInstruction(encodedRefs.length > 0)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < count; i++) {
       const filename = path.join(baseDir, `thumb_${i}.webp`)
       const imageService = await this.getImageService()
       const url = await imageService.generateImage(prompt, filename, {
@@ -300,16 +310,34 @@ export class NanoBananaEngine {
       effectiveRefs.push({ name: 'LOCATION', data: locationB64 })
     }
 
-    try {
-      await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
-      await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
-    } catch {
-      if (!fs.existsSync(imagePath))
-        await sharp({ create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } } })
-          .webp()
-          .toFile(imagePath)
-    } finally {
-      if (fs.existsSync(tempBg)) fs.unlinkSync(tempBg)
+    const MAX_IMAGE_RETRIES = 3
+    let lastImageError: any
+    for (let attempt = 1; attempt <= MAX_IMAGE_RETRIES; attempt++) {
+      try {
+        await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
+        await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
+        lastImageError = null
+        break
+      } catch (error: any) {
+        lastImageError = error
+        if (attempt < MAX_IMAGE_RETRIES) {
+          console.warn(
+            `[NanoBanana] Image attempt ${attempt}/${MAX_IMAGE_RETRIES} failed, retrying in ${attempt * 3}s...`
+          )
+          await new Promise((r) => setTimeout(r, attempt * 3000))
+        } else {
+          console.error(`[NanoBanana] Image generation failed after ${MAX_IMAGE_RETRIES} attempts: ${error.message}`)
+        }
+      } finally {
+        if (fs.existsSync(tempBg)) fs.unlinkSync(tempBg)
+      }
+    }
+
+    // Only write blank placeholder if all retries exhausted
+    if (lastImageError && !fs.existsSync(imagePath)) {
+      await sharp({ create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+        .webp()
+        .toFile(imagePath)
     }
 
     // Store in location cache for future scenes
@@ -491,7 +519,7 @@ export class NanoBananaEngine {
     await this.exportVideoPackage(script, projectDir)
 
     const assConfig = valid.assCaptions || {
-      enabled: true,
+      enabled: false,
       style: 'colored' as const,
       fontSize: 70,
       fontFamily: 'Montserrat',
@@ -503,9 +531,19 @@ export class NanoBananaEngine {
     const skipAudio = valid.skipAudio || valid.generateOnlyScenes
     const skipComposition = (valid.generateOnlyAudio || valid.generateOnlyAssembly) && valid.repromptSceneIndex == null
 
+    // ─── OPTIMIZATION: Check for existing audio/transcription reuse ───────────
+    const combinedScriptText = script.scenes.map((s: any) => s.id + s.narration).join('|')
+    const voiceId = valid.kokoroVoicePreset || 'default'
+    const scriptHash = `${voiceId}-${combinedScriptText.length}-${Buffer.from(combinedScriptText).toString('base64').substring(0, 32)}`
+    const scriptHashPath = path.join(projectDir, 'script_hash.txt')
+    const globalAudioPath = path.join(projectDir, 'narration.mp3')
+    const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
+
+    const isScriptUnchanged = fs.existsSync(scriptHashPath) && fs.readFileSync(scriptHashPath, 'utf8') === scriptHash
+    const hasAudio = fs.existsSync(globalAudioPath)
+
     // ─── AUDIO (assembly-only mode) ───────────────────────────────────────────
     if (valid.generateOnlyAssembly) {
-      const globalAudioPath = path.join(projectDir, 'narration.mp3')
       const forceRegen = (options as any).forceRegenerateAudio
 
       if (forceRegen && fs.existsSync(globalAudioPath)) {
@@ -513,8 +551,13 @@ export class NanoBananaEngine {
         fs.unlinkSync(globalAudioPath)
       }
 
-      if (fs.existsSync(globalAudioPath)) {
-        // ✅ Priority 1: Audio déjà présent localement
+      const canReuseAudio = isScriptUnchanged && hasAudio
+
+      if (canReuseAudio) {
+        script.globalAudio = 'narration.mp3'
+        console.log(`[NanoBanana] Script inchangé — Réutilisation de la narration locale.`)
+      } else if (fs.existsSync(globalAudioPath)) {
+        // Fallback: local file exists but hash didn't match? Or first run.
         script.globalAudio = 'narration.mp3'
         console.log(`[NanoBanana] Narration trouvée localement.`)
       } else if ((script as any).narrationUrl) {
@@ -557,7 +600,7 @@ export class NanoBananaEngine {
         const cachedTranscriptValid =
           fs.existsSync(transcriptHashPath) && fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
         const hasTimings = script.scenes.some((s: any) => s.globalWordTimings?.length > 0)
-        const needsTranscription = !cachedTranscriptValid || !hasTimings
+        const needsTranscription = !isScriptUnchanged || !cachedTranscriptValid || !hasTimings
 
         if (needsTranscription) {
           if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
@@ -636,16 +679,31 @@ export class NanoBananaEngine {
 
         const task = this.generationQueue.add(async () => {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
-          if (!skipAudio || isTarget) {
+          // For reprompt: skip audio regeneration — only image needs to be regenerated
+          if (!skipAudio && !isTarget) {
             const audioPath = path.join(sceneDir, 'narration.mp3')
-            if (!fs.existsSync(audioPath) || isTarget) {
-              try {
-                const audio = await this.getAudioService()
-                const res = await audio.generateSpeech(scene.narration, audioPath)
-                if (res.wordTimings) (scene as any).globalWordTimings = res.wordTimings
-                ;(scene as any).audioDuration = res.duration
-              } catch {}
+            if (!fs.existsSync(audioPath)) {
+              const MAX_AUDIO_RETRIES = 3
+              for (let attempt = 1; attempt <= MAX_AUDIO_RETRIES; attempt++) {
+                try {
+                  const audio = await this.getAudioService()
+                  const res = await audio.generateSpeech(scene.narration, audioPath)
+                  if (res.wordTimings) (scene as any).globalWordTimings = res.wordTimings
+                  ;(scene as any).audioDuration = res.duration
+                  break
+                } catch (error: any) {
+                  if (attempt < MAX_AUDIO_RETRIES) {
+                    console.warn(`[NanoBanana] Audio attempt ${attempt} failed, retrying in ${attempt * 2}s...`)
+                    await new Promise((r) => setTimeout(r, attempt * 2000))
+                  } else {
+                    console.error(`[NanoBanana] Audio failed after ${MAX_AUDIO_RETRIES} attempts: ${error.message}`)
+                  }
+                }
+              }
             } else (scene as any).audioDuration = await this.getRealDuration(audioPath)
+          } else if (!isTarget) {
+            const audioPath = path.join(sceneDir, 'narration.mp3')
+            if (fs.existsSync(audioPath)) (scene as any).audioDuration = await this.getRealDuration(audioPath)
           }
 
           const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
@@ -662,8 +720,9 @@ export class NanoBananaEngine {
 
     await this.generationQueue.onIdle()
 
-    // ─── AUDIO + TIMING (mode normal, non assembly-only) ─────────────────────
-    if (!valid.generateOnlyAssembly && (!skipAudio || valid.repromptSceneIndex != null)) {
+    // ─── AUDIO + TIMING (mode normal, non assembly-only, non reprompt) ─────────
+    // Skip audio stitch entirely when reprompting a single scene — we only regenerated the image.
+    if (!valid.generateOnlyAssembly && !skipAudio && valid.repromptSceneIndex == null) {
       let currentTime = 0
       const files: string[] = []
       for (const s of script.scenes) {
@@ -684,13 +743,15 @@ export class NanoBananaEngine {
       if (files.length > 0) {
         await this.stitchAudioFiles(files, globalAudioPath)
         script.globalAudio = 'narration.mp3'
+        fs.writeFileSync(scriptHashPath, scriptHash)
       }
       if (onTimingSync) await onTimingSync(script)
       fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
     }
 
     // ─── ASSEMBLAGE FINAL ─────────────────────────────────────────────────────
-    if (!valid.generateOnlyAudio && !valid.generateOnlyScenes) {
+    // Skip final assembly on reprompt — only the image was changed, video stays as-is.
+    if (!valid.generateOnlyAudio && !valid.generateOnlyScenes && valid.repromptSceneIndex == null) {
       try {
         const globalAudioPath = path.join(projectDir, 'narration.mp3')
         const assembler = new VideoAssembler()
@@ -827,7 +888,10 @@ export class NanoBananaEngine {
       'script.json',
       'script.md',
       'metadata.json',
-      'subtitles.srt'
+      'subtitles.srt',
+      'narration.mp3',
+      'script_hash.txt',
+      'transcript_hash.txt'
     ]
     fs.readdirSync(projectDir).forEach((f) => {
       if (!keep.includes(f) && fs.statSync(path.join(projectDir, f)).isFile()) fs.unlinkSync(path.join(projectDir, f))

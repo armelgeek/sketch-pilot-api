@@ -227,7 +227,13 @@ export const enrichedSceneSchema = z.object({
   imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
   preset: z.string().optional().describe('Strategic role of the scene (e.g. hook, reveal, etc.)'),
   pacing: z
-    .enum(['fast', 'medium', 'slow'])
+    .enum(['fast', 'medium', 'slow', 'intense', 'tense'])
+    .or(z.string())
+    .transform((val) => {
+      if (val === 'fast' || val === 'medium' || val === 'slow') return val
+      if (val === 'intense' || val === 'tense') return 'fast' as const
+      return 'medium' as const
+    })
     .default('medium')
     .describe('Narration pacing: fast (dense), medium (balanced), slow (breathable)'),
   breathingPoints: z

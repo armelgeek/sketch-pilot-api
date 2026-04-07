@@ -9,6 +9,7 @@ import { Hono } from 'hono'
 import Stripe from 'stripe'
 import { db } from '../database/db'
 import * as schema from '../database/schema'
+import { subscriptionPlans } from '../database/schema'
 import { CreditsRepository } from '../repositories/credits.repository'
 import { ac, adminRole, userRole } from './access-control.config'
 import { sendChangeEmailVerification, sendResetPasswordEmail, sendVerificationEmail } from './mail.config'
@@ -28,18 +29,14 @@ export const auth = betterAuth({
       createCustomerOnSignUp: true,
       subscription: {
         enabled: true,
-        plans: [
-          {
-            name: 'plan_starter',
-            priceId: process.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_starter_monthly',
-            annualDiscountPriceId: process.env.STRIPE_PRICE_STARTER_YEARLY || 'price_starter_yearly'
-          },
-          {
-            name: 'creator',
-            priceId: process.env.STRIPE_PRICE_CREATOR_MONTHLY || 'price_creator_monthly',
-            annualDiscountPriceId: process.env.STRIPE_PRICE_CREATOR_YEARLY || 'price_creator_yearly'
-          }
-        ],
+        plans: async () => {
+          const plans = await db.select().from(subscriptionPlans)
+          return plans.map((plan) => ({
+            name: plan.id, // We use the database ID as the Better Auth plan name to allow direct mapping from the frontend
+            priceId: plan.priceMonthlyId || '',
+            annualDiscountPriceId: plan.priceYearlyId || undefined
+          }))
+        },
 
         requireEmailVerification: false
       },

@@ -64,6 +64,8 @@ export interface VideoJobData {
   userId: string
   videoId: string
   topic: string
+  cost?: number
+  planLimit?: number
   options: {
     duration?: number
     sceneCount?: number

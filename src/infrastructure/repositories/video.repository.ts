@@ -15,6 +15,7 @@ export class VideoRepository {
     id: string
     userId: string
     topic: string
+    title?: string
     status?: string
     progress?: number
     options?: any
@@ -30,6 +31,7 @@ export class VideoRepository {
         id: data.id,
         userId: data.userId,
         topic: data.topic,
+        title: data.title,
         status: data.status || 'queued',
         progress: data.progress || 0,
         options: data.options,
@@ -45,8 +47,9 @@ export class VideoRepository {
     return video
   }
 
-  findById(id: string) {
-    return db.query.videos?.findFirst?.({ where: (t: any, { eq: eqFn }: any) => eqFn(t.id, id) })
+  async findById(id: string) {
+    const video = await db.query.videos?.findFirst?.({ where: (t: any, { eq: eqFn }: any) => eqFn(t.id, id) })
+    return this.processVideoForFrontend(video)
   }
 
   async findByIdAndUserId(id: string, userId: string) {
@@ -54,12 +57,12 @@ export class VideoRepository {
       .select()
       .from(videos)
       .where(and(eq(videos.id, id), eq(videos.userId, userId)))
-    return video || null
+    return this.processVideoForFrontend(video) || null
   }
 
   async findByJobId(jobId: string) {
     const [video] = await db.select().from(videos).where(eq(videos.jobId, jobId))
-    return video || null
+    return this.processVideoForFrontend(video) || null
   }
 
   async updateStatus(
@@ -137,7 +140,7 @@ export class VideoRepository {
     ])
 
     return {
-      data,
+      data: data.map((v) => this.processVideoForFrontend(v)),
       total: Number(countResult[0]?.count ?? 0),
       page,
       limit
@@ -177,7 +180,7 @@ export class VideoRepository {
     ])
 
     return {
-      data,
+      data: data.map((v) => this.processVideoForFrontend(v)),
       total: Number(countResult[0]?.count ?? 0),
       page,
       limit
@@ -189,5 +192,37 @@ export class VideoRepository {
       .select({ status: videos.status, count: sql<number>`count(*)` })
       .from(videos)
       .groupBy(videos.status)
+  }
+
+  private processVideoForFrontend(video: any) {
+    if (!video) return video
+
+    // 1. Ensure title exists and is not too long
+    if (!video.title && video.topic) {
+      // Fallback to truncated topic if no title exists
+      video.title = video.topic
+        .split(/[.!?\n]/)[0]
+        .trim()
+        .slice(0, 70)
+    } else if (video.title && video.title.length > 100) {
+      // Emergency truncation if title is too long
+      video.title = `${video.title.slice(0, 70)}...`
+    }
+
+    // 2. Inject dynamic thumbnail if needed
+    if (!video.thumbnailUrl) {
+      const scenes = video.scenes || (video.script as any)?.scenes || []
+      if (scenes && Array.isArray(scenes) && scenes.length > 0) {
+        const scenesWithImages = scenes.filter((s: any) => s.imageUrl)
+        if (scenesWithImages.length > 0) {
+          // Stable random based on video ID
+          const charSum = video.id.split('').reduce((sum: number, char: string) => sum + char.charCodeAt(0), 0)
+          const index = charSum % scenesWithImages.length
+          video.thumbnailUrl = scenesWithImages[index].imageUrl
+        }
+      }
+    }
+
+    return video
   }
 }

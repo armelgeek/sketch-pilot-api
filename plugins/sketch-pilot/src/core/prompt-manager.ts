@@ -231,21 +231,42 @@ export class PromptManager {
     if (this.characterModelId) {
       const model = await this.characterRepository.findById(this.characterModelId)
       if (model) {
+        let baseMetadata: any = {}
+        if ((model as any).baseModelId) {
+          const baseModel = await this.characterRepository.findById((model as any).baseModelId)
+          if (baseModel) {
+            baseMetadata = {
+              description: baseModel.description || '',
+              gender: baseModel.gender || 'unknown',
+              age: baseModel.age || 'unknown',
+              voiceId: baseModel.voiceId,
+              stylePrefix: baseModel.stylePrefix || '',
+              artistPersona: baseModel.artistPersona || '',
+              images: baseModel.images || [],
+              thumbnailInspirations: (baseModel as any).thumbnailInspirations || []
+            }
+          }
+        }
+
         return {
-          description: model.description || '',
-          gender: model.gender || 'unknown',
-          age: model.age || 'unknown',
-          voiceId: model.voiceId,
-          stylePrefix: model.stylePrefix || '',
-          artistPersona: model.artistPersona || '',
-          images: model.images || []
+          description: model.description || baseMetadata.description || '',
+          gender: model.gender || baseMetadata.gender || 'unknown',
+          age: model.age || baseMetadata.age || 'unknown',
+          voiceId: model.voiceId || baseMetadata.voiceId,
+          stylePrefix: model.stylePrefix || baseMetadata.stylePrefix || '',
+          artistPersona: model.artistPersona || baseMetadata.artistPersona || '',
+          images: model.images?.length ? model.images : baseMetadata.images || [],
+          thumbnailInspirations: (model as any).thumbnailInspirations?.length
+            ? (model as any).thumbnailInspirations
+            : baseMetadata.thumbnailInspirations || []
         }
       }
     }
     return this.spec
       ? {
           description: this.spec.characterDescription || '',
-          images: []
+          images: [],
+          thumbnailInspirations: []
         }
       : undefined
   }
@@ -253,6 +274,11 @@ export class PromptManager {
   public async resolveCharacterImages(): Promise<string[]> {
     const metadata = await this.resolveCharacterMetadata()
     return metadata?.images || []
+  }
+
+  public async resolveThumbnailInspirations(): Promise<string[]> {
+    const metadata = await this.resolveCharacterMetadata()
+    return metadata?.thumbnailInspirations || []
   }
 
   // ─── Speed & timing ───────────────────────────────────────────────────────
@@ -866,6 +892,17 @@ Vous êtes UNIQUEMENT autorisé à :
   — Calculer le wordCount et l'estimatedDuration à partir du texte réel
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+RÈGLES POUR L'IMAGE PROMPT (IMPÉRATIF : TRÈS COURT ET SIMPLE) :
+— GARDER LE PROMPT TRÈS COURT : Maximum 15-20 mots par scène.
+— L'image doit illustrer l'IDÉE de la scène, pas la métaphore poétique de la narration.
+— Scène LITTÉRALE et PHOTOGRAPHIABLE uniquement. Sujet physique + action + décor simple.
+— AUCUN TEXTE COMPLEXE : Évitez les calendriers, les horloges détaillées ou les enseignes avec du texte long.
+— PAS DE DÉTAILS SUPERFLUS : Évitez de décrire 5+ objets en arrière-plan. Concentrez-vous sur l'essentiel.
+— Si la narration dit "une graine qui pousse" pour parler de progression personnelle → l'image montre une personne qui travaille/progresse, pas une graine.
+— Le personnage principal DOIT apparaître dans au moins 70% des scènes.
+— MAUVAIS : "Un sablier géant sur une colline avec des nuages en forme de visages et 10 livres ouverts."
+— BON : "Un homme assis à son bureau, écrivant calmement sur une feuille de papier."
+
 CORE SYSTEM PILOT (CONTEXTE) :
 ${spec.context || ''}
 ${spec.goals ? `OBJECTIFS :\n${spec.goals.map((g: string) => `- ${g}`).join('\n')}` : ''}
@@ -892,19 +929,77 @@ RÈGLE fullNarration :
   Définissez ceci APRÈS avoir rempli tous les champs narration des scènes, en les concaténant mot pour mot.
   Tout écart de nombre de mots > 2% = rejet automatique.
 
-RÈGLES POUR L'IMAGE PROMPT :
+RÈGLES POUR L'IMAGE PROMPT (STRICT RESTRAINT) :
 — DOIT être LITTÉRAL et PHOTOGRAPHIABLE. Absolument AUCUNE métaphore ou symbolisme abstrait.
 — MAUVAIS : "Un cerveau se transformant en arbre, symbolisant la croissance."
 — MAUVAIS : "Un réseau de pensées incandescentes interconnectées."
-— BON : "Gros plan d'un étudiant écrivant dans un carnet dans une salle de classe bien éclairée."
-— BON : "Une paire de mains plantant un petit jeune arbre vert dans un sol sombre."
-— Expliquez exactement ce qui est matériellement présent à l'écran : sujets physiques, cadre physique et actions physiques littérales.
+— BON : "Gros plan d'un étudiant écrivant dans un carnet."
+— BON : "Une paire de mains plantant une petite pousse verte dans le sol."
+— BREF : Soyez direct. Supprimez les adjectifs non essentiels.
 
-ACTIONS DE CAMÉRA :
+PACING / RYTHME (valeurs EXACTES — aucune autre valeur acceptée) :
+  fast | medium | slow
+  ⛔ Toute autre valeur (ex: tense, intense, martial, rapide) = rejet automatique.
+
+ACTIONS DE CAMÉRA (valeurs EXACTES — aucune autre valeur acceptée) :
   ${CAMERA_ACTIONS_LIST.join(' | ')}
+  
+  ⛔ Toute valeur absente de cette liste = rejet automatique.
+  ⛔ Ne PAS inventer : "slow-zoom", "tilt", "dolly", "orbit", etc.
+  ✅ Copier-coller EXACTEMENT une valeur de la liste ci-dessus.
 
-TRANSITIONS (options riches) :
+
+  ⛔ Ne PAS choisir aléatoirement. Chaque action DOIT correspondre à l'émotion et au rythme de la scène.
+  
+  GUIDE DE SÉLECTION :
+  — breathing     → scène contemplative, pause émotionnelle, moment de doute
+  — zoom-in       → révélation, détail important, tension qui monte, intimité
+  — zoom-out      → prise de recul, contexte général, clôture d'une idée
+  — pan-right     → progression, avancer, narration active, futur
+  — pan-left      → retour en arrière, flashback, remise en question
+  — ken-burns-static → scène posée, description d'un lieu, moment suspendu
+  — dutch-tilt    → malaise, déséquilibre, moment de rupture narrative
+  — snap-zoom     → choc, surprise, révélation brutale, pattern interrupt
+  — shake         → urgence, chaos, émotion forte, point de bascule
+
+  RÈGLE : Variez les actions sur l'ensemble des scènes. Deux scènes consécutives NE PEUVENT PAS avoir la même action.
+
+TRANSITIONS (valeurs EXACTES — aucune autre valeur acceptée) :
   ${TRANSITIONS_LIST.join(' | ')}
+  
+  ⛔ Toute valeur absente de cette liste = rejet automatique.
+  ⛔ Ne PAS inventer : "zoom-out", "wipe", "slide", "cut", "morph", etc.
+  ✅ Copier-coller EXACTEMENT une valeur de la liste ci-dessus.
+
+  ⛔ Ne PAS choisir aléatoirement. Chaque transition DOIT correspondre au changement émotionnel entre deux scènes.
+
+  GUIDE DE SÉLECTION :
+  — fade          → transition neutre, changement de lieu ou de temps
+  — crossfade     → continuité douce, enchaînement fluide d'idées liées
+  — blur          → changement d'ambiance, passage intérieur/extérieur, rêve
+  — zoomin        → focus sur la scène suivante, tension qui monte
+  — dissolve      → transition poétique, passage du temps, mélancolie
+  — fadeblack     → fin de chapitre, moment de rupture forte, pause dramatique
+  — fadewhite     → révélation, nouveau départ, clarté soudaine
+  — wipeleft      → progression naturelle, aller de l'avant
+  — wiperight     → retour en arrière, inversion
+  — wipeup        → montée en puissance, élévation
+  — wipedown      → descente, conclusion, atterrissage
+  — slideleft     → enchaînement dynamique, liste, progression rapide
+  — slideright    → retour, contraste, opposition
+  — slideup       → révélation par le bas, montée
+  — slidedown     → chute, conséquence, atterrissage brutal
+  — pixelize      → glitch, rupture visuelle, pattern interrupt
+  — radial        → ouverture circulaire, révélation centrale
+  — circleopen    → ouverture sur quelque chose de nouveau
+  — circleclose   → fermeture, conclusion d'un arc
+  — circlecrop    → focus intense, mise en lumière d'un détail
+  — hblur         → flou horizontal, vitesse, passage rapide
+  — distance      → éloignement, prise de recul, fin de séquence
+  — smoothleft    → glissement fluide vers la suite
+  — smoothright   → glissement fluide vers le passé
+
+  RÈGLE : Deux scènes consécutives NE PEUVENT PAS avoir la même transition. Variez selon l'arc émotionnel.
 
 MUSIQUE DE FOND (correspondance d'ambiance) :
   - calme, lo-fi, éducatif : "lofi-1" (Chill Lo-Fi)
@@ -955,7 +1050,7 @@ SORTIE : JSON valide uniquement. Pas de markdown. Pas de backticks. Aucune expli
       "summary": "string",
       "cameraAction": "string (${CAMERA_ACTIONS_LIST.join(' | ')})",
       "transition": "none | ${TRANSITIONS_LIST.join(' | ')}",
-      "imagePrompt": "string (EN LANGUE : ${lang})",
+      "imagePrompt": "string (MAX 20 MOTS, TRÈS SIMPLE, EN LANGUE : ${lang})",
       "animationPrompt": "string (EN LANGUE : ${lang})"
     }
   ]
@@ -974,6 +1069,8 @@ ${validatedNarration}
 
 VOTRE TÂCHE :
 Divisez la narration ci-dessus en scènes en suivant les RÈGLES DE DÉCOUPAGE du CORE SYSTEM PILOT.
+⚠️ OBLIGATION DE SIMPLICITÉ : Pour chaque imagePrompt, soyez "très court et simple". Max 20 mots.
+⚠️ L'image doit rester cohérente avec le sujet "${topic}". Ne jamais illustrer la métaphore littéralement.
 ${noPrune ? `⚠️ OBLIGATOIRE : Utilisez la narration MOT POUR MOT. NE PAS SAUTER, RÉDUIRE OU CONDENSER LE TEXTE. Chaque mot fourni dans la source doit apparaître dans un champ de scène.` : `⚠️ Si la narration est trop longue pour l'objectif de ${duration}s (~${targetWords} mots), élaguez sélectivement les phrases moins percutantes ou condensez les formulations redondantes tout en préservant l'arc émotionnel central et la conclusion.`}
 Remplissez tous les champs de métadonnées pour chaque scène.
 Renvoyez uniquement un JSON valide correspondant exactement à ce format :
@@ -1384,7 +1481,7 @@ Any word - count discrepancy between fullNarration and sum(scenes.narration) = A
     const effectiveHasRef = hasReferenceImages || (characterMetadata?.images && characterMetadata.images.length > 0)
 
     const referenceMode = effectiveHasRef
-      ? `Style consistency: Match the artistic style of the reference images for character design, clothing, and line quality.${stylePrefix}. The image is strictly black and white, rendered in grayscale with detailed pencil shading and texture.The scene includes a full, realistic, and dense environment with multiple clearly defined objects, independent from the reference background.`
+      ? `Style consistency: Match the artistic style of the reference images for character design, clothing, and line quality.${stylePrefix}. The image is strictly black and white, rendered in grayscale with detailed pencil shading and texture. ⚠️ BACKGROUND RULE: The scene MUST include a NEW, realistic, and dense environment with multiple clearly defined objects, strictly INDEPENDENT and DIFFERENT from the reference background.`
       : stylePrefix
 
     const personaContext = artistPersona ? `Acting as a ${artistPersona}, create: ` : ''
@@ -1438,11 +1535,9 @@ Any word - count discrepancy between fullNarration and sum(scenes.narration) = A
 
     if (hasReferenceImages) {
       finalPrompt +=
-        ' Style consistency: Match the flat illustration style, line art, and rendering technique of the reference images. The entire scene, including the background, must be drawn in the same style and not appear photorealistic.'
-
+        ' Match character features and artistic style of reference. Use a DIFFERENT background from the reference.'
       if (hasLocationReference) {
-        finalPrompt +=
-          ' ENVIRONMENTAL CONTINUITY: The scene takes place in the EXACT SAME LOCATION as shown in the reference image labeled LOCATION. Maintain all architectural details, furniture positions, and environmental landmarks. Keep the layout identical, only changing the character and their specific action.'
+        finalPrompt += ' Same location as reference. Only change character action.'
       }
     }
 
@@ -1470,12 +1565,12 @@ Any word - count discrepancy between fullNarration and sum(scenes.narration) = A
       prompt += `The thumbnail should be purely visual with NO TEXT. Do not generate any text, words, or letters anywhere. `
     }
 
-    prompt += `Composition: Dynamic, eye-catching, vibrant contrast, cinematic lighting, designed to maximize click-through rate. `
+    prompt += `Dynamic composition, vibrant contrast, cinematic lighting. `
 
     if (inspirationUrl) {
-      prompt += `\nINSPIRATION & VIBE: Use the reference image as creative inspiration for the mood, color palette, lighting and general visual energy. DO NOT copy the layout exactly—be highly creative to produce the most striking thumbnail possible. The main focus MUST be our character described above, placed into a dynamic, attention-grabbing scene inspired by the reference.`
+      prompt += `Inspired by reference mood and color palette. Main focus: character above.`
     } else {
-      prompt += `\nSTYLE: High-end professional digital illustration with sharp details, professional color grading, and a highly polished look. `
+      prompt += `Professional digital illustration, sharp details.`
     }
 
     if (stylePrefix) {

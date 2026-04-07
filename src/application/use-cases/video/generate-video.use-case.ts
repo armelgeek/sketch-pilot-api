@@ -2,7 +2,7 @@ import { videoGenerationOptionsSchema, type VideoGenerationOptions } from '@sket
 import { PromptService } from '@/application/services/prompt.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
-import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -82,9 +82,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         (options.promptId ? CREDIT_COSTS.STUDIO_PASS_SURCHARGE : 0)
 
       const credits = await creditsRepository.ensureUserCredits(userId)
-      const sub = await creditsRepository.getActiveSubscription(userId)
-      const actualPlan = sub?.plan || 'free'
-      const planLimit = PLAN_MONTHLY_LIMITS[actualPlan] ?? PLAN_MONTHLY_LIMITS.free
+      await creditsRepository.getActiveSubscription(userId)
+      const planLimit = await creditsRepository.getCurrentPlanLimit(userId)
 
       const consumedThisMonth = credits?.videosThisMonth ?? 0
       const extraCredits = credits?.extraCredits ?? 0
@@ -100,33 +99,25 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         }
       }
 
-      // Deduct with priority
-      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, totalCost, planLimit)
-
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'consumption_full',
-        amount: -totalCost,
-        metadata: {
-          estimatedScenes,
-          imageProvider: videoOptions.imageProvider,
-          resolution: videoOptions.resolution,
-          planConsumed,
-          extraConsumed,
-          plan
-        }
-      })
+      // 2. Initial balance verification (Check only, don't deduct yet)
 
       // Create the video record
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
 
+      // Generate a preliminary title from the topic
+      const preliminaryTitle = topic
+        .split(/[.!?\n]/)[0]
+        .trim()
+        .slice(0, 70)
+
       await videoRepository.create({
         id: videoId,
         userId,
         topic,
+        title: preliminaryTitle,
         characterModelId: options.characterModelId,
-        options: { ...videoOptions, creditsUsed: totalCost, planConsumed, extraConsumed },
+        options: { ...videoOptions, creditsUsed: totalCost },
         language: options.language || 'en',
         creditsUsed: totalCost
       })
@@ -147,6 +138,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         userId,
         videoId,
         topic,
+        cost: totalCost,
+        planLimit: planLimit === -1 ? 0 : planLimit, // planLimit needs to be a number
         options: toJobOptions(videoOptions, spec)
       }
 

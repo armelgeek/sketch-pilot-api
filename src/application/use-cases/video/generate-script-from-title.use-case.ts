@@ -1,12 +1,11 @@
 /* eslint-disable node/prefer-global/process */
 import { LLMServiceFactory } from '@sketch-pilot/services/llm'
 import { IUseCase } from '@/domain/types'
-import { CREDIT_COSTS, PLAN_MONTHLY_LIMITS } from '@/infrastructure/config/video.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 
 type GenerateScriptFromTitleParams = {
   userId: string
-  planId?: string
   title: string
   options?: {
     language?: string
@@ -28,20 +27,14 @@ export class GenerateScriptFromTitleUseCase extends IUseCase<
   GenerateScriptFromTitleParams,
   GenerateScriptFromTitleResponse
 > {
-  async execute({
-    userId,
-    planId,
-    title,
-    options
-  }: GenerateScriptFromTitleParams): Promise<GenerateScriptFromTitleResponse> {
+  async execute({ userId, title, options }: GenerateScriptFromTitleParams): Promise<GenerateScriptFromTitleResponse> {
     try {
       const cost = (CREDIT_COSTS as any).GENERATE_SCRIPT || 5
 
       // 1. Check available credits
       const credits = await creditsRepository.ensureUserCredits(userId)
-      const subscription = await creditsRepository.getActiveSubscription(userId)
-      const currentPlan = subscription?.plan || planId || 'free'
-      const planLimit = PLAN_MONTHLY_LIMITS[currentPlan] ?? PLAN_MONTHLY_LIMITS.free
+      await creditsRepository.getActiveSubscription(userId)
+      const planLimit = await creditsRepository.getCurrentPlanLimit(userId)
 
       const usedThisMonth = credits?.videosThisMonth ?? 0
       const extraCredits = credits?.extraCredits ?? 0
@@ -57,14 +50,7 @@ export class GenerateScriptFromTitleUseCase extends IUseCase<
         }
       }
 
-      // 2. Consume credits
-      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit)
-      await creditsRepository.addTransaction({
-        userId,
-        type: 'generate_script_from_title',
-        amount: -cost,
-        metadata: { planConsumed, extraConsumed, title, options }
-      })
+      // 2. Prepare LLM generation (balance checked above)
 
       // 3. Generate script using Gemini
       const apiKey = process.env.OPENAI_API_KEY || ''
@@ -114,6 +100,15 @@ Return ONLY a valid JSON object with a 'script' key:
       const cleanJson = response.replaceAll(/```json\n?|\n?```/g, '').trim()
       const parsed = JSON.parse(cleanJson)
       const script = typeof parsed.script === 'string' ? parsed.script : ''
+
+      // 4. Success! Deduct credits now.
+      const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit)
+      await creditsRepository.addTransaction({
+        userId,
+        type: 'generate_script_from_title',
+        amount: -cost,
+        metadata: { planConsumed, extraConsumed, title, options }
+      })
 
       return { success: true, script }
     } catch (error) {

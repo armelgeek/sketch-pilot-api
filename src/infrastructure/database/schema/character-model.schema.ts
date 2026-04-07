@@ -15,6 +15,9 @@ export const characterModels = pgTable('character_models', {
   thumbnailInspirations: jsonb('thumbnail_inspirations').$type<string[]>().default([]),
   thumbnailUrl: text('thumbnail_url'),
   userId: varchar('user_id', { length: 255 }).references(() => users.id, { onDelete: 'cascade' }),
+  baseModelId: varchar('base_model_id', { length: 255 }).references((): any => characterModels.id, {
+    onDelete: 'set null'
+  }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 })

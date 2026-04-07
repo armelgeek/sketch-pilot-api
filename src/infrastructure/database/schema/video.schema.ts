@@ -7,6 +7,7 @@ export const videos = pgTable('videos', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   topic: text('topic').notNull(),
+  title: text('title'),
   status: text('status').notNull().default('queued'), // draft | queued | processing | completed | failed | cancelled
   jobId: text('job_id'),
   progress: integer('progress').notNull().default(0),

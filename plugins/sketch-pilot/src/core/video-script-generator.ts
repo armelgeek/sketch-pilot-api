@@ -273,6 +273,8 @@ export class VideoScriptGenerator {
     if (onProgress) await onProgress(5, 'Studio: Crafting narration flow...')
 
     const { pass1 } = this.promptManager.buildTwoPassPrompts(topic, options)
+    if (onProgress) await onProgress(6, 'Studio: Initializing narration pass...')
+
     let narrationText = await this.llmService.generateContent(pass1.user, pass1.system)
 
     if (!narrationText) {
@@ -281,6 +283,8 @@ export class VideoScriptGenerator {
 
     // Pass 1 Validation & Optional Retry
     let validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
+    if (onProgress) await onProgress(7, 'Studio: Validating narration flow...')
+
     console.log(
       `[VideoScriptGen] Pass 1 Validation: ${validation.ok ? 'OK' : 'TOO SHORT'} (${validation.actualWords}/${validation.targetWords} words)`
     )
@@ -322,6 +326,8 @@ export class VideoScriptGenerator {
           if (onProgress) await onProgress(9, 'Studio: Proceeding with available narration...')
         }
       }
+    } else {
+      if (onProgress) await onProgress(10, 'Studio: Narration flow approved.')
     }
 
     // ─── PASS 2: STRUCTURING ────────────────────────────────────────────────
@@ -355,7 +361,7 @@ export class VideoScriptGenerator {
       for (let attempt = 1; attempt <= MAX_P2_RETRIES; attempt++) {
         try {
           if (onProgress) {
-            const step = 10 + (i / chunks.length) * 60
+            const step = 12 + (i / chunks.length) * 50
             const msg =
               chunks.length > 1
                 ? `Studio: Sculpting scenes part ${i + 1}/${chunks.length}...`
@@ -442,7 +448,7 @@ export class VideoScriptGenerator {
     }
 
     // 2. Scene-level validation & Micro-corrections (Fix v5)
-    if (onProgress) await onProgress(70, 'Studio: Running micro-corrections and quality checks...')
+    if (onProgress) await onProgress(65, 'Studio: Running micro-corrections...')
 
     const refinement = await this.promptManager.validateAndCorrectAllScenes(
       fixedScript.scenes,
@@ -455,6 +461,7 @@ export class VideoScriptGenerator {
           }
         : undefined
     )
+    if (onProgress) await onProgress(85, 'Studio: Refinement complete.')
     fixedScript.scenes = refinement.correctedScenes
 
     // 3. Final structural assignments

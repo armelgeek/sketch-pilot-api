@@ -34,7 +34,7 @@
     "db:studio": "npx drizzle-kit studio",
     "db:push": "npx drizzle-kit push",
     "db:drop": "tsx ./drizzle/reset.ts",
-    "db:seed": "node ./drizzle/seed.js",
+    "db:seed": "tsx drizzle/seed-pricing.ts",
     "db:reset": "tsx ./drizzle/reset.ts",
     "db:update": "npm run db:generate && npm run db:migrate",
     "stripe:listen": "stripe listen --forward-to http://localhost:5000/api/auth/stripe/webhook",

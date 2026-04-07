@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import type { Routes } from '@/domain/types'
-import { CREDIT_PACKS } from '../config/video.config'
 import { requireAdmin } from '../middlewares/admin.middleware'
 import { AssetsConfigRepository } from '../repositories/assets-config.repository'
 
@@ -58,99 +57,6 @@ export class ConfigController implements Routes {
       }
     )
 
-    // GET /v1/subscription-plans (Frontend alias)
-    this.controller.openapi(
-      createRoute({
-        method: 'get',
-        path: '/v1/subscription-plans',
-        tags: ['Config'],
-        summary: 'Get pricing plans (Frontend alias)',
-        responses: {
-          200: {
-            description: 'List of pricing plans',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  success: z.boolean(),
-                  data: z.array(
-                    z.object({
-                      id: z.string(),
-                      name: z.string(),
-                      price: z.number(),
-                      credits: z.number(),
-                      features: z.array(z.string())
-                    })
-                  )
-                })
-              }
-            }
-          }
-        }
-      }),
-      (c: any) => {
-        const plans = [
-          {
-            id: 'plan_starter',
-            name: 'Starter',
-            price: 5,
-            credits: 1000,
-            features: ['1000 credits/mo', '720p Export', 'Basic Voices']
-          },
-          {
-            id: 'creator',
-            name: 'Creator',
-            price: 15,
-            credits: 500,
-            features: ['500 high-quality credits/mo', '1080p Export', 'All Voices', 'No Watermark']
-          }
-        ]
-
-        return c.json({ success: true, data: plans })
-      }
-    )
-
-    // GET /v1/config/plans
-    this.controller.openapi(
-      createRoute({
-        method: 'get',
-        path: '/v1/config/plans',
-        tags: ['Config'],
-        summary: 'Get pricing plans and credit packs',
-        responses: {
-          200: {
-            description: 'Plans and credit packs',
-            content: {
-              'application/json': {
-                schema: z.object({
-                  plans: z.array(z.any()),
-                  creditPacks: z.array(
-                    z.object({
-                      id: z.string(),
-                      credits: z.number(),
-                      price: z.number(),
-                      currency: z.string(),
-                      stripePriceId: z.string()
-                    })
-                  )
-                })
-              }
-            }
-          }
-        }
-      }),
-      (c: any) => {
-        const creditPacks = Object.values(CREDIT_PACKS).map((pack) => ({
-          id: pack.id,
-          credits: pack.credits,
-          price: pack.price,
-          currency: pack.currency,
-          stripePriceId: pack.priceId
-        }))
-
-        return c.json({ creditPacks })
-      }
-    )
-
     // GET /v1/config/music  (DB-backed)
     this.controller.openapi(
       createRoute({
@@ -190,6 +96,40 @@ export class ConfigController implements Routes {
           previewUrl: t.previewUrl
         }))
         return c.json({ music })
+      }
+    )
+
+    // GET /v1/config/thumbnail-templates (Public)
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/config/thumbnail-templates',
+        tags: ['Config'],
+        summary: 'Get available thumbnail templates (inspirations)',
+        responses: {
+          200: {
+            description: 'Thumbnail templates',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  data: z.array(
+                    z.object({
+                      id: z.string(),
+                      name: z.string(),
+                      imageUrl: z.string(),
+                      niche: z.string().nullable()
+                    })
+                  )
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const templates = await assetsConfigRepository.getAllActiveThumbnailTemplates()
+        return c.json({ success: true, data: templates })
       }
     )
 
@@ -511,6 +451,132 @@ export class ConfigController implements Routes {
         } catch (error: any) {
           return c.json({ success: false, error: error.message }, 500)
         }
+      }
+    )
+
+    // --- Admin Thumbnail Templates ---
+    // GET /v1/admin/config/thumbnail-templates
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/admin/config/thumbnail-templates',
+        tags: ['Admin'],
+        summary: 'Get all thumbnail templates (admin)',
+        security: [{ Bearer: [] }],
+        responses: {
+          200: {
+            description: 'All thumbnail templates',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), data: z.array(z.any()) })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const templates = await assetsConfigRepository.findAllThumbnailTemplates()
+        return c.json({ success: true, data: templates })
+      }
+    )
+
+    // POST /v1/admin/config/thumbnail-templates
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/admin/config/thumbnail-templates',
+        tags: ['Admin'],
+        summary: 'Create a thumbnail template',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  name: z.string(),
+                  imageUrl: z.string(),
+                  niche: z.string().optional(),
+                  isActive: z.boolean().default(true)
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          201: {
+            description: 'Template created',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: z.any() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const data = c.req.valid('json')
+        const template = await assetsConfigRepository.createThumbnailTemplate({
+          ...data,
+          id: crypto.randomUUID()
+        })
+        return c.json({ success: true, data: template }, 201)
+      }
+    )
+
+    // PATCH /v1/admin/config/thumbnail-templates/{id}
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/v1/admin/config/thumbnail-templates/{id}',
+        tags: ['Admin'],
+        summary: 'Update a thumbnail template',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  name: z.string().optional(),
+                  imageUrl: z.string().optional(),
+                  niche: z.string().optional().nullable(),
+                  isActive: z.boolean().optional()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Template updated',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: z.any() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id } = c.req.valid('param')
+        const data = c.req.valid('json')
+        const template = await assetsConfigRepository.updateThumbnailTemplate(id, data)
+        return c.json({ success: true, data: template })
+      }
+    )
+
+    // DELETE /v1/admin/config/thumbnail-templates/{id}
+    this.controller.openapi(
+      createRoute({
+        method: 'delete',
+        path: '/v1/admin/config/thumbnail-templates/{id}',
+        tags: ['Admin'],
+        summary: 'Delete a thumbnail template',
+        security: [{ Bearer: [] }],
+        request: { params: z.object({ id: z.string() }) },
+        responses: {
+          200: {
+            description: 'Template deleted',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id } = c.req.valid('param')
+        await assetsConfigRepository.deleteThumbnailTemplate(id)
+        return c.json({ success: true })
       }
     )
   }

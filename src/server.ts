@@ -8,6 +8,7 @@ import {
   ConfigController,
   CreditsController,
   EmailCheckController,
+  PricingController,
   PromptController,
   ScriptsController,
   UserController,
@@ -28,7 +29,8 @@ const app = new App([
   new ConfigController(),
   new VideoAdminController(),
   new PromptController(),
-  new CharacterModelController()
+  new CharacterModelController(),
+  new PricingController()
 ]).getApp()
 
 let videoWorker: any = null

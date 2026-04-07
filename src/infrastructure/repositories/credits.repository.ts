@@ -2,6 +2,9 @@ import { desc, eq } from 'drizzle-orm'
 import { WELCOME_CREDITS } from '../config/video.config'
 import { db } from '../database/db'
 import { creditTransactions, userCredits } from '../database/schema'
+import { PricingRepository } from './pricing.repository'
+
+const pricingRepository = new PricingRepository()
 
 export class CreditsRepository {
   async getUserCredits(userId: string) {
@@ -16,6 +19,13 @@ export class CreditsRepository {
       where: (t: any, { and: andFn, eq: eqFn }: any) => andFn(eqFn(t.referenceId, userId), eqFn(t.status, 'active'))
     })
     return sub || null
+  }
+
+  async getCurrentPlanLimit(userId: string): Promise<number> {
+    const sub = await this.getActiveSubscription(userId)
+    const planId = sub?.plan || 'free'
+    const plan = await pricingRepository.getPlanById(planId)
+    return plan?.monthlyLimit ?? 0
   }
 
   async ensureUserCredits(userId: string) {
@@ -124,13 +134,20 @@ export class CreditsRepository {
       .where(eq(userCredits.userId, userId))
   }
 
-  getCreditTransactions(userId: string, limit = 50) {
+  getCreditTransactions(userId: string, page = 1, limit = 10) {
+    const offset = (page - 1) * limit
     return db
       .select()
       .from(creditTransactions)
       .where(eq(creditTransactions.userId, userId))
       .orderBy(desc(creditTransactions.createdAt))
       .limit(limit)
+      .offset(offset)
+  }
+
+  async countCreditTransactions(userId: string): Promise<number> {
+    const rows = await db.select().from(creditTransactions).where(eq(creditTransactions.userId, userId))
+    return rows.length
   }
 
   async addTransaction(data: {

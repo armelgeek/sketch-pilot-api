@@ -1,5 +1,3 @@
-import process from 'node:process'
-
 export interface CreditPack {
   id: string
   credits: number
@@ -8,31 +6,7 @@ export interface CreditPack {
   priceId: string
 }
 
-export const CREDIT_PACKS: Record<string, CreditPack> = {
-  pack_100: {
-    id: 'pack_100',
-    credits: 100,
-    price: 3,
-    currency: 'usd',
-    priceId: process.env.STRIPE_PRICE_PACK_100 || ''
-  },
-  pack_300: {
-    id: 'pack_300',
-    credits: 300,
-    price: 7,
-    currency: 'usd',
-    priceId: process.env.STRIPE_PRICE_PACK_300 || ''
-  },
-  pack_600: {
-    id: 'pack_600',
-    credits: 600,
-    price: 12,
-    currency: 'usd',
-    priceId: process.env.STRIPE_PRICE_PACK_600 || ''
-  }
-}
-
-export const WELCOME_CREDITS = 100
+export const WELCOME_CREDITS = 0
 
 export const CREDIT_COSTS = {
   SCRIPT_GENERATION: 10,
@@ -45,13 +19,8 @@ export const CREDIT_COSTS = {
   EXPORT_720P: 5,
   EXPORT_1080P: 10,
   STUDIO_PASS_SURCHARGE: 5, // Fee for ScriptDoctor + ArtDirector + Director passes
-  THUMBNAIL_GENERATION: 5
-}
-
-export const PLAN_MONTHLY_LIMITS: Record<string, number> = {
-  free: 0,
-  plan_starter: 1000,
-  creator: 500
+  THUMBNAIL_GENERATION: 2,
+  CHARACTER_GENERATION: 10
 }
 
 export const VOICES = {

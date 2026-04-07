@@ -1,6 +1,54 @@
 import OpenAI from 'openai'
 import type { LLMService, LLMServiceConfig } from './index'
 
+// ─── Retry Helpers ────────────────────────────────────────────────────────────
+
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
+const NETWORK_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'])
+
+function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const err = error as any
+  if (err.status && RETRYABLE_STATUS.has(err.status)) return true
+  if (err.code === 'rate_limit_exceeded') return true
+  const nodeCode = (error as NodeJS.ErrnoException).code
+  if (nodeCode && NETWORK_ERROR_CODES.has(nodeCode)) return true
+  const msg = error.message.toLowerCase()
+  return (
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('socket') ||
+    msg.includes('fetch failed') ||
+    msg.includes('econnreset')
+  )
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  {
+    maxAttempts = 3,
+    baseDelayMs = 5000,
+    maxDelayMs = 60_000,
+    label = 'operation'
+  }: { maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number; label?: string } = {}
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (!isRetryableError(error) || attempt === maxAttempts) throw error
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs)
+      console.warn(`[OpenAILLM] ${label} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay / 1000}s…`)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+  throw lastError
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
 /**
  * Implementation using OpenAI (ChatGPT) for LLM script and idea generation.
  */
@@ -13,64 +61,40 @@ export class OpenAILLMService implements LLMService {
       throw new Error('OpenAI API key is required to use the OpenAI LLM service')
     }
     this.client = new OpenAI({ apiKey: config.apiKey })
-    // Use gpt-4o by default for speed and quality
     this.modelId = config.modelId || 'gpt-4o'
   }
 
   async generateContent(prompt: string, systemInstruction?: string, responseMimeType?: string): Promise<string> {
-    return this.retryOperation(async () => {
-      const messages: any[] = []
+    return withRetry(
+      async () => {
+        const messages: any[] = []
 
-      // Add system instruction if provided
-      if (systemInstruction) {
-        messages.push({
-          role: 'system',
-          content: systemInstruction
-        })
-      }
+        if (systemInstruction) {
+          messages.push({ role: 'system', content: systemInstruction })
+        }
+        messages.push({ role: 'user', content: prompt })
 
-      // Add the user prompt
-      messages.push({
-        role: 'user',
-        content: prompt
-      })
+        const options: any = {
+          model: this.modelId,
+          messages,
+          temperature: 0.8,
+          max_tokens: 4096
+        }
 
-      // Prepare completion options
-      const options: any = {
-        model: this.modelId,
-        messages,
-        temperature: 0.8,
-        max_tokens: 4096 // Sufficient for ~3000 words in JSON format
-      }
+        if (responseMimeType === 'application/json') {
+          options.response_format = { type: 'json_object' }
+        }
 
-      // Handle JSON response format requirement (often used by the script generator)
-      if (responseMimeType === 'application/json') {
-        options.response_format = { type: 'json_object' }
-      }
+        const response = await this.client.chat.completions.create(options)
+        const text = response.choices?.[0]?.message?.content
 
-      const response = await this.client.chat.completions.create(options)
-      const text = response.choices?.[0]?.message?.content
+        if (!text) {
+          throw new Error('Failed to generate content with OpenAI')
+        }
 
-      if (!text) {
-        throw new Error('Failed to generate content with OpenAI')
-      }
-
-      return text
-    })
-  }
-
-  private async retryOperation<T>(operation: () => Promise<T>, retries: number = 3, delay: number = 5000): Promise<T> {
-    try {
-      return await operation()
-    } catch (error: any) {
-      if (retries > 0 && (error.status === 429 || error.status === 503 || error.code === 'rate_limit_exceeded')) {
-        console.warn(
-          `[OpenAILLM] Rate limited or service unavailable. Retrying in ${delay / 1000}s... (${retries} attempts left)`
-        )
-        await new Promise((resolve) => setTimeout(resolve, delay))
-        return this.retryOperation(operation, retries - 1, delay * 2)
-      }
-      throw error
-    }
+        return text
+      },
+      { label: 'generateContent', maxAttempts: 3, baseDelayMs: 5000 }
+    )
   }
 }

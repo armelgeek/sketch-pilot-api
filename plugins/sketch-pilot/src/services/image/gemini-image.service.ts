@@ -159,8 +159,32 @@ export class GeminiImageService implements ImageService {
           )
         }
       } catch (error) {
-        // Real errors (network, auth, etc.) should not be retried here — let the outer queue handle them
         const errMsg = error instanceof Error ? error.message.slice(0, 300) : 'Unknown error'
+
+        // Determine if the error is retryable (network/timeout) or fatal (auth, bad request)
+        const isRetryable =
+          error instanceof Error &&
+          (errMsg.includes('ECONNRESET') ||
+            errMsg.includes('ENOTFOUND') ||
+            errMsg.includes('ETIMEDOUT') ||
+            errMsg.includes('ECONNREFUSED') ||
+            errMsg.includes('fetch failed') ||
+            errMsg.includes('network') ||
+            errMsg.includes('socket') ||
+            errMsg.includes('503') ||
+            errMsg.includes('429') ||
+            errMsg.includes('500'))
+
+        if (isRetryable && attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES) {
+          const delay = GeminiImageService.NO_IMAGE_BASE_DELAY_MS * 2 ** attempt
+          console.warn(
+            `[GeminiImage] ⚠ Network error (attempt ${attempt}). Retrying in ${(delay / 1000).toFixed(1)}s... ${errMsg}`
+          )
+          await new Promise((resolve) => setTimeout(resolve, delay))
+          continue
+        }
+
+        // Fatal error (auth, bad request, etc.) or max retries exceeded
         console.error(`[GeminiImage] Error generating image: ${errMsg}`)
         throw error
       }

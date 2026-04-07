@@ -1,8 +1,9 @@
 import { Buffer } from 'node:buffer'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { v4 as uuidv4 } from 'uuid'
+import { GenerateCharacterImageUseCase } from '@/application/use-cases/character-model/generate-character-image.use-case'
 import type { Routes } from '@/domain/types'
-import { uploadBuffer } from '../config/storage.config'
+import { deleteObjectsByUrls, uploadBuffer } from '../config/storage.config'
 import { requireAdmin } from '../middlewares/admin.middleware'
 import { authMiddleware } from '../middlewares/auth.middleware'
 import { CharacterModelRepository } from '../repositories/character-model.repository'
@@ -21,6 +22,7 @@ const CharacterModelSchema = z.object({
   thumbnailInspirations: z.array(z.string()).nullable().default([]),
   thumbnailUrl: z.string().nullable(),
   userId: z.string().nullable(),
+  baseModelId: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string()
 })
@@ -280,6 +282,14 @@ export class CharacterModelController implements Routes {
         if (!existing) {
           return c.json({ success: false, error: 'Character model not found' }, 404)
         }
+
+        // Clean up images from storage
+        const imagesToDelete = [...(existing.images || [])]
+        if (existing.thumbnailUrl) imagesToDelete.push(existing.thumbnailUrl)
+        if (imagesToDelete.length > 0) {
+          await deleteObjectsByUrls(imagesToDelete)
+        }
+
         await this.repository.delete(id)
         return c.json({ success: true })
       }
@@ -366,9 +376,21 @@ export class CharacterModelController implements Routes {
                   voiceId: z.string().nullable().optional(),
                   stylePrefix: z.string().nullable().optional(),
                   artistPersona: z.string().nullable().optional(),
-                  images: z.array(z.string()).nullable().optional(),
-                  thumbnailInspirations: z.array(z.string()).nullable().optional(),
-                  thumbnailUrl: z.string().nullable().optional()
+                  thumbnailUrl: z.string().nullable().optional(),
+                  baseModelId: z.string().nullable().optional()
+                })
+              },
+              'multipart/form-data': {
+                schema: z.object({
+                  name: z.string(),
+                  description: z.string().nullable().optional(),
+                  gender: z.string().nullable().optional(),
+                  age: z.string().nullable().optional(),
+                  voiceId: z.string().nullable().optional(),
+                  stylePrefix: z.string().nullable().optional(),
+                  artistPersona: z.string().nullable().optional(),
+                  image: z.any().nullable().optional(), // The reference photo
+                  baseModelId: z.string().nullable().optional()
                 })
               }
             }
@@ -388,21 +410,66 @@ export class CharacterModelController implements Routes {
       async (c: any) => {
         const user = c.get('user')
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
-        const body = c.req.valid('json')
+
+        const contentType = c.req.header('content-type') || ''
+        let name, description, gender, age, voiceId, stylePrefix, artistPersona, baseModelId, thumbnailUrl
+        const images: string[] = []
+
+        if (contentType.includes('application/json')) {
+          const body = await c.req.json()
+          name = body.name
+          description = body.description
+          gender = body.gender || 'unknown'
+          age = body.age || 'unknown'
+          voiceId = body.voiceId
+          stylePrefix = body.stylePrefix
+          artistPersona = body.artistPersona
+          baseModelId = body.baseModelId
+          thumbnailUrl = body.thumbnailUrl
+          if (thumbnailUrl) images.push(thumbnailUrl)
+        } else {
+          const formData = await c.req.formData()
+          name = formData.get('name') as string
+          description = formData.get('description') as string | null
+          gender = (formData.get('gender') as string) || 'unknown'
+          age = (formData.get('age') as string) || 'unknown'
+          voiceId = formData.get('voiceId') as string | null
+          stylePrefix = formData.get('stylePrefix') as string | null
+          artistPersona = formData.get('artistPersona') as string | null
+          baseModelId = formData.get('baseModelId') as string | null
+          const imageFile = formData.get('image') as File | null
+
+          if (imageFile && imageFile.size > 0) {
+            try {
+              const arrayBuffer = await imageFile.arrayBuffer()
+              const buffer = Buffer.from(arrayBuffer)
+              const extension = imageFile.name.split('.').pop()
+              const mimeType = imageFile.type
+              const key = `characters/${uuidv4()}.${extension}`
+
+              thumbnailUrl = await uploadBuffer(key, buffer, mimeType)
+              images.push(thumbnailUrl)
+            } catch (error) {
+              console.error('Failed to upload character reference image:', error)
+            }
+          }
+        }
+
         const newModel = await this.repository.create({
           id: uuidv4(),
           userId: user.id,
-          name: body.name,
-          description: body.description || null,
-          gender: body.gender || 'unknown',
-          age: body.age || 'unknown',
-          voiceId: body.voiceId || null,
+          name,
+          description: description || null,
+          gender,
+          age,
+          voiceId: voiceId || null,
           isStandard: 'false',
-          stylePrefix: body.stylePrefix || null,
-          artistPersona: body.artistPersona || null,
-          thumbnailUrl: body.thumbnailUrl || null,
-          images: body.images || [],
-          thumbnailInspirations: body.thumbnailInspirations || [],
+          stylePrefix: stylePrefix || null,
+          artistPersona: artistPersona || null,
+          thumbnailUrl,
+          images,
+          thumbnailInspirations: [],
+          baseModelId: baseModelId || null,
           createdAt: new Date(),
           updatedAt: new Date()
         })
@@ -433,7 +500,8 @@ export class CharacterModelController implements Routes {
                   artistPersona: z.string().nullable().optional(),
                   images: z.array(z.string()).nullable().optional(),
                   thumbnailInspirations: z.array(z.string()).nullable().optional(),
-                  thumbnailUrl: z.string().nullable().optional()
+                  thumbnailUrl: z.string().nullable().optional(),
+                  baseModelId: z.string().nullable().optional()
                 })
               }
             }
@@ -472,8 +540,74 @@ export class CharacterModelController implements Routes {
       }),
       async (c: any) => {
         const { id } = c.req.valid('param')
+
+        // Fetch to get images for cleanup
+        const user = c.get('user')
+        const existing = await this.repository.findById(id)
+
+        // Check ownership if it's a personal character
+        if (existing && existing.userId && existing.userId !== user.id) {
+          return c.json({ error: 'Unauthorized' }, 401)
+        }
+
+        if (existing) {
+          const imagesToDelete = [...(existing.images || [])]
+          if (existing.thumbnailUrl) imagesToDelete.push(existing.thumbnailUrl)
+          if (imagesToDelete.length > 0) {
+            await deleteObjectsByUrls(imagesToDelete)
+          }
+        }
+
         await this.repository.delete(id)
         return c.json({ success: true })
+      }
+    )
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/characters/generate',
+        tags: ['Characters'],
+        summary: 'Generate a character image (AI)',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  baseModelId: z.string(),
+                  prompt: z.string()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Character image generated',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  imageUrl: z.string().optional(),
+                  creditsRequired: z.number().optional(),
+                  error: z.string().optional()
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const body = c.req.valid('json')
+        const useCase = new GenerateCharacterImageUseCase()
+        const result = await useCase.execute({
+          userId: user.id,
+          baseModelId: body.baseModelId,
+          prompt: body.prompt
+        })
+        return c.json(result)
       }
     )
   }

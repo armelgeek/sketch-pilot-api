@@ -1,3 +1,4 @@
+import { env } from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { CreateAdminUserUseCase } from '@/application/use-cases/user/create-admin-user.use-case'
 import { DeleteUserUseCase } from '@/application/use-cases/user/delete-user.use-case'
@@ -20,6 +21,67 @@ export class UserController implements Routes {
   public initRoutes() {
     // All /v1/admin/* routes require admin role
     this.controller.use('/v1/admin/*', requireAdmin)
+
+    // POST /v1/feedback
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/feedback',
+        tags: ['User'],
+        summary: 'Submit user feedback',
+        description: 'Submit bug report, feedback or ideas.',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  type: z.enum(['bug', 'idea', 'other']),
+                  message: z.string().min(1).max(1000)
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Feedback submitted successfully',
+            content: {
+              'application/json': { schema: z.object({ success: z.boolean() }) }
+            }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: {
+              'application/json': { schema: z.object({ error: z.string() }) }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { type, message } = c.req.valid('json')
+
+        // In a real scenario, this would be saved to a database table or sent via email.
+        // For the MVP, we just log it and potentially send an email if configured.
+        console.info(`[Feedback] from userId ${user.id} (${user.email}): [${type}] ${message}`)
+
+        try {
+          await sendEmail({
+            to: env.SUPPORT_EMAIL || 'support@sketchpilot.com',
+            subject: `Nouveau feedback: ${type}`,
+            text: `Utilisateur: ${user.email} (${user.id})\nType: ${type}\n\nMessage:\n${message}`,
+            html: `<p><strong>Utilisateur:</strong> ${user.email} (${user.id})</p><p><strong>Type:</strong> ${type}</p><p><strong>Message:</strong></p><blockquote>${message}</blockquote>`
+          })
+        } catch (error) {
+          console.error('[Feedback] email sending failed but continuing:', error)
+        }
+
+        return c.json({ success: true })
+      }
+    )
 
     // GET /v1/users/session
     this.controller.openapi(

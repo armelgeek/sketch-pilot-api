@@ -25,3 +25,13 @@ export const musicTracks = pgTable('music_tracks', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })
+
+export const thumbnailTemplates = pgTable('thumbnail_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  imageUrl: text('image_url').notNull(),
+  niche: text('niche'), // educational | fun | business | etc.
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})

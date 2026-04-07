@@ -67,22 +67,43 @@ async function reportProgress(
 }
 
 /**
+ * Helper to map local phase progress (0-100) to global video lifecycle progress (0-100).
+ */
+function getGlobalProgress(localProgress: number, options: any): number {
+  const p = Math.max(0, Math.min(100, localProgress))
+
+  // Phase 1: Script & Scenes (0-70%)
+  if (options.generateOnlyScenes || !options.generateFromScript) {
+    return Math.round((p / 100) * 70)
+  }
+
+  // Phase 2: Assembly/Rendering (70-100%)
+  if (options.generateOnlyAssembly) {
+    return Math.round(70 + (p / 100) * 30)
+  }
+
+  // All-in-one or legacy
+  return p
+}
+
+/**
  * Upload scene images and thumbnails to MinIO.
  * This is crucial for UI to display scenes before assembly.
+ * Returns the updated scenes array with imageUrl and thumbnailUrl set.
  */
-async function uploadSceneImages(videoId: string, scenes: any[], outputPath: string) {
+async function uploadSceneImages(videoId: string, scenes: any[], outputPath: string): Promise<any[]> {
   const scenesDir = path.join(outputPath, 'scenes')
   console.info(`[VideoWorker] Checking for scene images to upload in: ${scenesDir}`)
   if (!fs.existsSync(scenesDir)) {
     console.warn(`[VideoWorker] Scenes directory not found: ${scenesDir}`)
-    return
+    return scenes
   }
 
   let uploadCount = 0
   for (const scene of scenes) {
     const sceneDir = path.join(scenesDir, scene.id)
     if (!fs.existsSync(sceneDir)) {
-      // For reprompts, we expect only the target scene directory to exist
+      console.info(`[VideoWorker] Scene directory not found: ${sceneDir}, skipping upload for ${scene.id}`)
       continue
     }
 
@@ -92,12 +113,14 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
         console.info(`[VideoWorker] Uploading scene image: ${scene.id}`)
         const buffer = await fsPromises.readFile(sceneWebp)
         const url = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/scene.webp`, buffer, 'image/webp')
-        // Add cache buster to force frontend refresh
         scene.imageUrl = `${url}?v=${Date.now()}`
+        console.info(`[VideoWorker] ✓ Scene image uploaded for ${scene.id}: ${scene.imageUrl}`)
         uploadCount++
       } catch (error) {
         console.error(`[VideoWorker] Failed to upload scene image ${scene.id}:`, error)
       }
+    } else {
+      console.warn(`[VideoWorker] Scene image file not found: ${sceneWebp}`)
     }
 
     const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
@@ -106,15 +129,18 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
         console.info(`[VideoWorker] Uploading scene thumbnail: ${scene.id}`)
         const buffer = await fsPromises.readFile(thumbnailJpg)
         const url = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/thumbnail.jpg`, buffer, 'image/jpeg')
-        // Add cache buster to force frontend refresh
         scene.thumbnailUrl = `${url}?v=${Date.now()}`
+        console.info(`[VideoWorker] ✓ Scene thumbnail uploaded for ${scene.id}: ${scene.thumbnailUrl}`)
         uploadCount++
       } catch (error) {
         console.error(`[VideoWorker] Failed to upload scene thumbnail ${scene.id}:`, error)
       }
+    } else {
+      console.warn(`[VideoWorker] Scene thumbnail file not found: ${thumbnailJpg}`)
     }
   }
   console.info(`[VideoWorker] uploadSceneImages completed. Uploaded ${uploadCount} files for video ${videoId}`)
+  return scenes
 }
 
 /**
@@ -157,6 +183,91 @@ function findLastCompletedSceneIndex(scenesDir: string, script: any): number {
 
 // Uses Redis instead of local memory to track active jobs
 // and prevent concurrent processing across multiple workers.
+
+/**
+ * Centralized handler for scene generation events.
+ * 1. Uploads generated assets to MinIO.
+ * 2. Updates the in-memory script with the new MinIO URLs.
+ * 3. Persists the entire script and scenes to the database (JSONB-safe).
+ * 4. Reports progress to BullMQ and the local map for SSE.
+ */
+async function handleSceneGenerated(
+  job: Job<VideoJobData>,
+  videoId: string,
+  scene: any,
+  script: any,
+  index: number,
+  progress: number,
+  effectiveProjectId: string
+) {
+  console.info(`[VideoWorker] Scene ${index} generated. Processing assets for video ${videoId}...`)
+  const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
+
+  try {
+    // 1. Upload to MinIO and get updated scene object with imageUrl
+    const [updatedScene] = await uploadSceneImages(videoId, [scene], absoluteOutputPath)
+
+    // 2. Synchronize the SHARED script object in memory
+    const sceneIdx = script.scenes.findIndex((s: any) => s.id === scene.id)
+    if (sceneIdx !== -1) {
+      script.scenes[sceneIdx] = updatedScene
+    }
+
+    // 3. Prepare payload for DB
+    // Deep clone to ensure Drizzle/Postgres detects JSONB collection changes
+    const scenesToSave = JSON.parse(JSON.stringify(script.scenes))
+    const scriptToSave = JSON.parse(JSON.stringify(script))
+
+    const updatePayload: any = {
+      script: scriptToSave,
+      scenes: scenesToSave
+    }
+
+    // If it's the first scene, use it as the video-level thumbnail
+    if (index === 1 && scene.thumbnailUrl) {
+      updatePayload.thumbnailUrl = scene.thumbnailUrl
+      console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
+    }
+
+    // 4. Report progress first (important for SSE visibility)
+    const globalProgress = getGlobalProgress(progress, job.data.options)
+    await reportProgress(job, videoId, 'composing_scene', globalProgress, `Scene ${index} generated`, {
+      currentSceneIndex: index - 1,
+      scene: updatedScene
+    })
+
+    // 5. Update DB
+    await videoRepository.updateStatus(videoId, updatePayload)
+    console.info(`[VideoWorker] Scene ${index} persisted successfully.`)
+  } catch (error: any) {
+    console.error(`[VideoWorker] Error in handleSceneGenerated for scene ${index}:`, error)
+  }
+}
+
+/**
+ * Deduct credits from user account upon successful task completion.
+ */
+async function deductCredits(userId: string, videoId: string, cost?: number, planLimit?: number, jobId?: string) {
+  if (!cost || cost <= 0) return
+
+  try {
+    const { planConsumed, extraConsumed } = await creditsRepository.consumeCredits(userId, cost, planLimit || 0)
+    await creditsRepository.addTransaction({
+      userId,
+      type: 'consumption_video',
+      amount: -cost,
+      videoId,
+      metadata: {
+        planConsumed,
+        extraConsumed,
+        jobId
+      }
+    })
+    console.info(`[VideoWorker] Successfully deducted ${cost} credits for video ${videoId}`)
+  } catch (error) {
+    console.error(`[VideoWorker] FAILED to deduct credits on success for video ${videoId}:`, error)
+  }
+}
 
 /**
  * Process a single video generation job.
@@ -217,7 +328,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     // Sets generateOnlyAudio: true in genOptions, which tells NanoBanana to skip image generation.
     if (options.generateOnlyAudio) {
       if (!videoRecord.script) throw new Error('No script found for audio generation. Run storyboard first.')
-      await reportProgress(job, videoId, 'audio_generation', 10, 'Initializing audio generation...')
+      await reportProgress(job, videoId, 'audio_generation', 5, 'Initializing audio generation...')
       // `generateOnlyAudio: true` in genOptions instructs NanoBanana to skip all visual/scene generation
       genOptions.generateOnlyAudio = true
       genOptions.skipImageGeneration = true
@@ -229,12 +340,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         options: genOptions,
         projectId: effectiveProjectId,
         onProgress: async (p: number, m: string, meta?: any) =>
-          await reportProgress(job, videoId, 'audio_generation', Math.round(10 + (p / 100) * 80), m, meta),
+          await reportProgress(job, videoId, 'audio_generation', Math.round(5 + (p / 100) * 90), m, meta),
         onTimingSync: async (syncedScript: any) => {
           console.info(`[VideoWorker] Audio timing sync complete. Updating DB...`)
+          const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
           await videoRepository.updateStatus(videoId, {
-            script: syncedScript as any,
-            scenes: syncedScript.scenes as any
+            script: scriptToSave,
+            scenes: scriptToSave.scenes
           })
         },
         onSceneGenerated: undefined
@@ -244,9 +356,17 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         outputPath: path.join(OUTPUT_DIR, effectiveProjectId)
       } as any
     } else if (options.generateFromScript && videoRecord.script) {
+      // Ensure effectiveProjectId is always persisted to DB so subsequent jobs can find it
+      if (!effectiveProjectId) {
+        effectiveProjectId = `video-${videoId}-${Date.now()}`
+        await videoRepository.updateStatus(videoId, {
+          options: { ...((videoRecord.options as any) || {}), localProjectId: effectiveProjectId }
+        })
+        console.info(`[VideoWorker] Created new effectiveProjectId: ${effectiveProjectId}`)
+      }
       const skipScript = checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       if (!skipScript) {
-        await reportProgress(job, videoId, 'rendering', 15, 'Rendering video...')
+        await reportProgress(job, videoId, 'rendering', 70, 'Initializing video assembly...')
         pkg = await videoGenerationService.renderVideoFromScript({
           videoId,
           topic,
@@ -255,35 +375,17 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', Math.round(15 + (p / 100) * 70), m, meta),
+            await reportProgress(job, videoId, 'rendering', Math.round(70 + (p / 100) * 25), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
+            const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
             await videoRepository.updateStatus(videoId, {
-              script: syncedScript as any,
-              scenes: syncedScript.scenes as any
+              script: scriptToSave,
+              scenes: scriptToSave.scenes
             })
           },
           onSceneGenerated: async (scene, script, index, progress) => {
-            console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-            const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
-            await uploadSceneImages(videoId, [scene], absoluteOutputPath)
-
-            const updatePayload: any = {
-              script: script as any,
-              scenes: script.scenes as any
-            }
-
-            // If it's the first scene, set it as the video-level thumbnailUrl
-            if (index === 1 && scene.thumbnailUrl) {
-              updatePayload.thumbnailUrl = scene.thumbnailUrl
-              console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
-            }
-
-            await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
-              currentSceneIndex: index - 1, // Store 0-based index for frontend
-              scene
-            })
-            await videoRepository.updateStatus(videoId, updatePayload)
+            await handleSceneGenerated(job, videoId, scene, script, index, progress, effectiveProjectId)
           }
         })
         if (pkg.script && options.repromptSceneIndex === undefined) {
@@ -309,35 +411,17 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', Math.round(15 + (p / 100) * 70), m, meta),
+            await reportProgress(job, videoId, 'rendering', Math.round(70 + (p / 100) * 25), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
+            const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
             await videoRepository.updateStatus(videoId, {
-              script: syncedScript as any,
-              scenes: syncedScript.scenes as any
+              script: scriptToSave,
+              scenes: scriptToSave.scenes
             })
           },
           onSceneGenerated: async (scene, script, index, progress) => {
-            console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-            const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
-            await uploadSceneImages(videoId, [scene], absoluteOutputPath)
-
-            const updatePayload: any = {
-              script: script as any,
-              scenes: script.scenes as any
-            }
-
-            // If it's the first scene, set it as the video-level thumbnailUrl
-            if (index === 1 && scene.thumbnailUrl) {
-              updatePayload.thumbnailUrl = scene.thumbnailUrl
-              console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
-            }
-
-            await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
-              currentSceneIndex: index - 1, // Store 0-based index for frontend
-              scene
-            })
-            await videoRepository.updateStatus(videoId, updatePayload)
+            await handleSceneGenerated(job, videoId, scene, script, index, progress, effectiveProjectId)
           }
         })
         checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)
@@ -356,39 +440,19 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         projectId: effectiveProjectId,
         onProgress: async (p, m, meta) => {
           // p is 0-100 from NanoBananaEngine
-          // Engine maps Script Gen to 0-15, Then Assets to 15-100.
-          // We want to map Engine 0-100 to Job 10-90.
-          const jobProgress = Math.round(10 + (p / 100) * 80)
-          await reportProgress(job, videoId, 'generation', jobProgress, m, meta)
+          // Map to 0-95% to leave room for the upload phase
+          await reportProgress(job, videoId, 'generation', Math.round((p / 100) * 95), m, meta)
         },
         onTimingSync: async (syncedScript) => {
           console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
+          const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
           await videoRepository.updateStatus(videoId, {
-            script: syncedScript as any,
-            scenes: syncedScript.scenes as any
+            script: scriptToSave,
+            scenes: scriptToSave.scenes
           })
         },
         onSceneGenerated: async (scene, script, index, progress) => {
-          console.info(`[VideoWorker] Scene ${index} generated. Uploading and updating DB...`)
-          const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
-          await uploadSceneImages(videoId, [scene], absoluteOutputPath)
-
-          const updatePayload: any = {
-            script: script as any,
-            scenes: script.scenes as any
-          }
-
-          // If it's the first scene, set it as the video-level thumbnailUrl
-          if (index === 1 && scene.thumbnailUrl) {
-            updatePayload.thumbnailUrl = scene.thumbnailUrl
-            console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
-          }
-
-          await reportProgress(job, videoId, 'composing_scene', Math.round(progress), `Scene ${index} generated`, {
-            currentSceneIndex: index - 1, // Store 0-based index for frontend
-            scene
-          })
-          await videoRepository.updateStatus(videoId, updatePayload)
+          await handleSceneGenerated(job, videoId, scene, script, index, progress, effectiveProjectId)
         }
       })
       if (pkg.script) {
@@ -408,13 +472,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
 
       if (genOptions.scriptOnly) {
-        await videoRepository.updateStatus(videoId, { status: 'draft', progress: 100, currentStep: 'done' })
+        await videoRepository.updateStatus(videoId, { status: 'draft', progress: 15, currentStep: 'done' })
         checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
         const serialized = checkpointStorage.save(checkpoint)
         await videoRepository.updateStatus(videoId, {
           options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
         })
-        await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
+        await job.updateProgress({ step: 'completed', progress: 15, status: 'completed', videoId })
         return
       }
     } else if (videoRecord.script) {
@@ -447,7 +511,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       console.info(`[VideoWorker] Audio generation complete for ${videoId}. Setting status to narration_generated.`)
       await videoRepository.updateStatus(videoId, {
         status: 'narration_generated',
-        progress: 100,
+        progress: 100, // Narration only can hit 100 if it's the requested goal
         narrationUrl,
         captionsUrl,
         completedAt: new Date()
@@ -458,6 +522,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
       await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId, narrationUrl })
+
+      // DEDUCT CREDITS ON SUCCESS
+      await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
       return
     }
 
@@ -472,7 +539,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       await videoRepository.updateStatus(videoId, {
         status: 'scenes_generated',
-        progress: 100,
+        progress: 70, // Storyboard phase ends at 70%
         scenes: updatedScenes as any,
         script: pkg.script as any,
         completedAt: new Date()
@@ -482,7 +549,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await videoRepository.updateStatus(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
-      await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
+      await job.updateProgress({ step: 'completed', progress: 70, status: 'completed', videoId })
+
+      // DEDUCT CREDITS ON SUCCESS
+      await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
       return
     }
 
@@ -509,7 +579,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       const updatePayload: any = {
         status: 'scenes_generated',
-        progress: 100,
+        progress: getGlobalProgress(100, options),
         currentStep: 'done',
         scenes: scenesToSave,
         script: scriptToSave,
@@ -529,14 +599,22 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await videoRepository.updateStatus(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
-      await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
+      await job.updateProgress({
+        step: 'completed',
+        progress: getGlobalProgress(100, options),
+        status: 'completed',
+        videoId
+      })
       console.info(`[VideoWorker] Reprompt completed for video ${videoId}`)
+
+      // DEDUCT CREDITS ON SUCCESS
+      await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
       return
     }
 
     // 7. FINAL UPLOAD (Full Video)
     if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.UPLOAD)) {
-      await reportProgress(job, videoId, 'upload', 85, 'Uploading final video to storage...')
+      await reportProgress(job, videoId, 'upload', 96, 'Uploading final video to storage...')
       const finalMp4 = path.join(pkg.outputPath, 'final_video.mp4')
       const assembledMp4 = path.join(pkg.outputPath, 'assembled_video.mp4')
       const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
@@ -584,6 +662,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         thumbnailUrl,
         duration
       })
+
+      // 8. FINAL SUCCESS: DEDUCT CREDITS (User's request: only on success)
+      await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Job failed'
@@ -648,29 +729,9 @@ export function startVideoGenerationWorker(): Worker<VideoJobData> {
     }
   )
 
-  worker.on('failed', async (job, err) => {
+  worker.on('failed', (job, err) => {
     console.error(`[VideoWorker] Job ${job?.id} FAILED:`, err.message)
-
-    if (job) {
-      const { videoId, userId } = job.data
-      const isFinalFailure = job.attemptsMade >= (job.opts.attempts || 1)
-
-      if (isFinalFailure) {
-        try {
-          const video = await videoRepository.findByIdAndUserId(videoId, userId)
-          if (video && video.creditsUsed && video.creditsUsed > 0) {
-            console.info(`[VideoWorker] Final failure for ${videoId}. Refunding ${video.creditsUsed} credits.`)
-            const opts = (video.options as any) || {}
-            await creditsRepository.refundCredits(userId, video.creditsUsed, videoId, {
-              planConsumed: opts.planConsumed || 0,
-              extraConsumed: opts.extraConsumed || 0
-            })
-          }
-        } catch (refundError) {
-          console.error(`[VideoWorker] Failed to refund credits for ${videoId}:`, refundError)
-        }
-      }
-    }
+    // NOTE: Credit refund logic removed here because credits are now only deducted ON SUCCESS.
   })
 
   console.info('[VideoWorker] Video generation worker started')

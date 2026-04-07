@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../database/db'
-import { musicTracks, voicePresets } from '../database/schema/assets-config.schema'
+import { musicTracks, thumbnailTemplates, voicePresets } from '../database/schema/assets-config.schema'
 
 export class AssetsConfigRepository {
   // --- Voices ---
@@ -67,5 +67,28 @@ export class AssetsConfigRepository {
 
   async deleteMusicTrack(id: string) {
     return await db.delete(musicTracks).where(eq(musicTracks.id, id))
+  }
+
+  // --- Thumbnail Templates ---
+  async findAllThumbnailTemplates() {
+    return await db.select().from(thumbnailTemplates).orderBy(thumbnailTemplates.name)
+  }
+
+  async getAllActiveThumbnailTemplates() {
+    return await db.select().from(thumbnailTemplates).where(eq(thumbnailTemplates.isActive, true))
+  }
+
+  async createThumbnailTemplate(data: any) {
+    const [template] = await db.insert(thumbnailTemplates).values(data).returning()
+    return template
+  }
+
+  async updateThumbnailTemplate(id: string, data: any) {
+    const [template] = await db.update(thumbnailTemplates).set(data).where(eq(thumbnailTemplates.id, id)).returning()
+    return template
+  }
+
+  async deleteThumbnailTemplate(id: string) {
+    return await db.delete(thumbnailTemplates).where(eq(thumbnailTemplates.id, id))
   }
 }
