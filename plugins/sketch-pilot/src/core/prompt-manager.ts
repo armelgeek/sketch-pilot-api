@@ -718,48 +718,63 @@ ${mandatoryRules.join('\n')}
     const wps = this.getWordsPerSecond(options)
     const duration = this.getEffectiveDuration(options)
     const spec = this.getEffectiveSpec(options)
+
+    // Instructions générales et pilot directives
     const pilotInstructions = spec.instructions?.filter((i) => !i.includes('PRIME DIRECTIVE')).join('\n') || ''
 
     const pilotRules = spec.rules?.join('\n') || ''
 
-    return `Vous êtes un narrateur professionnel sur YouTube.
-Votre SEUL travail pour le moment : écrire la narration parlée complète pour une vidéo de ${duration} secondes.
+    // Directive principale (PRIME DIRECTIVE)
+    const primeDirective =
+      spec.instructions?.find((i: string) => i.includes('PRIME DIRECTIVE')) ||
+      'Suivez les instructions du CORE SYSTEM PILOT pour la voix et le style narratif.'
 
-PAS DE JSON. PAS d'étiquettes de scène. PAS de structure. PAS de métadonnées.
-Juste la narration — un seul bloc continu de prose, exactement comme elle sera dite à haute voix.
+    // Calcul des plages tolérées pour la narration
+    const minWords = Math.round(targetWords * 0.95)
+    const maxWords = Math.round(targetWords * 1.08)
+    const rejectThreshold = Math.round(targetWords * 0.9)
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 OBJECTIF DE NOMBRE DE MOTS : ${targetWords} mots
-   (= ${duration}s × ${wps.toFixed(2)} mots/seconde)
-   Plage acceptable : ${Math.round(targetWords * 0.95)}–${Math.round(targetWords * 1.08)} mots
-   ⛔ Moins de ${Math.round(targetWords * 0.9)} mots = REJETÉ AUTOMATIQUEMENT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    return `
+      Vous êtes un narrateur professionnel YouTube.
+      Votre SEUL travail : écrire la narration parlée complète pour une vidéo de ${duration} secondes.
 
-DIRECTIVE PRINCIPALE :
-${spec.instructions?.find((i: string) => i.includes('PRIME DIRECTIVE')) || 'Suivez les instructions du CORE SYSTEM PILOT pour la voix et le style narratif.'}
+      PAS DE JSON. PAS de scènes. PAS de structure. PAS de métadonnées.
+      Juste la narration — un bloc continu de prose, exactement comme elle sera dite à haute voix.
 
-CŒUR NARRATIF :
-${spec.context || ''}
-${spec.goals ? `OBJECTIFS :\n${spec.goals.map((g: string) => `- ${g}`).join('\n')}` : ''}
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      🎯 OBJECTIF DE NOMBRE DE MOTS : ${targetWords} mots
+        (= ${duration}s × ${wps.toFixed(2)} mots/seconde)
+        Plage acceptable : ${minWords}–${maxWords} mots
+        ⛔ Moins de ${rejectThreshold} mots = REJETÉ AUTOMATIQUEMENT
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-RÈGLES ET STYLE :
-${pilotInstructions}
-${pilotRules ? `\nRÈGLES SPÉCIFIQUES AU FORMAT :\n${pilotRules}` : ''}
+      DIRECTIVE PRINCIPALE :
+      ${primeDirective}
 
-DISCIPLINE DU NOMBRE DE MOTS :
-Après chaque paragraphe, comptez mentalement. Le total cumulé doit tendre vers ${targetWords}.
-Si vous terminez une section et que vous êtes en dessous du rythme, allez plus en PROFONDEUR dans le point suivant.
-Ajoutez : le sentiment viscéral, le moment spécifique, la conséquence dont personne ne parle.
-Ne remplissez jamais avec du remplissage — développez avec de la substance.
+      CŒUR NARRATIF :
+      ${spec.context || ''}
+      ${spec.goals ? `OBJECTIFS :\n${spec.goals.map((g) => `- ${g}`).join('\n')}` : ''}
 
-RÈGLES DE PAUSE :
-— '...' se place à l'intérieur d'une phrase pour créer une respiration en milieu de pensée.
-— '...' se place également entre les phrases quand la seconde a besoin de poids.
-— Ne regroupez JAMAIS deux '...' dans la même phrase.
+      RÈGLES ET STYLE :
+      ${pilotInstructions}
+      ${pilotRules ? `\nRÈGLES SPÉCIFIQUES AU FORMAT :\n${pilotRules}` : ''}
 
-⚠️ AUTO-VÉRIFICATION AVANT DE SOUMETTRE :
-Comptez vos mots. Si vous êtes en dessous de ${Math.round(targetWords * 0.95)} : vous n'avez pas fini. Continuez à écrire.
-Renvoyez UNIQUEMENT le texte de la narration. Rien d'autre. Pas de préambule. Pas de "Voici la narration :".`
+      DISCIPLINE DU NOMBRE DE MOTS :
+      Après chaque paragraphe, comptez mentalement. Le total cumulé doit tendre vers ${targetWords}.
+      Si vous êtes en dessous du rythme, approfondissez le point suivant.
+      Ajoutez : le sentiment viscéral, le moment spécifique, la conséquence dont personne ne parle.
+      Ne remplissez jamais avec du remplissage — développez avec de la substance.
+
+      RÈGLES DE PAUSE :
+      — '...' se place à l'intérieur d'une phrase pour créer une respiration mid-thought.
+      — '...' se place également entre les phrases quand la seconde a besoin de poids.
+      — Ne jamais regrouper deux '...' dans la même phrase.
+      — Ne commencez jamais un paragraphe par '...'.
+
+      ⚠️ AUTO-VÉRIFICATION AVANT DE SOUMETTRE :
+      Comptez vos mots. Si vous êtes en dessous de ${minWords}, vous n’avez pas fini.
+      Renvoyez UNIQUEMENT le texte de la narration. Rien d'autre. Pas de préambule. Pas de "Voici la narration :".
+      `.trim()
   }
 
   // ─── PASS 1: Narration-only user prompt ──────────────────────────────────
@@ -872,142 +887,103 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
     const spec = this.getEffectiveSpec(options)
     const range = computeSceneCountRange(this.getEffectiveDuration(options))
     const wps = this.getWordsPerSecond(options)
-    const pilotInstructions = spec.instructions?.filter((i) => !i.includes('PRIME DIRECTIVE')).join('\n') || ''
     const presets = spec.scenePresets || BASE_SPEC.scenePresets
 
     return `Vous êtes un structureur de script vidéo.
-Votre travail : diviser la narration reçue en scènes et ajouter les métadonnées de production selon le CORE SYSTEM PILOT.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ RÈGLE DE FER — LA NARRATION EST VERROUILLÉE
-Le texte de narration que vous recevez est FINAL. Vous ne pouvez PAS :
-  — Réécrire une phrase
-  — Raccourcir un paragraphe
-  — Ajouter de nouveaux contenus narratifs
-  — Paraphraser pour le "flux"
+        OBJECTIF:
+        Découper une narration en scènes + ajouter des métadonnées visuelles.
 
-Vous êtes UNIQUEMENT autorisé à :
-  — Diviser la narration en segments de scène
-  — Ajouter un preset, cameraAction, imagePrompt, animationPrompt, summary par scène
-  — Calculer le wordCount et l'estimatedDuration à partir du texte réel
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ━━━━━━━━━━━━━━━━━━━━━━
+        RÈGLE ABSOLUE — NARRATION
+        Le texte est verrouillé.
 
-RÈGLES POUR L'IMAGE PROMPT (IMPÉRATIF : TRÈS COURT ET SIMPLE) :
-— GARDER LE PROMPT TRÈS COURT : Maximum 15-20 mots par scène.
-— L'image doit illustrer l'IDÉE de la scène, pas la métaphore poétique de la narration.
-— Scène LITTÉRALE et PHOTOGRAPHIABLE uniquement. Sujet physique + action + décor simple.
-— AUCUN TEXTE COMPLEXE : Évitez les calendriers, les horloges détaillées ou les enseignes avec du texte long.
-— PAS DE DÉTAILS SUPERFLUS : Évitez de décrire 5+ objets en arrière-plan. Concentrez-vous sur l'essentiel.
-— Si la narration dit "une graine qui pousse" pour parler de progression personnelle → l'image montre une personne qui travaille/progresse, pas une graine.
-— Le personnage principal DOIT apparaître dans au moins 70% des scènes.
-— MAUVAIS : "Un sablier géant sur une colline avec des nuages en forme de visages et 10 livres ouverts."
-— BON : "Un homme assis à son bureau, écrivant calmement sur une feuille de papier."
+        INTERDIT:
+        — Réécrire
+        — Résumer
+        — Ajouter du contenu
 
-CORE SYSTEM PILOT (CONTEXTE) :
-${spec.context || ''}
-${spec.goals ? `OBJECTIFS :\n${spec.goals.map((g: string) => `- ${g}`).join('\n')}` : ''}
+        AUTORISÉ:
+        — Découper en scènes
+        — Ajouter metadata (preset, cameraAction, imagePrompt, animationPrompt, summary)
+        — Calculer wordCount + estimatedDuration
+        ━━━━━━━━━━━━━━━━━━━━━━
 
-RÈGLES DE DÉCOUPAGE :
-— Cible : ${range.min}–${range.max} scènes (idéal : ${range.ideal})
-— Chaque découpage doit se faire à une limite de phrase naturelle (après . ! ? ou ...)
-— Langue cible : ${options.language || 'Français'} (TOUS les champs, y compris imagePrompt et animationPrompt, doivent être dans cette langue).
-— Distribuez les types de scènes (presets) naturellement selon l'arc narratif.
-— Les types recommandés sont :
-${Object.entries(presets)
-  .map(([name, config]: [string, any]) => `  • ${name.toUpperCase()} : ${config.description || 'Pas de description.'}`)
-  .join('\n')}
-— Le CORE SYSTEM PILOT a autorité totale sur la structure. Si le Pilot demande une structure différente, suivez le Pilot.
-— Progression par défaut : hook → reveal → mirror → bridge → conclusion.
+        🎯 IMAGE PROMPT (CRITIQUE):
 
-NOMBRE DE MOTS MINIMUM PAR SEGMENT (si un segment est en dessous, fusionnez avec l'adjacent) :
-  ${Object.entries(presets)
-    .map(([name, config]: [string, any]) => `${name} ≥ ${config.minWords}`)
-    .join(' | ')} mots.
+        Format:
+        personnage + action + élément
 
-RÈGLE fullNarration :
-  fullNarration = scenes[0].narration + " " + scenes[1].narration + " " + ... (jointure verbatim)
-  Définissez ceci APRÈS avoir rempli tous les champs narration des scènes, en les concaténant mot pour mot.
-  Tout écart de nombre de mots > 2% = rejet automatique.
+        Contraintes:
+        — 5 à 8 mots MAX
+        — style télégraphique (PAS une phrase)
+        — pas de détails inutiles
+        — pas d’adjectifs superflus
 
-RÈGLES POUR L'IMAGE PROMPT (STRICT RESTRAINT) :
-— DOIT être LITTÉRAL et PHOTOGRAPHIABLE. Absolument AUCUNE métaphore ou symbolisme abstrait.
-— MAUVAIS : "Un cerveau se transformant en arbre, symbolisant la croissance."
-— MAUVAIS : "Un réseau de pensées incandescentes interconnectées."
-— BON : "Gros plan d'un étudiant écrivant dans un carnet."
-— BON : "Une paire de mains plantant une petite pousse verte dans le sol."
-— BREF : Soyez direct. Supprimez les adjectifs non essentiels.
+        ${
+          spec.characterDescription
+            ? `— personnage OBLIGATOIRE: "${spec.characterDescription}"`
+            : `— garder le même personnage`
+        }
 
-PACING / RYTHME (valeurs EXACTES — aucune autre valeur acceptée) :
-  fast | medium | slow
-  ⛔ Toute autre valeur (ex: tense, intense, martial, rapide) = rejet automatique.
+        Exemples:
+        - "stickman tape horloge"
+        - "homme regarde pluie fenêtre"
+        - "chat saute table cuisine"
 
-ACTIONS DE CAMÉRA (valeurs EXACTES — aucune autre valeur acceptée) :
-  ${CAMERA_ACTIONS_LIST.join(' | ')}
-  
-  ⛔ Toute valeur absente de cette liste = rejet automatique.
-  ⛔ Ne PAS inventer : "slow-zoom", "tilt", "dolly", "orbit", etc.
-  ✅ Copier-coller EXACTEMENT une valeur de la liste ci-dessus.
+        ⚠️ Si > 8 mots → raccourcir automatiquement
 
+        ━━━━━━━━━━━━━━━━━━━━━━
 
-  ⛔ Ne PAS choisir aléatoirement. Chaque action DOIT correspondre à l'émotion et au rythme de la scène.
-  
-  GUIDE DE SÉLECTION :
-  — breathing     → scène contemplative, pause émotionnelle, moment de doute
-  — zoom-in       → révélation, détail important, tension qui monte, intimité
-  — zoom-out      → prise de recul, contexte général, clôture d'une idée
-  — pan-right     → progression, avancer, narration active, futur
-  — pan-left      → retour en arrière, flashback, remise en question
-  — ken-burns-static → scène posée, description d'un lieu, moment suspendu
-  — dutch-tilt    → malaise, déséquilibre, moment de rupture narrative
-  — snap-zoom     → choc, surprise, révélation brutale, pattern interrupt
-  — shake         → urgence, chaos, émotion forte, point de bascule
+        DÉCOUPAGE:
 
-  RÈGLE : Variez les actions sur l'ensemble des scènes. Deux scènes consécutives NE PEUVENT PAS avoir la même action.
+        — ${range.min} à ${range.max} scènes (idéal: ${range.ideal})
+        — couper uniquement à des limites naturelles (. ! ? ...)
+        — progression: hook → reveal → tension → résolution → conclusion
 
-TRANSITIONS (valeurs EXACTES — aucune autre valeur acceptée) :
-  ${TRANSITIONS_LIST.join(' | ')}
-  
-  ⛔ Toute valeur absente de cette liste = rejet automatique.
-  ⛔ Ne PAS inventer : "zoom-out", "wipe", "slide", "cut", "morph", etc.
-  ✅ Copier-coller EXACTEMENT une valeur de la liste ci-dessus.
+        PRESETS DISPONIBLES:
+        ${Object.entries(presets)
+          .map(([name, config]: [string, any]) => `• ${name}: ${config.description || ''}`)
+          .join('\n')}
 
-  ⛔ Ne PAS choisir aléatoirement. Chaque transition DOIT correspondre au changement émotionnel entre deux scènes.
+        Minimum mots par scène:
+        ${Object.entries(presets)
+          .map(([name, config]: [string, any]) => `${name} ≥ ${config.minWords}`)
+          .join(' | ')}
 
-  GUIDE DE SÉLECTION :
-  — fade          → transition neutre, changement de lieu ou de temps
-  — crossfade     → continuité douce, enchaînement fluide d'idées liées
-  — blur          → changement d'ambiance, passage intérieur/extérieur, rêve
-  — zoomin        → focus sur la scène suivante, tension qui monte
-  — dissolve      → transition poétique, passage du temps, mélancolie
-  — fadeblack     → fin de chapitre, moment de rupture forte, pause dramatique
-  — fadewhite     → révélation, nouveau départ, clarté soudaine
-  — wipeleft      → progression naturelle, aller de l'avant
-  — wiperight     → retour en arrière, inversion
-  — wipeup        → montée en puissance, élévation
-  — wipedown      → descente, conclusion, atterrissage
-  — slideleft     → enchaînement dynamique, liste, progression rapide
-  — slideright    → retour, contraste, opposition
-  — slideup       → révélation par le bas, montée
-  — slidedown     → chute, conséquence, atterrissage brutal
-  — pixelize      → glitch, rupture visuelle, pattern interrupt
-  — radial        → ouverture circulaire, révélation centrale
-  — circleopen    → ouverture sur quelque chose de nouveau
-  — circleclose   → fermeture, conclusion d'un arc
-  — circlecrop    → focus intense, mise en lumière d'un détail
-  — hblur         → flou horizontal, vitesse, passage rapide
-  — distance      → éloignement, prise de recul, fin de séquence
-  — smoothleft    → glissement fluide vers la suite
-  — smoothright   → glissement fluide vers le passé
+        ━━━━━━━━━━━━━━━━━━━━━━
 
-  RÈGLE : Deux scènes consécutives NE PEUVENT PAS avoir la même transition. Variez selon l'arc émotionnel.
+        PACING:
+        fast | medium | slow
 
-MUSIQUE DE FOND (correspondance d'ambiance) :
-  - calme, lo-fi, éducatif : "lofi-1" (Chill Lo-Fi)
-  - dynamique, business, motivant : "upbeat-1" (Upbeat Corporate)
-  - triste, émotionnel, histoire, calme : "ambient-1" (Soft Ambient)
-  - amusant, divertissement, enfants : "fun-1" (Funky Groove)
+        CAMERA ACTIONS (choisir UNE valeur exacte):
+        ${CAMERA_ACTIONS_LIST.join(' | ')}
 
-SORTIE : JSON valide uniquement. Pas de markdown. Pas de backticks. Aucune explication en dehors du JSON.`
+        — varier entre les scènes
+        — jamais deux fois de suite la même
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+
+        TRANSITIONS (choisir UNE valeur exacte):
+        ${TRANSITIONS_LIST.join(' | ')}
+
+        — varier entre les scènes
+        — jamais deux fois de suite la même
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+
+        fullNarration:
+        Concaténation EXACTE de toutes les scènes.
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+
+        MUSIQUE:
+        lofi-1 | upbeat-1 | ambient-1 | fun-1
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+
+        SORTIE:
+        JSON valide uniquement.`
   }
 
   // ─── PASS 2: Structuring user prompt ─────────────────────────────────────
@@ -1023,58 +999,97 @@ SORTIE : JSON valide uniquement. Pas de markdown. Pas de backticks. Aucune expli
     const wps = this.getWordsPerSecond(options)
     const duration = this.getEffectiveDuration(options)
     const safetyFactor = this.getSafetyFactor(options)
+
     const lang = (options as any).language || 'Français'
     const audience = (options as any).audience || spec.audienceDefault
+
     const actualWords = validatedNarration.trim().split(/\s+/).filter(Boolean).length
     const targetWords = Math.round(duration * wps * safetyFactor)
 
     const outputFormat = `{
-  "topic": "string",
-  "audience": "string",
-  "emotionalArc": ["string"],
-  "titles": ["string (5 options de titre YouTube)"],
-  "theme": "string",
-  "backgroundMusic": "string (lofi-1 | upbeat-1 | ambient-1 | fun-1)",
-  "fullNarration": "string — jointure mot pour mot de tous les champs narration des scènes",
-  "totalWordCount": ${targetWords},
-  "scenes": [
-    {
-      "sceneNumber": 1,
-      "id": "string",
-      "preset": "${Object.keys(presets).join(' | ')}",
-      "pacing": "fast | medium | slow",
-      "breathingPoints": ["string"],
-      "narration": "string — utilisez le texte source.${noPrune ? ' NE PAS RÉDUIRE OU CONDENSER.' : ` Vous pouvez sélectivement réduire ou condenser SI l'entrée est trop longue pour l'objectif de ${duration}s.`}",
-      "wordCount": "number",
-      "estimatedDuration": "number",
-      "summary": "string",
-      "cameraAction": "string (${CAMERA_ACTIONS_LIST.join(' | ')})",
-      "transition": "none | ${TRANSITIONS_LIST.join(' | ')}",
-      "imagePrompt": "string (MAX 20 MOTS, TRÈS SIMPLE, EN LANGUE : ${lang})",
-      "animationPrompt": "string (EN LANGUE : ${lang})"
-    }
-  ]
-} \``
+        "topic": "string",
+        "audience": "string",
+        "emotionalArc": ["string"],
+        "titles": ["string"],
+        "theme": "string",
+        "backgroundMusic": "string",
+        "fullNarration": "string",
+        "totalWordCount": ${targetWords},
+        "scenes": [
+          {
+            "sceneNumber": 1,
+            "id": "string",
+            "preset": "${Object.keys(presets).join(' | ')}",
+            "pacing": "fast | medium | slow",
+            "breathingPoints": ["string"],
+            "narration": "string",
+            "wordCount": "number",
+            "estimatedDuration": "number",
+            "summary": "string",
+            "cameraAction": "string",
+            "transition": "string",
+            "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le stickman court sous la pluie, déterminé.')",
+            "imagePromptWordCount": "number",
+            "animationPrompt": "string"
+          }
+        ]
+      }`
 
-    return `SUJET : ${topic}
-LANGUE : ${lang}
-AUDIENCE : ${audience}
-DURÉE DE LA VIDÉO : ${duration}s
-VITESSE TTS : ${wps.toFixed(2)} mots/seconde
-NOMBRE DE MOTS CIBLE : ${targetWords} mots
-NARRATION À STRUCTURER (${actualWords} mots) :
----
-${validatedNarration}
----
+    return `SUJET: ${topic}
+        LANGUE: ${lang}
+        AUDIENCE: ${audience}
 
-VOTRE TÂCHE :
-Divisez la narration ci-dessus en scènes en suivant les RÈGLES DE DÉCOUPAGE du CORE SYSTEM PILOT.
-⚠️ OBLIGATION DE SIMPLICITÉ : Pour chaque imagePrompt, soyez "très court et simple". Max 20 mots.
-⚠️ L'image doit rester cohérente avec le sujet "${topic}". Ne jamais illustrer la métaphore littéralement.
-${noPrune ? `⚠️ OBLIGATOIRE : Utilisez la narration MOT POUR MOT. NE PAS SAUTER, RÉDUIRE OU CONDENSER LE TEXTE. Chaque mot fourni dans la source doit apparaître dans un champ de scène.` : `⚠️ Si la narration est trop longue pour l'objectif de ${duration}s (~${targetWords} mots), élaguez sélectivement les phrases moins percutantes ou condensez les formulations redondantes tout en préservant l'arc émotionnel central et la conclusion.`}
-Remplissez tous les champs de métadonnées pour chaque scène.
-Renvoyez uniquement un JSON valide correspondant exactement à ce format :
-${outputFormat}`
+        DURÉE: ${duration}s
+        VITESSE: ${wps.toFixed(2)} mots/sec
+        OBJECTIF: ${targetWords} mots
+        ${spec.characterDescription ? `PERSONNAGE: ${spec.characterDescription}` : ''}
+
+        NARRATION (${actualWords} mots):
+        ---
+        ${validatedNarration}
+        ---
+
+        TÂCHE:
+        Découpe en scènes cohérentes avec un bon rythme narratif.
+
+        ${
+          noPrune
+            ? `⚠️ Utilise la narration EXACTEMENT (aucune modification).`
+            : `⚠️ Si trop long: condense intelligemment sans perdre l'émotion.`
+        }
+
+        RÈGLES IMPORTANTES:
+
+        — Garder une progression émotionnelle claire  
+        — Chaque scène doit être visuelle et simple  
+        — Ne jamais illustrer une métaphore littéralement  
+
+        ${
+          spec.characterDescription
+            ? `— Le personnage DOIT être: "${spec.characterDescription}" dans CHAQUE image`
+            : `— Garder le même personnage dans toutes les scènes`
+        }
+
+        🎯 IMAGE PROMPT (TRÈS IMPORTANT):
+
+        — 5 à 8 mots MAX  
+        — PAS de phrase complète  
+        — PAS de détails inutiles  
+        — Format: personnage + action + élément clé  
+        — Style télégraphique  
+
+        Exemples valides:
+          - "Le stickman court sous la pluie."
+          - "L'homme regarde l'horloge anxieusement."
+          - "Le chat saute sur la table de la cuisine."
+
+        ⚠️ Si > 8 mots → raccourcir automatiquement
+
+        ---
+
+        Réponds UNIQUEMENT avec un JSON valide:
+
+        ${outputFormat}`
   }
 
   // ─── Two-pass public orchestrators ───────────────────────────────────────
@@ -1179,254 +1194,118 @@ ${outputFormat}`
   // LEGACY SINGLE-PASS (preserved for backward compatibility)
   // ─────────────────────────────────────────────────────────────────────────
 
-  async buildScriptSystemPrompt(options: VideoGenerationOptions = {} as any, targetWords?: number): Promise<string> {
+  public async buildScriptSystemPrompt(
+    options: VideoGenerationOptions = {} as any,
+    targetWords?: number
+  ): Promise<string> {
     const spec = this.getEffectiveSpec(options)
     const characterMetadata = await this.resolveCharacterMetadata()
-    const instructions = [...(spec.instructions || [])]
     const provider = this.resolveProvider(options)
 
-    // ── NARRATIVE PILOT (SYSTEM PROMPT) ────────────────────────────────────
-    // If a custom system prompt is provided in the config, it becomes the
-    // PRIME DIRECTIVE, piloting the entire structure and voice.
-    const customSystemPrompt = this.config.systemPrompt
-    if (customSystemPrompt) {
-      instructions.unshift(`
-      DIRECTIVE PRINCIPALE — À lire avant tout.
-      
-      Cette instruction système personnalisée pilote toute la structure narrative et visuelle.
-      Priorisez ces instructions sur tout autre comportement par défaut :
-      
-      "${customSystemPrompt}"
-      `)
-    } else {
-      // Generic fallback - delegates to the spec/pilot
-      instructions.unshift(`
-DIRECTIVE PRINCIPALE — À lire avant tout.
-
-L'objectif de nombre de mots est l'exigence technique n°1. Si vous sous-générez, la vidéo échouera.
-Suivez le CORE SYSTEM PILOT pour la voix, le style narratif et la structure.
-
-DENSITÉ ET ÉLABORATION (CRITIQUE) :
-— NE résumez PAS vos points. Explorez-les.
-— Si une scène semble courte, ajoutez un "Détail Visuel" vif : À quoi cela ressemble-t-il dans la vraie vie ? Quelle est l'expression spécifique sur leur visage ?
-— Détail = Durée. Pas de détail = Échec.
-`)
-    }
-
-    if (options && (options.wordsPerMinute || options.language || options.audioProvider)) {
-      const wps = this.getWordsPerSecond(options)
-      instructions.push(`NARRATION SPEED: ${wps.toFixed(2)} words/second`)
-    }
-
-    instructions.push(
-      `Narration visuelle :
-      Chaque image doit communiquer clairement l'idée centrale sans texte ni narration. Le personnage doit interagir activement avec le concept de manière visuelle et significative. Le concept principal doit être l'élément visuel le plus dominant de la scène.
-
-      Rythme et cadence :
-      Définissez un flux visuel cohérent avec des transitions fluides et intentionnelles entre les scènes.
-
-      Identité artistique :
-      Maintenez un style visuel cohérent dans toutes les scènes, y compris la qualité du trait, la texture et l'approche globale du rendu.
-
-      Interruption de motif (Pattern interrupt) :
-      Introduisez occasionnellement des moments visuels forts conçus pour capturer l'attention et briser la monotonie visuelle.
-
-      Continuité visuelle :
-      Assurez-vous que les scènes suivent une progression logique. Gardez les environnements et les actions cohérents, sauf si un changement est clairement motivé.
-
-      Dynamique de caméra et transitions :
-      Chaque scène DOIT utiliser une action de caméra dynamique et une transition visuelle vers la scène suivante.
-
-      Valeurs de transition disponibles :
-      — none          → Coupe standard.À utiliser pour les séquences rapides ou les listes internes.
-      — fade          → Transition par transparence douce.
-      — blur          → Transition vaporeuse et douce.Idéal pour les changements d'ambiance.
-      — crossfade     → Fondu enchaîné classique.
-      — wipeleft / right → Mouvement directionnel.Bon pour la progression temporelle.
-      — zoom          → Changement de focus énergique.
-
-      Valeurs de cameraAction disponibles :
-      — breathing          → Scènes calmes / contemplatives.
-      — zoom-in            → Focus sur le détail, l'intimité ou la révélation.
-      — zoom-out           → Révélation du contexte, montée de tension ou clôture.
-      — pan-right          → Progression, aller de l'avant, narration active.
-      — pan-left           → Inversion, flashback ou seconde pensée.
-
-      INTÉGRITÉ DES DONNÉES : N'inventez jamais de statistiques, d'études ou de recherches nommées.
-      Utilisez : 'des études suggèrent', 'la recherche indique', 'environ', 'approximativement'.
-      Une affirmation vague mais honnête vaut toujours mieux qu'une affirmation précise inventée.
-      `
-    )
-
-    if (isOpenAIProvider(provider)) {
-      instructions.push(`
-⚠️ GPT - 4o SPECIFIC — NARRATIVE CONSISTENCY RULE(CRITICAL):
-      The "fullNarration" field MUST be the EXACT concatenation of all scene "narration" fields, joined by a single space.
-      WORKFLOW:
-      1. Write ALL scene "narration" fields completely.
-  2. Set fullNarration = [scene1.narration] + " " + [scene2.narration] + " " + ... (verbatim, no changes).
-  3. Do NOT write fullNarration first and scenes second.
-  4. Do NOT paraphrase, shorten, or rephrase in fullNarration.
-Any word - count discrepancy between fullNarration and sum(scenes.narration) = AUTOMATIC REJECTION.
-`)
-    }
-
-    const totalDuration = this.getEffectiveDuration(options)
-    const range = computeSceneCountRange(totalDuration)
-    const expectedScenes = range.ideal
+    const duration = this.getEffectiveDuration(options)
     const wps = this.getWordsPerSecond(options)
     const safetyFactor = this.getSafetyFactor(options)
 
-    const targetWordCountTotal = targetWords ?? Math.round(totalDuration * wps * safetyFactor)
-    const avgWordsPerScene = Math.round(targetWordCountTotal / expectedScenes)
-    const presetTargets = this.computePresetTargets(avgWordsPerScene, spec)
+    const totalWords = targetWords ?? Math.round(duration * wps * safetyFactor)
+    const range = computeSceneCountRange(duration)
 
-    const scaffolds: string[] = []
-    for (const [name, target] of Object.entries(presetTargets)) {
-      scaffolds.push(this.buildScaffoldInstruction(name, target))
-    }
+    return `Vous êtes un expert en écriture de scripts vidéo courts.
 
-    instructions.push(
-      `## CONCLUSION RULES(Mandatory for the last scene) \n${spec.conclusionRules?.map((r) => `- ${r}`).join('\n')} `
-    )
+        ━━━━━━━━━━━━━━━━━━━━━━
+        🎯 OBJECTIF
 
-    instructions.push(
-      `## NARRATION PACING(provider: ${provider})
+        Créer une narration fluide, visuelle et engageante découpée en scènes.
 
-       ### Global Spoken Duration Target
-      - Video duration: ${totalDuration} s
-        - TTS speed: ${wps.toFixed(2)} words / second
-          - 🎯 TOTAL TARGET: ** ~${totalDuration} seconds of spoken audio ** (~${targetWordCountTotal} words)
-    - ⚠️ MAXIMUM ALLOWED: ** ${Math.round(targetWordCountTotal * 1.15)} words **
-      - Suggested scene count: ** ${range.min} to ${range.max} scenes ** (Target: ~${range.ideal})
-    - Average per scene: ** ~${avgWordsPerScene} words **
+        Durée cible: ${duration}s  
+        Longueur cible: ~${totalWords} mots  
 
-       ### Per - Scene Voice Direction
+        ━━━━━━━━━━━━━━━━━━━━━━
+        ⚠️ RÈGLE NARRATION
 
-       ${scaffolds.join('\n\n       ')}
+        — Ne pas paraphraser inutilement  
+        — Ne pas répéter  
+        — Développer avec des détails concrets (visuels, émotions, actions)  
+        — Chaque scène doit être claire et vivante  
 
-       ### Output Format(JSON ONLY)
-       Return ONLY valid JSON with this structure:
-    {
-      "titles": ["Main Title"],
-        "theme": "The visual/narrative theme",
-          "backgroundMusic": "upbeat/dramatic",
-            "fullNarration": "The complete narration text.",
-              "scenes": [
-                {
-                  "sceneNumber": 1,
-                  "preset": "hook",
-                  "narration": "Scene text...",
-                  "imagePrompt": "Detailed visual prompt for image generation. No text. Realistic environment.",
-                  "animationPrompt": "Subtle movement instructions (e.g. 'Slow zoom-in').",
-                  "cameraAction": "zoom-in",
-                  "transition": "crossfade"
-                }
-              ]
-    }
+        ━━━━━━━━━━━━━━━━━━━━━━
+        🎬 STRUCTURE
 
-       ### Duration & Scene Flexibility(CRITICAL)
-      - You are NOT limited to a fixed number of scenes.
-       - Total MUST be ~${totalDuration} s(±10 %).
-       - ⚠️ NARRATION DRIFT(IRON RULE): Use a baseline of ** ${wps.toFixed(1)} words per second **. 
-         - A ${totalDuration}s video MUST have ~** ${targetWordCountTotal} words **.
-         - If your script is too short, the video will have dead silence.If too long, it will be cut off.
-         - Do NOT guess.Count your words.${
-           totalDuration >= 180
-             ? `
-        - ⚠️ GRANULARITY (Mandatory): For this long-form video, you MUST use at least **${range.min} to ${range.max} scenes** (Target: **${range.ideal}**).
-        - ⚠️ POINT SPLITTING: If the input topic has only ~10 points but the target is ~${range.ideal} scenes, you MUST split each point into multiple sequential scenes (e.g. "Concept" -> "Sensory Detail" -> "Connection"). 
-        - ⚠️ NO COPY-PASTING: Expand each seed sentence from the topic into a full narrative block (~${avgWordsPerScene} words per scene).`
-             : ''
-         } `
-    )
+        — ${range.min} à ${range.max} scènes (idéal: ${range.ideal})  
+        — progression: hook → tension → développement → conclusion  
+        — découpe naturelle uniquement (. ! ?)  
 
-    instructions.push(
-      `PAUSE PLACEMENT:
-      — '...' goes inside a sentence to create a breath mid - thought: "It captured something deep in you... without you realizing it."
-      — '...' also goes between sentences when the second needs weight: "Only a few actually stick... Why those ones?"
-      — NEVER cluster two '...' in the same sentence.
-      — FORBIDDEN: starting a scene with '...' in the first 5 words.`
-    )
+        ━━━━━━━━━━━━━━━━━━━━━━
+        🎯 IMAGE PROMPT (CRITIQUE)
 
-    const fullSpec = {
-      ...spec,
-      instructions,
-      characterDescription: characterMetadata
-        ? `${characterMetadata.description}.Personality: ${characterMetadata.artistPersona}.`
-        : spec.characterDescription
-    }
+        Format:
+        personnage + action + élément
 
-    const consolidatedOutputFormat = this.getConsolidatedOutputFormat(
-      undefined,
-      presetTargets,
-      targetWordCountTotal,
-      avgWordsPerScene,
-      wps,
-      totalDuration
-    )
+        Règles:
+        — 5 à 8 mots MAX  
+        — style télégraphique  
+        — pas de phrase complète  
+        — pas de détails inutiles  
 
-    const goals = spec.goals?.length ? `## GOALS\n${spec.goals.map((g) => `- ${g}`).join('\n')} ` : ''
-    const rules = spec.rules?.length ? `## RULES\n${spec.rules.map((r) => `- ${r}`).join('\n')} ` : ''
-    const context = spec.context ? `## CONTEXT\n${spec.context} ` : ''
+        ${characterMetadata ? `— personnage: "${characterMetadata.description}"` : `— personnage constant`}
 
-    const scriptInstruction = [
-      context,
-      goals,
-      rules,
-      '---',
-      this.buildSystemInstructions({
-        ...fullSpec,
-        targetDuration: totalDuration,
-        targetWordCount: targetWordCountTotal,
-        outputFormat: consolidatedOutputFormat
-      } as any)
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+        Exemples:
+        - "stickman regarde horloge"
+        - "homme marche pluie rue"
+        - "chat saute table cuisine"
 
-    return scriptInstruction
-  }
+        ⚠️ Si > 8 mots → raccourcir
 
-  // ─── Output format (legacy) ───────────────────────────────────────────────
+        ━━━━━━━━━━━━━━━━━━━━━━
+        🎥 VISUEL
 
-  private getConsolidatedOutputFormat(
-    _unused_baseFormat?: string,
-    presetTargets?: Record<string, number>,
-    targetWordCountTotal?: number,
-    avgWordsPerScene?: number,
-    wps?: number,
-    totalDuration?: number
-  ): string {
-    const effectiveWps = wps ?? DEFAULT_WPS
-    const effectiveDuration = totalDuration ?? 60
+        — chaque scène doit être visuellement claire  
+        — le concept doit être visible sans texte  
+        — garder cohérence visuelle entre scènes  
 
-    return `{
-      "topic": "string",
-        "audience": "string",
-          "emotionalArc": ["string"],
-            "titles": ["string"],
-              "fullNarration": "string — ⚠️ CRITICAL: Exact concatenation of all scene narration fields joined by a single space. Write scenes first, then copy verbatim. DO NOT write independently. Must produce ~${effectiveDuration}s of spoken audio.",
-                "totalWordCount": "number (self-reported total. Must be within ±10% of ${targetWordCountTotal} words / ~${effectiveDuration}s spoken. ⛔ Counts below ${Math.round((targetWordCountTotal ?? 0) * 0.85)} = auto-rejected)",
-                  "theme": "string",
-                    "backgroundMusic": "string (lofi-1 | upbeat-1 | ambient-1 | fun-1)",
-                      "scenes": [
-                        {
-                          "sceneNumber": 1,
-                          "id": "string",
-                          "preset": "hook | reveal | mirror | bridge | conclusion",
-                          "pacing": "fast | medium | slow",
-                          "breathingPoints": ["string (e.g. 'after sentence 2', 'before the consequence')"],
-                          "narration": "string — write this scene fully before moving to the next",
-                          "wordCount": "number — word count of this narration field",
-                          "estimatedDuration": "number (words ÷ ${effectiveWps.toFixed(1)} — spoken seconds for this scene)",
-                          "summary": "string",
-                          "cameraAction": "string (${CAMERA_ACTIONS_LIST.join(' | ')})",
-                          "imagePrompt": "string (Detailed visual prompt)",
-                          "animationPrompt": "string"
-                        }
-                      ]
-    } `
+        ━━━━━━━━━━━━━━━━━━━━━━
+        🎞️ CAMERA & TRANSITIONS
+
+        Camera:
+        ${CAMERA_ACTIONS_LIST.join(' | ')}
+
+        Transitions:
+        ${TRANSITIONS_LIST.join(' | ')}
+
+        — varier à chaque scène  
+        — jamais répéter deux fois de suite  
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+        🎵 MUSIQUE
+
+        lofi-1 | upbeat-1 | ambient-1 | fun-1  
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+        ⚠️ RÈGLE CRITIQUE (CONSISTENCE)
+
+        fullNarration = concat EXACT des narrations de scènes  
+
+        ━━━━━━━━━━━━━━━━━━━━━━
+        SORTIE
+
+        JSON valide uniquement:
+
+        {
+          "titles": ["title"],
+          "theme": "string",
+          "backgroundMusic": "string",
+          "fullNarration": "string",
+          "scenes": [
+            {
+              "sceneNumber": 1,
+              "preset": "hook",
+              "narration": "string",
+              "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le stickman court sous la pluie, déterminé.')",
+              "animationPrompt": "string",
+              "cameraAction": "string",
+              "transition": "string"
+            }
+          ]
+        }`
   }
 
   // ─── User prompt builder (legacy) ────────────────────────────────────────
@@ -1547,34 +1426,41 @@ Any word - count discrepancy between fullNarration and sum(scenes.narration) = A
     }
   }
 
-  async buildThumbnailPrompt(title: string, inspirationUrl?: string): Promise<string> {
+  async buildThumbnailPrompt(title: string, environment: string = '', inspirationUrl?: string): Promise<string> {
     const characterMetadata = await this.resolveCharacterMetadata()
     const characterDescription =
       characterMetadata?.description || this.spec?.characterDescription || 'a captivating central character'
     const stylePrefix = characterMetadata?.stylePrefix || ''
 
-    let prompt = `EXTREMELY HIGH IMPACT YOUTUBE THUMBNAIL. Main subject: ${characterDescription}. `
+    // Sujet principal + environnement
+    let prompt = `EXTREMELY HIGH IMPACT YOUTUBE THUMBNAIL. Main subject: ${characterDescription}`
+    if (environment.trim().length > 0) {
+      prompt += ` in ${environment}, standing out visually`
+    }
+    prompt += '. '
 
+    // Texte du titre
     if (title && title.trim().length > 0) {
       if (inspirationUrl) {
-        prompt += `The thumbnail MUST prominently feature the text: "${title}". Adapt the typography, font style, color, and placement to match what is seen in the reference image. `
+        prompt += `The thumbnail MUST feature the text: "${title}". Match typography, font style, color, and placement of reference image. `
       } else {
-        prompt += `The thumbnail MUST prominently feature the text: "${title}" using bold, eye-catching typography integrated naturally into the composition. `
+        prompt += `The thumbnail MUST feature the text: "${title}" using bold, eye-catching typography integrated naturally. `
       }
     } else {
-      prompt += `The thumbnail should be purely visual with NO TEXT. Do not generate any text, words, or letters anywhere. `
+      prompt += `Purely visual, NO TEXT. Do not generate any words or letters. `
     }
 
+    // Composition et ambiance
     prompt += `Dynamic composition, vibrant contrast, cinematic lighting. `
-
     if (inspirationUrl) {
-      prompt += `Inspired by reference mood and color palette. Main focus: character above.`
+      prompt += `Inspired by reference mood and color palette. Main focus: character above. `
     } else {
-      prompt += `Professional digital illustration, sharp details.`
+      prompt += `Professional digital illustration, sharp details. `
     }
 
+    // Style additionnel / branding
     if (stylePrefix) {
-      prompt += `\nAdditional branding/style cues: ${stylePrefix}. `
+      prompt += `Additional branding/style cues: ${stylePrefix}. `
     }
 
     return prompt.trim()
@@ -1677,43 +1563,37 @@ Any word - count discrepancy between fullNarration and sum(scenes.narration) = A
   ): string {
     const { targetWordCount, targetDuration, wps } = options
     const effectiveWps = wps ?? DEFAULT_WPS
-
     const totalDur = targetDuration ?? parseInt(options.duration) ?? 60
     const range = options.sceneCountRange ?? computeSceneCountRange(totalDur)
     const presets = spec.scenePresets || BASE_SPEC.scenePresets
 
-    const hardConstraint =
+    const constraints =
       targetWordCount && targetDuration
         ? [
-            `⛔ CONTRAINTE STRICTE — NOMBRE DE MOTS (violer ceci = rejet automatique à chaque tentative) :`,
-            `   Narration totale sur TOUTES les scènes : **~${targetWordCount} mots** (~${targetDuration}s à ${effectiveWps.toFixed(1)} m/s).`,
-            `   • Nombre de scènes : **flexible de ${range.min} à ${range.max} scènes** (Cible : ~${range.ideal}).`,
-            `   • ⚠️ GRANULARITÉ : Pour cette vidéo de ${targetDuration}s, vous DEVEZ utiliser au moins **${range.min} à ${range.max} scènes** (Cible : **${range.ideal}**).`,
-            `   • ⚠️ DÉCOUPAGE PAR POINT : Divisez chaque point du sujet d'entrée en plusieurs scènes. NE FAITES PAS un mappage 1:1.`,
-            `   • Minimums par preset (par scène) : ${Object.entries(presets)
-              .map(([name, config]: [string, any]) => `${name} ≥ ${config.minWords}`)
-              .join(' | ')} mots.`,
-            `   • ⚠️ TRANSITION (BRIDGE) : Utilisez une scène de type 'bridge' juste avant la fin pour pivoter et créer une tension finale.`,
-            `   • ⚠️ SCÈNE FINALE : La dernière scène DOIT utiliser le preset **conclusion** pour une résolution définitive.`,
-            `   • Toute scène en dessous de son minimum de preset = rejet automatique.`,
-            `   • Après avoir écrit chaque scène : comptez les mots, divisez par ${effectiveWps.toFixed(1)} = secondes parlées.`,
-            `   • Vérifiez votre total cumulé avant de passer à la scène suivante.`,
-            `   • Vous êtes libre d'utiliser autant de scènes que nécessaire (dans la plage ${range.min}-${range.max}) — mais le total des mots DOIT atteindre ${targetWordCount}.`,
-            ``
+            `⛔ CONTRAINTES STRICTES:`,
+            `• Narration totale: ~${targetWordCount} mots (~${totalDur}s à ${effectiveWps.toFixed(1)} m/s)`,
+            `• Scènes: flexible ${range.min}-${range.max} (cible: ~${range.ideal})`,
+            `• Minimum par preset: ${Object.entries(presets)
+              .map(([name, config]) => `${name} ≥ ${config.minWords}`)
+              .join(' | ')} mots`,
+            `• Dernière scène: preset "conclusion" obligatoire`,
+            `• Utilisez une scène "bridge" juste avant la finale pour tension`,
+            `• Comptez les mots scène par scène, vérifiez total avant de passer à la suivante`,
+            `• NE PAS dépasser ou ignorer ces règles — violation = rejet automatique`
           ].join('\n')
         : ''
 
-    const lines = [
-      hardConstraint,
+    return [
+      constraints,
       '---',
-      `Sujet : ${options.subject}`,
-      `Durée requise : ${options.duration}`,
-      `Format d'image : ${options.aspectRatio}`,
-      `Audience : ${options.audience}`,
-      `Langue cible : ${options.language || 'English'} — Générez TOUT le contenu textuel dans cette langue SANS EXCEPTION.`
+      `Sujet: ${options.subject}`,
+      `Durée requise: ${options.duration}`,
+      `Format d'image: ${options.aspectRatio}`,
+      `Audience: ${options.audience}`,
+      `Langue cible: ${options.language || 'English'} — tout le texte doit être dans cette langue.`
     ]
-
-    return lines.filter(Boolean).join('\n')
+      .filter(Boolean)
+      .join('\n')
   }
 
   private validateNarrativeCoherence(
