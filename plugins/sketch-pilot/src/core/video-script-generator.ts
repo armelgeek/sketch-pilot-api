@@ -146,6 +146,35 @@ export class VideoScriptGenerator {
   }
 
   /**
+   * Helper to periodically increment progress while waiting for an async task.
+   */
+  private async withPulse(
+    start: number,
+    end: number,
+    message: string,
+    onProgress: ((p: number, m: string) => Promise<void>) | undefined,
+    task: () => Promise<any>
+  ): Promise<any> {
+    if (!onProgress) return task()
+
+    let current = start
+    const interval = setInterval(() => {
+      if (current < end - 1) {
+        current += 1
+        onProgress(current, message).catch(() => {})
+      }
+    }, 2000)
+
+    try {
+      const result = await task()
+      return result
+    } finally {
+      clearInterval(interval)
+      await onProgress(end, message)
+    }
+  }
+
+  /**
    * Generate a complete video script from a topic.
    */
   async generateCompleteScript(
@@ -255,10 +284,12 @@ export class VideoScriptGenerator {
         await onProgress(5, `Studio: Generating ${isStandard ? 'standard' : 'express'} script & visuals...`)
 
       const prompts = await this.promptManager.buildScriptGenerationPrompts(topic, options)
-      const jsonText = await this.llmService.generateContent(
-        prompts.userPrompt,
-        prompts.systemPrompt,
-        'application/json'
+      const jsonText = await this.withPulse(
+        5,
+        12,
+        `Studio: Generating ${isStandard ? 'standard' : 'express'} script & visuals...`,
+        onProgress,
+        () => this.llmService.generateContent(prompts.userPrompt, prompts.systemPrompt, 'application/json')
       )
       const parsed = this.parseJsonResponse(jsonText)
 
@@ -275,7 +306,9 @@ export class VideoScriptGenerator {
     const { pass1 } = this.promptManager.buildTwoPassPrompts(topic, options)
     if (onProgress) await onProgress(6, 'Studio: Initializing narration pass...')
 
-    let narrationText = await this.llmService.generateContent(pass1.user, pass1.system)
+    let narrationText = await this.withPulse(6, 10, 'Studio: Crafting narration flow...', onProgress, () =>
+      this.llmService.generateContent(pass1.user, pass1.system)
+    )
 
     if (!narrationText) {
       throw new Error('[VideoScriptGen] Pass 1 failed: LLM returned empty narration')
@@ -374,7 +407,20 @@ export class VideoScriptGenerator {
             attempt > 1 && lastFeedback
               ? `${p2.user}\n\n[WARNING: PREVIOUS ATTEMPT FAILED EVALUATION]\n${lastFeedback}`
               : p2.user
-          const jsonText = await this.llmService.generateContent(promptOverride, p2.system, 'application/json')
+
+          const stepMsg =
+            chunks.length > 1
+              ? `Studio: Sculpting scenes part ${i + 1}/${chunks.length}...`
+              : attempt > 1
+                ? `Studio: Sculpting scenes (Attempt ${attempt}/3)...`
+                : 'Studio: Sculpting scenes and visual prompts...'
+
+          const baseStep = 12 + (i / chunks.length) * 50
+          const nextStep = 12 + ((i + 1) / chunks.length) * 50
+
+          const jsonText = await this.withPulse(Math.round(baseStep), Math.round(nextStep), stepMsg, onProgress, () =>
+            this.llmService.generateContent(promptOverride, p2.system, 'application/json')
+          )
           if (!jsonText) throw new Error('Empty Pass 2 response')
 
           const parsed = this.parseJsonResponse(jsonText)

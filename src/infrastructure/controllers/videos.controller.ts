@@ -136,15 +136,16 @@ export class VideosController implements Routes {
                 ? { jobId, ...parsedData }
                 : { jobId, progress: parsedData }
 
-            // Fallback: Only fetch the latest state from DB if we are currently generating scenes
-            // and the `scene` object is missing from the payload for whatever reason
-            if (progressPayload.step === 'composing_scene' && !progressPayload.scene) {
-              const video = await videoRepository.findByJobId(jobId)
-              const scenes = video?.scenes || (video?.script as any)?.scenes || []
+            const video = await videoRepository.findByJobId(jobId)
+            const videoOptions = video?.options
+            const scenes = video?.scenes || (video?.script as any)?.scenes || []
+            const totalScenes = (video?.script as any)?.scenes?.length || 0
 
+            // If we are in composing_scene step but missing the scene object, try to find it
+            if (progressPayload.step === 'composing_scene' && !progressPayload.scene) {
               let currentSceneIndex = progressPayload.currentSceneIndex
 
-              if (video && scenes.length > 0) {
+              if (scenes.length > 0) {
                 // If parsedData didn't have currentSceneIndex, find the highest index with an image
                 if (currentSceneIndex === undefined) {
                   for (let i = scenes.length - 1; i >= 0; i--) {
@@ -162,8 +163,14 @@ export class VideosController implements Routes {
               }
             }
 
+            const enrichedPayload = {
+              ...progressPayload,
+              options: videoOptions,
+              totalScenes // Added
+            }
+
             for (const enqueue of streams) {
-              enqueue('progress', progressPayload)
+              enqueue('progress', enrichedPayload)
             }
           } catch (error) {
             console.error(`[SSE Controller] Failed to process progress payload:`, error)
@@ -186,10 +193,12 @@ export class VideosController implements Routes {
               enqueue('completed', {
                 jobId,
                 status: 'completed',
-                progress: completedVideo?.progress || 100,
+                progress: 100, // Always 100% when job is completed
                 videoId: completedVideo?.id,
                 videoUrl: completedVideo?.videoUrl,
                 thumbnailUrl: completedVideo?.thumbnailUrl,
+                options: completedVideo?.options, // Added
+                script: completedVideo?.script,
                 duration: completedVideo?.duration
               })
             }

@@ -111,6 +111,32 @@ export class VideoAssembler {
     return 0
   }
 
+  /**
+   * Helper to attach a progress listener to an FFmpeg command.
+   * Interpolates progress within a specific range [start, end].
+   */
+  private attachProgressListener(
+    cmd: any,
+    totalDuration: number,
+    startRange: number,
+    endRange: number,
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    message: string = 'Rendering...'
+  ) {
+    if (!onProgress || totalDuration <= 0) return
+
+    cmd.on('progress', (progress: any) => {
+      if (progress.timemark) {
+        // timemark is HH:MM:SS.ms
+        const parts = progress.timemark.split(':')
+        const secs = Number.parseFloat(parts[0]) * 3600 + Number.parseFloat(parts[1]) * 60 + Number.parseFloat(parts[2])
+        const percent = Math.min(1, secs / totalDuration)
+        const globalProgress = Math.round(startRange + percent * (endRange - startRange))
+        onProgress(globalProgress, message).catch(() => {})
+      }
+    })
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // MAIN ENTRY POINT
   // ─────────────────────────────────────────────────────────────────────────
@@ -138,10 +164,6 @@ export class VideoAssembler {
 
     const CONCURRENCY_LIMIT = 3
     for (let i = 0; i < sceneTasks.length; i += CONCURRENCY_LIMIT) {
-      if (onProgress) {
-        const p = Math.round((i / sceneTasks.length) * 35)
-        await onProgress(p, `Assembling scene clips (${i}/${sceneTasks.length})...`)
-      }
       const chunk = sceneTasks.slice(i, i + CONCURRENCY_LIMIT)
       await Promise.all(
         chunk.map(async (sceneIndex) => {
@@ -155,11 +177,18 @@ export class VideoAssembler {
           )
           processedClips[sceneIndex] = result.clipPath
           processedTransitions[sceneIndex] = result.transition
+
+          // Incremental progress after each scene for smoothness
+          if (onProgress) {
+            const finishedScenes = processedClips.filter(Boolean).length
+            const p = Math.round((finishedScenes / script.scenes.length) * 40)
+            await onProgress(p, `Assembled scene clip ${finishedScenes}/${script.scenes.length}`)
+          }
         })
       )
     }
 
-    if (onProgress) await onProgress(40, 'Stitching scenes together...')
+    if (onProgress) await onProgress(45, 'Stitching scenes together...')
 
     const finalClips = processedClips.filter(Boolean)
     const finalTransitions = processedTransitions
@@ -174,15 +203,22 @@ export class VideoAssembler {
     // --- GLOBAL AUDIO OVERLAY ---
     let finalVisualPath = finalVideoNoMusic
     if (hasGlobalAudio && globalAudioPath && fs.existsSync(globalAudioPath)) {
-      if (onProgress) await onProgress(55, 'Syncing global narration...')
+      if (onProgress) await onProgress(60, 'Syncing global narration...')
       console.log(`[VideoAssembler] Overlaying global audio: ${globalAudioPath}`)
       const videoWithGlobalAudio = path.join(projectDir, 'final_video_with_global_audio.mp4')
       const narrationVol = globalOptions.narrationVolume ?? 1
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg(finalVideoNoMusic)
+      await new Promise<void>(async (resolve, reject) => {
+        const cmd = ffmpeg(finalVideoNoMusic)
           .input(globalAudioPath!)
           .complexFilter([`[1:a]volume=${narrationVol.toFixed(2)}[a_weighted]`])
           .outputOptions(['-c:v copy', '-map 0:v:0', '-map [a_weighted]', '-shortest'])
+
+        if (onProgress) {
+          const duration = await this.getClipDuration(finalVideoNoMusic).catch(() => 0)
+          this.attachProgressListener(cmd, duration, 60, 70, onProgress, 'Syncing global narration...')
+        }
+
+        cmd
           .save(videoWithGlobalAudio)
           .on('end', () => {
             finalVisualPath = videoWithGlobalAudio
@@ -200,12 +236,19 @@ export class VideoAssembler {
       await this.generateGlobalASS(script, globalAssPath, globalOptions)
     }
 
-    if (onProgress) await onProgress(70, 'Applying cinematic polish...')
+    if (onProgress) await onProgress(75, 'Applying cinematic polish...')
     const polishedVideoPath = path.join(projectDir, 'final_video_polished.mp4')
-    finalVisualPath = await this.applyProfessionalPolish(finalVisualPath, polishedVideoPath, {
-      ...globalOptions,
-      globalAssPath
-    })
+    finalVisualPath = await this.applyProfessionalPolish(
+      finalVisualPath,
+      polishedVideoPath,
+      {
+        ...globalOptions,
+        globalAssPath
+      },
+      onProgress,
+      75,
+      90
+    )
 
     if (globalOptions.branding) {
       const brandedVideoPath = path.join(projectDir, 'final_video_branded.mp4')
@@ -220,7 +263,7 @@ export class VideoAssembler {
 
     const bgMusic = globalOptions.backgroundMusic || script.backgroundMusic
     if (bgMusic) {
-      if (onProgress) await onProgress(90, 'Mixing background music...')
+      if (onProgress) await onProgress(95, 'Mixing background music...')
 
       // Sync tracks with DB just in case new ones were added
       const allTracks = await assetsConfigRepository.getAllMusicTracks().catch(() => [])
@@ -250,7 +293,15 @@ export class VideoAssembler {
         if (fs.existsSync(musicPath)) {
           const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
           const musicVol = globalOptions.backgroundMusicVolume ?? 0.22
-          return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
+          return await this.addBackgroundMusic(
+            finalVisualPath,
+            musicPath,
+            videoWithMusicPath,
+            musicVol,
+            onProgress,
+            95,
+            100
+          )
         } else {
           console.warn(`[VideoAssembler] Music file still not found after resolution/download: ${musicPath}`)
         }
@@ -265,6 +316,7 @@ export class VideoAssembler {
       return ultimatePath
     }
 
+    if (onProgress) await onProgress(100, 'Rendering complete')
     return finalVisualPath
   }
 
@@ -276,7 +328,10 @@ export class VideoAssembler {
     videoPath: string,
     musicPath: string,
     outputPath: string,
-    volume: number = 0.1
+    volume: number = 0.1,
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    startRange: number = 0,
+    endRange: number = 100
   ): Promise<string> {
     console.log(`[VideoAssembler] Adding background music from: ${musicPath} (vol: ${volume})...`)
     return new Promise(async (resolve, reject) => {
@@ -299,7 +354,7 @@ export class VideoAssembler {
         return
       }
 
-      ffmpeg()
+      const cmd = ffmpeg()
         .input(videoPath)
         .input(musicPath)
         .complexFilter([
@@ -309,6 +364,13 @@ export class VideoAssembler {
           `[voice_mix][music_ducked]amix=inputs=2:duration=first[aout]`
         ])
         .outputOptions(['-c:v copy', '-map 0:v:0', '-map [aout]', '-shortest'])
+
+      if (onProgress) {
+        const duration = await this.getClipDuration(videoPath).catch(() => 0)
+        this.attachProgressListener(cmd, duration, startRange, endRange, onProgress, 'Mixing background music...')
+      }
+
+      cmd
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => reject(new Error(`Background music addition failed: ${err.message}`)))
@@ -394,7 +456,10 @@ export class VideoAssembler {
   async applyProfessionalPolish(
     videoPath: string,
     outputPath: string,
-    options?: VideoGenerationOptions & { globalAssPath?: string }
+    options?: VideoGenerationOptions & { globalAssPath?: string },
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    startRange: number = 0,
+    endRange: number = 100
   ): Promise<string> {
     console.log(
       `[VideoAssembler] Applying professional visual polish (Vignette, Noise${options?.globalAssPath ? ', Subtitles' : ''})...`
@@ -404,8 +469,8 @@ export class VideoAssembler {
     const preset = options?.proEncoding?.preset ?? 'superfast'
     const assPath = options?.globalAssPath
 
-    return new Promise((resolve, reject) => {
-      ffmpeg(videoPath)
+    return new Promise(async (resolve, reject) => {
+      const cmd = ffmpeg(videoPath)
         .complexFilter([
           `eq=contrast=1.05:brightness=0.02:saturation=1.05[brightened]`,
           assPath
@@ -413,6 +478,13 @@ export class VideoAssembler {
             : `[brightened]copy[outv]`
         ])
         .outputOptions(['-map [outv]', '-map 0:a?', '-c:v libx264', `-preset ${preset}`, `-crf ${crf}`, '-shortest'])
+
+      if (onProgress) {
+        const duration = await this.getClipDuration(videoPath).catch(() => 0)
+        this.attachProgressListener(cmd, duration, startRange, endRange, onProgress, 'Applying cinematic polish...')
+      }
+
+      cmd
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => {

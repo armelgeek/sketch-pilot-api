@@ -9,18 +9,18 @@ export interface CreditPack {
 export const WELCOME_CREDITS = 0
 
 export const CREDIT_COSTS = {
-  SCRIPT_GENERATION: 10,
-  IMAGE_FREE: 2,
-  IMAGE_CREATOR: 10,
-  IMAGE_REPROMPT: 5,
-  TTS_VOICE: 3,
-  SUBTITLES: 2,
-  SUGGEST_TOPIC: 5,
-  EXPORT_720P: 5,
-  EXPORT_1080P: 10,
-  STUDIO_PASS_SURCHARGE: 5, // Fee for ScriptDoctor + ArtDirector + Director passes
-  THUMBNAIL_GENERATION: 2,
-  CHARACTER_GENERATION: 10
+  SCRIPT_GENERATION: 5, // was 10 — LLM cost is negligible
+  IMAGE_FREE: 0, // was 2  — truly free to reduce friction
+  IMAGE_CREATOR: 3, // was 10 — Gemini Flash ~$0.002/img, 3c = great margin
+  IMAGE_REPROMPT: 2, // was 5  — encourage iteration
+  TTS_VOICE: 2, // was 3  — local Kokoro, near-zero cost
+  SUBTITLES: 0, // was 2  — bundled with TTS pass
+  SUGGEST_TOPIC: 2, // was 5  — single LLM call, very cheap
+  EXPORT_720P: 2, // was 5  — FFmpeg local, near-zero cost
+  EXPORT_1080P: 5, // was 10 — FFmpeg local + slight quality premium
+  STUDIO_PASS_SURCHARGE: 3, // was 5 — ScriptDoctor/ArtDirector surcharge
+  THUMBNAIL_GENERATION: 1, // was 2 — 1 image generation
+  CHARACTER_GENERATION: 5 // was 10 — 1 LoRA image generation
 }
 
 export const VOICES = {

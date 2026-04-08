@@ -467,6 +467,35 @@ export class NanoBananaEngine {
     fs.writeFileSync(path.join(outputPath, 'script.md'), this.scriptGenerator.exportToMarkdown(script))
   }
 
+  /**
+   * Helper to periodically increment progress while waiting for an async task.
+   */
+  private async withPulse(
+    start: number,
+    end: number,
+    message: string,
+    onProgress: ((p: number, m: string) => Promise<void>) | undefined,
+    task: () => Promise<any>
+  ): Promise<any> {
+    if (!onProgress) return task()
+
+    let current = start
+    const interval = setInterval(() => {
+      if (current < end - 1) {
+        current += 1
+        onProgress(current, message).catch(() => {})
+      }
+    }, 2500)
+
+    try {
+      const result = await task()
+      return result
+    } finally {
+      clearInterval(interval)
+      await onProgress(end, message)
+    }
+  }
+
   async generateVideoFromTopic(
     topic: string,
     options: Partial<VideoGenerationOptions> = {},
@@ -478,7 +507,9 @@ export class NanoBananaEngine {
   ): Promise<CompleteVideoPackage> {
     const valid = videoGenerationOptionsSchema.parse(options)
     if (onProgress) await onProgress(0, `Démarrage: ${topic}`)
-    const script = await this.generateStructuredScript(topic, valid, onProgress)
+    const script = await this.withPulse(0, 15, 'Studio: Crafting your unique script...', onProgress, () =>
+      this.generateStructuredScript(topic, valid, onProgress)
+    )
     if (valid.scriptOnly)
       return {
         script,
@@ -686,22 +717,42 @@ export class NanoBananaEngine {
         const sceneImg = path.join(sceneDir, 'scene.webp')
 
         if (fs.existsSync(sceneImg) && !isTarget) {
-          sceneImagePromises.set(i, Promise.resolve(fs.readFileSync(sceneImg).toString('base64')))
-          completed++
-          if (onProgress)
-            await onProgress(
-              15 + Math.round((completed / script.scenes.length) * 70),
-              `Scène ${completed}/${script.scenes.length}`
-            )
-          if (onSceneGenerated)
-            await onSceneGenerated(scene, script, i + 1, 15 + Math.round((completed / script.scenes.length) * 70))
+          sceneImagePromises.set(
+            i,
+            (async () => {
+              // Cache smoothing: don't skip progress too fast
+              const pr = 15 + Math.round((completed / script.scenes.length) * 70)
+              if (onProgress)
+                await this.withPulse(
+                  pr,
+                  pr + 1,
+                  `Searching for scene ${i + 1} assets...`,
+                  onProgress,
+                  () => new Promise((r) => setTimeout(r, 800))
+                )
+
+              sceneImagePromises.set(i, Promise.resolve(fs.readFileSync(sceneImg).toString('base64')))
+              completed++
+              const finalPr = 15 + Math.round((completed / script.scenes.length) * 70)
+              if (onProgress) await onProgress(finalPr, `Scène ${completed}/${script.scenes.length}`)
+              if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, finalPr)
+              return fs.readFileSync(sceneImg).toString('base64')
+            })()
+          )
           continue
         }
 
         const task = this.generationQueue.add(async () => {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
           const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
-          await this.composeScene(scene, baseImages, sceneDir, prevB64, isTarget, script)
+
+          const startPr = 15 + Math.round((completed / script.scenes.length) * 70)
+          const endPr = 15 + Math.round(((completed + 1) / script.scenes.length) * 70)
+
+          await this.withPulse(startPr, endPr, `Crafting scene ${i + 1}...`, onProgress, async () => {
+            await this.composeScene(scene, baseImages, sceneDir, prevB64, isTarget, script)
+          })
+
           completed++
           const pr = 15 + Math.round((completed / script.scenes.length) * 70)
           if (onProgress) await onProgress(pr, `Scène ${completed}/${script.scenes.length}`)

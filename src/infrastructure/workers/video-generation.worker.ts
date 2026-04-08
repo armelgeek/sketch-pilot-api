@@ -72,14 +72,20 @@ async function reportProgress(
 function getGlobalProgress(localProgress: number, options: any): number {
   const p = Math.max(0, Math.min(100, localProgress))
 
-  // Phase 1: Script & Scenes (0-70%)
+  // Phase 1: Script & Scenes (0-70% total lifecycle)
   if (options.generateOnlyScenes || !options.generateFromScript) {
+    // If it's a standalone scene generation job, let it reach 100%
+    if (options.generateOnlyScenes) return p
     return Math.round((p / 100) * 70)
   }
 
-  // Phase 2: Assembly/Rendering (70-100%)
+  // Phase 2: Assembly/Rendering (70-100% total lifecycle)
   if (options.generateOnlyAssembly) {
-    return Math.round(70 + (p / 100) * 30)
+    // If it's a standalone assembly job, let's start at 0 if it was queued at 10%
+    // but the user expects 100% at the end.
+    // To avoid the jump from 10 to 70, we'll just return the raw progress
+    // so it's a 0-100 experience for this specific job.
+    return p
   }
 
   // All-in-one or legacy
@@ -243,16 +249,16 @@ async function handleSceneGenerated(
       console.info(`[VideoWorker] Initial video thumbnail set for ${videoId}`)
     }
 
-    // 4. Report progress first (important for SSE visibility)
+    // 4. Update DB FIRST (Crucial for visual sync if user navigates/reloads)
+    await videoRepository.updateStatus(videoId, updatePayload)
+    console.info(`[VideoWorker] Scene ${index} persisted successfully.`)
+
+    // 5. Report progress second (triggers SSE so UI fetches the now-updated DB)
     const globalProgress = getGlobalProgress(progress, job.data.options)
     await reportProgress(job, videoId, 'composing_scene', globalProgress, `Scene ${index} generated`, {
       currentSceneIndex: index - 1,
       scene: updatedScene
     })
-
-    // 5. Update DB
-    await videoRepository.updateStatus(videoId, updatePayload)
-    console.info(`[VideoWorker] Scene ${index} persisted successfully.`)
   } catch (error: any) {
     console.error(`[VideoWorker] Error in handleSceneGenerated for scene ${index}:`, error)
   }
@@ -389,7 +395,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', Math.round(70 + (p / 100) * 25), m, meta),
+            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p, job.data.options), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -425,7 +431,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', Math.round(70 + (p / 100) * 25), m, meta),
+            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p, job.data.options), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -454,8 +460,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         projectId: effectiveProjectId,
         onProgress: async (p, m, meta) => {
           // p is 0-100 from NanoBananaEngine
-          // Map to 0-95% to leave room for the upload phase
-          await reportProgress(job, videoId, 'generation', Math.round((p / 100) * 95), m, meta)
+          // Map to 0-100%
+          await reportProgress(job, videoId, 'generation', Math.round(p), m, meta)
         },
         onTimingSync: async (syncedScript) => {
           console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
@@ -553,7 +559,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       await videoRepository.updateStatus(videoId, {
         status: 'scenes_generated',
-        progress: 70, // Storyboard phase ends at 70%
+        progress: 100, // Storyboard phase is finished for this job
         scenes: updatedScenes as any,
         script: pkg.script as any,
         completedAt: new Date()
@@ -563,7 +569,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await videoRepository.updateStatus(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
-      await job.updateProgress({ step: 'completed', progress: 70, status: 'completed', videoId })
+      await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
 
       // DEDUCT CREDITS ON SUCCESS
       await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)

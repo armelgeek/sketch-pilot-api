@@ -894,6 +894,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         Contraintes:
           — Utilisez une phrase complète
           — Décrivez le personnage, son action et l’environnement
+          — NE NOMMEZ JAMAIS le personnage directement (ex: pas de 'le stickman', pas de prénom). Utilisez TOUJOURS 'le personnage', 'l'individu' ou 'la personne'.
           — Maximum 12–15 mots pour rester concis
           — Style narratif clair, facile à imaginer
 
@@ -905,9 +906,9 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
 
         
         Exemples valides:
-          - "Le stickman court sous la pluie."
+          - "Le personnage principal court sous la pluie."
           - "L'homme regarde l'horloge anxieusement."
-          - "Le chat saute sur la table de la cuisine."
+          - "Le personnage saute sur la table de la cuisine."
 
         ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1004,7 +1005,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
             "summary": "string",
             "cameraAction": "string",
             "transition": "string",
-            "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le stickman court sous la pluie, déterminé.')",
+            "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le personnage court sous la pluie, déterminé.' IMPORTANT: Ne jamais nommer le personnage.)",
             "imagePromptWordCount": "number",
             "animationPrompt": "string"
           }
@@ -1049,13 +1050,14 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         🎯 IMAGE PROMPT (TRÈS IMPORTANT):
           — Utilisez une phrase complète
           — Décrivez le personnage, son action et l’environnement
+          — NE NOMMEZ JAMAIS le personnage directement (ex: pas de 'le stickman', pas de prénom). Utilisez TOUJOURS 'le personnage', 'l'individu' ou 'la personne'.
           — Maximum 12–15 mots pour rester concis
           — Style narratif clair, facile à imaginer
 
         Exemples valides:
-          - "Le stickman court sous la pluie."
+          - "Le personnage principal court sous la pluie."
           - "L'homme regarde l'horloge anxieusement."
-          - "Le chat saute sur la table de la cuisine."
+          - "Le personnage saute sur la table de la cuisine."
 
         ⚠️ Si > 8 mots → raccourcir automatiquement
 
@@ -1219,13 +1221,14 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         — style télégraphique  
         — pas de phrase complète  
         — pas de détails inutiles  
+        — NE NOMMEZ JAMAIS le personnage (pas de 'stickman')
 
         ${characterMetadata ? `— personnage: "${characterMetadata.description}"` : `— personnage constant`}
 
         Exemples:
-        - "stickman regarde horloge"
+        - "personnage regarde horloge"
         - "homme marche pluie rue"
-        - "chat saute table cuisine"
+        - "personnage saute table cuisine"
 
         ⚠️ Si > 8 mots → raccourcir
 
@@ -1273,7 +1276,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
               "sceneNumber": 1,
               "preset": "hook",
               "narration": "string",
-              "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le stickman court sous la pluie, déterminé.')",
+              "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le personnage court sous la pluie, déterminé.' IMPORTANT: Ne jamais nommer le personnage.)",
               "animationPrompt": "string",
               "cameraAction": "string",
               "transition": "string"
@@ -1386,12 +1389,22 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
       .trim()
       .replace(/([^.!?])$/, '$1.')
 
+    // Determine if this is a manual override vs an auto-generated summary.
+    // Usually, imagePrompt gets populated only if manually specified or explicitly built.
+    const isManualOverride = !!scene.imagePrompt && scene.imagePrompt !== scene.summary
+
     if (hasReferenceImages) {
-      finalPrompt +=
-        ' Match character features and artistic style of reference. Use a DIFFERENT background from the reference.'
-      if (hasLocationReference) {
-        finalPrompt += ' Same location as reference. Only change character action.'
+      if (isManualOverride) {
+        finalPrompt = `STRICT VISUAL OVERRIDE: ${finalPrompt} \nNote: Use the reference image ONLY for general character face/style consistency, but the action, clothing and environment MUST EXACTLY MATCH THIS NEW DESCRIPTION.`
+      } else {
+        finalPrompt +=
+          ' Match character features and artistic style of reference. Use a DIFFERENT background from the reference.'
+        if (hasLocationReference) {
+          finalPrompt += ' Same location as reference. Only change character action.'
+        }
       }
+    } else if (isManualOverride) {
+      finalPrompt = `STRICT VISUAL OVERRIDE: ${finalPrompt} \nNote: This prompt is a direct user command. Follow the action and subject perfectly.`
     }
 
     return {

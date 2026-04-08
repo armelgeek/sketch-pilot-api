@@ -24,7 +24,7 @@ export class UpdateScriptUseCase extends IUseCase<UpdateScriptParams, UpdateScri
       }
 
       // 2. We only allow script updates if the video is in a state where it's safe to edit
-      const editableStatuses = ['scenes_generated', 'script_generated', 'failed']
+      const editableStatuses = ['scenes_generated', 'script_generated', 'failed', 'draft']
       if (!editableStatuses.includes(video.status)) {
         return {
           success: false,
