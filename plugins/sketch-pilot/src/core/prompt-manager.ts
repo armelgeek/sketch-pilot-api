@@ -119,43 +119,20 @@ const DEFAULT_SAFETY_FACTOR = 1.05
 // ─── Absolute minimums are now in BASE_SPEC to allow spec overrides ──────────
 
 // ─── Scaffold slot definitions — used ONLY in correction/retry prompts ────────
-const CAMERA_ACTIONS_LIST = [
-  'breathing',
-  'zoom-in',
-  'zoom-out',
-  'pan-right',
-  'pan-left',
-  'ken-burns-static',
-  'dutch-tilt',
-  'snap-zoom',
-  'shake'
-]
+const CAMERA_ACTIONS_LIST = ['zoom-in', 'zoom-out', 'pan-right', 'pan-left', 'snap-zoom']
 
 const TRANSITIONS_LIST = [
   'fade',
   'crossfade',
   'blur',
-  'zoomin',
+  'zoom-in',
   'dissolve',
-  'circlecrop',
-  'circleopen',
-  'circleclose',
-  'pixelize',
-  'hblur',
-  'radial',
-  'distance',
-  'smoothleft',
-  'smoothright',
-  'wipeleft',
-  'wiperight',
-  'wipeup',
-  'wipedown',
-  'slideleft',
-  'slideright',
-  'slideup',
-  'slidedown',
-  'fadeblack',
-  'fadewhite'
+  'wipe-left',
+  'wipe-right',
+  'slide-left',
+  'slide-right',
+  'fade-black',
+  'fade-white'
 ]
 
 // ─── Technical defaults only ──────────────────────────────────────────────────
@@ -915,10 +892,10 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         personnage + action + élément
 
         Contraintes:
-        — 5 à 8 mots MAX
-        — style télégraphique (PAS une phrase)
-        — pas de détails inutiles
-        — pas d’adjectifs superflus
+          — Utilisez une phrase complète
+          — Décrivez le personnage, son action et l’environnement
+          — Maximum 12–15 mots pour rester concis
+          — Style narratif clair, facile à imaginer
 
         ${
           spec.characterDescription
@@ -926,12 +903,11 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
             : `— garder le même personnage`
         }
 
-        Exemples:
-        - "stickman tape horloge"
-        - "homme regarde pluie fenêtre"
-        - "chat saute table cuisine"
-
-        ⚠️ Si > 8 mots → raccourcir automatiquement
+        
+        Exemples valides:
+          - "Le stickman court sous la pluie."
+          - "L'homme regarde l'horloge anxieusement."
+          - "Le chat saute sur la table de la cuisine."
 
         ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1071,12 +1047,10 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         }
 
         🎯 IMAGE PROMPT (TRÈS IMPORTANT):
-
-        — 5 à 8 mots MAX  
-        — PAS de phrase complète  
-        — PAS de détails inutiles  
-        — Format: personnage + action + élément clé  
-        — Style télégraphique  
+          — Utilisez une phrase complète
+          — Décrivez le personnage, son action et l’environnement
+          — Maximum 12–15 mots pour rester concis
+          — Style narratif clair, facile à imaginer
 
         Exemples valides:
           - "Le stickman court sous la pluie."

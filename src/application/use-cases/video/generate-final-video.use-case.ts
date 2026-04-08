@@ -88,11 +88,10 @@ export class GenerateFinalVideoUseCase extends IUseCase<GenerateFinalVideoParams
         options: {
           ...videoOptions,
           ...(options || {}),
-          generateOnlyAssembly: true, // ONLY ASSEMBLY
+          generateOnlyAssembly: video.status === 'scenes_generated' || video.status === 'completed', // Dynamically skip image generation only if scenes are already generated
           generateFromScript: true, // DONT REGEN SCRIPT
-          // Always regenerate audio: voice, characters, narration text edits all impact TTS.
-          // Attempting to detect individual changes is fragile — always regenerate is safer.
-          forceRegenerateAudio: true,
+          // Audio will reuse existing cache or MinIO URL if script text hasn't changed
+          forceRegenerateAudio: false,
           customSpec: spec || videoOptions.customSpec
         }
       }

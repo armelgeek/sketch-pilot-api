@@ -1,0 +1,4 @@
+- quand je modifie la perssonnage avec du prompt rien ne change
+- quand on genere le script, sur la validation de script ca fait que c'est le bouton suivant qui s'affiche au lieu de genereer un storyboard alors qu'on a pas encore les visuels
+- quand le visuel est generer ca affiche pas directement le visuel sur le storyboard mais il faut recharger pour le voir
+- pour generer le thumbnail la recuperation de l'inspiration ne pas bien, vue que ca fait appel a une api admin dans le user dashboard

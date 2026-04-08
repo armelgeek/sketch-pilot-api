@@ -79,7 +79,8 @@ export class App {
         (c.req.path === '/api/v1/subscription-plans' ||
           c.req.path.startsWith('/api/v1/config/') ||
           c.req.path === '/api/v1/pricing/plans' ||
-          c.req.path === '/api/v1/pricing/packs')
+          c.req.path === '/api/v1/pricing/packs' ||
+          c.req.path === '/api/v1/videos/thumbnail-templates')
       ) {
         return next()
       }

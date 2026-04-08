@@ -94,7 +94,27 @@ export class MusicService {
     return this.tracks[Math.floor(Math.random() * this.tracks.length)]
   }
 
-  public getTrackPath(filename: string): string {
-    return path.join(this.assetsDir, filename)
+  public syncWithDatabase(dbTracks: any[]) {
+    const existingIds = new Set(this.tracks.map((t) => t.id))
+    const mapped = dbTracks
+      .filter((dt) => !existingIds.has(dt.trackId))
+      .map((dt) => ({
+        id: dt.trackId,
+        name: dt.name,
+        path: dt.path,
+        tags: dt.tags || []
+      }))
+
+    if (mapped.length > 0) {
+      this.tracks = [...this.tracks, ...mapped]
+      console.log(`[MusicService] Synced ${mapped.length} new tracks from database`)
+    }
+  }
+
+  public getTrackPath(filenameOrPath: string): string {
+    if (filenameOrPath.startsWith('http') || filenameOrPath.includes('/')) {
+      return filenameOrPath
+    }
+    return path.join(this.assetsDir, filenameOrPath)
   }
 }

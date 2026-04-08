@@ -1,13 +1,17 @@
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import axios from 'axios'
 import ffmpeg from 'fluent-ffmpeg'
+import { AssetsConfigRepository } from '@/infrastructure/repositories/assets-config.repository'
 import { AmbientService } from '../audio/ambient.service'
 import { MusicService } from '../audio/music.service'
 import { SFXService } from '../audio/sfx.service'
-import type { CompleteVideoScript, TextPosition, VideoGenerationOptions } from '../../types/video-script.types'
+import type { CompleteVideoScript, VideoGenerationOptions } from '../../types/video-script.types'
 import type { WordTiming } from '../audio'
 import { AssCaptionService } from './ass-caption.service'
+
+const assetsConfigRepository = new AssetsConfigRepository()
 
 const SCENE_PADDING_SECONDS = 0.2
 
@@ -217,15 +221,39 @@ export class VideoAssembler {
     const bgMusic = globalOptions.backgroundMusic || script.backgroundMusic
     if (bgMusic) {
       if (onProgress) await onProgress(90, 'Mixing background music...')
+
+      // Sync tracks with DB just in case new ones were added
+      const allTracks = await assetsConfigRepository.getAllMusicTracks().catch(() => [])
+      this.musicService.syncWithDatabase(allTracks)
+
       const musicTrack = this.musicService.getTrackForMood(bgMusic)
       if (musicTrack) {
         console.log(
           `[VideoAssembler] Selected music track: ${musicTrack.name} (id: ${musicTrack.id}) for mood: ${bgMusic}`
         )
-        const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
-        const musicPath = this.musicService.getTrackPath(musicTrack.path)
-        const musicVol = globalOptions.backgroundMusicVolume ?? 0.22
-        return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
+
+        let musicPath = this.musicService.getTrackPath(musicTrack.path)
+
+        // Ensure track is local
+        if (musicPath.startsWith('http')) {
+          const localMusicPath = path.join(projectDir, `bg-music-${musicTrack.id}.mp3`)
+          console.log(`[VideoAssembler] Downloading remote music track: ${musicPath} to ${localMusicPath}`)
+          const downloaded = await this.downloadTrack(musicPath, localMusicPath).catch((error) => {
+            console.error(`[VideoAssembler] Failed to download music track: ${error.message}`)
+            return null
+          })
+          if (downloaded) {
+            musicPath = downloaded
+          }
+        }
+
+        if (fs.existsSync(musicPath)) {
+          const videoWithMusicPath = path.join(projectDir, 'final_video.mp4')
+          const musicVol = globalOptions.backgroundMusicVolume ?? 0.22
+          return await this.addBackgroundMusic(finalVisualPath, musicPath, videoWithMusicPath, musicVol)
+        } else {
+          console.warn(`[VideoAssembler] Music file still not found after resolution/download: ${musicPath}`)
+        }
       } else {
         console.warn(`[VideoAssembler] No music track found for mood: ${bgMusic}`)
       }
@@ -250,7 +278,7 @@ export class VideoAssembler {
     outputPath: string,
     volume: number = 0.1
   ): Promise<string> {
-    console.log(`[VideoAssembler] Adding background music with volume ${volume}...`)
+    console.log(`[VideoAssembler] Adding background music from: ${musicPath} (vol: ${volume})...`)
     return new Promise(async (resolve, reject) => {
       if (!fs.existsSync(musicPath)) {
         console.warn(`[VideoAssembler] Music file not found: ${musicPath}`)
@@ -287,6 +315,21 @@ export class VideoAssembler {
     })
   }
 
+  private async downloadTrack(url: string, localPath: string): Promise<string | null> {
+    try {
+      const response = await axios({
+        method: 'GET',
+        url,
+        responseType: 'arraybuffer'
+      })
+      fs.writeFileSync(localPath, Buffer.from(response.data))
+      return localPath
+    } catch (error: any) {
+      console.error(`[VideoAssembler] Download failed for ${url}:`, error.message)
+      return null
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // SOUND EFFECTS
   // ─────────────────────────────────────────────────────────────────────────
@@ -295,64 +338,8 @@ export class VideoAssembler {
     scenePath: string,
     soundEffects: Array<{ type: string; timestamp: number; volume?: number }> = []
   ): Promise<string | null> {
-    if (!soundEffects || soundEffects.length === 0) return null
-
-    console.log(`[VideoAssembler] Applying ${soundEffects.length} sound effects to scene...`)
-
-    const filterParts: string[] = []
-
-    for (const [i, sfx] of soundEffects.entries()) {
-      const sfxPath = this.sfxService.resolveSFX(sfx.type)
-      if (!sfxPath || !fs.existsSync(sfxPath)) {
-        console.warn(`[VideoAssembler] SFX not found: ${sfx.type}`)
-        continue
-      }
-
-      const volAdjust = sfx.volume ?? 0.8
-      const delayMs = Math.floor(sfx.timestamp * 1000)
-      filterParts.push(`[${i + 1}:a]adelay=${delayMs}|${delayMs},volume=${volAdjust}[sfx${i}]`)
-    }
-
-    if (filterParts.length === 0) {
-      console.warn(`[VideoAssembler] No valid SFX found`)
-      return null
-    }
-
-    let mixInputs = '[0:a]'
-    for (let i = 0; i < filterParts.length; i++) {
-      mixInputs += `[sfx${i}]`
-    }
-    const mixCount = filterParts.length + 1
-    filterParts.push(`${mixInputs}amix=inputs=${mixCount}:duration=first[aout]`)
-
-    const filterChain = filterParts.join(';')
-
-    return new Promise((resolve, reject) => {
-      let cmd = ffmpeg(scenePath)
-
-      const sfxPaths = soundEffects
-        .map((sfx) => this.sfxService.resolveSFX(sfx.type))
-        .filter((p) => p && fs.existsSync(p)) as string[]
-
-      sfxPaths.forEach((p) => (cmd = cmd.input(p)))
-
-      const tempPath = `${scenePath}.temp`
-      cmd
-        .complexFilter(filterChain)
-        .outputOptions(['-map 0:v:0', '-map [aout]', '-c:v copy'])
-        .on('error', (err) => {
-          console.warn(`[VideoAssembler] SFX application failed: ${err.message}, skipping...`)
-          if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
-          resolve(null)
-        })
-        .on('end', () => {
-          if (fs.existsSync(tempPath)) {
-            fs.renameSync(tempPath, scenePath)
-          }
-          resolve(scenePath)
-        })
-        .save(tempPath)
-    })
+    // SFX application disabled for minimalist aesthetic
+    return scenePath
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -733,7 +720,7 @@ export class VideoAssembler {
 
       const t = Math.max(1, Math.min(10, sceneTension))
 
-      const panZoomScale = 1.08
+      const panZoomScale = 1.05
       const P_DZ = (panZoomScale - 1).toFixed(4)
 
       const zoomScale = t <= 3 ? 1.25 : t <= 6 ? 1.4 : 1.55
@@ -769,32 +756,26 @@ export class VideoAssembler {
 
         case 'pan-right':
           zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${CX}+${PAN_X_HALF}*(${SS})${osc('x')}`
+          xRaw = `${CX}+(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'pan-left':
           zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${CX}-${PAN_X_HALF}*(${SS})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'zoom-out-pan-left':
-          zBaseExpr = `${ZS}-(${DZ}*${SS})`
-          xRaw = `${CX}-${PAN_X_HALF}*(${SS})${osc('x')}`
+          xRaw = `${CX}-(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
           yRaw = `${CY}${osc('y')}`
           break
 
         case 'pan-down':
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}+${PAN_Y_HALF}*(${SS})${osc('y')}`
+          yRaw = `${CY}+(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
           break
 
         case 'pan-up':
           zBaseExpr = panZoomScale.toFixed(4)
           xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}-${PAN_Y_HALF}*(${SS})${osc('y')}`
+          yRaw = `${CY}-(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
           break
 
         case 'snap-zoom': {
@@ -807,67 +788,17 @@ export class VideoAssembler {
           break
         }
 
-        case 'breathing': {
-          const amp = t <= 3 ? 0.03 : t <= 6 ? 0.05 : 0.08
-          zBaseExpr = `1.0+${amp.toFixed(3)}*sin(2*PI*(on/${ZOOMPAN_INTERNAL_FPS})/${duration.toFixed(2)})`
-          xRaw = CX
-          yRaw = CY
-          break
-        }
-
-        case 'ken-burns-static':
-          zBaseExpr = `1.02+(0.03*${SS})`
-          xRaw = `${CX}+(${PAN_X_HALF}*0.15*${SS})${osc('x')}`
-          yRaw = `${CY}+(${PAN_Y_HALF}*0.15*${SS})${osc('y')}`
-          break
-
-        case 'dutch-tilt':
-          zBaseExpr = `1.05+(0.08*${SS})`
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'shake': {
-          const shakePx = t <= 3 ? 3 : t <= 6 ? 6 : cameraAction?.intensity === 'high' ? 14 : 9
-          zBaseExpr = `1.1+0.05*${SS}`
-          xRaw = `${CX}+${shakePx}*sin(on*1.7+0.3)`
-          yRaw = `${CY}+${shakePx}*cos(on*1.1+0.9)`
-          break
-        }
-
         default: {
-          const driftDir = Math.abs(imagePath.length % 4)
-          zBaseExpr = `1.0+(${DZ}*${EASING})`
-          const driftX = `${PAN_X_HALF}*0.3`
-          const driftY = `${PAN_Y_HALF}*0.3`
+          zBaseExpr = `1.0+(${DZ}*${SS})`
+          const driftX = `(${PAN_X_HALF}*0.25)`
+          const driftY = `(${PAN_Y_HALF}*0.25)`
 
-          let bx = `${CX}`
-          let by = `${CY}`
+          const half = (duration / 2).toFixed(2)
+          const bx = `if(lt(t,${half}), ${CX}, ${CX}+(${driftX}))`
+          const by = `if(lt(t,${half}), ${CY}, ${CY}+(${driftY}))`
 
-          if (duration >= 6 && keywordVisuals.length === 0) {
-            const half = (duration / 2).toFixed(2)
-            bx = `if(lt(t,${half}), ${CX}, ${CX}+(${PAN_X_HALF}*0.18))`
-            by = `if(lt(t,${half}), ${CY}, ${CY}+(${PAN_Y_HALF}*0.18))`
-          }
-
-          switch (driftDir) {
-            case 0:
-              xRaw = `${bx}+${driftX}*(${EASING})`
-              yRaw = `${by}+${driftY}*(${EASING})`
-              break
-            case 1:
-              xRaw = `${bx}-${driftX}*(${EASING})`
-              yRaw = `${by}-${driftY}*(${EASING})`
-              break
-            case 2:
-              xRaw = `${bx}+${driftX}*(${EASING})`
-              yRaw = `${by}-${driftY}*(${EASING})`
-              break
-            default:
-              xRaw = `${bx}-${driftX}*(${EASING})`
-              yRaw = `${by}+${driftY}*(${EASING})`
-              break
-          }
+          xRaw = `${bx}${osc('x')}`
+          yRaw = `${by}${osc('y')}`
           break
         }
       }
@@ -1332,73 +1263,17 @@ export class VideoAssembler {
         currentInputIndex++
       }
 
-      const hasSoundscape = soundscapePath && fs.existsSync(soundscapePath)
-      let ambInputStr = ''
-      if (hasSoundscape) {
-        cmd.input(soundscapePath!).inputOptions(['-stream_loop', '-1'])
-        ambInputStr = `[${currentInputIndex}:a]`
-        currentInputIndex++
-      }
-
-      const activeSFX: Array<{ path: string; timestamp: number; volume: number }> = []
-      const sfxStartIndex = currentInputIndex
-      for (const sfx of soundEffects) {
-        const sfxPath = this.sfxService.resolveSFX(sfx.type)
-        if (sfxPath && fs.existsSync(sfxPath)) {
-          cmd.input(sfxPath)
-          activeSFX.push({
-            path: sfxPath,
-            timestamp: sfx.timestamp,
-            volume: (sfx.volume ?? 0.8) * narrVol
-          })
-          currentInputIndex++
-        }
-      }
-
+      // SFX and Soundscape logic removed for minimalist aesthetic
       const filterParts: string[] = []
       const delayMs = Math.floor(startPadding * 1000)
       let currentAudioLabel = ''
 
       if (!skipNarration && hasNarration) {
-        if (hasSoundscape) {
-          filterParts.push(`[1:a]adelay=${delayMs}|${delayMs},volume=${narrVol.toFixed(2)},asplit=2[narr_sc][narr_mix]`)
-        } else {
-          filterParts.push(`[1:a]adelay=${delayMs}|${delayMs},volume=${narrVol.toFixed(2)}[narr]`)
-          currentAudioLabel = '[narr]'
-        }
-      }
-
-      if (hasSoundscape) {
-        filterParts.push(`${ambInputStr}volume=${ambientBaseVolume}[amb_vol]`)
-
-        if (skipNarration || !hasNarration) {
-          currentAudioLabel = '[amb_vol]'
-        } else {
-          filterParts.push(
-            `[amb_vol][narr_sc]sidechaincompress=threshold=0.02:ratio=${duckingRatio}:attack=15:release=500:makeup=1.1[amb_ducked]`
-          )
-          filterParts.push(`[narr_mix][amb_ducked]amix=inputs=2:duration=first[mixed_base]`)
-          currentAudioLabel = '[mixed_base]'
-        }
-      } else if (skipNarration || !hasNarration) {
+        filterParts.push(`[1:a]adelay=${delayMs}|${delayMs},volume=${narrVol.toFixed(2)}[narr]`)
+        currentAudioLabel = '[narr]'
+      } else {
         filterParts.push(`aevalsrc=0:c=stereo:s=44100:d=${duration}[silent_base]`)
         currentAudioLabel = '[silent_base]'
-      }
-
-      if (activeSFX.length > 0) {
-        const sfxLabels: string[] = []
-        for (const [i, element] of activeSFX.entries()) {
-          const sfxInputIdx = sfxStartIndex + i
-          const sfxDelayMs = Math.floor(element.timestamp * 1000)
-          const sfxLabel = `[sfx${i}]`
-          filterParts.push(`[${sfxInputIdx}:a]adelay=${sfxDelayMs}|${sfxDelayMs},volume=${element.volume}${sfxLabel}`)
-          sfxLabels.push(sfxLabel)
-        }
-
-        const mixInputs = `${currentAudioLabel}${sfxLabels.join('')}`
-        const mixCount = sfxLabels.length + 1
-        filterParts.push(`${mixInputs}amix=inputs=${mixCount}:duration=first[final_a]`)
-        currentAudioLabel = '[final_a]'
       }
 
       filterParts.push(`${currentAudioLabel}apad[aout_padded]`)
@@ -1442,7 +1317,7 @@ export class VideoAssembler {
 
     // 2. Auto-select based on tension when autoTransitions is enabled
     if (useAuto) {
-      if (tension > 7) return 'swish' // High tension → snappy swish
+      if (tension > 7) return 'slide-left' // High tension → snappy slide
       if (tension <= 3) return 'fade' // Calm → soft fade
       return 'fade' // FIX: mid-range (4-7) also gets fade instead of 'cut'
     }
@@ -1549,13 +1424,23 @@ export class VideoAssembler {
       zoom: { name: 'zoomin', duration: defaultDurations.zoomin },
       'zoom-in': { name: 'zoomin', duration: defaultDurations.zoomin },
       wipe: { name: 'wipeleft', duration: defaultDurations.wipeleft },
+      'wipe-left': { name: 'wipeleft', duration: defaultDurations.wipeleft },
+      'wipe-right': { name: 'wiperight', duration: defaultDurations.wiperight },
+      'wipe-up': { name: 'wipeup', duration: defaultDurations.wipeup },
+      'wipe-down': { name: 'wipedown', duration: defaultDurations.wipedown },
       slide: { name: 'slideleft', duration: defaultDurations.slideleft },
       'slide-left': { name: 'slideleft', duration: defaultDurations.slideleft },
       'slide-right': { name: 'slideright', duration: defaultDurations.slideright },
       'slide-up': { name: 'slideup', duration: defaultDurations.slideup },
       'slide-down': { name: 'slidedown', duration: defaultDurations.slidedown },
+      'smooth-left': { name: 'smoothleft', duration: defaultDurations.smoothleft },
+      'smooth-right': { name: 'smoothright', duration: defaultDurations.smoothright },
+      'smooth-up': { name: 'smoothup', duration: defaultDurations.smoothup },
+      'smooth-down': { name: 'smoothdown', duration: defaultDurations.smoothdown },
       pop: { name: 'fadeblack', duration: defaultDurations.fadeblack },
-      swish: { name: 'smoothleft', duration: defaultDurations.smoothleft },
+      'fade-black': { name: 'fadeblack', duration: defaultDurations.fadeblack },
+      'fade-white': { name: 'fadewhite', duration: defaultDurations.fadewhite },
+      swish: { name: 'slideleft', duration: defaultDurations.slideleft },
       flash: { name: 'fadewhite', duration: defaultDurations.fadewhite },
       circle: { name: 'circleopen', duration: defaultDurations.circleopen }
     }
@@ -1630,14 +1515,6 @@ export class VideoAssembler {
       }
     })
 
-    const swishPath = this.sfxService.getSFXPath('swish')
-    const hasSwish = swishPath && fs.existsSync(swishPath)
-    if (hasSwish) {
-      for (let i = 1; i < clips.length; i++) {
-        command.input(swishPath)
-      }
-    }
-
     let filterComplex = ''
     const n = clips.length
 
@@ -1651,11 +1528,11 @@ export class VideoAssembler {
       const vLabel = `[v_in_${i}]`
       const aLabel = `[a_in_${i}]`
       if (hasAudio[i]) {
-        filterComplex += `[${inputCounter}:v]null${vLabel};`
+        filterComplex += `[${inputCounter}:v]setpts=PTS-STARTPTS,settb=AVTB${vLabel};`
         filterComplex += `[${inputCounter}:a]aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100,${normalizationFilter}${aLabel};`
         inputCounter++
       } else {
-        filterComplex += `[${inputCounter}:v]null${vLabel};`
+        filterComplex += `[${inputCounter}:v]setpts=PTS-STARTPTS,settb=AVTB${vLabel};`
         filterComplex += `[${inputCounter + 1}:a]atrim=duration=${durations[i]},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100,${normalizationFilter}${aLabel};`
         inputCounter += 2
       }
@@ -1720,19 +1597,7 @@ export class VideoAssembler {
       }
     }
 
-    if (hasSwish && n > 1) {
-      const sfxStartIndex = inputCounter
-      let sfxMixLabel = lastAudioLabel
-      for (let i = 1; i < n; i++) {
-        const sfxLabel = `[swish_${i}]`
-        const outLabel = `[a_swish_mix_${i}]`
-        const sfxOffsetMs = Math.round(transitionOffsets[i - 1] * 1000)
-        filterComplex += `[${sfxStartIndex + i - 1}:a]adelay=${sfxOffsetMs}|${sfxOffsetMs},volume=0.4${sfxLabel};`
-        filterComplex += `${sfxMixLabel}${sfxLabel}amix=inputs=2:duration=first${outLabel};`
-        sfxMixLabel = outLabel
-      }
-      lastAudioLabel = sfxMixLabel
-    }
+    // High-tension swish SFX removed for a cleaner, minimalist aesthetic at user request.
 
     filterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex
 
@@ -1829,86 +1694,6 @@ export class VideoAssembler {
         .on('end', () => resolve(firstSilenceEnd))
         .run()
     })
-  }
-
-  private async detectTrailingSilence(audioPath: string): Promise<number> {
-    return new Promise((resolve) => {
-      if (!fs.existsSync(audioPath)) return resolve(0)
-      let lastSilenceStart = 0
-      ffmpeg(audioPath)
-        .audioFilters('silencedetect=n=-40dB:d=0.5')
-        .format('null')
-        .output('-')
-        .on('stderr', (stderrLine) => {
-          if (stderrLine.includes('silence_start:')) {
-            const match = stderrLine.match(/silence_start:\s*([\d.]+)/)
-            if (match) lastSilenceStart = parseFloat(match[1])
-          }
-        })
-        .on('error', () => resolve(0))
-        .on('end', () => {
-          if (lastSilenceStart > 0) {
-            this.getAudioDuration(audioPath)
-              .then((totalDuration) => resolve(Math.max(0, totalDuration - lastSilenceStart)))
-              .catch(() => resolve(0))
-          } else {
-            resolve(0)
-          }
-        })
-        .run()
-    })
-  }
-
-  private escapeForFFmpeg(text: string): string {
-    return text
-      .replaceAll('\\', '\\\\')
-      .replaceAll("'", String.raw`\'`)
-      .replaceAll(':', String.raw`\:`)
-      .replaceAll('[', String.raw`\[`)
-      .replaceAll(']', String.raw`\]`)
-      .replaceAll(',', String.raw`\,`)
-      .replaceAll('\n', String.raw`\n`)
-  }
-
-  private getTextPosition(position: TextPosition): { x: string; y: string } {
-    const positions: Record<TextPosition, { x: string; y: string }> = {
-      top: { x: '(w-text_w)/2', y: '50' },
-      center: { x: '(w-text_w)/2', y: '(h-text_h)/2' },
-      bottom: { x: '(w-text_w)/2', y: 'h-text_h-100' },
-      'top-left': { x: '50', y: '50' },
-      'top-right': { x: 'w-text_w-50', y: '50' },
-      'bottom-left': { x: '50', y: 'h-text_h-50' },
-      'bottom-right': { x: 'w-text_w-50', y: 'h-text_h-50' },
-      none: { x: '0', y: '0' }
-    }
-    return positions[position] || positions.bottom
-  }
-
-  private wrapText(text: string, maxCharsPerLine: number): string {
-    const words = text.split(' ')
-    const lines: string[] = []
-    let currentLine = ''
-
-    for (const word of words) {
-      if (word.length > maxCharsPerLine) {
-        if (currentLine) {
-          lines.push(currentLine)
-          currentLine = ''
-        }
-        for (let i = 0; i < word.length; i += maxCharsPerLine) {
-          lines.push(word.substring(i, i + maxCharsPerLine))
-        }
-        continue
-      }
-      if (`${currentLine} ${word}`.trim().length <= maxCharsPerLine) {
-        currentLine = `${currentLine} ${word}`.trim()
-      } else {
-        if (currentLine) lines.push(currentLine)
-        currentLine = word
-      }
-    }
-    if (currentLine) lines.push(currentLine)
-    return lines.join('\n')
   }
 
   // ─────────────────────────────────────────────────────────────────────────

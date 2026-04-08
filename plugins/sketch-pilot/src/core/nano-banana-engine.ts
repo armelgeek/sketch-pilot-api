@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -540,71 +541,90 @@ export class NanoBananaEngine {
     const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
 
     const isScriptUnchanged = fs.existsSync(scriptHashPath) && fs.readFileSync(scriptHashPath, 'utf8') === scriptHash
-    const hasAudio = fs.existsSync(globalAudioPath)
 
-    // ─── AUDIO (assembly-only mode) ───────────────────────────────────────────
-    if (valid.generateOnlyAssembly) {
-      const forceRegen = (options as any).forceRegenerateAudio
+    // ─── AUDIO GENERATION (Scene by Scene) ──────────────────────────────────
+    if (!skipAudio) {
+      if (onProgress) await onProgress(10, 'Preparing scene audios...')
+      for (let i = 0; i < script.scenes.length; i++) {
+        const scene = script.scenes[i]
+        const sceneDir = path.join(scenesDir, scene.id)
+        if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
+        const audioPath = path.join(sceneDir, 'narration.mp3')
 
-      if (forceRegen && fs.existsSync(globalAudioPath)) {
-        console.log(`[NanoBanana] forceRegenerateAudio=true — suppression cache narration`)
-        fs.unlinkSync(globalAudioPath)
-      }
+        // MD5 hash of narration to detect changes
+        const textHash = crypto
+          .createHash('md5')
+          .update(scene.narration + voiceId)
+          .digest('hex')
+        const hashFile = path.join(sceneDir, 'audio_hash.txt')
+        const isAudioValid =
+          fs.existsSync(audioPath) && fs.existsSync(hashFile) && fs.readFileSync(hashFile, 'utf8') === textHash
 
-      const canReuseAudio = isScriptUnchanged && hasAudio
+        if (!isAudioValid) {
+          // Priority 1: Download from MinIO if available (cross-worker worker)
+          if ((scene as any).audioUrl) {
+            console.log(`[NanoBanana] 📥 Downloading audio for ${scene.id} from MinIO...`)
+            try {
+              const res = await axios.get((scene as any).audioUrl, { responseType: 'arraybuffer' })
+              fs.writeFileSync(audioPath, Buffer.from(res.data))
+              fs.writeFileSync(hashFile, textHash)
+              console.log(`[NanoBanana] ✓ Audio downloaded for ${scene.id}`)
+            } catch (error: any) {
+              console.warn(`[NanoBanana] ⚠ Failed to download audio for ${scene.id}: ${error.message}`)
+            }
+          }
 
-      if (canReuseAudio) {
-        script.globalAudio = 'narration.mp3'
-        console.log(`[NanoBanana] Script inchangé — Réutilisation de la narration locale.`)
-      } else if (fs.existsSync(globalAudioPath)) {
-        // Fallback: local file exists but hash didn't match? Or first run.
-        script.globalAudio = 'narration.mp3'
-        console.log(`[NanoBanana] Narration trouvée localement.`)
-      } else if ((script as any).narrationUrl) {
-        // ✅ Priority 2: Télécharger depuis narrationUrl
-        console.log(`[NanoBanana] Téléchargement narration depuis narrationUrl: ${(script as any).narrationUrl}`)
-        try {
-          const narRes = await axios.get((script as any).narrationUrl, { responseType: 'arraybuffer' })
-          fs.writeFileSync(globalAudioPath, Buffer.from(narRes.data))
-          script.globalAudio = 'narration.mp3'
-          console.log(`[NanoBanana] ✓ Narration téléchargée depuis MinIO.`)
-        } catch (error: any) {
-          console.warn(`[NanoBanana] ⚠ Téléchargement narration échoué: ${error.message}. Régénération...`)
-          try {
-            const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
-            const audioService = await this.getAudioService()
-            await audioService.generateSpeech(fullScriptText, globalAudioPath)
-            if (fs.existsSync(globalAudioPath)) script.globalAudio = 'narration.mp3'
-          } catch (error: any) {
-            console.error(`[NanoBanana] ❌ Régénération narration échouée: ${error.message}`)
+          // Priority 2: Generate if still missing or invalid
+          if (!fs.existsSync(audioPath) || !isAudioValid) {
+            console.log(`[NanoBanana] 🎤 Generating audio for Scene ${i + 1}/${script.scenes.length}...`)
+            const audio = await this.getAudioService()
+            const res = await audio.generateSpeech(scene.narration, audioPath)
+            if (res.wordTimings) (scene as any).globalWordTimings = res.wordTimings
+            ;(scene as any).audioDuration = res.duration
+            fs.writeFileSync(hashFile, textHash)
           }
         }
-      } else {
-        // ✅ Priority 3: Régénération depuis le texte (dernier recours)
-        console.log(`[NanoBanana] No local narration and no URL. Regenerating from script text...`)
-        try {
-          const fullScriptText = script.scenes.map((s: any) => s.narration).join('\n\n...\n\n')
-          const audioService = await this.getAudioService()
-          await audioService.generateSpeech(fullScriptText, globalAudioPath)
-          if (fs.existsSync(globalAudioPath)) script.globalAudio = 'narration.mp3'
-        } catch (error: any) {
-          console.error(`[NanoBanana] ❌ Narration re-generation failed: ${error.message}.`)
+
+        // Always get duration if we don't have it
+        if (!(scene as any).audioDuration && fs.existsSync(audioPath)) {
+          ;(scene as any).audioDuration = await this.getRealDuration(audioPath)
         }
       }
 
-      // ─── TRANSCRIPTION (seulement si captions activées) ───────────────────
+      // ─── STITCH GLOBAL AUDIO & CALCULATE TIMINGS ──────────────────────────
+      let currentTime = 0
+      const audioFiles: string[] = []
+      for (const s of script.scenes) {
+        const p = path.join(scenesDir, s.id, 'narration.mp3')
+        if (fs.existsSync(p)) {
+          audioFiles.push(p)
+          const d = (s as any).audioDuration || (await this.getRealDuration(p))
+          s.timeRange = { start: currentTime, end: currentTime + d }
+          currentTime += d
+        } else {
+          const d = s.timeRange?.end - s.timeRange?.start || 5
+          s.timeRange = { start: currentTime, end: currentTime + d }
+          currentTime += d
+        }
+      }
+      script.totalDuration = currentTime
+
+      if (audioFiles.length > 0) {
+        console.log(`[NanoBanana] 🧵 Stitching ${audioFiles.length} audio clips into global narration...`)
+        await this.stitchAudioFiles(audioFiles, globalAudioPath)
+        script.globalAudio = 'narration.mp3'
+        fs.writeFileSync(scriptHashPath, scriptHash)
+      }
+
+      // ─── TRANSCRIPTION (Optional, for captions/Whisper) ─────────────────────
       const captionsEnabled = this.currentAssCaptionConfig?.enabled ?? valid.assCaptions?.enabled ?? false
       if (captionsEnabled && fs.existsSync(globalAudioPath)) {
         const audioStatHash = this.getFileHashInfo(globalAudioPath)
-        const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
         const cachedTranscriptValid =
           fs.existsSync(transcriptHashPath) && fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
-        const hasTimings = script.scenes.some((s: any) => s.globalWordTimings?.length > 0)
-        const needsTranscription = !isScriptUnchanged || !cachedTranscriptValid || !hasTimings
 
-        if (needsTranscription) {
+        if (!cachedTranscriptValid) {
           if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
-          console.log(`[NanoBanana] ASS captions activées — transcription Whisper...`)
           try {
             const { TranscriptionServiceFactory } = await import('../services/audio/transcription.service')
             const transcriptionService = await TranscriptionServiceFactory.create({
@@ -613,32 +633,43 @@ export class NanoBananaEngine {
               device: 'cpu',
               language: valid.language?.split('-')[0] || 'en'
             } as any)
-            const result = await transcriptionService.transcribe(globalAudioPath, async (p: number) => {
-              if (onProgress) await onProgress(26 + Math.round(p * 0.09), `Synchronisation vocale: ${p}%`)
-            })
+            const result = await transcriptionService.transcribe(globalAudioPath)
             const { TimingMapper } = await import('../utils/timing-mapper')
             const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
             const mappedTimings = TimingMapper.mapScenes(sceneNarrations, result.wordTimings)
             mappedTimings.forEach((timing: any, idx: number) => {
               const scene = script.scenes[idx]
-              scene.timeRange = { start: timing.start, end: timing.end }
               if (timing.wordTimings.length > 0) (scene as any).globalWordTimings = timing.wordTimings
             })
-            if (mappedTimings.length > 0) script.totalDuration = mappedTimings.at(-1)!.end
             fs.writeFileSync(transcriptHashPath, audioStatHash)
-            console.log(`[NanoBanana] ✓ Transcription complète — ${mappedTimings.length} scènes synchronisées`)
           } catch (error: any) {
-            console.warn(`[NanoBanana] ⚠ Transcription échouée: ${error.message}`)
+            console.warn(`[NanoBanana] ⚠ Transcription failed: ${error.message}`)
           }
-        } else {
-          console.log(`[NanoBanana] Audio inchangé et timings existants — transcription ignorée.`)
         }
-      } else if (!captionsEnabled) {
-        console.log(`[NanoBanana] ASS captions désactivées — transcription ignorée.`)
       }
 
       if (onTimingSync) await onTimingSync(script)
       fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
+    }
+
+    // ─── TÉLÉCHARGEMENT DES IMAGES (Caches distants) ─────────────────────────
+    for (let i = 0; i < script.scenes.length; i++) {
+      const scene = script.scenes[i]
+      const isTarget =
+        valid.repromptSceneIndex != null &&
+        (String(valid.repromptSceneIndex) === String(i) || String(valid.repromptSceneIndex) === scene.id)
+      const sceneDir = path.join(scenesDir, scene.id)
+      const sceneImg = path.join(sceneDir, 'scene.webp')
+
+      if (!fs.existsSync(sceneImg) && (scene as any).imageUrl && !isTarget) {
+        try {
+          if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
+          const res = await axios.get((scene as any).imageUrl, { responseType: 'arraybuffer' })
+          fs.writeFileSync(sceneImg, Buffer.from(res.data))
+        } catch (error: any) {
+          console.warn(`[NanoBanana] ⚠ Scene download failed for ${scene.id}: ${error.message}`)
+        }
+      }
     }
 
     // ─── COMPOSITION DES SCÈNES ───────────────────────────────────────────────
@@ -654,58 +685,21 @@ export class NanoBananaEngine {
         const sceneDir = path.join(scenesDir, scene.id)
         const sceneImg = path.join(sceneDir, 'scene.webp')
 
-        // ✅ Téléchargement depuis imageUrl si image absente localement
-        if (!fs.existsSync(sceneImg) && (scene as any).imageUrl && !isTarget) {
-          console.log(`[NanoBanana] 📥 Scene ${scene.id} absente, téléchargement: ${(scene as any).imageUrl}`)
-          try {
-            if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
-            const res = await axios.get((scene as any).imageUrl, { responseType: 'arraybuffer' })
-            fs.writeFileSync(sceneImg, Buffer.from(res.data))
-            console.log(`[NanoBanana] ✓ Scene ${scene.id} téléchargée depuis MinIO.`)
-            const b64 = fs.readFileSync(sceneImg).toString('base64')
-            sceneImagePromises.set(i, Promise.resolve(b64))
-            completed++
-            const pr = 15 + Math.round((completed / script.scenes.length) * 70)
-            if (onProgress) await onProgress(pr, `Scène ${completed}/${script.scenes.length}`)
-            if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, pr)
-            continue
-          } catch (downloadError: any) {
-            console.warn(
-              `[NanoBanana] ⚠ Téléchargement échoué pour ${scene.id}: ${downloadError.message}. Régénération...`
+        if (fs.existsSync(sceneImg) && !isTarget) {
+          sceneImagePromises.set(i, Promise.resolve(fs.readFileSync(sceneImg).toString('base64')))
+          completed++
+          if (onProgress)
+            await onProgress(
+              15 + Math.round((completed / script.scenes.length) * 70),
+              `Scène ${completed}/${script.scenes.length}`
             )
-            // pas de continue → tombe dans le task normal
-          }
+          if (onSceneGenerated)
+            await onSceneGenerated(scene, script, i + 1, 15 + Math.round((completed / script.scenes.length) * 70))
+          continue
         }
 
         const task = this.generationQueue.add(async () => {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
-          // For reprompt: skip audio regeneration — only image needs to be regenerated
-          if (!skipAudio && !isTarget) {
-            const audioPath = path.join(sceneDir, 'narration.mp3')
-            if (!fs.existsSync(audioPath)) {
-              const MAX_AUDIO_RETRIES = 3
-              for (let attempt = 1; attempt <= MAX_AUDIO_RETRIES; attempt++) {
-                try {
-                  const audio = await this.getAudioService()
-                  const res = await audio.generateSpeech(scene.narration, audioPath)
-                  if (res.wordTimings) (scene as any).globalWordTimings = res.wordTimings
-                  ;(scene as any).audioDuration = res.duration
-                  break
-                } catch (error: any) {
-                  if (attempt < MAX_AUDIO_RETRIES) {
-                    console.warn(`[NanoBanana] Audio attempt ${attempt} failed, retrying in ${attempt * 2}s...`)
-                    await new Promise((r) => setTimeout(r, attempt * 2000))
-                  } else {
-                    console.error(`[NanoBanana] Audio failed after ${MAX_AUDIO_RETRIES} attempts: ${error.message}`)
-                  }
-                }
-              }
-            } else (scene as any).audioDuration = await this.getRealDuration(audioPath)
-          } else if (!isTarget) {
-            const audioPath = path.join(sceneDir, 'narration.mp3')
-            if (fs.existsSync(audioPath)) (scene as any).audioDuration = await this.getRealDuration(audioPath)
-          }
-
           const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
           await this.composeScene(scene, baseImages, sceneDir, prevB64, isTarget, script)
           completed++
@@ -716,37 +710,7 @@ export class NanoBananaEngine {
         })
         sceneImagePromises.set(i, task)
       }
-    }
-
-    await this.generationQueue.onIdle()
-
-    // ─── AUDIO + TIMING (mode normal, non assembly-only, non reprompt) ─────────
-    // Skip audio stitch entirely when reprompting a single scene — we only regenerated the image.
-    if (!valid.generateOnlyAssembly && !skipAudio && valid.repromptSceneIndex == null) {
-      let currentTime = 0
-      const files: string[] = []
-      for (const s of script.scenes) {
-        const p = path.join(scenesDir, s.id, 'narration.mp3')
-        if (fs.existsSync(p)) {
-          files.push(p)
-          const d = (s as any).audioDuration || (await this.getRealDuration(p))
-          s.timeRange = { start: currentTime, end: currentTime + d }
-          currentTime += d
-        } else {
-          const d = s.timeRange?.end - s.timeRange?.start || 5
-          s.timeRange = { start: currentTime, end: currentTime + d }
-          currentTime += d
-        }
-      }
-      script.totalDuration = currentTime
-      const globalAudioPath = path.join(projectDir, 'narration.mp3')
-      if (files.length > 0) {
-        await this.stitchAudioFiles(files, globalAudioPath)
-        script.globalAudio = 'narration.mp3'
-        fs.writeFileSync(scriptHashPath, scriptHash)
-      }
-      if (onTimingSync) await onTimingSync(script)
-      fs.writeFileSync(path.join(projectDir, 'script.json'), JSON.stringify(script, null, 2))
+      await this.generationQueue.onIdle()
     }
 
     // ─── ASSEMBLAGE FINAL ─────────────────────────────────────────────────────

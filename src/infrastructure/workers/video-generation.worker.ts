@@ -138,6 +138,20 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
     } else {
       console.warn(`[VideoWorker] Scene thumbnail file not found: ${thumbnailJpg}`)
     }
+
+    const narrationMp3 = path.join(sceneDir, 'narration.mp3')
+    if (fs.existsSync(narrationMp3)) {
+      try {
+        console.info(`[VideoWorker] Uploading scene audio: ${scene.id}`)
+        const buffer = await fsPromises.readFile(narrationMp3)
+        const url = await uploadBuffer(`videos/${videoId}/scenes/${scene.id}/narration.mp3`, buffer, 'audio/mpeg')
+        scene.audioUrl = `${url}?v=${Date.now()}`
+        console.info(`[VideoWorker] ✓ Scene audio uploaded for ${scene.id}: ${scene.audioUrl}`)
+        uploadCount++
+      } catch (error) {
+        console.error(`[VideoWorker] Failed to upload scene audio ${scene.id}:`, error)
+      }
+    }
   }
   console.info(`[VideoWorker] uploadSceneImages completed. Uploaded ${uploadCount} files for video ${videoId}`)
   return scenes
@@ -371,7 +385,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           videoId,
           topic,
           userId,
-          script: videoRecord.script as any,
+          script: { ...((videoRecord.script as any) || {}), narrationUrl: videoRecord.narrationUrl },
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
@@ -407,7 +421,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           videoId,
           topic,
           userId,
-          script: videoRecord.script as any,
+          script: { ...((videoRecord.script as any) || {}), narrationUrl: videoRecord.narrationUrl },
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>

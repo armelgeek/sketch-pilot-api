@@ -372,7 +372,6 @@ export class VideosController implements Routes {
 
         const suggestResponse = await suggestTopicsUseCase.run({
           userId: user.id,
-          planId: (user as any).planId,
           options
         })
 
@@ -445,7 +444,6 @@ export class VideosController implements Routes {
 
         const response = await generateScriptFromTitleUseCase.run({
           userId: user.id,
-          planId: (user as any).planId,
           title,
           options
         })
@@ -1126,6 +1124,7 @@ export class VideosController implements Routes {
                     z.object({
                       id: z.string(),
                       topic: z.string(),
+                      title: z.string(),
                       status: z.string(),
                       thumbnailUrl: z.string().nullable().optional(),
                       videoUrl: z.string().nullable().optional(),
@@ -1171,6 +1170,7 @@ export class VideosController implements Routes {
           data: result.data.map((v) => ({
             id: v.id,
             topic: v.topic,
+            title: v.title,
             status: v.status,
             thumbnailUrl: v.thumbnailUrl,
             videoUrl: v.videoUrl,
@@ -1183,6 +1183,42 @@ export class VideosController implements Routes {
           page: result.page,
           limit: result.limit
         })
+      }
+    )
+
+    // GET /v1/videos/thumbnail-templates
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/videos/thumbnail-templates',
+        tags: ['Videos'],
+        summary: 'Get available thumbnail templates (inspirations)',
+        responses: {
+          200: {
+            description: 'Thumbnail templates',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  data: z.array(
+                    z.object({
+                      id: z.string(),
+                      name: z.string(),
+                      imageUrl: z.string(),
+                      niche: z.string().nullable()
+                    })
+                  )
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { AssetsConfigRepository } = await import('../repositories/assets-config.repository')
+        const repo = new AssetsConfigRepository()
+        const templates = await repo.getAllActiveThumbnailTemplates()
+        return c.json({ success: true, data: templates })
       }
     )
 
@@ -1205,6 +1241,7 @@ export class VideosController implements Routes {
               'application/json': {
                 schema: z.object({
                   id: z.string(),
+                  title: z.string(),
                   topic: z.string(),
                   status: z.string(),
                   progress: z.number(),
@@ -1252,6 +1289,7 @@ export class VideosController implements Routes {
         return c.json({
           id: video.id,
           topic: video.topic,
+          title: video.title,
           status: video.status,
           progress: video.progress,
           currentStep: video.currentStep,
@@ -1810,52 +1848,6 @@ export class VideosController implements Routes {
         }
 
         return c.json({ success: true }, 200)
-      }
-    )
-
-    // POST /v1/videos/:id/assemble
-    this.controller.openapi(
-      createRoute({
-        method: 'post',
-        path: '/v1/videos/{id}/assemble',
-        tags: ['Videos'],
-        summary: 'Trigger final video assembly',
-        description: 'Starts the final assembly phase for a video in scenes_generated state.',
-        security: [{ Bearer: [] }],
-        request: {
-          params: z.object({ id: z.string() })
-        },
-        responses: {
-          202: {
-            description: 'Assembly enqueued successfully',
-            content: { 'application/json': { schema: z.object({ success: z.boolean(), jobId: z.string() }) } }
-          },
-          400: {
-            description: 'Bad request',
-            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
-          },
-          401: { description: 'Unauthorized' },
-          404: {
-            description: 'Video not found',
-            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
-          }
-        }
-      }),
-      async (c: any) => {
-        const user = c.get('user')
-        if (!user) return c.json({ error: 'Unauthorized' }, 401)
-        const { id } = c.req.valid('param')
-
-        const { AssembleVideoUseCase } = await import('@/application/use-cases/video/assemble-video.use-case')
-        const assembleUseCase = new AssembleVideoUseCase()
-        const result = await assembleUseCase.execute({ videoId: id, userId: user.id })
-
-        if (!result.success) {
-          if (result.error === 'Video not found or unauthorized') return c.json({ error: result.error }, 404)
-          return c.json({ error: result.error }, 400)
-        }
-
-        return c.json({ success: true, jobId: result.jobId }, 202)
       }
     )
 

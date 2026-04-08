@@ -209,7 +209,7 @@ export class VideoGenerationService {
     // Create a minimal scene for the engine to generate the image
     const scene: any = {
       id: 'char-gen',
-      imagePrompt: prompt,
+      imagePrompt: `Character modification request: ${prompt}. Apply these modifications to the character over the reference image. Ignore strict character consistency if it conflicts with these modifications.`,
       locationId: 'studio'
     }
 
