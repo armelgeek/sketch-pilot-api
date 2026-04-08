@@ -336,62 +336,20 @@ Focus: Follow the CORE SYSTEM PILOT instructions for this scene's intent.`
     isValid: boolean
   } {
     const violations: string[] = []
-    let corrected = narration.trim()
+    const corrected = narration.trim()
 
     const presets = spec.scenePresets || BASE_SPEC.scenePresets
     const config = presets[preset] || { minWords: 15, minSentences: 3 }
 
-    // ── 1. Sentences > 20 words → flag ──────────────────────────────────
+    // ── 1. Sentences > 30 words → flag ──────────────────────────────────
     corrected.split(/(?<=[.!?])\s+/).forEach((sentence) => {
       const words = sentence.trim().split(/\s+/)
-      if (words.length > 18) {
+      if (words.length > 30) {
         violations.push(
           `Sentence too long (${words.length} words) — needs manual split: "${sentence.slice(0, 80)}${sentence.length > 80 ? '...' : ''}"`
         )
       }
     })
-
-    // ── 2. Pause density — min 2 '...' per scene ────────────────────────
-    const pauseCount = (corrected.match(/\.\.\./g) || []).length
-    if (pauseCount < 2) {
-      violations.push(`Insufficient pause markers: ${pauseCount}/2 minimum`)
-      const sentences = corrected.split(/(?<=[.!?])\s+/)
-      if (sentences.length >= 2 && pauseCount === 0) {
-        sentences[0] = sentences[0].replace(/([.!?])$/, '...')
-        if (sentences.length > 2) {
-          sentences[2] = sentences[2].replace(/([.!?])$/, '...')
-        }
-        corrected = sentences.join(' ')
-      } else if (pauseCount === 1 && sentences.length >= 3) {
-        sentences[2] = sentences[2].replace(/([.!?])$/, '...')
-        corrected = sentences.join(' ')
-      }
-    }
-
-    // ── 2a. Reflective Question Pause ──────────────────────────────────
-    if (corrected.trim().endsWith('?')) {
-      corrected = `${corrected.trim()}...`
-      violations.push(`Scene ends with a question — added reflective '...' pause`)
-    }
-
-    // ── 3. Orphan sentence at end < 5 words ─────────────────────────────
-    const sentences = corrected.split(/(?<=[.!?])\s+/)
-    const lastSentence = sentences.at(-1)?.trim() ?? ''
-    const lastWordCount = lastSentence.split(/\s+/).filter(Boolean).length
-    if (lastWordCount > 0 && lastWordCount < 5) {
-      const precededByPause = sentences.at(-2)?.trim().endsWith('...')
-      if (!precededByPause) {
-        violations.push(`Orphan sentence at end (${lastWordCount} words): "${lastSentence}"`)
-        if (sentences.length > 1) {
-          const prevIdx = sentences.length - 2
-          const prev = sentences[prevIdx]
-          if (prev) {
-            sentences[prevIdx] = prev.replace(/([.!?])$/, '...')
-            corrected = sentences.join(' ')
-          }
-        }
-      }
-    }
 
     // ── 4. Nombre de mots par preset ──────────────────────────────────
     const wordCount = corrected.split(/\s+/).filter(Boolean).length
@@ -641,20 +599,6 @@ IMPORTANT :
     structRules.forEach((rule) => {
       mandatoryRules.push(`${mandatoryRules.length + 1}. ${rule}`)
     })
-
-    if (validationError.includes('NARRATIVE INCONSISTENCY')) {
-      mandatoryRules.push(
-        `⚠️ ALIGNMENT: Your 'fullNarration' and the sum of 'scenes' MUST be identical text. No discrepancies allowed.`
-      )
-    }
-
-    mandatoryRules.push(
-      `⚠️ VERBATIM ALIGNMENT (NARRATIVE CONSISTENCY):
-      1. Write ALL scene "narration" fields first.
-      2. Set "fullNarration" = EXACT copy of all narrations joined by a single space.
-      3. No paraphrasing, no rephrasing, no "summary" in fullNarration.
-      4. Any drift > 2% between the sum of scenes and fullNarration = AUTO-REJECTION.`
-    )
 
     mandatoryRules.push(`
 DATA CHECK: Review every statistic and percentage in your script.
@@ -947,10 +891,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         — varier entre les scènes
         — jamais deux fois de suite la même
 
-        ━━━━━━━━━━━━━━━━━━━━━━
 
-        fullNarration:
-        Concaténation EXACTE de toutes les scènes.
 
         ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1256,10 +1197,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
 
         lofi-1 | upbeat-1 | ambient-1 | fun-1  
 
-        ━━━━━━━━━━━━━━━━━━━━━━
-        ⚠️ RÈGLE CRITIQUE (CONSISTENCE)
 
-        fullNarration = concat EXACT des narrations de scènes  
 
         ━━━━━━━━━━━━━━━━━━━━━━
         SORTIE

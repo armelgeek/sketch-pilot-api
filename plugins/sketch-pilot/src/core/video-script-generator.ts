@@ -74,16 +74,8 @@ function scoreCandidate(
   if (ratio > 1.15) issues.push(`Over-generated: ${actualWords}/${targetWords} words (${Math.round(ratio * 100)}%)`)
 
   // ── 2. Narrative consistency (0.25) ───────────────────────────────────────
-  const fullNarrationWords = (parsed.fullNarration || '').trim().split(/\s+/).filter(Boolean).length
-  const drift = fullNarrationWords > 0 ? Math.abs(actualWords - fullNarrationWords) / Math.max(actualWords, 1) : 0
-  const narrativeScore = fullNarrationWords === 0 ? 0.5 : Math.max(0, 1 - drift / 0.02) // ≤2% drift = full score
-  score += narrativeScore * 0.25
-
-  if (drift > 0.02 && fullNarrationWords > 0) {
-    issues.push(
-      `Narrative drift: fullNarration=${fullNarrationWords}w vs scenes sum=${actualWords}w (${Math.round(drift * 100)}% off)`
-    )
-  }
+  // REMOVED: Managed automatically by backend, LLM doesn't need to be penalized for drift.
+  score += 0.25
 
   // ── 3. Scene density (0.25) ───────────────────────────────────────────────
   let densityIntegrity = 0
@@ -548,14 +540,6 @@ export class VideoScriptGenerator {
       )
     }
 
-    // Narrative consistency
-    const drift = fullNarrationWords > 0 ? Math.abs(actualWords - fullNarrationWords) / Math.max(actualWords, 1) : 0
-    if (drift > 0.05 && fullNarrationWords > 0) {
-      lines.push(
-        `NARRATIVE INCONSISTENCY: The 'fullNarration' (${fullNarrationWords} words) does not match the sum of your scene narrations (${actualWords} words). Please ensure they are identical.`
-      )
-    }
-
     // Per-scene density
     if (parsed?.scenes) {
       for (const [index, scene] of parsed.scenes.entries()) {
@@ -708,8 +692,67 @@ export class VideoScriptGenerator {
    */
   private postProcessScenes(scenes: RawScene[]): RawScene[] {
     this.deduplicateNarration(scenes)
+    this.deduplicateVisuals(scenes)
     this.ensureRequiredFields(scenes)
     return scenes
+  }
+
+  /** Algorithmic safety: ensure no two consecutive scenes have identical camera moves or transitions. */
+  private deduplicateVisuals(scenes: RawScene[]): void {
+    const CAMERA_LIST = [
+      'zoom-in',
+      'zoom-out',
+      'shake',
+      'pan-left',
+      'pan-right',
+      'pan-up',
+      'pan-down',
+      'static',
+      'breathing',
+      'snap-zoom'
+    ]
+    const TRANSITION_LIST = [
+      'fade',
+      'crossfade',
+      'blur',
+      'zoom',
+      'zoomin',
+      'dissolve',
+      'wipeleft',
+      'wiperight',
+      'slideleft',
+      'slideright',
+      'fadeblack',
+      'fadewhite'
+    ]
+
+    scenes.forEach((scene, idx) => {
+      if (idx > 0) {
+        const prev = scenes[idx - 1]
+
+        // Deduplicate camera actions
+        const currentCam = typeof scene.cameraAction === 'object' ? scene.cameraAction?.type : scene.cameraAction
+        const prevCam = typeof prev.cameraAction === 'object' ? prev.cameraAction?.type : prev.cameraAction
+
+        if (currentCam && currentCam !== 'static' && currentCam === prevCam) {
+          const others = CAMERA_LIST.filter((c) => c !== currentCam)
+          const newType = others[Math.floor(Math.random() * others.length)]
+          if (typeof scene.cameraAction === 'object' && scene.cameraAction) {
+            scene.cameraAction.type = newType
+          } else {
+            scene.cameraAction = newType as any
+          }
+          console.log(`[VideoScriptGen] 🎥 Fixed duplicate camera action in scene ${idx + 1}: ${newType}`)
+        }
+
+        // Deduplicate transitions
+        if (scene.transition && scene.transition !== 'none' && prev.transition === scene.transition) {
+          const others = TRANSITION_LIST.filter((t) => t !== scene.transition)
+          scene.transition = others[Math.floor(Math.random() * others.length)] as any
+          console.log(`[VideoScriptGen] 🎞️ Fixed duplicate transition in scene ${idx + 1}: ${scene.transition}`)
+        }
+      }
+    })
   }
 
   /** Clear narration that is identical to the previous scene. */
