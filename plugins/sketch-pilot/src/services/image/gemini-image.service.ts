@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai'
+import sharp from 'sharp'
 import type { ImageService, ImageServiceConfig } from './index'
 
 /**
@@ -19,9 +20,6 @@ export class GeminiImageService implements ImageService {
     this.defaultQuality = config.defaultQuality || 'medium'
   }
 
-  /**
-   * Maximum internal retries for NO_IMAGE responses before giving up.
-   */
   private static readonly NO_IMAGE_MAX_RETRIES = 7
   private static readonly NO_IMAGE_BASE_DELAY_MS = 10000
 
@@ -42,14 +40,11 @@ export class GeminiImageService implements ImageService {
     } = {}
   ): Promise<string> {
     const baseImages = options.referenceImages || []
-    const originalPrompt = `${prompt}`
+    const originalPrompt = prompt
     const geminiAspectRatio = options.aspectRatio || '16:9'
     const fileFormat = options.format || 'png'
 
     for (let attempt = 0; attempt <= GeminiImageService.NO_IMAGE_MAX_RETRIES; attempt++) {
-      // On retries, progressively simplify the prompt to avoid content policy conflicts
-      const currentPrompt = originalPrompt
-
       const contents: any[] = []
 
       if (options.characterSheets && options.characterSheets.length > 0) {
@@ -70,11 +65,8 @@ export class GeminiImageService implements ImageService {
           const name = isObject ? img.name : undefined
           const raw = isObject ? (img as any).data : (img as string)
 
-          if (name) {
-            contents.push({ text: `NAME: @${name}` })
-          }
+          if (name) contents.push({ text: `NAME: @${name}` })
 
-          // Safety check: Strip Data URI prefix if present
           const data = raw.replace(/^data:image\/[a-z]+;base64,/, '')
           let refMimeType = 'image/jpeg'
           if (data.startsWith('iVBORw0KGgo')) refMimeType = 'image/png'
@@ -83,39 +75,30 @@ export class GeminiImageService implements ImageService {
         })
       }
 
-      // Inject strict anatomy guardrails to aggressively prevent the '3 hands' or 'extra limbs' hallucinations common with stick figures
       const anatomyGuardrail = `\n\nCRITICAL ANATOMY RULES: The character must have exactly TWO arms, TWO legs, ONE head, and TWO hands. DO NOT generate extra floating hands, third arms, or merged limbs. Ensure strict, flawless physiological anatomy. Keep the pose physically possible. If conflicting actions are described (e.g. 'arms crossed' and 'hand on chin'), pick ONE to avoid extra limbs.`
-      const finalTextPrompt = currentPrompt.includes('CRITICAL ANATOMY')
-        ? currentPrompt
-        : currentPrompt + anatomyGuardrail
+      const finalTextPrompt = originalPrompt.includes('CRITICAL ANATOMY')
+        ? originalPrompt
+        : originalPrompt + anatomyGuardrail
 
       contents.push({ text: finalTextPrompt })
 
       try {
         if (attempt === 0) {
-          console.log(`[GeminiImage] Generating image with model ${this.modelId}...`)
-          console.log(`[GeminiImage] Prompt: ${currentPrompt}`)
+          console.log(`[GeminiImage] Generating with model ${this.modelId}...`)
+          console.log(`[GeminiImage] Prompt: ${originalPrompt}`)
           console.log(
-            `[GeminiImage] Aspect Ratio: ${geminiAspectRatio}, Format: ${fileFormat}, Quality: ${options.quality || this.defaultQuality}`
+            `[GeminiImage] Ratio: ${geminiAspectRatio} | Format: ${fileFormat} | Quality: ${options.quality ?? this.defaultQuality}`
           )
         } else {
-          console.log(
-            `[GeminiImage] Retry ${attempt}/${GeminiImageService.NO_IMAGE_MAX_RETRIES} with simplified prompt...`
-          )
+          console.log(`[GeminiImage] Retry ${attempt}/${GeminiImageService.NO_IMAGE_MAX_RETRIES}...`)
         }
-
-        // Map high-level quality to numeric values if needed, otherwise rely on model default
-        // The current SDK doesn't have a direct 'quality' field in generateContent config
-        // but some models use imageConfig for specific controls.
 
         const response = await this.client.models.generateContent({
           model: this.modelId,
           contents,
           config: {
             responseModalities: ['IMAGE'],
-            imageConfig: {
-              aspectRatio: geminiAspectRatio
-            },
+            imageConfig: { aspectRatio: geminiAspectRatio },
             safetySettings: [
               { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -126,42 +109,47 @@ export class GeminiImageService implements ImageService {
         })
 
         const finishReason = response.candidates?.[0]?.finishReason
-        console.log(`[GeminiImage] Raw response received. Candidates: ${response.candidates?.length || 0}`)
-        if (finishReason) {
-          console.log(`[GeminiImage] Candidate 0 finish reason: ${finishReason}`)
-        }
+        console.log(
+          `[GeminiImage] Candidates: ${response.candidates?.length ?? 0}${finishReason ? ` | finishReason: ${finishReason}` : ''}`
+        )
 
-        // Extract image data if present
         if (response.candidates?.[0]?.content?.parts) {
           for (const part of response.candidates[0].content.parts) {
             if (part.inlineData?.data) {
               const buffer = Buffer.from(part.inlineData.data, 'base64')
 
-              fs.writeFileSync(filename, buffer)
+              // Gemini retourne du JPEG natif.
+              // Si PNG demandé : ré-encoder via sharp (PNG lossless, compressionLevel 0 = vitesse max).
+              // Si webp demandé : lossless via sharp.
+              // Sinon : écriture directe du buffer brut.
+              if (fileFormat === 'png') {
+                await sharp(buffer).png({ compressionLevel: 0 }).toFile(filename)
+              } else if (fileFormat === 'webp') {
+                await sharp(buffer).webp({ lossless: true, effort: 4 }).toFile(filename)
+              } else {
+                fs.writeFileSync(filename, buffer)
+              }
+
               console.log(
-                `[GeminiImage] ✅ Saved image to ${filename}${attempt > 0 ? ` (after ${attempt} retries)` : ''}`
+                `[GeminiImage] ✅ Saved ${fileFormat} → ${filename}${attempt > 0 ? ` (after ${attempt} retries)` : ''}`
               )
               return filename
             }
           }
         }
 
-        // If we got here, no image data was returned
+        // Pas d'image dans la réponse
         if (attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES) {
           const delay = GeminiImageService.NO_IMAGE_BASE_DELAY_MS * 2 ** attempt
-          console.warn(
-            `[GeminiImage] ⚠ NO_IMAGE (finish: ${finishReason}). Retrying in ${(delay / 1000).toFixed(1)}s...`
-          )
+          console.warn(`[GeminiImage] ⚠ NO_IMAGE (finish: ${finishReason}). Retry in ${(delay / 1000).toFixed(1)}s...`)
           await new Promise((resolve) => setTimeout(resolve, delay))
         } else {
-          console.warn(
-            `[GeminiImage] ❌ NO_IMAGE after ${GeminiImageService.NO_IMAGE_MAX_RETRIES} retries. Returning empty string.`
-          )
+          console.warn(`[GeminiImage] ❌ NO_IMAGE after ${GeminiImageService.NO_IMAGE_MAX_RETRIES} retries.`)
         }
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message.slice(0, 300) : 'Unknown error'
+      } catch (error: any) {
+        console.error(`[GeminiImage] ❌ Error:`, JSON.stringify(error, null, 2))
+        const errMsg = error.message?.slice(0, 500) || 'Unknown error'
 
-        // Determine if the error is retryable (network/timeout) or fatal (auth, bad request)
         const isRetryable =
           error instanceof Error &&
           (errMsg.includes('ECONNRESET') ||
@@ -178,14 +166,13 @@ export class GeminiImageService implements ImageService {
         if (isRetryable && attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES) {
           const delay = GeminiImageService.NO_IMAGE_BASE_DELAY_MS * 2 ** attempt
           console.warn(
-            `[GeminiImage] ⚠ Network error (attempt ${attempt}). Retrying in ${(delay / 1000).toFixed(1)}s... ${errMsg}`
+            `[GeminiImage] ⚠ Network error (attempt ${attempt}). Retry in ${(delay / 1000).toFixed(1)}s... ${errMsg}`
           )
           await new Promise((resolve) => setTimeout(resolve, delay))
           continue
         }
 
-        // Fatal error (auth, bad request, etc.) or max retries exceeded
-        console.error(`[GeminiImage] Error generating image: ${errMsg}`)
+        console.error(`[GeminiImage] Fatal error: ${errMsg}`)
         throw error
       }
     }

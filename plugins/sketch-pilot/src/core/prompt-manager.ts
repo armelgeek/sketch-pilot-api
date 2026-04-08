@@ -123,16 +123,19 @@ const CAMERA_ACTIONS_LIST = ['zoom-in', 'zoom-out', 'pan-right', 'pan-left', 'sn
 
 const TRANSITIONS_LIST = [
   'fade',
-  'crossfade',
   'blur',
+  'crossfade',
   'zoom-in',
   'dissolve',
+  'distance',
+  'fade-black',
+  'fade-white',
   'wipe-left',
   'wipe-right',
   'slide-left',
   'slide-right',
-  'fade-black',
-  'fade-white'
+  'radial',
+  'pixelize'
 ]
 
 // ─── Technical defaults only ──────────────────────────────────────────────────
@@ -150,6 +153,8 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     'FAVOR SHORT, PUNCHY SENTENCES.',
     "Each scene narration MUST be a verbatim slice of 'fullNarration'.",
     'Transitions MUST occur at natural pauses (full stops, commas, breath marks).',
+    'DO NOT USE ABBREVIATIONS in the narration. Write everything exactly as it should be spoken (e.g., "100 pour cent" instead of "100%", "2 heures" instead of "2h").',
+    "Every scene MUST have a cinematic 'transition' chosen from the allowed list to ensure visual flow.",
     'THINK STEP BY STEP.'
   ],
   scenePresets: {
@@ -691,6 +696,8 @@ ${mandatoryRules.join('\n')}
       — '...' se place également entre les phrases quand la seconde a besoin de poids.
       — Ne jamais regrouper deux '...' dans la même phrase.
       — Ne commencez jamais un paragraphe par '...'.
+      — INTERDICTION STRICTE D'UTILISER DES ABRÉVIATIONS (ex: écrivez "2 heures" au lieu de "2h", "pour cent" au lieu de "%").
+      — Appliquez une transition cinématographique variée entre CHAQUE scène (fade, blur, zoom-in, wipe, dissolve). Ne laissez jamais une transition vide.
 
       ⚠️ AUTO-VÉRIFICATION AVANT DE SOUMETTRE :
       Comptez vos mots. Si vous êtes en dessous de ${minWords}, vous n’avez pas fini.
@@ -826,8 +833,34 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
 
         AUTORISÉ:
         — Découper en scènes
-        — Ajouter metadata (preset, cameraAction, imagePrompt, animationPrompt, summary)
         — Calculer wordCount + estimatedDuration
+        ━━━━━━━━━━━━━━━━━━━━━━
+
+        ${
+          options.economyMode
+            ? `⚠️ MODE ÉCONOMIE ACTIVÉ :
+        — Priorisez des scènes longues (15-25s) pour réduire le nombre total d'images générées.
+        — Utilisez 'continueFromPrevious: true' dès que possible pour la continuité visuelle.
+        — Pour garder la vidéo dynamique, utilisez 'cameraAction' sous forme de LISTE d'objets pour enchaîner les mouvements sur la même image.
+        
+        Exemple de séquence cameraAction pour une scène de 20s :
+        [
+          { "type": "zoom-in", "duration": 8, "timestamp": 0, "intensity": "low" },
+          { "type": "pan-right", "duration": 12, "timestamp": 8, "intensity": "medium" }
+        ]`
+            : ''
+        }
+        ${
+          options.polyptychMode
+            ? `⚠️ STRATÉGIE POLYPTIQUE ACTIVÉE (MAX ÉCONOMIE) :
+        — Regroupez les scènes par 3 ou 4 si elles partagent un contexte visuel similaire.
+        — Attribuez un 'polyptychGroupId' (unique par groupe) et un 'panelIndex' (0, 1, 2, 3).
+        — Générez un 'polyptychPrompt' UNIQUE pour tout le groupe décrivant une image divisée en panneaux.
+        
+        Exemple de polyptychPrompt :
+        "A single 64:9 panoramic image divided into three distinct vertical panels, side-by-side. Panel 1 (Left): [Desc...]. Panel 2 (Center): [Desc...]. Panel 3 (Right): [Desc...]. All panels share the same clean vector cartoon style."`
+            : ''
+        }
         ━━━━━━━━━━━━━━━━━━━━━━
 
         🎯 IMAGE PROMPT (CRITIQUE):
@@ -861,6 +894,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         — ${range.min} à ${range.max} scènes (idéal: ${range.ideal})
         — couper uniquement à des limites naturelles (. ! ? ...)
         — progression: hook → reveal → tension → résolution → conclusion
+        — MAINTIENS DE LIEU : Conservez la continuité. Si l'action se déroule dans la même scène, réutilisez le même 'locationId'.
 
         PRESETS DISPONIBLES:
         ${Object.entries(presets)
@@ -877,11 +911,14 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
         PACING:
         fast | medium | slow
 
-        CAMERA ACTIONS (choisir UNE valeur exacte):
+        CAMERA ACTIONS (choisir UNE valeur ou une LISTE pour enchaîner):
         ${CAMERA_ACTIONS_LIST.join(' | ')}
 
-        — varier entre les scènes
-        — jamais deux fois de suite la même
+        — Varier entre les scènes.
+        — En mode ÉCONOMIE, privilégiez les séquences (liste d'objets avec timestamp et duration).
+        — Le timestamp commence à 0 (début de scène).
+        — La somme des durations doit correspondre à la durée de la scène.
+
 
         ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -946,6 +983,7 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
             "summary": "string",
             "cameraAction": "string",
             "transition": "string",
+            "locationId": "string (identifiant unique concis pour le lieu, ex: 'bureau1', 'foret-nuit'. Réutilisez le même identifiant pour maintenir la continuité visuelle entre les scènes qui se passent au même endroit)",
             "imagePrompt": "string (une phrase complète décrivant la scène avec le personnage et l'action principale. Ex: 'Le personnage court sous la pluie, déterminé.' IMPORTANT: Ne jamais nommer le personnage.)",
             "imagePromptWordCount": "number",
             "animationPrompt": "string"
@@ -1000,7 +1038,6 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
           - "L'homme regarde l'horloge anxieusement."
           - "Le personnage saute sur la table de la cuisine."
 
-        ⚠️ Si > 8 mots → raccourcir automatiquement
 
         ---
 
@@ -1407,6 +1444,11 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
 
   private buildSystemInstructions(spec: VideoTypeSpecification): string {
     const sections: string[] = []
+
+    // Include raw base system prompt if provided in config
+    if (this.config.systemPrompt) {
+      sections.push(`## CORE SYSTEM PILOT\n${this.config.systemPrompt}`)
+    }
 
     if (spec.role) sections.push(`## RÔLE\n${spec.role}`)
     if (spec.context) sections.push(`## CONTEXTE\n${spec.context}`)

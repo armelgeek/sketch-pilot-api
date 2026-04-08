@@ -144,7 +144,12 @@ export const cameraActionSchema = z.object({
     )
     .default('medium'),
   duration: z.number().optional().describe('Duration of the effect in seconds'),
-  timestamp: z.number().default(0).describe('Start time relative to scene start')
+  timestamp: z.number().default(0).describe('Start time relative to scene start'),
+  snapAtSec: z.number().optional().describe('Timestamp for snap-zoom peak'),
+  peakZoom: z.number().optional().describe('Maximum zoom level for snap-zoom'),
+  seed: z.number().optional().describe('Random seed for organic motion'),
+  organic: z.boolean().optional().describe('Enable micro-organic oscillation'),
+  tiltDeg: z.number().optional().describe('Tilt degree for dutch-tilt')
 })
 
 export type CameraAction = z.infer<typeof cameraActionSchema>
@@ -155,29 +160,27 @@ export const transitionTypeSchema = z.enum([
   'fade',
   'blur',
   'crossfade',
-  'zoom',
-  'wipeleft',
-  'wiperight',
-  'wipeup',
-  'wipedown',
-  'slideleft',
-  'slideright',
-  'slideup',
-  'slidedown',
+  'zoom-in',
+  'dissolve',
+  'distance',
+  'fade-black',
+  'fade-white',
+  'wipe-left',
+  'wipe-right',
+  'wipe-up',
+  'wipe-down',
+  'slide-left',
+  'slide-right',
+  'slide-up',
+  'slide-down',
   'circlecrop',
   'rectcrop',
   'circleopen',
   'circleclose',
   'pixelize',
-  'hblur',
-  'zoomin',
-  'dissolve',
-  'distance',
-  'fadeblack',
-  'fadewhite',
   'radial',
-  'smoothleft',
-  'smoothright'
+  'smooth-left',
+  'smooth-right'
 ])
 export type TransitionType = z.infer<typeof transitionTypeSchema>
 
@@ -208,6 +211,7 @@ export const enrichedSceneSchema = z.object({
   cameraAction: z
     .union([
       cameraActionSchema,
+      z.array(cameraActionSchema),
       z.string().transform((val) => ({
         type: val,
         intensity: 'medium' as const,
@@ -215,7 +219,7 @@ export const enrichedSceneSchema = z.object({
       }))
     ])
     .optional()
-    .describe('Cinematic camera movement for the scene'),
+    .describe('Cinematic camera movement(s) for the scene. Can be a single action or a sequence of actions.'),
   // Dynamism fields
   // Dynamism fields (transitionToNext removed in favor of camera acceleration)
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),
@@ -241,7 +245,11 @@ export const enrichedSceneSchema = z.object({
     .default([])
     .describe('List of strategic pause locations (e.g. "after sentence 1", "before the reveal")'),
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene'),
-  transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene')
+  transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene'),
+  // Polyptych fields
+  polyptychGroupId: z.string().optional().describe('ID of the group sharing a single multi-panel image'),
+  panelIndex: z.number().optional().describe('0-based index of the panel to extract from the polyptych image'),
+  polyptychPrompt: z.string().optional().describe('The composite prompt used for the whole polyptych group')
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
@@ -601,6 +609,16 @@ export const videoGenerationOptionsSchema = z
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),
     autoTransitions: z.boolean().default(true).describe('Automatically assign transitions when the script omits them'),
+    economyMode: z
+      .boolean()
+      .default(false)
+      .describe(
+        'If true, encourages the model to use fewer images and longer scenes with multiple camera moves to save credits.'
+      ),
+    polyptychMode: z
+      .boolean()
+      .default(false)
+      .describe('If true, attempts to generate one panoramic image for multiple scenes to maximize credit efficiency.'),
     llmProvider: z
       .enum(['gemini', 'grok', 'claude', 'haiku', 'openai'])
       .default('openai')
@@ -696,7 +714,11 @@ export const videoGenerationOptionsSchema = z
           .describe('Static quality/style tokens appended to every image prompt')
       })
       .optional()
-      .describe('Configuration for the visual style of generated image prompts')
+      .describe('Configuration for the visual style of generated image prompts'),
+    referenceImages: z
+      .array(z.union([z.string(), z.object({ name: z.string().optional(), data: z.string() })]))
+      .optional()
+      .describe('Direct image references (URLs or Base64) to be passed to the image service')
   })
   .transform((opts) => {
     return {

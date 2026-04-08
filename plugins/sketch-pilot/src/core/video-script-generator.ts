@@ -731,13 +731,19 @@ export class VideoScriptGenerator {
         const prev = scenes[idx - 1]
 
         // Deduplicate camera actions
-        const currentCam = typeof scene.cameraAction === 'object' ? scene.cameraAction?.type : scene.cameraAction
-        const prevCam = typeof prev.cameraAction === 'object' ? prev.cameraAction?.type : prev.cameraAction
+        const currentCamObj = Array.isArray(scene.cameraAction) ? scene.cameraAction[0] : scene.cameraAction
+        const prevCamObj = Array.isArray(prev.cameraAction) ? prev.cameraAction[0] : prev.cameraAction
+
+        const currentCam = typeof currentCamObj === 'object' ? currentCamObj?.type : currentCamObj
+        const prevCam = typeof prevCamObj === 'object' ? prevCamObj?.type : prevCamObj
 
         if (currentCam && currentCam !== 'static' && currentCam === prevCam) {
           const others = CAMERA_LIST.filter((c) => c !== currentCam)
           const newType = others[Math.floor(Math.random() * others.length)]
-          if (typeof scene.cameraAction === 'object' && scene.cameraAction) {
+
+          if (Array.isArray(scene.cameraAction)) {
+            if (scene.cameraAction[0]) scene.cameraAction[0].type = newType
+          } else if (typeof scene.cameraAction === 'object' && scene.cameraAction) {
             scene.cameraAction.type = newType
           } else {
             scene.cameraAction = newType as any

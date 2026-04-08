@@ -126,7 +126,7 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
         console.error(`[VideoWorker] Failed to upload scene image ${scene.id}:`, error)
       }
     } else {
-      console.warn(`[VideoWorker] Scene image file not found: ${sceneWebp}`)
+      console.warn(`[VideoWorker] Scene image file not found (.webp or .avif) in ${sceneDir}`)
     }
 
     const thumbnailJpg = path.join(sceneDir, 'thumbnail.jpg')
@@ -192,7 +192,8 @@ function findLastCompletedSceneIndex(scenesDir: string, script: any): number {
   let lastIndex = 0
   for (let i = 0; i < script.scenes.length; i++) {
     const sceneWebp = path.join(scenesDir, script.scenes[i].id, 'scene.webp')
-    if (fs.existsSync(sceneWebp)) {
+    const sceneAvif = path.join(scenesDir, script.scenes[i].id, 'scene.avif')
+    if (fs.existsSync(sceneWebp) || fs.existsSync(sceneAvif)) {
       lastIndex = i + 1
     } else {
       break

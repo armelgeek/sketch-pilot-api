@@ -7,7 +7,7 @@ import { AssetsConfigRepository } from '@/infrastructure/repositories/assets-con
 import { AmbientService } from '../audio/ambient.service'
 import { MusicService } from '../audio/music.service'
 import { SFXService } from '../audio/sfx.service'
-import type { CompleteVideoScript, VideoGenerationOptions } from '../../types/video-script.types'
+import type { CameraAction, CompleteVideoScript, VideoGenerationOptions } from '../../types/video-script.types'
 import type { WordTiming } from '../audio'
 import { AssCaptionService } from './ass-caption.service'
 
@@ -357,10 +357,11 @@ export class VideoAssembler {
       const cmd = ffmpeg()
         .input(videoPath)
         .input(musicPath)
+        .inputOptions(['-stream_loop -1'])
         .complexFilter([
           `[0:a]asplit=2[voice_sc][voice_mix]`,
           `[1:a]volume=${volume}[music_raw]`,
-          `[music_raw][voice_sc]sidechaincompress=threshold=0.03:ratio=10:attack=20:release=400:makeup=1[music_ducked]`,
+          `[music_raw][voice_sc]sidechaincompress=threshold=0.01:ratio=10:attack=20:release=400:makeup=1[music_ducked]`,
           `[voice_mix][music_ducked]amix=inputs=2:duration=first[aout]`
         ])
         .outputOptions(['-c:v copy', '-map 0:v:0', '-map [aout]', '-shortest'])
@@ -754,17 +755,7 @@ export class VideoAssembler {
     aspectRatio: string = '16:9',
     resolutionPreset: string = '720p',
     backgroundColor?: string,
-    cameraAction?: {
-      type: string
-      intensity?: string
-      duration?: number
-      snapAtSec?: number
-      peakZoom?: number
-      seed?: number
-      /** Enable micro-organic oscillation — false by default */
-      organic?: boolean
-      tiltDeg?: number
-    },
+    cameraAction?: CameraAction | CameraAction[],
     wordTimings: any[] = [],
     keywordVisuals: Array<{ imagePath: string; start: number; end: number }> = [],
     sceneTension: number = 5
@@ -781,8 +772,9 @@ export class VideoAssembler {
       const EOC = easeOutCubic(`min(1,max(0,${P}))`)
 
       // Organic oscillation — opt-in only
-      const wantsOrganic = cameraAction?.organic === true
-      const oscSeed = cameraAction?.seed ?? 0
+      const actionObj = Array.isArray(cameraAction) ? cameraAction[0] : cameraAction
+      const wantsOrganic = actionObj?.organic ?? false
+      const oscSeed = actionObj?.seed ?? 420
       const { xOscExpr, yOscExpr } = this.buildOrganicOscillation(2, oscSeed)
       const osc = (axis: 'x' | 'y') => (wantsOrganic ? `+(${axis === 'x' ? xOscExpr : yOscExpr})` : '')
 
@@ -799,80 +791,130 @@ export class VideoAssembler {
 
       const EASING = P
 
-      const ZS = zoomScale.toFixed(4)
-      const DZ = (zoomScale - 1).toFixed(4)
+      const actions = Array.isArray(cameraAction)
+        ? cameraAction
+        : [cameraAction || { type: 'static', intensity: 'medium' }]
 
-      const PAN_X_FULL = `(iw-(iw/zoom))`
-      const PAN_Y_FULL = `(ih-(ih/zoom))`
-      const PAN_X_HALF = `((iw-(iw/zoom))/2)`
-      const PAN_Y_HALF = `((ih-(ih/zoom))/2)`
-
-      const type = cameraAction?.type ?? ''
-
+      // We need to build unified expressions for Z, X, Y that switch based on the absolute frame 'on'
       let zBaseExpr = '1.001'
       let xRaw = CX
       let yRaw = CY
 
-      switch (type) {
-        case 'zoom-in':
-          zBaseExpr = `1.0+(${DZ}*${SS})`
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
+      if (actions.length === 1) {
+        // Legacy single-action mode for simplicity and performance
+        const action = actions[0] as any
+        const type = action.type ?? 'static'
+        const t = Math.max(1, Math.min(10, sceneTension))
+        const zoomScale = t <= 3 ? 1.25 : t <= 6 ? 1.4 : 1.55
+        const ZS = zoomScale.toFixed(4)
+        const DZ = (zoomScale - 1).toFixed(4)
+        const PAN_X_HALF = `((iw-(iw/zoom))/2)`
+        const PAN_Y_HALF = `((ih-(ih/zoom))/2)`
 
-        case 'zoom-out':
-          zBaseExpr = `${ZS}-(${DZ}*${SS})`
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'pan-right':
-          zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${CX}+(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'pan-left':
-          zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${CX}-(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
-
-        case 'pan-down':
-          zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}+(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
-          break
-
-        case 'pan-up':
-          zBaseExpr = panZoomScale.toFixed(4)
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}-(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
-          break
-
-        case 'snap-zoom': {
-          const snapAt = cameraAction?.snapAtSec ?? duration * 0.25
-          const peakZoom = cameraAction?.peakZoom ?? (t >= 7 ? 1.6 : 1.4)
-          const overshoot = t >= 7 ? 0.12 : 0.06
-          zBaseExpr = buildCinematicSnapZoom(1, peakZoom, snapAt, 0.45, overshoot)
-          xRaw = `${CX}${osc('x')}`
-          yRaw = `${CY}${osc('y')}`
-          break
+        switch (type) {
+          case 'zoom-in':
+            zBaseExpr = `1.0+(${DZ}*${SS})`
+            break
+          case 'zoom-out':
+            zBaseExpr = `${ZS}-(${DZ}*${SS})`
+            break
+          case 'pan-right':
+            zBaseExpr = panZoomScale.toFixed(4)
+            xRaw = `${CX}+(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
+            break
+          case 'pan-left':
+            zBaseExpr = panZoomScale.toFixed(4)
+            xRaw = `${CX}-(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
+            break
+          case 'pan-down':
+            zBaseExpr = panZoomScale.toFixed(4)
+            yRaw = `${CY}+(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
+            break
+          case 'pan-up':
+            zBaseExpr = panZoomScale.toFixed(4)
+            yRaw = `${CY}-(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
+            break
+          case 'snap-zoom': {
+            const snapAt = (action as any).snapAtSec ?? duration * 0.25
+            const peakZoom = (action as any).peakZoom ?? (t >= 7 ? 1.6 : 1.4)
+            const overshoot = t >= 7 ? 0.12 : 0.06
+            zBaseExpr = buildCinematicSnapZoom(1, peakZoom, snapAt, 0.45, overshoot)
+            break
+          }
+          default: {
+            zBaseExpr = `1.0+(${DZ}*${SS})`
+            const driftX = `(${PAN_X_HALF}*0.25)`
+            const driftY = `(${PAN_Y_HALF}*0.25)`
+            const half = (duration / 2).toFixed(2)
+            const bx = `if(lt(t,${half}), ${CX}, ${CX}+(${driftX}))`
+            const by = `if(lt(t,${half}), ${CY}, ${CY}+(${driftY}))`
+            xRaw = `${bx}${osc('x')}`
+            yRaw = `${by}${osc('y')}`
+            break
+          }
         }
+      } else {
+        // Multi-action mode: chained movements
+        let fullZ = '1.0'
+        let fullX = CX
+        let fullY = CY
+        const PAN_X_HALF = `((iw-(iw/zoom))/2)`
+        const PAN_Y_HALF = `((ih-(ih/zoom))/2)`
 
-        default: {
-          zBaseExpr = `1.0+(${DZ}*${SS})`
-          const driftX = `(${PAN_X_HALF}*0.25)`
-          const driftY = `(${PAN_Y_HALF}*0.25)`
+        // Sort by timestamp to be sure
+        const sortedActions = [...actions].sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0))
 
-          const half = (duration / 2).toFixed(2)
-          const bx = `if(lt(t,${half}), ${CX}, ${CX}+(${driftX}))`
-          const by = `if(lt(t,${half}), ${CY}, ${CY}+(${driftY}))`
+        for (let idx = sortedActions.length - 1; idx >= 0; idx--) {
+          const action = sortedActions[idx] as any
+          const startTime = action.timestamp ?? 0
+          const actionDuration =
+            action.duration ||
+            (idx === sortedActions.length - 1
+              ? duration - startTime
+              : (sortedActions[idx + 1] as any).timestamp! - startTime)
+          const startFrame = Math.round(startTime * ZOOMPAN_INTERNAL_FPS)
 
-          xRaw = `${bx}${osc('x')}`
-          yRaw = `${by}${osc('y')}`
-          break
+          const type = action.type ?? 'static'
+          const intensity = action.intensity || 'medium'
+          const zoomScale = intensity === 'low' ? 1.15 : intensity === 'high' ? 1.45 : 1.25
+          const DZ = (zoomScale - 1).toFixed(4)
+
+          // Local progress for this action
+          const localP = `(on-${startFrame})/(${Math.round(actionDuration * ZOOMPAN_INTERNAL_FPS)})`
+          const localSS = smootherstep(`min(1,max(0,${localP}))`)
+
+          let currentZ = '1.0'
+          let currentX = CX
+          const currentY = CY
+
+          switch (type) {
+            case 'zoom-in':
+              currentZ = `1.0+(${DZ}*${localSS})`
+              break
+            case 'zoom-out':
+              currentZ = `${zoomScale.toFixed(4)}-(${DZ}*${localSS})`
+              break
+            case 'pan-right':
+              currentZ = '1.05'
+              currentX = `${CX}+(${PAN_X_HALF}*0.6*${localSS})`
+              break
+            case 'pan-left':
+              currentZ = '1.05'
+              currentX = `${CX}-(${PAN_X_HALF}*0.6*${localSS})`
+              break
+            case 'static':
+            default:
+              currentZ = '1.001'
+              break
+          }
+
+          fullZ = `if(gte(on,${startFrame}), ${currentZ}, ${fullZ})`
+          fullX = `if(gte(on,${startFrame}), ${currentX}, ${fullX})`
+          fullY = `if(gte(on,${startFrame}), ${currentY}, ${fullY})`
         }
+        zBaseExpr = fullZ
+        xRaw = fullX
+        yRaw = fullY
       }
 
       const zExpr = this.clampZ(zBaseExpr)
@@ -885,7 +927,8 @@ export class VideoAssembler {
       const filterString = [
         `scale=${scW}:${scH}:force_original_aspect_ratio=increase`,
         `crop=${scW}:${scH}`,
-        `zoompan=z='${zExpr}':d=${internalFrameCount}:x='${x}':y='${y}':s=${w}x${h}:fps=${ZOOMPAN_INTERNAL_FPS}`,
+        // Fix: Output at high-res (scW x scH) then scale down at the end to achieve sub-pixel interpolation and eliminate jitter.
+        `zoompan=z='${zExpr}':d=${internalFrameCount}:x='${x}':y='${y}':s=${scW}x${scH}:fps=${ZOOMPAN_INTERNAL_FPS}`,
         `fps=${OUTPUT_FPS}`,
         `scale=${w}:${h}:flags=lanczos`
       ].join(',')
@@ -894,8 +937,10 @@ export class VideoAssembler {
 
       // Dutch Tilt: integrate rotation directly into FFmpeg filtergraph (single pass, no quality loss)
       let cameraFilterString = filterString
-      if (type === 'dutch-tilt') {
-        const tiltDeg = cameraAction?.tiltDeg ?? 1.8
+      const actionForTilt = Array.isArray(cameraAction) ? cameraAction[0] : cameraAction
+      const tiltType = (actionForTilt as any)?.type ?? 'static'
+      if (tiltType === 'dutch-tilt') {
+        const tiltDeg = (actionForTilt as any)?.tiltDeg ?? 1.8
         const angleRad = ((tiltDeg * Math.PI) / 180).toFixed(4)
         const rotExpr = `${angleRad}*sin(2*PI*t/${duration.toFixed(2)})`
         cameraFilterString = `${filterString},rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`
@@ -1389,9 +1434,9 @@ export class VideoAssembler {
 
     // 2. Auto-select based on tension when autoTransitions is enabled
     if (useAuto) {
-      if (tension > 7) return 'slide-left' // High tension → snappy slide
+      if (tension > 7) return 'slideleft' // High tension → snappy slide
       if (tension <= 3) return 'fade' // Calm → soft fade
-      return 'fade' // FIX: mid-range (4-7) also gets fade instead of 'cut'
+      return 'dissolve' // Mid-range (4-7) gets a nice dissolve for a premium feel
     }
 
     return 'cut'
@@ -1460,33 +1505,33 @@ export class VideoAssembler {
 
     const defaultDurations: Record<string, number> = {
       // Rich/Complex
-      circleopen: 0.85,
-      circleclose: 0.85,
-      pixelize: 0.8,
-      radial: 0.8,
-      zoomin: 0.75,
-      distance: 0.7,
-      hblur: 0.7,
-      circlecrop: 0.7,
-      dissolve: 0.6,
-      crossfade: 0.6,
+      circleopen: 1.2,
+      circleclose: 1.2,
+      pixelize: 1,
+      radial: 1,
+      zoomin: 0.9,
+      distance: 0.9,
+      hblur: 0.9,
+      circlecrop: 0.9,
+      dissolve: 0.8,
+      crossfade: 0.8,
       // Standard
-      wipeleft: 0.5,
-      wiperight: 0.5,
-      wipeup: 0.5,
-      wipedown: 0.5,
-      slideleft: 0.5,
-      slideright: 0.5,
-      slideup: 0.5,
-      slidedown: 0.5,
-      smoothleft: 0.5,
-      smoothright: 0.5,
-      smoothup: 0.5,
-      smoothdown: 0.5,
+      wipeleft: 0.7,
+      wiperight: 0.7,
+      wipeup: 0.7,
+      wipedown: 0.7,
+      slideleft: 0.7,
+      slideright: 0.7,
+      slideup: 0.7,
+      slidedown: 0.7,
+      smoothleft: 0.7,
+      smoothright: 0.7,
+      smoothup: 0.7,
+      smoothdown: 0.7,
       // Simple
-      fade: 0.4,
-      fadeblack: 0.4,
-      fadewhite: 0.4,
+      fade: 0.6,
+      fadeblack: 0.6,
+      fadewhite: 0.6,
       cut: 0
     }
 
@@ -1495,6 +1540,7 @@ export class VideoAssembler {
       blur: { name: 'hblur', duration: defaultDurations.hblur },
       zoom: { name: 'zoomin', duration: defaultDurations.zoomin },
       'zoom-in': { name: 'zoomin', duration: defaultDurations.zoomin },
+      'zoom-out': { name: 'zoomout', duration: defaultDurations.zoomin },
       wipe: { name: 'wipeleft', duration: defaultDurations.wipeleft },
       'wipe-left': { name: 'wipeleft', duration: defaultDurations.wipeleft },
       'wipe-right': { name: 'wiperight', duration: defaultDurations.wiperight },
@@ -1514,7 +1560,9 @@ export class VideoAssembler {
       'fade-white': { name: 'fadewhite', duration: defaultDurations.fadewhite },
       swish: { name: 'slideleft', duration: defaultDurations.slideleft },
       flash: { name: 'fadewhite', duration: defaultDurations.fadewhite },
-      circle: { name: 'circleopen', duration: defaultDurations.circleopen }
+      circle: { name: 'circleopen', duration: defaultDurations.circleopen },
+      none: { name: 'fade', duration: 0.4 }, // Even 'none' gets a subtle fade for continuity
+      cut: { name: 'cut', duration: 0 }
     }
 
     let result: { name: string; duration: number }
@@ -1632,7 +1680,7 @@ export class VideoAssembler {
       const maxPossibleOverlap = Math.min(durations[i - 1], durations[i]) - 0.05
       const effectiveOverlap = Math.min(Math.max(transitionDuration, audioOverlap), Math.max(0.01, maxPossibleOverlap))
       const offset = Number(Math.max(0.01, cumulativeOffset + durations[i - 1] - effectiveOverlap).toFixed(3))
-      const safeTransitionDuration = Math.max(0.04, Math.min(transitionDuration, offset * 0.8))
+      const safeTransitionDuration = Math.max(0.04, Math.min(transitionDuration, offset * 0.95))
 
       const outLabel = `[v_out_${i}]`
       filterComplex += `${lastVideoLabel}${clipLabels[i]}xfade=transition=${transitionName}:duration=${safeTransitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${outLabel};`

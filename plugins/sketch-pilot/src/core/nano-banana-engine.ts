@@ -27,6 +27,7 @@ import {
 } from '../types/video-script.types'
 import { runFfmpeg } from '../utils/ffmpeg-utils'
 import { TaskQueue } from '../utils/task-queue'
+import { PolyptychEngine } from './polyptych-engine'
 import { PromptManager, type PromptManagerConfig } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
 import type { SceneMemory } from './scene-memory'
@@ -291,6 +292,7 @@ export class NanoBananaEngine {
     referenceImages: (string | { name?: string; data: string })[],
     outputDir: string,
     lastSceneB64?: string,
+    lastScenePath?: string,
     isReprompt: boolean = false,
     script?: CompleteVideoScript,
     memory?: SceneMemory
@@ -311,34 +313,44 @@ export class NanoBananaEngine {
       effectiveRefs.push({ name: 'LOCATION', data: locationB64 })
     }
 
-    const MAX_IMAGE_RETRIES = 3
-    let lastImageError: any
-    for (let attempt = 1; attempt <= MAX_IMAGE_RETRIES; attempt++) {
-      try {
-        await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
-        await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
-        lastImageError = null
-        break
-      } catch (error: any) {
-        lastImageError = error
-        if (attempt < MAX_IMAGE_RETRIES) {
-          console.warn(
-            `[NanoBanana] Image attempt ${attempt}/${MAX_IMAGE_RETRIES} failed, retrying in ${attempt * 3}s...`
-          )
-          await new Promise((r) => setTimeout(r, attempt * 3000))
-        } else {
-          console.error(`[NanoBanana] Image generation failed after ${MAX_IMAGE_RETRIES} attempts: ${error.message}`)
+    // --- OPTIMIZATION: Physical Reuse or Polyptych existing asset ---
+    if (fs.existsSync(imagePath) && !isReprompt) {
+      console.log(`[NanoBanana] 💎 Using existing image asset for scene ${scene.id}`)
+      scene.imageUrl = imagePath
+    } else if (scene.continueFromPrevious && lastScenePath && fs.existsSync(lastScenePath) && !isReprompt) {
+      console.log(`[NanoBanana] ♻️ Reusing physical image from previous scene: ${lastScenePath}`)
+      fs.copyFileSync(lastScenePath, imagePath)
+      scene.imageUrl = imagePath
+    } else {
+      const MAX_IMAGE_RETRIES = 3
+      let lastImageError: any
+      for (let attempt = 1; attempt <= MAX_IMAGE_RETRIES; attempt++) {
+        try {
+          await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
+          await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
+          lastImageError = null
+          break
+        } catch (error: any) {
+          lastImageError = error
+          if (attempt < MAX_IMAGE_RETRIES) {
+            console.warn(
+              `[NanoBanana] Image attempt ${attempt}/${MAX_IMAGE_RETRIES} failed, retrying in ${attempt * 3}s...`
+            )
+            await new Promise((r) => setTimeout(r, attempt * 3000))
+          } else {
+            console.error(`[NanoBanana] Image generation failed after ${MAX_IMAGE_RETRIES} attempts: ${error.message}`)
+          }
+        } finally {
+          if (fs.existsSync(tempBg)) fs.unlinkSync(tempBg)
         }
-      } finally {
-        if (fs.existsSync(tempBg)) fs.unlinkSync(tempBg)
       }
-    }
 
-    // Only write blank placeholder if all retries exhausted
-    if (lastImageError && !fs.existsSync(imagePath)) {
-      await sharp({ create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } } })
-        .webp()
-        .toFile(imagePath)
+      // Only write blank placeholder if all retries exhausted
+      if (lastImageError && !fs.existsSync(imagePath)) {
+        await sharp({ create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+          .webp()
+          .toFile(imagePath)
+      }
     }
 
     // Store in location cache for future scenes
@@ -506,8 +518,8 @@ export class NanoBananaEngine {
     onSceneGenerated?: (s: any, sc: any, i: number, pr: number) => Promise<void>
   ): Promise<CompleteVideoPackage> {
     const valid = videoGenerationOptionsSchema.parse(options)
-    if (onProgress) await onProgress(0, `Démarrage: ${topic}`)
-    const script = await this.withPulse(0, 15, 'Studio: Crafting your unique script...', onProgress, () =>
+    if (onProgress) await onProgress(0, `[Étape 1/3] Démarrage de l'écriture: ${topic}`)
+    const script = await this.withPulse(0, 100, 'Studio: Crafting your unique script...', onProgress, () =>
       this.generateStructuredScript(topic, valid, onProgress)
     )
     if (valid.scriptOnly)
@@ -518,7 +530,7 @@ export class NanoBananaEngine {
         generatedAt: new Date().toISOString(),
         metadata: { apiCalls: script.sceneCount }
       }
-    if (onProgress) await onProgress(15, `Script OK. Actifs...`)
+    if (onProgress) await onProgress(100, `[Étape 1/3] Script terminé.`)
     return this.generateVideoFromScript(
       script,
       options,
@@ -571,11 +583,62 @@ export class NanoBananaEngine {
     const globalAudioPath = path.join(projectDir, 'narration.mp3')
     const transcriptHashPath = path.join(projectDir, 'transcript_hash.txt')
 
+    // Merge direct parameter and option-based references
+    if (valid.referenceImages && Array.isArray(valid.referenceImages)) {
+      baseImages.push(...(valid.referenceImages as string[]))
+    }
+
     const isScriptUnchanged = fs.existsSync(scriptHashPath) && fs.readFileSync(scriptHashPath, 'utf8') === scriptHash
+
+    // ─── POLYPTYCH PRE-PROCESSING ──────────────────────────────────────────
+    // Group scenes only if polyptychMode is explicitly enabled.
+    if (valid.polyptychMode) {
+      if (onProgress) await onProgress(0, '[Étape 2/3] Organisation des scènes...')
+
+      // 1. Automatically group scenes that are not manually grouped
+      PolyptychEngine.autoGroup(script.scenes)
+
+      // 2. Identify all groups (manual and auto)
+      const groups = PolyptychEngine.groupScenes(script.scenes)
+
+      if (groups.length > 0) {
+        console.log(`[NanoBanana] 🧩 Handling ${groups.length} polyptych groups...`)
+        const polyptychEngine = new PolyptychEngine(await this.getImageService())
+
+        // Resolve character references for consistency
+        const characterImages = await this.promptManager.resolveCharacterImages()
+        console.log(
+          `[NanoBanana] 🎭 Resolving consistency with ${characterImages.length} character images and ${baseImages.length} base images.`
+        )
+        const allBaseImages = await this.downloadAndEncodeImages([...baseImages, ...characterImages])
+        const hasReferenceImages = allBaseImages.length > 0
+        const systemInstruction = await this.promptManager.buildImageSystemInstruction(hasReferenceImages)
+
+        for (const group of groups) {
+          // Detect if this group contains a scene targeted for regeneration
+          const repromptId = valid.repromptSceneIndex != null ? String(valid.repromptSceneIndex) : null
+          const isGroupTargeted = group.scenes.some((s, idx) => repromptId === String(idx) || repromptId === s.id)
+
+          if (isGroupTargeted) {
+            const masterPath = path.join(scenesDir, `polyptych_${group.id}_master.png`)
+            if (fs.existsSync(masterPath)) {
+              console.log(`[NanoBanana] 🔄 Scene in group ${group.id} targeted for reprompt. Invalidating master...`)
+              fs.unlinkSync(masterPath)
+            }
+          }
+
+          await polyptychEngine.processGroup(group, scenesDir, valid, {
+            referenceImages: allBaseImages,
+            systemInstruction,
+            baseStyle: this.systemPrompt
+          })
+        }
+      }
+    }
 
     // ─── AUDIO GENERATION (Scene by Scene) ──────────────────────────────────
     if (!skipAudio) {
-      if (onProgress) await onProgress(10, 'Preparing scene audios...')
+      if (onProgress) await onProgress(5, '[Étape 2/3] Préparation de la narration...')
       for (let i = 0; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
         const sceneDir = path.join(scenesDir, scene.id)
@@ -606,7 +669,11 @@ export class NanoBananaEngine {
           }
 
           // Priority 2: Generate if still missing or invalid
-          if (!fs.existsSync(audioPath) || !isAudioValid) {
+          // RE-CHECK validity after potential download
+          const stillInvalid =
+            !fs.existsSync(audioPath) || !fs.existsSync(hashFile) || fs.readFileSync(hashFile, 'utf8') !== textHash
+
+          if (stillInvalid) {
             console.log(`[NanoBanana] 🎤 Generating audio for Scene ${i + 1}/${script.scenes.length}...`)
             const audio = await this.getAudioService()
             const res = await audio.generateSpeech(scene.narration, audioPath)
@@ -655,7 +722,7 @@ export class NanoBananaEngine {
           fs.existsSync(transcriptHashPath) && fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
 
         if (!cachedTranscriptValid) {
-          if (onProgress) await onProgress(26, 'Synchronizing word timings (Whisper AI)...')
+          if (onProgress) await onProgress(20, '[Étape 2/3] Synchronisation des paroles (Whisper AI)...')
           try {
             const { TranscriptionServiceFactory } = await import('../services/audio/transcription.service')
             const transcriptionService = await TranscriptionServiceFactory.create({
@@ -717,28 +784,31 @@ export class NanoBananaEngine {
         const sceneImg = path.join(sceneDir, 'scene.webp')
 
         if (fs.existsSync(sceneImg) && !isTarget) {
-          sceneImagePromises.set(
-            i,
-            (async () => {
-              // Cache smoothing: don't skip progress too fast
-              const pr = 15 + Math.round((completed / script.scenes.length) * 70)
-              if (onProgress)
-                await this.withPulse(
-                  pr,
-                  pr + 1,
-                  `Searching for scene ${i + 1} assets...`,
-                  onProgress,
-                  () => new Promise((r) => setTimeout(r, 800))
-                )
+          const cacheTask = this.generationQueue.add(async () => {
+            try {
+              // IMPORTANTE: S'assurer que l'imageUrl est présente pour la persistance
+              scene.imageUrl = sceneImg
+              console.log(`[NanoBanana] 💾 Cache hit for scene ${i + 1} (${scene.id})`)
 
-              sceneImagePromises.set(i, Promise.resolve(fs.readFileSync(sceneImg).toString('base64')))
+              const b64 = fs.readFileSync(sceneImg).toString('base64')
               completed++
-              const finalPr = 15 + Math.round((completed / script.scenes.length) * 70)
-              if (onProgress) await onProgress(finalPr, `Scène ${completed}/${script.scenes.length}`)
-              if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, finalPr)
-              return fs.readFileSync(sceneImg).toString('base64')
-            })()
-          )
+
+              const localPr = Math.round((completed / script.scenes.length) * 100)
+              if (onProgress)
+                await onProgress(localPr, `[Étape 2/3] Scène ${completed}/${script.scenes.length} (cache)`)
+
+              if (onSceneGenerated) {
+                console.log(`[NanoBanana] 📣 Triggering onSceneGenerated for cached scene ${scene.id}...`)
+                await onSceneGenerated(scene, script, i + 1, localPr)
+              }
+
+              return b64
+            } catch (error: any) {
+              console.warn(`[NanoBanana] ⚠ Error reading cached asset for scene ${i + 1}: ${error.message}`)
+              return undefined
+            }
+          })
+          sceneImagePromises.set(i, cacheTask)
           continue
         }
 
@@ -746,17 +816,24 @@ export class NanoBananaEngine {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
           const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
 
-          const startPr = 15 + Math.round((completed / script.scenes.length) * 70)
-          const endPr = 15 + Math.round(((completed + 1) / script.scenes.length) * 70)
+          const localStartPr = Math.round((completed / script.scenes.length) * 100)
+          const localEndPr = Math.round(((completed + 1) / script.scenes.length) * 100)
 
-          await this.withPulse(startPr, endPr, `Crafting scene ${i + 1}...`, onProgress, async () => {
-            await this.composeScene(scene, baseImages, sceneDir, prevB64, isTarget, script)
-          })
+          await this.withPulse(
+            localStartPr,
+            localEndPr,
+            `[Étape 2/3] Génération scène ${i + 1}...`,
+            onProgress,
+            async () => {
+              const prevScenePath = i > 0 ? path.join(scenesDir, script.scenes[i - 1].id, 'scene.webp') : undefined
+              await this.composeScene(scene, baseImages, sceneDir, prevB64, prevScenePath, isTarget, script)
+            }
+          )
 
           completed++
-          const pr = 15 + Math.round((completed / script.scenes.length) * 70)
-          if (onProgress) await onProgress(pr, `Scène ${completed}/${script.scenes.length}`)
-          if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, pr)
+          const localPr = Math.round((completed / script.scenes.length) * 100)
+          if (onProgress) await onProgress(localPr, `[Étape 2/3] Scène ${completed}/${script.scenes.length}`)
+          if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, localPr)
           return fs.existsSync(sceneImg) ? fs.readFileSync(sceneImg).toString('base64') : undefined
         })
         sceneImagePromises.set(i, task)
@@ -779,7 +856,7 @@ export class NanoBananaEngine {
             globalAudioPath: fs.existsSync(globalAudioPath) ? globalAudioPath : undefined
           },
           async (p, m) => {
-            if (onProgress) await onProgress(85 + Math.round((p / 100) * 15), m)
+            if (onProgress) await onProgress(p, `[Étape 3/3] ${m}`)
           }
         )
         await this.cleanupProject(projectDir, 'intermediate')
