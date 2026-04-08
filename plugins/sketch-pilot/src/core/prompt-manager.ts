@@ -91,6 +91,18 @@ export interface PromptManagerConfig {
    * Custom system prompt to override default narrative rules.
    */
   systemPrompt?: string
+  /**
+   * The script of the previous episode (if any) to ensure narrative continuity.
+   */
+  narrativeContext?: {
+    title?: string
+    description?: string
+    bible?: string
+    episodeNumber?: number
+    totalEpisodes?: number
+    previousEpisodeScript?: any
+    cast?: Array<{ name: string; description: string }>
+  }
 }
 
 // ─── Per-provider TTS speed calibration ──────────────────────────────────────
@@ -683,7 +695,56 @@ ${mandatoryRules.join('\n')}
 
       RÈGLES ET STYLE :
       ${pilotInstructions}
-      ${pilotRules ? `\nRÈGLES SPÉCIFIQUES AU FORMAT :\n${pilotRules}` : ''}
+      ${pilotRules ? `\nRÈGLES SPÉCIPS AU FORMAT :\n${pilotRules}` : ''}
+      ${
+        this.config.narrativeContext
+          ? `\nCONTEXTE NARRATIF :
+      ${this.config.narrativeContext.title ? `Titre de l'œuvre : "${this.config.narrativeContext.title}"` : ''}
+      ${this.config.narrativeContext.description ? `Description / Univers : "${this.config.narrativeContext.description}"` : ''}
+      ${this.config.narrativeContext.bible ? `BIBLE / INTRIGUE GLOBALE : "${this.config.narrativeContext.bible}"` : ''}
+      ${
+        this.config.narrativeContext.episodeNumber && this.config.narrativeContext.totalEpisodes
+          ? `ÉPISODE ACTUEL : ${this.config.narrativeContext.episodeNumber} sur ${this.config.narrativeContext.totalEpisodes}`
+          : this.config.narrativeContext.episodeNumber
+            ? `ÉPISODE ACTUEL : ${this.config.narrativeContext.episodeNumber}`
+            : ''
+      }
+      ${
+        this.config.narrativeContext.totalEpisodes && !this.config.narrativeContext.episodeNumber
+          ? `Nombre d'épisodes total prévus : ${this.config.narrativeContext.totalEpisodes}`
+          : ''
+      }
+      ${
+        this.config.narrativeContext.cast && this.config.narrativeContext.cast.length > 0
+          ? `DISTRIBUTION DES PERSONNAGES (L'IA doit les identifier et respecter leur personnalité s'ils apparaissent) :
+      ${this.config.narrativeContext.cast.map((c) => `- ${c.name} : ${c.description}`).join('\n      ')}`
+          : ''
+      }
+      
+      ${
+        this.config.narrativeContext.previousEpisodeScript
+          ? `\nCONTINUITÉ SAGA (ÉPISODIQUE) :
+      Cette vidéo est la SUITE directe. 
+      RÈGLE D'OR : ÉVITEZ toute structure de vidéo "standalone" (pas d'introduction générique, pas de "Bonjour à tous", pas de présentation de sujet classique). 
+      Commencez "In Media Res" ou par une transition narrative fluide.
+      
+      RÉSUMÉ DE L'ÉPISODE PRÉCÉDENT :
+      -- DEBUT CONTEXTE PRECÉDENT --
+      ${
+        typeof this.config.narrativeContext.previousEpisodeScript === 'string'
+          ? this.config.narrativeContext.previousEpisodeScript
+          : JSON.stringify(this.config.narrativeContext.previousEpisodeScript)
+      }
+      -- FIN CONTEXTE PRÉCÉDENT --
+      
+      OBJECTIF DE CONTINUITÉ : Ne répétez PAS les informations déjà connues du spectateur. Faites PROGRESSER l'intrigue. Le spectateur sait déjà qui est le narrateur et quel est l'univers. Plongez-le directement dans l'évolution de l'histoire.`
+          : this.config.narrativeContext
+            ? `\nLANCEMENT DE SAGA (ÉPISODE 1) :
+      C'est le début d'une série. Établissez l'atmosphère et les enjeux posément, mais gardez un ton narratif qui suggère qu'une longue histoire commence.`
+            : ''
+      }`
+          : ''
+      }
 
       DISCIPLINE DU NOMBRE DE MOTS :
       Après chaque paragraphe, comptez mentalement. Le total cumulé doit tendre vers ${targetWords}.
@@ -697,7 +758,16 @@ ${mandatoryRules.join('\n')}
       — Ne jamais regrouper deux '...' dans la même phrase.
       — Ne commencez jamais un paragraphe par '...'.
       — INTERDICTION STRICTE D'UTILISER DES ABRÉVIATIONS (ex: écrivez "2 heures" au lieu de "2h", "pour cent" au lieu de "%").
-      — Appliquez une transition cinématographique variée entre CHAQUE scène (fade, blur, zoom-in, wipe, dissolve). Ne laissez jamais une transition vide.
+      — MAINTIENS DE LIEU : Conservez la continuité. Si l'action se déroule dans la même scène, réutilisez le même 'locationId'.
+      ${
+        this.config.narrativeContext
+          ? `— GESTION DE LA FIN : ${
+              this.config.narrativeContext.episodeNumber === this.config.narrativeContext.totalEpisodes
+                ? "C'est la FIN de la saga. Apportez une résolution complète et satisfaisante."
+                : "C'est un épisode INTERMÉDIARE. INTERDICTION de conclure l'histoire. Terminez par une ouverture, un cliffhanger ou une préparation de l'épisode suivant."
+            }`
+          : ''
+      }
 
       ⚠️ AUTO-VÉRIFICATION AVANT DE SOUMETTRE :
       Comptez vos mots. Si vous êtes en dessous de ${minWords}, vous n’avez pas fini.
@@ -893,7 +963,11 @@ Langue : ${lang}. Voix : identique à ci-dessus. Sortie : texte de continuation 
 
         — ${range.min} à ${range.max} scènes (idéal: ${range.ideal})
         — couper uniquement à des limites naturelles (. ! ? ...)
-        — progression: hook → reveal → tension → résolution → conclusion
+        — progression: ${
+          this.config.narrativeContext
+            ? "pont narratif (suite de l'épisode précédent) → développement → climax / révélation → teaser / cliffhanger pour la suite"
+            : 'hook → reveal → tension → résolution → conclusion'
+        }
         — MAINTIENS DE LIEU : Conservez la continuité. Si l'action se déroule dans la même scène, réutilisez le même 'locationId'.
 
         PRESETS DISPONIBLES:

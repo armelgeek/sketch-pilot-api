@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db } from '../database/db'
 import { characterModels, type CharacterModel, type NewCharacterModel } from '../database/schema/character-model.schema'
 
@@ -23,6 +23,11 @@ export class CharacterModelRepository {
   async findById(id: string): Promise<CharacterModel | undefined> {
     const results = await db.select().from(characterModels).where(eq(characterModels.id, id)).limit(1)
     return results[0]
+  }
+
+  async findByIds(ids: string[]): Promise<CharacterModel[]> {
+    if (ids.length === 0) return []
+    return await db.select().from(characterModels).where(inArray(characterModels.id, ids))
   }
 
   async create(data: NewCharacterModel): Promise<CharacterModel> {

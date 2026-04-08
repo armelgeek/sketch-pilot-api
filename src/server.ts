@@ -11,6 +11,7 @@ import {
   PricingController,
   PromptController,
   ScriptsController,
+  SeriesController,
   UserController,
   VideoAdminController,
   VideosController
@@ -25,6 +26,7 @@ const app = new App([
   new EmailCheckController(),
   new CreditsController(),
   new VideosController(),
+  new SeriesController(),
   new ScriptsController(),
   new ConfigController(),
   new VideoAdminController(),

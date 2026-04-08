@@ -91,7 +91,16 @@ export class VideoGenerationService {
       undefined, // transcriptionConfig
       {
         scriptSpec: scriptSpec as any,
-        characterModelId: options.characterModelId
+        characterModelId: options.characterModelId,
+        narrativeContext: {
+          title: (options as any).seriesTitle,
+          description: (options as any).seriesDescription,
+          bible: (options as any).fullStory,
+          episodeNumber: (options as any).episodeNumber,
+          totalEpisodes: (options as any).totalEpisodes,
+          previousEpisodeScript: (options as any).previousEpisodeScript,
+          cast: (options as any).cast
+        }
       }
     )
   }

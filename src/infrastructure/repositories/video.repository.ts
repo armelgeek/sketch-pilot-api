@@ -24,6 +24,8 @@ export class VideoRepository {
     scenes?: any
     creditsUsed?: number
     characterModelId?: string
+    seriesId?: string | null
+    episodeNumber?: number
   }) {
     const [video] = await db
       .insert(videos)
@@ -40,6 +42,8 @@ export class VideoRepository {
         scenes: data.scenes,
         creditsUsed: data.creditsUsed !== undefined ? data.creditsUsed : data.status === 'draft' ? 0 : 1,
         characterModelId: data.characterModelId,
+        seriesId: data.seriesId ?? null,
+        episodeNumber: data.episodeNumber ?? 1,
         createdAt: new Date(),
         updatedAt: new Date()
       })

@@ -104,5 +104,13 @@ export interface VideoJobData {
     audioOverlap?: number
     backgroundColor?: string
     imageStyle?: any
+    seriesId?: string
+    seriesTitle?: string
+    seriesDescription?: string
+    fullStory?: string
+    totalEpisodes?: number
+    episodeNumber?: number
+    cast?: Array<{ name: string; description: string }>
+    previousEpisodeScript?: any
   }
 }

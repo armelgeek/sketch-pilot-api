@@ -23,6 +23,8 @@ export const videos = pgTable('videos', {
   // Metadata
   language: text('language').default('en'),
   characterModelId: text('character_model_id'),
+  seriesId: text('series_id'),
+  episodeNumber: integer('episode_number').default(1),
   creditsUsed: integer('credits_used').notNull().default(1),
   // Script / scenes data
   script: jsonb('script'),

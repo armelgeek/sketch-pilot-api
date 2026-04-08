@@ -28,6 +28,7 @@ export interface GenerateScriptOptions {
   aspectRatio?: '9:16' | '16:9' | '1:1'
   backgroundMusic?: string
   characterModelId?: string
+  previousEpisodeScript?: any
 }
 
 export class ScriptGenerationService {
@@ -67,12 +68,14 @@ export class ScriptGenerationService {
       aspectRatio: options.aspectRatio,
       qualityMode: options.qualityMode,
       backgroundMusic: options.backgroundMusic,
-      customSpec: spec
+      customSpec: spec,
+      previousEpisodeScript: options.previousEpisodeScript
     })
 
     // 3. Initialize generator and run (using the SAME spec for both script and image)
     const promptManager = new PromptManager({
-      scriptSpec: spec as any
+      scriptSpec: spec as any,
+      previousEpisodeScript: options.previousEpisodeScript
     })
     const generator = new VideoScriptGenerator(llmService, promptManager)
     const script = await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)

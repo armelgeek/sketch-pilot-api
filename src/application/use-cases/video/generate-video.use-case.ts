@@ -1,5 +1,6 @@
 import { videoGenerationOptionsSchema, type VideoGenerationOptions } from '@sketch-pilot/types/video-script.types'
 import { PromptService } from '@/application/services/prompt.service'
+import { SeriesManager, type SeriesContext } from '@/application/services/series-manager.service'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
@@ -11,6 +12,7 @@ type GenerateVideoParams = {
   planId?: string
   topic: string
   options?: Partial<VideoGenerationOptions>
+  seriesId?: string
 }
 
 type GenerateVideoResponse = {
@@ -53,7 +55,18 @@ const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
-  async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
+  private readonly seriesManager = new SeriesManager()
+  constructor() {
+    super()
+  }
+
+  async execute({
+    userId,
+    planId,
+    topic,
+    options = {},
+    seriesId
+  }: GenerateVideoParams): Promise<GenerateVideoResponse> {
     try {
       // 1. Resolve Spec from DB
       const spec = await promptService.resolveSpec(options.promptId)
@@ -99,14 +112,32 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         }
       }
 
-      // 2. Initial balance verification (Check only, don't deduct yet)
-
-      // Create the video record
+      // Create the IDs
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
 
-      // Generate a preliminary title from the topic
-      const preliminaryTitle = topic
+      let finalTopic = topic.trim()
+      if (!finalTopic && !seriesId) {
+        return { success: false, error: 'Un sujet est requis pour générer une vidéo.' }
+      }
+
+      // 3. Series context resolution
+      let seriesContext: SeriesContext | undefined
+      if (seriesId) {
+        seriesContext = await this.seriesManager.resolveContext(seriesId)
+      }
+
+      // 4. Handle Auto-continuation instruction
+      if ((!finalTopic || finalTopic === 'AUTO_CONTINUE') && seriesContext) {
+        finalTopic = this.seriesManager.getAutoContinuationPrompt(seriesContext)
+      } else if (!finalTopic || finalTopic === 'AUTO_CONTINUE') {
+        finalTopic = 'Imaginez une histoire courte et captivante.'
+      }
+
+      const effectiveTopic = finalTopic
+
+      // 5. Generate a preliminary title from the topic
+      const preliminaryTitle = effectiveTopic
         .split(/[.!?\n]/)[0]
         .trim()
         .slice(0, 70)
@@ -114,43 +145,47 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
       await videoRepository.create({
         id: videoId,
         userId,
-        topic,
+        topic: effectiveTopic,
         title: preliminaryTitle,
         characterModelId: options.characterModelId,
         options: { ...videoOptions, creditsUsed: totalCost },
         language: options.language || 'en',
-        creditsUsed: totalCost
+        creditsUsed: totalCost,
+        seriesId: seriesId ?? null,
+        episodeNumber: seriesContext?.episodeNumber ?? 1
       })
 
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
 
-      // CRITICAL: Clear any existing lock for this videoId to prevent 'deferred' jobs
-      // if we are starting a fresh generation (e.g. after a deletion or restart)
       const lockKey = `active-video-job:${videoId}`
       await redisClient.del(lockKey)
 
-      // Enqueue the BullMQ job
-      // Fix 3: Use videoId as BullMQ jobId for automatic deduplication.
-      // If the same video is enqueued twice, BullMQ will deduplicate based on jobId,
-      // preventing double processing and double billing.
       const jobData: VideoJobData = {
-        jobId: videoId, // use videoId for deduplication
+        jobId: videoId,
         userId,
         videoId,
-        topic,
+        topic: effectiveTopic,
         cost: totalCost,
-        planLimit: planLimit === -1 ? 0 : planLimit, // planLimit needs to be a number
-        options: toJobOptions(videoOptions, spec)
+        planLimit: planLimit === -1 ? 0 : planLimit,
+        options: {
+          ...toJobOptions(videoOptions, spec),
+          seriesId,
+          seriesTitle: seriesContext?.seriesTitle,
+          seriesDescription: seriesContext?.seriesDescription,
+          fullStory: seriesContext?.fullStory,
+          totalEpisodes: seriesContext?.totalEpisodes,
+          cast: seriesContext?.cast,
+          episodeNumber: seriesContext?.episodeNumber ?? 1,
+          previousEpisodeScript: seriesContext?.previousEpisodeScript
+        }
       }
 
       const queue = getVideoQueue()
       await queue.add('generate-video', jobData, {
-        jobId, // Unique jobId to allow sequential passes
+        jobId,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 }
       })
-
-      // Credits already deducted upfront
 
       return {
         success: true,

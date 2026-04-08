@@ -1642,7 +1642,7 @@ export class VideoAssembler {
     const clipLabels: string[] = []
     const audioLabels: string[] = []
 
-    const normalizationFilter = 'compand=0.3,0.3:1,1:-90/-60,-60/-40,-40/-15,-20/-10,0/-7:1:0:-30:1'
+    const normalizationFilter = 'loudnorm=I=-16:TP=-1.5:LRA=11'
 
     for (let i = 0; i < n; i++) {
       const vLabel = `[v_in_${i}]`

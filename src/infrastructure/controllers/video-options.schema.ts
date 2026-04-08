@@ -61,6 +61,7 @@ export const VideoOptionsSchema = z
     thumbnailVariations: z
       .array(z.string())
       .optional()
-      .openapi({ description: 'Persisted thumbnail variations generated for this video' })
+      .openapi({ description: 'Persisted thumbnail variations generated for this video' }),
+    seriesId: z.string().optional().openapi({ example: 'uuid', description: 'ID of the series this video belongs to' })
   })
   .openapi('VideoOptions')

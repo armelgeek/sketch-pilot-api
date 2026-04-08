@@ -96,7 +96,8 @@ export class RepromptSceneImageUseCase extends IUseCase<RepromptSceneImageParams
           ...videoOptions,
           scriptOnly: false,
           generateFromScript: true,
-          repromptSceneIndex: sceneIndex
+          repromptSceneIndex: sceneIndex,
+          skipAudio: true
         }
       }
 

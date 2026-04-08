@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
@@ -238,6 +239,80 @@ export class VideosController implements Routes {
   }
 
   public initRoutes() {
+    // POST /v1/videos/preview-tts
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/preview-tts',
+        tags: ['Videos'],
+        summary: 'Generate TTS preview',
+        description: 'Generates a short audio preview of text for a specific voice preset.',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  text: z.string().min(1).max(500),
+                  voicePreset: z.string()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Audio preview generated',
+            content: {
+              'application/json': {
+                schema: z.object({ audioBase64: z.string() })
+              }
+            }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          500: {
+            description: 'Server error',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        try {
+          const user = c.get('user')
+          if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+          const { text, voicePreset } = c.req.valid('json')
+
+          const { AudioServiceFactory } = await import('@sketch-pilot/services/audio')
+          const crypto = await import('node:crypto')
+          const fs = await import('node:fs')
+          const path = await import('node:path')
+          const os = await import('node:os')
+
+          const audioService = await AudioServiceFactory.create({
+            provider: 'elevenlabs',
+            lang: 'en',
+            apiKey: process.env.ELEVENLABS_API_KEY || process.env.GEMINI_API_KEY || '',
+            kokoroVoicePreset: voicePreset
+          })
+
+          const tempPath = path.join(os.tmpdir(), `preview_${crypto.randomUUID()}.mp3`)
+          await audioService.generateSpeech(text, tempPath)
+
+          const buffer = fs.readFileSync(tempPath)
+          fs.unlinkSync(tempPath)
+
+          return c.json({ audioBase64: buffer.toString('base64') }, 200)
+        } catch (error: any) {
+          console.error('[VideosController] Preview TTS error:', error)
+          return c.json({ error: error.message }, 500)
+        }
+      }
+    )
+
     // POST /v1/videos/generate
     this.controller.openapi(
       createRoute({
@@ -252,7 +327,7 @@ export class VideosController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  topic: z.string().min(1).max(5000),
+                  topic: z.string().min(0).max(5000),
                   options: VideoOptionsSchema.optional()
                 })
               }
@@ -299,7 +374,8 @@ export class VideosController implements Routes {
           userId: user.id,
           planId: (user as any).planId,
           topic,
-          options
+          options,
+          seriesId: options?.seriesId
         })
 
         if (!result.success) {
