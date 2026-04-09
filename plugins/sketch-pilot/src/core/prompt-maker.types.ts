@@ -31,6 +31,9 @@ export interface VideoTypeSpecification {
   /** Global description of the main character to maintain consistency */
   characterDescription?: string
 
+  narrativeProgression?: string
+  structuralConstraints?: string[]
+
   narrativeRules?: string[]
   styleRules?: string[]
   engagementRules?: string[]

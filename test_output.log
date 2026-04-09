@@ -1,0 +1,214 @@
+🧪 RUNNING REAL SERIES GENERATION TEST (AI-POWERED)...
+
+[1/4] Initializing LLM (openai)...
+[2/4] Initializing Series Generator for Series Finale (Episode 10)...
+[3/4] Generating Episode 1 script (Topic: The Bakery Investigation)...
+[VideoScriptGen] Generating script for topic: "Enquête à la boulangerie après la découverte du médaillon"
+[VideoScriptGen] 🚀 UNIFIED (Standard) MODE: Single-pass script generation...
+[SeriesGenerator] 📝 SYSTEM PROMPT DEBUG:
+## RÔLE
+Mystery Writer
+
+---
+
+## CONTEXTE
+[CONTINUITÉ SÉRIE] 
+Épisode N°: 10
+ID Saga: saga-mystery-forest
+Contexte global: Episodes 1-9: Detective Sinclair has discovered the secret passage and found the missing baker. The final confrontation with the "Shadow Thief" is about to happen.
+Victorian detective mystery.
+
+REGISTRE DES PERSONNAGES (Canon):
+• Detective Sinclair: Worn-out brown coat, silver hair, looking determined.
+• Shadow Thief: Tall, wearing a mask of a crow.
+
+---
+
+## TÂCHE
+Generate a script.
+
+IMPORTANT: Vous DEVEZ inclure l'objet "seriesMetadata" pour permettre la continuité narrative. Sans cet objet, la série s'arrêtera.
+
+---
+
+## OBJECTIFS
+- Building suspense
+- Character development
+
+---
+
+## STRUCTURE
+- Hook
+- Investigation
+- Cliffhanger
+
+---
+
+## PROGRESSION NARRATIVE
+hook → reveal → tension → résolution → conclusion
+
+---
+
+## CONTRAINTES STRUCTURELLES
+- Dernière scène: preset "conclusion" obligatoire
+- Utilisez une scène "bridge" juste avant la finale pour tension
+
+---
+
+## ...
+(node:205497) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[VideoScriptGen] 🔮 RAW AI RESPONSE:
+{
+  "seriesMetadata": {
+    "episodeSummary": "Detective Sinclair discovers Shadow Thief's true identity and motives, resolving the mystery.",
+    "resolution": "Sinclair apprehends the Shadow Thief, revealing him as the town's mayor, who sought to control the town's economy.",
+    "characterFinalState": {
+      "Detective Sinclair": "The town's hero, appreciated and respected.",
+      "Shadow Thief": "Arrested and unmasked as the mayor, facing justice."
+    }
+  },
+  "titles": ["Le Dernier Acte", "L'Ombre Révélée"],
+  "fullNarration": "Le médaillon scintille sous la lumière de la lanterne de Sinclair. Il aperçoit une inscription mystérieuse. Sinclair suit les indices jusqu'à la mairie, découvrant que le voleur n'est autre que le maire lui-même. Le masque tombe.",
+  "scenes": [
+    {
+      "id": "scene-1",
+      "sceneNumber": 1,
+      "summary": "Sinclair découvre l'inscription sur le médaillon.",
+      "narration": "Le médaillon scintille sous la lumière de la lanterne de Sinclair. Il aperçoit une inscription mystérieuse.",
+      "locationId": "forest-cabin",
+      "imagePrompt": "A dimly lit cabin with a glowing medallion.",
+      "animationPrompt": "The medallion appears, glowing softly.",
+      "cameraAction": "zoom-in",
+      "preset": "hook",
+      "transition": "fade"
+    },
+    {
+      "id": "scene-2",
+      "sceneNumber": 2,
+      "summary": "Sinclair suit les indices jusqu'à la mairie.",
+      "narration": "Sinclair suit les indices jusqu'à la mairie, découvrant que le voleur n'est autre que le maire lui-même.",
+      "locationId": "town-hall",
+      "imagePrompt": "Sinclair entering the grand, shadowy town hall.",
+      "animationPrompt": "Sinclair walks determinedly through dark corridors.",
+      "cameraAction": "pan",
+      "preset": "bridge",
+      "transition": "cut"
+    },
+    {
+      "id": "scene-3",
+      "sceneNumber": 3,
+      "summary": "Le masque du voleur tombe, révélant le maire.",
+      "narration": "Le masque tombe.",
+      "locationId": "mayor-office",
+      "imagePrompt": "The mayor's office, the thief's mask on the floor.",
+      "animationPrompt": "The mask falls dramatically to the ground.",
+      "cameraAction": "close-up",
+      "preset": "conclusion",
+      "transition": "dissolve"
+    }
+  ]
+}
+-------------------
+[VideoScriptGen] 🩹 Normalizing transition: cut -> none
+[VideoScriptGen] Enriching 3 scenes with prompts...
+[VideoScriptGen] 📄 Debug script saved → /home/armel/dev/sketch-pilot/sketch-pilot-api/uploads/output/debug_script_2026-04-09T13-41-41-118Z.json
+
+=================================================
+✅ GENERATION SUCCESSFUL
+=================================================
+
+--- OUTPUT JSON ---
+{
+  "titles": [
+    "Le Dernier Acte",
+    "L'Ombre Révélée"
+  ],
+  "fullNarration": "Le médaillon scintille sous la lumière de la lanterne de Sinclair. Il aperçoit une inscription mystérieuse. Sinclair suit les indices jusqu'à la mairie, découvrant que le voleur n'est autre que le maire lui-même. Le masque tombe.",
+  "totalDuration": 14.8,
+  "sceneCount": 3,
+  "scenes": [
+    {
+      "id": "scene-1",
+      "sceneNumber": 1,
+      "timeRange": {
+        "start": 0,
+        "end": 5
+      },
+      "summary": "Sinclair découvre l'inscription sur le médaillon.",
+      "narration": "Le médaillon scintille sous la lumière de la lanterne de Sinclair. Il aperçoit une inscription mystérieuse.",
+      "locationId": "forest-cabin",
+      "imagePrompt": "A dimly lit cabin with a glowing medallion.",
+      "animationPrompt": "The medallion appears, glowing softly.",
+      "cameraAction": {
+        "type": "zoom-in",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "hook",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "fade"
+    },
+    {
+      "id": "scene-2",
+      "sceneNumber": 2,
+      "timeRange": {
+        "start": 4.9,
+        "end": 11.9
+      },
+      "summary": "Sinclair suit les indices jusqu'à la mairie.",
+      "narration": "Sinclair suit les indices jusqu'à la mairie, découvrant que le voleur n'est autre que le maire lui-même.",
+      "locationId": "town-hall",
+      "imagePrompt": "Sinclair entering the grand, shadowy town hall.",
+      "animationPrompt": "Sinclair walks determinedly through dark corridors.",
+      "cameraAction": {
+        "type": "pan",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "bridge",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "none"
+    },
+    {
+      "id": "scene-3",
+      "sceneNumber": 3,
+      "timeRange": {
+        "start": 11.8,
+        "end": 14.8
+      },
+      "summary": "Le masque du voleur tombe, révélant le maire.",
+      "narration": "Le masque tombe.",
+      "locationId": "mayor-office",
+      "imagePrompt": "The mayor's office, the thief's mask on the floor.",
+      "animationPrompt": "The mask falls dramatically to the ground.",
+      "cameraAction": {
+        "type": "close-up",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "conclusion",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "dissolve"
+    }
+  ],
+  "aspectRatio": "16:9",
+  "seriesMetadata": {
+    "episodeSummary": "Detective Sinclair discovers Shadow Thief's true identity and motives, resolving the mystery."
+  }
+}
+-------------------
+
+✨ Episodic Metadata matches expected structure.

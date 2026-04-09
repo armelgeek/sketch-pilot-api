@@ -1,0 +1,134 @@
+{
+  "titles": ["Sagesse Stoïcienne", "Leçons de Marc Aurèle"],
+  "fullNarration": "Le temps passe rapidement. Marc Aurèle nous rappelle que chaque moment est précieux. Il disait : 'Ne vis pas comme si tu avais des milliers d'années devant toi. La mort rôde. Sois bon aujourd'hui.' Le stoïcien nous pousse à vivre intensément. À saisir chaque instant. Son message résonne encore. Dans un monde en perpétuel mouvement, l'importance de l'instant présent ne peut être sous-estimée. Alors, réfléchissons à notre usage du temps. Ne laissons pas nos jours s'échapper comme du sable entre nos doigts. C'est à nous de donner du sens à chaque seconde. Comment le ferez-vous ?",
+  "totalDuration": 14.600000000000001,
+  "sceneCount": 5,
+  "scenes": [
+    {
+      "id": "scene-1",
+      "sceneNumber": 1,
+      "timeRange": {
+        "start": 0,
+        "end": 3
+      },
+      "summary": "Introduction philosophique",
+      "narration": "Le temps passe rapidement. Marc Aurèle nous rappelle que chaque moment est précieux.",
+      "locationId": "temple-grec",
+      "imagePrompt": "Buste en marbre de Marc Aurèle, éclairage cinématique Chiaroscuro",
+      "animationPrompt": "Légère rotation de caméra, fumée mystérieuse en arrière-plan",
+      "cameraAction": {
+        "type": "zoom-in",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "hook",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "fade-black"
+    },
+    {
+      "id": "scene-2",
+      "sceneNumber": 2,
+      "timeRange": {
+        "start": 2.9,
+        "end": 5.9
+      },
+      "summary": "Citation et réflexion",
+      "narration": "Il disait : 'Ne vis pas comme si tu avais des milliers d'années devant toi. La mort rôde. Sois bon aujourd'hui.'",
+      "locationId": "bibliothèque-ancienne",
+      "imagePrompt": "Ancien parchemin avec des inscriptions stoïciennes",
+      "animationPrompt": "Lumière vacillante de bougie sur le parchemin",
+      "cameraAction": {
+        "type": "pan-left",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "reveal",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "none"
+    },
+    {
+      "id": "scene-3",
+      "sceneNumber": 3,
+      "timeRange": {
+        "start": 5.800000000000001,
+        "end": 8.8
+      },
+      "summary": "Importance de l'instant présent",
+      "narration": "Le stoïcien nous pousse à vivre intensément. À saisir chaque instant. Son message résonne encore.",
+      "locationId": "champs-élysées",
+      "imagePrompt": "Couple marchant au coucher du soleil, ambiance chaleureuse",
+      "animationPrompt": "Lent mouvement des feuilles d'arbres au vent",
+      "cameraAction": {
+        "type": "zoom-out",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "tension",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "wipe-left"
+    },
+    {
+      "id": "scene-4",
+      "sceneNumber": 4,
+      "timeRange": {
+        "start": 8.700000000000001,
+        "end": 11.700000000000001
+      },
+      "summary": "Réflexion personnelle",
+      "narration": "Dans un monde en perpétuel mouvement, l'importance de l'instant présent ne peut être sous-estimée. Alors, réfléchissons à notre usage du temps.",
+      "locationId": "horloge-ancienne",
+      "imagePrompt": "Gros plan sur une horloge ancienne avec des engrenages visibles",
+      "animationPrompt": "Engrenages tournant lentement",
+      "cameraAction": {
+        "type": "zoom-in",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "bridge",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "fade-white"
+    },
+    {
+      "id": "scene-5",
+      "sceneNumber": 5,
+      "timeRange": {
+        "start": 11.600000000000001,
+        "end": 14.600000000000001
+      },
+      "summary": "Conclusion inspirante",
+      "narration": "Ne laissons pas nos jours s'échapper comme du sable entre nos doigts. C'est à nous de donner du sens à chaque seconde. Comment le ferez-vous ?",
+      "locationId": "bord-de-mer",
+      "imagePrompt": "Plage au lever du soleil, sable s'écoulant entre les doigts",
+      "animationPrompt": "Vagues s'écrasant doucement sur le rivage",
+      "cameraAction": {
+        "type": "pan-down",
+        "intensity": "medium",
+        "timestamp": 0
+      },
+      "pauseBefore": 0.4,
+      "pauseAfter": 0.1,
+      "continueFromPrevious": false,
+      "preset": "conclusion",
+      "pacing": "medium",
+      "breathingPoints": [],
+      "transition": "none"
+    }
+  ],
+  "aspectRatio": "9:16"
+}

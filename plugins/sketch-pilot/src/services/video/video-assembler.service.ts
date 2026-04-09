@@ -243,6 +243,7 @@ export class VideoAssembler {
       polishedVideoPath,
       {
         ...globalOptions,
+        type: script.type || globalOptions.type,
         globalAssPath
       },
       onProgress,
@@ -471,14 +472,34 @@ export class VideoAssembler {
     const assPath = options?.globalAssPath
 
     return new Promise(async (resolve, reject) => {
+      const opts = (options ?? {}) as any
+      const isQuotes = opts.isQuotes || opts.type === 'quotes'
+      const vignetteIntensity = isQuotes ? 0.45 : 0.25
+      const noiseIntensity = 0.03
+
+      const filters = [
+        `eq=contrast=1.08:brightness=0.01:saturation=1.04[v_base]`,
+        `[v_base]vignette=angle=${vignetteIntensity}:x0=w/2:y0=h/2[v_vig]`,
+        `[v_vig]noise=alls=${noiseIntensity}:allf=t+u[polished]`
+      ]
+
+      let finalLabel = '[polished]'
+      if (assPath) {
+        filters.push(`${finalLabel}ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[subtitled]`)
+        finalLabel = '[subtitled]'
+      }
+
       const cmd = ffmpeg(videoPath)
-        .complexFilter([
-          `eq=contrast=1.05:brightness=0.02:saturation=1.05[brightened]`,
-          assPath
-            ? `[brightened]ass='${assPath.replaceAll('\\', '/').replaceAll(':', String.raw`\:`)}'[outv]`
-            : `[brightened]copy[outv]`
+        .complexFilter(filters)
+        .outputOptions([
+          '-map',
+          finalLabel,
+          '-map 0:a?',
+          '-c:v libx264',
+          `-preset ${preset}`,
+          `-crf ${crf}`,
+          '-shortest'
         ])
-        .outputOptions(['-map [outv]', '-map 0:a?', '-c:v libx264', `-preset ${preset}`, `-crf ${crf}`, '-shortest'])
 
       if (onProgress) {
         const duration = await this.getClipDuration(videoPath).catch(() => 0)
@@ -1428,18 +1449,14 @@ export class VideoAssembler {
    * is enabled. Previously, tension values between 3 and 7 fell through to 'cut'
    * even with useAuto=true, which silently disabled all transitions for typical content.
    */
-  private resolveTransition(suggested: string | undefined, tension: number, useAuto: boolean): string {
+  private resolveTransition(suggested: string | undefined, tension: number): string {
     // 1. If the scene explicitly sets a non-trivial transition, always honour it
     if (suggested && suggested !== 'none' && suggested !== 'cut') return suggested
 
-    // 2. Auto-select based on tension when autoTransitions is enabled
-    if (useAuto) {
-      if (tension > 7) return 'slideleft' // High tension → snappy slide
-      if (tension <= 3) return 'fade' // Calm → soft fade
-      return 'dissolve' // Mid-range (4-7) gets a nice dissolve for a premium feel
-    }
-
-    return 'cut'
+    // 2. Auto-select based on tension (always enabled for premium feel)
+    if (tension > 7) return 'slideleft' // High tension → snappy slide
+    if (tension <= 3) return 'fade' // Calm → soft fade
+    return 'dissolve' // Mid-range (4-7) gets a nice dissolve for a premium feel
   }
 
   private getXfadeTransition(
@@ -1488,6 +1505,7 @@ export class VideoAssembler {
       'squeezev',
       'squeezeh',
       'zoomin',
+      'zoomout',
       'hlwind',
       'hrwind',
       'vuwind',
@@ -1507,9 +1525,12 @@ export class VideoAssembler {
       // Rich/Complex
       circleopen: 1.2,
       circleclose: 1.2,
+      zoomout: 0.9,
       pixelize: 1,
       radial: 1,
       zoomin: 0.9,
+      squeezev: 0.8,
+      squeezeh: 0.8,
       distance: 0.9,
       hblur: 0.9,
       circlecrop: 0.9,
@@ -1642,7 +1663,7 @@ export class VideoAssembler {
     const clipLabels: string[] = []
     const audioLabels: string[] = []
 
-    const normalizationFilter = 'compand=0.3,0.3:1,1:-90/-60,-60/-40,-40/-15,-20/-10,0/-7:1:0:-30:1'
+    const normalizationFilter = 'loudnorm=I=-16:TP=-1.5:LRA=11'
 
     for (let i = 0; i < n; i++) {
       const vLabel = `[v_in_${i}]`
@@ -1886,7 +1907,7 @@ export class VideoAssembler {
     const prevScene = scenes[sceneIndex - 1]
     const suggested = prevScene.transition || 'cut'
     const tension = prevScene.tension || 5
-    const transition = this.resolveTransition(suggested, tension, true)
+    const transition = this.resolveTransition(suggested, tension)
 
     if (!transition || transition === 'cut' || transition === 'none') {
       return 0
@@ -2002,7 +2023,6 @@ export class VideoAssembler {
         globalOptions: {
           resolution: globalOptions.resolution,
           aspectRatio: globalOptions.aspectRatio,
-          autoTransitions: globalOptions.autoTransitions,
           narrationVolume: globalOptions.narrationVolume
         },
         hasGlobalAudio,
@@ -2021,8 +2041,7 @@ export class VideoAssembler {
           const cache = JSON.parse(fs.readFileSync(cacheFilePath, 'utf8'))
           if (cache.hash === cacheKey && fs.existsSync(cache.clipPath)) {
             console.log(`[VideoAssembler] ⚡ Cache HIT for scene ${scene.id} (Hash: ${cacheKey.substring(0, 8)})`)
-            const useAutoTrans = globalOptions.autoTransitions !== false
-            const trans = this.resolveTransition((scene as any).transition, sceneTension, useAutoTrans)
+            const trans = this.resolveTransition((scene as any).transition, sceneTension)
             return { clipPath: cache.clipPath, transition: trans }
           }
         } catch {
@@ -2144,8 +2163,7 @@ export class VideoAssembler {
         }
       }
 
-      const useAuto = globalOptions.autoTransitions !== false
-      const transition = this.resolveTransition((scene as any).transition, sceneTension, useAuto)
+      const transition = this.resolveTransition((scene as any).transition, sceneTension)
 
       console.log(`[VideoAssembler] Scene ${scene.id} (tension=${sceneTension}) → transition="${transition}"`)
 

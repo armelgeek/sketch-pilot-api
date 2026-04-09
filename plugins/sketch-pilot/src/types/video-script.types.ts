@@ -321,6 +321,7 @@ export const completeVideoScriptSchema = z.object({
     .describe(
       'The complete, unbroken narration script text. MUST be generated FIRST before breaking it down into scenes.'
     ),
+  type: z.string().optional().describe('Generator type (standalone, series, quotes)'),
   totalDuration: z.number().min(1),
   sceneCount: z.number().int().positive(),
   scenes: z.array(enrichedSceneSchema),
@@ -330,7 +331,24 @@ export const completeVideoScriptSchema = z.object({
     .optional()
     .describe('Suggested mood/genre for background music'),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('16:9').describe('Aspect ratio of the video'),
-  globalAudio: z.string().optional().describe('Path to the global audio narration file if used')
+  globalAudio: z.string().optional().describe('Path to the global audio narration file if used'),
+  seriesMetadata: z
+    .object({
+      episodeSummary: z.string().optional(),
+      cliffhanger: z.string().optional(),
+      characterContinuity: z.record(z.string()).optional(),
+      nextEpisodeTease: z.string().optional()
+    })
+    .optional()
+    .describe('Episodic metadata for series-mode videos'),
+  quotesMetadata: z
+    .object({
+      author: z.string().optional(),
+      philosophicalSchool: z.string().optional(),
+      visualVibe: z.string().optional()
+    })
+    .optional()
+    .describe('Specialized metadata for quotes videos')
 })
 
 export type CompleteVideoScript = z.infer<typeof completeVideoScriptSchema>
@@ -606,9 +624,10 @@ export const videoGenerationOptionsSchema = z
     assCaptions: assCaptionConfigSchema.optional().describe('ASS caption configuration for video subtitles'),
     transcription: transcriptionConfigSchema.optional().describe('Transcription service configuration'),
     imageProvider: z.enum(['gemini', 'grok', 'demo']).default('demo').describe('Provider for image generation'),
+    type: z.string().optional().describe('Generator type (e.g., "quotes", "series")'),
+    isQuotes: z.boolean().optional().describe('Shorthand for quotes generator mode'),
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),
-    autoTransitions: z.boolean().default(true).describe('Automatically assign transitions when the script omits them'),
     economyMode: z
       .boolean()
       .default(false)

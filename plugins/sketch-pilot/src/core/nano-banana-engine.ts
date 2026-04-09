@@ -27,9 +27,10 @@ import {
 } from '../types/video-script.types'
 import { runFfmpeg } from '../utils/ffmpeg-utils'
 import { TaskQueue } from '../utils/task-queue'
+import { VideoGeneratorFactory } from './generators/video-generator.factory'
 import { PolyptychEngine } from './polyptych-engine'
-import { PromptManager, type PromptManagerConfig } from './prompt-manager'
 import { VideoScriptGenerator } from './video-script-generator'
+import type { VideoGenerator, VideoGeneratorConfig } from './generators/video-generator.abstract'
 import type { SceneMemory } from './scene-memory'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -39,7 +40,7 @@ export class NanoBananaEngine {
   private readonly systemPrompt: string
   private readonly client: GoogleGenAI
   private scriptGenerator: VideoScriptGenerator
-  readonly promptManager: PromptManager
+  readonly promptManager: VideoGenerator
   private readonly generationQueue: TaskQueue
   private _audioService?: AudioService
   private _animationService?: AnimationService
@@ -73,7 +74,7 @@ export class NanoBananaEngine {
     imageConfig?: ImageServiceConfig,
     llmConfig?: LLMServiceConfig,
     _deprecated_transcriptionConfig?: any,
-    promptSpecs?: PromptManagerConfig
+    promptSpecs?: VideoGeneratorConfig
   ) {
     this.apiKey = apiKey
     this.audioConfig = audioConfig
@@ -81,7 +82,7 @@ export class NanoBananaEngine {
     this.llmConfig = llmConfig
     this.imageConfig = imageConfig
     this.client = new GoogleGenAI({ apiKey })
-    this.promptManager = new PromptManager({
+    this.promptManager = VideoGeneratorFactory.create({
       ...promptSpecs,
       systemPrompt: systemPrompt ?? ''
     })

@@ -1,6 +1,6 @@
 import process from 'node:process'
 
-import { PromptManager } from '@sketch-pilot/core/prompt-manager'
+import { VideoGeneratorFactory } from '@sketch-pilot/core/generators/video-generator.factory'
 import { ScriptValidator, type ScriptValidationResult } from '@sketch-pilot/core/script-validator'
 /**
  * Script Generation Service — application-layer service.
@@ -71,7 +71,7 @@ export class ScriptGenerationService {
     })
 
     // 3. Initialize generator and run (using the SAME spec for both script and image)
-    const promptManager = new PromptManager({
+    const promptManager = VideoGeneratorFactory.create({
       scriptSpec: spec as any
     })
     const generator = new VideoScriptGenerator(llmService, promptManager)

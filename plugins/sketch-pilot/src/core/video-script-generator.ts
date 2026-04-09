@@ -13,9 +13,9 @@ import {
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import type { LLMService } from '../services/llm'
-import { PromptGenerator } from './prompt-generator'
-import { PromptManager } from './prompt-manager'
+import { StandaloneVideoGenerator } from './generators/standalone-video-generator'
 import { SceneMemoryBuilder } from './scene-memory'
+import type { VideoGenerator } from './generators/video-generator.abstract'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,6 +118,25 @@ function scoreCandidate(
   if (sceneCount < range.min) issues.push(`Too few scenes: ${sceneCount} (min=${range.min})`)
   if (sceneCount > range.max) issues.push(`Too many scenes: ${sceneCount} (max=${range.max})`)
 
+  // ── 5. Visual integrity (0.15) ───────────────────────────────────────────
+  let visualIntegrity = 0
+  for (const [index, scene] of parsed.scenes.entries()) {
+    const hasTransition = (scene.transition && scene.transition !== 'none') || index === parsed.scenes.length - 1
+    const hasCamera = scene.cameraAction && scene.cameraAction !== 'none' && scene.cameraAction !== 'static'
+
+    if (hasTransition) visualIntegrity += 0.5
+    if (hasCamera) visualIntegrity += 0.5
+
+    if (!hasTransition && index < parsed.scenes.length - 1) {
+      issues.push(`Scene ${index + 1} missing transition`)
+    }
+    if (!hasCamera) {
+      issues.push(`Scene ${index + 1} missing camera action`)
+    }
+  }
+  const visualScore = visualIntegrity / Math.max(parsed.scenes.length, 1)
+  score += visualScore * 0.15
+
   return { score, issues }
 }
 
@@ -128,13 +147,11 @@ function scoreCandidate(
  */
 export class VideoScriptGenerator {
   private readonly llmService: LLMService
-  private readonly promptGenerator: PromptGenerator
-  readonly promptManager: PromptManager
+  readonly promptManager: VideoGenerator
 
-  constructor(llmService: LLMService, promptManager?: PromptManager) {
+  constructor(llmService: LLMService, promptManager?: VideoGenerator) {
     this.llmService = llmService
-    this.promptManager = promptManager ?? new PromptManager()
-    this.promptGenerator = new PromptGenerator(this.promptManager)
+    this.promptManager = promptManager ?? new StandaloneVideoGenerator()
   }
 
   /**
@@ -194,6 +211,7 @@ export class VideoScriptGenerator {
     }
 
     const completeScript: CompleteVideoScript = {
+      type: this.promptManager.getType(),
       titles: baseScript.titles,
       fullNarration: baseScript.fullNarration,
       theme: baseScript.theme,
@@ -205,7 +223,8 @@ export class VideoScriptGenerator {
       globalAudio: options.globalAudioPath,
       topic: baseScript.topic,
       audience: baseScript.audience,
-      emotionalArc: baseScript.emotionalArc
+      emotionalArc: baseScript.emotionalArc,
+      seriesMetadata: (baseScript as any).seriesMetadata
     }
 
     let validated: CompleteVideoScript
@@ -260,6 +279,7 @@ export class VideoScriptGenerator {
     emotionalArc?: string[]
     scenes: RawScene[]
     backgroundMusic?: string
+    seriesMetadata?: any
   }> {
     const isHighQuality = options.qualityMode === QualityMode.HIGH_QUALITY
     const isStandard = options.qualityMode === QualityMode.STANDARD || !options.qualityMode
@@ -283,10 +303,16 @@ export class VideoScriptGenerator {
         onProgress,
         () => this.llmService.generateContent(prompts.userPrompt, prompts.systemPrompt, 'application/json')
       )
+      console.log(`[VideoScriptGen] 🔮 RAW AI RESPONSE:\n${jsonText}\n-------------------`)
       const parsed = this.parseJsonResponse(jsonText)
 
       // Basic structural assignments
-      parsed.scenes = this.postProcessScenes(parsed.scenes)
+      if (!parsed.scenes) {
+        console.warn('[VideoScriptGen] ⚠️ AI response is missing "scenes" array. Raw object keys:', Object.keys(parsed))
+        parsed.scenes = []
+      }
+      parsed.scenes = this.postProcessScenes(parsed.scenes, options)
+
       parsed.scenes = this.assignTimeRanges(parsed.scenes, options)
       return parsed
     }
@@ -504,7 +530,8 @@ export class VideoScriptGenerator {
 
     // 3. Final structural assignments
     if (onProgress) await onProgress(90, 'Studio: Finalizing script structure...')
-    fixedScript.scenes = this.postProcessScenes(fixedScript.scenes)
+    fixedScript.scenes = this.postProcessScenes(fixedScript.scenes, options)
+
     fixedScript.scenes = this.assignTimeRanges(fixedScript.scenes, options)
 
     if (onProgress) await onProgress(100, 'Studio: Script generation complete!')
@@ -561,6 +588,19 @@ export class VideoScriptGenerator {
         if (sentences.length < effectiveMinSentences) {
           lines.push(
             `STRUCTURAL FAILURE: Scene ${index + 1} has only ${sentences.length}/${effectiveMinSentences} sentences. ${isHook ? 'Even hooks need at least 2 clear sentences.' : `Each scene's narration MUST contain AT LEAST ${effectiveMinSentences} full sentences.`}`
+          )
+        }
+
+        const hasTransition = (scene.transition && scene.transition !== 'none') || index === parsed.scenes.length - 1
+        const hasCamera = scene.cameraAction && scene.cameraAction !== 'none' && scene.cameraAction !== 'static'
+        if (!hasTransition) {
+          lines.push(
+            `VISUAL FAILURE: Scene ${index + 1} is missing a mandatory transition to the next scene. Use a transition like "fade", "dissolve", "slide-left", etc.`
+          )
+        }
+        if (!hasCamera) {
+          lines.push(
+            `VISUAL FAILURE: Scene ${index + 1} is missing a mandatory cameraAction. Use a motion like "zoom-in", "pan-right", etc.`
           )
         }
       }
@@ -690,11 +730,69 @@ export class VideoScriptGenerator {
   /**
    * Run all editorial post-processing passes on raw scenes.
    */
-  private postProcessScenes(scenes: RawScene[]): RawScene[] {
+  private postProcessScenes(scenes: RawScene[], options: VideoGenerationOptions): RawScene[] {
+    this.applyAutoVisuals(scenes)
     this.deduplicateNarration(scenes)
     this.deduplicateVisuals(scenes)
+    this.normalizeTransitions(scenes)
+
+    // Map pacing to tension for the VideoAssembler
+    scenes.forEach((scene) => {
+      if (!(scene as any).tension) {
+        ;(scene as any).tension = this.pacingToTension(scene.pacing || 'medium')
+      }
+    })
+
     this.ensureRequiredFields(scenes)
     return scenes
+  }
+
+  private pacingToTension(pacing: string): number {
+    if (pacing === 'fast') return 8
+    if (pacing === 'slow') return 2
+    return 5
+  }
+
+  /**
+   * Automatically assign transitions and camera movements to scenes that lack them.
+   */
+  private applyAutoVisuals(scenes: RawScene[]): void {
+    scenes.forEach((scene, idx) => {
+      const tension = (scene as any).tension || this.pacingToTension(scene.pacing || 'medium')
+
+      // 1. Assign camera action based on tension if missing or static
+      const currentCamObj = Array.isArray(scene.cameraAction) ? scene.cameraAction[0] : scene.cameraAction
+      const currentType = typeof currentCamObj === 'object' ? currentCamObj?.type : currentCamObj
+
+      if (!currentType || currentType === 'static' || currentType === 'none') {
+        let smartCam = 'zoom-in'
+        if (tension > 7) smartCam = 'snap-zoom'
+        else if (tension <= 3) smartCam = 'breathing'
+        else if (idx % 2 === 0) smartCam = 'pan-right'
+        else smartCam = 'zoom-in'
+
+        scene.cameraAction = smartCam as any
+        console.log(
+          `[VideoScriptGen] 🎥 Smart-assigned camera action to scene ${idx + 1} (tension ${tension}): ${smartCam}`
+        )
+      }
+
+      // 2. Assign transition based on tension for all except the last scene
+      if (idx < scenes.length - 1) {
+        if (!scene.transition || scene.transition === 'none') {
+          let smartTrans = 'dissolve'
+          if (tension > 7) smartTrans = 'slide-left'
+          else if (tension <= 3) smartTrans = 'fade'
+
+          scene.transition = smartTrans as any
+          console.log(
+            `[VideoScriptGen] 🎞️ Smart-assigned transition to scene ${idx + 1} (tension ${tension}): ${smartTrans}`
+          )
+        }
+      } else {
+        scene.transition = 'none' as any
+      }
+    })
   }
 
   /** Algorithmic safety: ensure no two consecutive scenes have identical camera moves or transitions. */
@@ -739,7 +837,7 @@ export class VideoScriptGenerator {
 
         if (currentCam && currentCam !== 'static' && currentCam === prevCam) {
           const others = CAMERA_LIST.filter((c) => c !== currentCam)
-          const newType = others[Math.floor(Math.random() * others.length)]
+          const newType = others[idx % others.length]
 
           if (Array.isArray(scene.cameraAction)) {
             if (scene.cameraAction[0]) scene.cameraAction[0].type = newType
@@ -754,7 +852,7 @@ export class VideoScriptGenerator {
         // Deduplicate transitions
         if (scene.transition && scene.transition !== 'none' && prev.transition === scene.transition) {
           const others = TRANSITION_LIST.filter((t) => t !== scene.transition)
-          scene.transition = others[Math.floor(Math.random() * others.length)] as any
+          scene.transition = others[idx % others.length] as any
           console.log(`[VideoScriptGen] 🎞️ Fixed duplicate transition in scene ${idx + 1}: ${scene.transition}`)
         }
       }
@@ -778,6 +876,30 @@ export class VideoScriptGenerator {
   private ensureRequiredFields(scenes: RawScene[]): void {
     scenes.forEach((scene) => {
       if (!scene.narration) scene.narration = ''
+    })
+  }
+
+  private normalizeTransitions(scenes: RawScene[]): void {
+    scenes.forEach((scene) => {
+      if (!scene.transition) return
+      const t = String(scene.transition).toLowerCase().trim()
+
+      const mapping: Record<string, any> = {
+        cut: 'none',
+        zoom: 'zoom-in',
+        zoomin: 'zoom-in',
+        slideright: 'slide-right',
+        slideleft: 'slide-left',
+        wiperight: 'wipe-right',
+        wipeleft: 'wipe-left',
+        fadeblack: 'fade-black',
+        fadewhite: 'fade-white'
+      }
+
+      if (mapping[t]) {
+        console.log(`[VideoScriptGen] 🩹 Normalizing transition: ${t} -> ${mapping[t]}`)
+        scene.transition = mapping[t]
+      }
     })
   }
 
@@ -813,7 +935,7 @@ export class VideoScriptGenerator {
     let cursor = 0
     scenes.forEach((scene, index) => {
       scene.sceneNumber = index + 1
-      if (!scene.id) scene.id = `scene-${index + 1}-${Math.random().toString(36).slice(2, 9)}`
+      if (!scene.id) scene.id = `scene-${index + 1}-${Date.now().toString(36)}-${index}`
       if (!scene.timeRange || typeof scene.timeRange.start !== 'number' || typeof scene.timeRange.end !== 'number') {
         const start = index === 0 ? cursor : Math.max(0, cursor - overlap)
         const end = start + fallbackDurations[index]
@@ -929,21 +1051,14 @@ export class VideoScriptGenerator {
           await onProgress(progressVal, `Studio: Refining visuals for scene ${i + 1}/${baseScenes.length}...`)
         }
 
-        // Fallback to template/prompt generator if missing
         const imagePrompt = resolvedScene.imagePrompt
           ? { prompt: resolvedScene.imagePrompt }
-          : await this.promptGenerator.generateImagePrompt(
-              resolvedScene as EnrichedScene,
-              false,
-              aspectRatio,
-              imageStyle,
-              sceneMemory
-            )
+          : await this.promptManager.buildImagePrompt(resolvedScene as EnrichedScene, false, aspectRatio, sceneMemory)
 
         const animationPromptText =
           resolvedScene.animationPrompt != null
             ? resolvedScene.animationPrompt
-            : this.promptGenerator.generateAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
+            : this.promptManager.buildAnimationPrompt(resolvedScene as EnrichedScene, imageStyle).instructions
 
         return {
           ...resolvedScene,

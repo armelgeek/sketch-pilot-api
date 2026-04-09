@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as dotenv from 'dotenv'
-import { PromptManager } from '../core/prompt-manager'
+import { VideoGeneratorFactory } from '../core/generators/video-generator.factory'
 import { VideoScriptGenerator } from '../core/video-script-generator'
 import { KokoroTTSService } from '../services/audio/kokoro-tts.service'
 import { LLMServiceFactory } from '../services/llm'
@@ -28,7 +28,7 @@ async function runDurationTest() {
     // 1. Initialize core services
     console.log(`[1/4] Initializing services...`)
     const llmService = await LLMServiceFactory.create({ provider: 'openai', apiKey: process.env.OPENAI_API_KEY || '' })
-    const promptManager = new PromptManager()
+    const promptManager = VideoGeneratorFactory.create({})
     const scriptGenerator = new VideoScriptGenerator(llmService, promptManager)
 
     // Using Kokoro TTS directly as requested

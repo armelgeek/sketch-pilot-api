@@ -1,29 +1,21 @@
-/**
- * Main entry point for the Stickman Generator
- *
- * This file exports all the main components and services
- */
+// Types
+export * from './types/video-script.types'
+export * from './core/prompt-maker.types'
+
+// Generators
+export { DEFAULT_WPS, VideoGenerator } from './core/generators/video-generator.abstract'
+export type { VideoGeneratorConfig } from './core/generators/video-generator.abstract'
+export { SeriesVideoGenerator } from './core/generators/series-video-generator'
 
 // Core Engine
 export { NanoBananaEngine } from './core/nano-banana-engine'
 export { VideoScriptGenerator } from './core/video-script-generator'
-export { PromptGenerator } from './core/prompt-generator'
-export { PromptManager, PromptManagerConfig } from './core/prompt-manager'
+export { StandaloneVideoGenerator as PromptManager } from './core/generators/standalone-video-generator'
+export { StandaloneVideoGenerator } from './core/generators/standalone-video-generator'
+export type { VideoGeneratorConfig as PromptManagerConfig } from './core/generators/video-generator.abstract'
 
-// Services
-export {
-  AnimationProvider,
-  AnimationService,
-  AnimationServiceConfig,
-  AnimationServiceFactory
-} from './services/animation'
-export { AudioProvider, AudioService, AudioServiceConfig, AudioServiceFactory, WordTiming } from './services/audio'
-export { VideoAssembler } from './services/video/video-assembler.service'
-export { AssCaptionService } from './services/video/ass-caption.service'
-export type { AssCaptionConfig, AssCaptionStyle } from './services/video/ass-caption.service'
+// Factories
+export { VideoGeneratorFactory } from './core/generators/video-generator.factory'
 
-// Utils
-export { TaskQueue } from './utils/task-queue'
-
-// Types
-export * from './types/video-script.types'
+// Constants & Enums
+export { CAMERA_ACTIONS_LIST, TRANSITIONS_LIST } from './core/generators/video-generator.abstract'
