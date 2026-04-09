@@ -35,8 +35,8 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     llmProvider: options.llmProvider,
     imageProvider: options.imageProvider,
     qualityMode: options.qualityMode,
-    autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
+
     customSpec: customSpec || options.customSpec,
     scriptOnly: options.scriptOnly,
     generateOnlyScenes: !options.scriptOnly, // Default to two-pass generation: Stop after scenes
@@ -44,7 +44,11 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     aspectRatio: options.aspectRatio,
     resolution: options.resolution,
     imageStyle: options.imageStyle,
-    promptSections: options.promptSections
+    promptSections: options.promptSections,
+    type: options.type,
+    isQuotes: options.isQuotes,
+    seriesId: options.seriesId,
+    episodeNumber: options.episodeNumber
   }
 }
 

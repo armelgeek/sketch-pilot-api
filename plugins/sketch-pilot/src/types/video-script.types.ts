@@ -626,6 +626,9 @@ export const videoGenerationOptionsSchema = z
     imageProvider: z.enum(['gemini', 'grok', 'demo']).default('demo').describe('Provider for image generation'),
     type: z.string().optional().describe('Generator type (e.g., "quotes", "series")'),
     isQuotes: z.boolean().optional().describe('Shorthand for quotes generator mode'),
+    seriesId: z.string().optional().describe('ID of the series for episodic continuity'),
+    episodeNumber: z.number().optional().describe('Episode number within the series'),
+
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),
     economyMode: z

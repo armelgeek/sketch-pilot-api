@@ -29,10 +29,7 @@ export const VideoOptionsSchema = z
       .boolean()
       .optional()
       .openapi({ example: true, description: 'Maintain consistent characters across scenes' }),
-    autoTransitions: z
-      .boolean()
-      .optional()
-      .openapi({ example: true, description: 'Automatically add transitions between scenes' }),
+
     aspectRatio: z.enum(['9:16', '16:9', '1:1']).optional().openapi({ example: '16:9' }),
     resolution: z.enum(['720p', '1080p', '4k']).optional().openapi({ example: '720p' }),
     animationMode: z
@@ -61,6 +58,10 @@ export const VideoOptionsSchema = z
     thumbnailVariations: z
       .array(z.string())
       .optional()
-      .openapi({ description: 'Persisted thumbnail variations generated for this video' })
+      .openapi({ description: 'Persisted thumbnail variations generated for this video' }),
+    type: z.string().optional().openapi({ example: 'series', description: 'Generator type override' }),
+    isQuotes: z.boolean().optional().openapi({ example: false, description: 'Quotes mode shorthand' }),
+    seriesId: z.string().optional().openapi({ example: 'uuid', description: 'Series ID for continuity' }),
+    episodeNumber: z.number().optional().openapi({ example: 1, description: 'Episode number' })
   })
   .openapi('VideoOptions')

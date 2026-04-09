@@ -80,7 +80,10 @@ export interface VideoJobData {
     qualityMode?: string
     textOverlay?: { enabled: boolean; position: string }
     characterConsistency?: boolean
-    autoTransitions?: boolean
+    type?: string
+    isQuotes?: boolean
+    seriesId?: string
+    episodeNumber?: number
     generateFromScript?: boolean
     generateOnlyScenes?: boolean
     generateOnlyAudio?: boolean
