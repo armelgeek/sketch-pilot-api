@@ -56,17 +56,18 @@ function buildCinematicSnapZoom(
   peakZoom: number,
   snapAtSec: number,
   decaySec: number = 0.5,
-  overshootFactor: number = 0.08
+  overshootFactor: number = 0.08,
+  startOffsetSec: number = 0
 ): string {
   const overshootZoom = peakZoom + (peakZoom - baseZoom) * overshootFactor
-  const snapFrame = Math.round(snapAtSec * ZOOMPAN_INTERNAL_FPS)
+  const snapFrame = Math.round((startOffsetSec + snapAtSec) * ZOOMPAN_INTERNAL_FPS)
   const k = 6 / decaySec
 
   return (
     `if(lt(on,${snapFrame}),` +
-    `${baseZoom}+(${peakZoom - baseZoom}).toFixed(4)*pow(on/${snapFrame},3),` +
+    `${baseZoom}+(${peakZoom - baseZoom}).toFixed(4)*pow((on-${startOffsetSec * ZOOMPAN_INTERNAL_FPS})/${Math.round(snapAtSec * ZOOMPAN_INTERNAL_FPS)},3),` +
     `${overshootZoom.toFixed(4)}+(${baseZoom}-${overshootZoom.toFixed(4)})*` +
-    `(1-exp(-${k.toFixed(3)}*(on/${ZOOMPAN_INTERNAL_FPS}-${snapAtSec.toFixed(3)})))` +
+    `(1-exp(-${k.toFixed(3)}*(on/${ZOOMPAN_INTERNAL_FPS}-${(startOffsetSec + snapAtSec).toFixed(3)})))` +
     `)`
   )
 }
@@ -846,41 +847,76 @@ export class VideoAssembler {
         // Legacy single-action mode for simplicity and performance
         const action = actions[0] as any
         const type = action.type ?? 'static'
+        const intensity = action.intensity || 'medium'
         const t = Math.max(1, Math.min(10, sceneTension))
-        const zoomScale = t <= 3 ? 1.25 : t <= 6 ? 1.4 : 1.55
+
+        // Intensity scaling for Zoom
+        const zoomScaleBase = t <= 3 ? 1.15 : t <= 6 ? 1.3 : 1.5
+        const zoomIntMult = intensity === 'low' ? 0.6 : intensity === 'high' ? 1.4 : 1
+        const zoomScale = 1 + (zoomScaleBase - 1) * zoomIntMult
+
         const ZS = zoomScale.toFixed(4)
         const DZ = (zoomScale - 1).toFixed(4)
         const PAN_X_HALF = `((iw-(iw/zoom))/2)`
         const PAN_Y_HALF = `((ih-(ih/zoom))/2)`
+        // Localized timing for single action
+        const aStart = action.timestamp ?? 0
+        const aDuration = action.duration || duration - aStart
+        const startFrame = Math.round(aStart * ZOOMPAN_INTERNAL_FPS)
+        const frameCount = Math.round(aDuration * ZOOMPAN_INTERNAL_FPS)
+
+        // Localized S-Curve (SS)
+        const localP = `(on-${startFrame})/(${frameCount})`
+        const activeSS = smootherstep(`min(1,max(0,${localP}))`)
+
+        // Intensity scaling for Panning
+        const panMult = intensity === 'low' ? 0.3 : intensity === 'high' ? 0.8 : 0.6
 
         switch (type) {
           case 'zoom-in':
-            zBaseExpr = `1.0+(${DZ}*${SS})`
+            zBaseExpr = `1.0+(${DZ}*${activeSS})`
             break
           case 'zoom-out':
-            zBaseExpr = `${ZS}-(${DZ}*${SS})`
+            zBaseExpr = `${ZS}-(${DZ}*${activeSS})`
             break
           case 'pan-right':
             zBaseExpr = panZoomScale.toFixed(4)
-            xRaw = `${CX}+(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
+            xRaw = `${CX}+(${PAN_X_HALF}*${panMult}*${activeSS})${osc('x')}`
             break
           case 'pan-left':
             zBaseExpr = panZoomScale.toFixed(4)
-            xRaw = `${CX}-(${PAN_X_HALF}*0.6*${SS})${osc('x')}`
+            xRaw = `${CX}-(${PAN_X_HALF}*${panMult}*${activeSS})${osc('x')}`
             break
           case 'pan-down':
             zBaseExpr = panZoomScale.toFixed(4)
-            yRaw = `${CY}+(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
+            yRaw = `${CY}+(${PAN_Y_HALF}*${panMult}*${activeSS})${osc('y')}`
             break
           case 'pan-up':
             zBaseExpr = panZoomScale.toFixed(4)
-            yRaw = `${CY}-(${PAN_Y_HALF}*0.6*${SS})${osc('y')}`
+            yRaw = `${CY}-(${PAN_Y_HALF}*${panMult}*${activeSS})${osc('y')}`
             break
+          case 'shake': {
+            const shakePx = intensity === 'low' ? 3 : intensity === 'high' ? 12 : 7
+            zBaseExpr = '1.05'
+            xRaw = `${CX}+${shakePx}*sin(2*pi*on/3)`
+            yRaw = `${CY}+${shakePx}*cos(2*pi*on/5)`
+            break
+          }
+          case 'breathing': {
+            const amp = intensity === 'low' ? 0.02 : intensity === 'high' ? 0.06 : 0.04
+            zBaseExpr = `1.0+${amp}*sin(2*pi*on/120)`
+            break
+          }
           case 'snap-zoom': {
             const snapAt = (action as any).snapAtSec ?? duration * 0.25
             const peakZoom = (action as any).peakZoom ?? (t >= 7 ? 1.6 : 1.4)
             const overshoot = t >= 7 ? 0.12 : 0.06
             zBaseExpr = buildCinematicSnapZoom(1, peakZoom, snapAt, 0.45, overshoot)
+            break
+          }
+          case 'dutch-tilt': {
+            // Managed later via rotate filter
+            zBaseExpr = '1.1'
             break
           }
           default: {
@@ -903,8 +939,19 @@ export class VideoAssembler {
         const PAN_X_HALF = `((iw-(iw/zoom))/2)`
         const PAN_Y_HALF = `((ih-(ih/zoom))/2)`
 
+        // Pre-process actions to assign timing if missing
+        const processedActions = actions.map((a: any, i: number) => {
+          const count = actions.length
+          const autoDuration = duration / count
+          return {
+            ...a,
+            timestamp: a.timestamp ?? i * autoDuration,
+            duration: a.duration || autoDuration
+          }
+        })
+
         // Sort by timestamp to be sure
-        const sortedActions = [...actions].sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0))
+        const sortedActions = [...processedActions].sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0))
 
         for (let idx = sortedActions.length - 1; idx >= 0; idx--) {
           const action = sortedActions[idx] as any
@@ -918,7 +965,11 @@ export class VideoAssembler {
 
           const type = action.type ?? 'static'
           const intensity = action.intensity || 'medium'
-          const zoomScale = intensity === 'low' ? 1.15 : intensity === 'high' ? 1.45 : 1.25
+
+          // Intensity scaling for Panning
+          const panMult = intensity === 'low' ? 0.3 : intensity === 'high' ? 0.8 : 0.6
+          // Intensity scaling for Zoom
+          const zoomScale = intensity === 'low' ? 1.12 : intensity === 'high' ? 1.4 : 1.22
           const DZ = (zoomScale - 1).toFixed(4)
 
           // Local progress for this action
@@ -927,7 +978,7 @@ export class VideoAssembler {
 
           let currentZ = '1.0'
           let currentX = CX
-          const currentY = CY
+          let currentY = CY
 
           switch (type) {
             case 'zoom-in':
@@ -938,11 +989,41 @@ export class VideoAssembler {
               break
             case 'pan-right':
               currentZ = '1.05'
-              currentX = `${CX}+(${PAN_X_HALF}*0.6*${localSS})`
+              currentX = `${CX}+(${PAN_X_HALF}*${panMult}*${localSS})`
               break
             case 'pan-left':
               currentZ = '1.05'
-              currentX = `${CX}-(${PAN_X_HALF}*0.6*${localSS})`
+              currentX = `${CX}-(${PAN_X_HALF}*${panMult}*${localSS})`
+              break
+            case 'pan-down':
+              currentZ = '1.05'
+              currentY = `${CY}+(${PAN_Y_HALF}*${panMult}*${localSS})`
+              break
+            case 'pan-up':
+              currentZ = '1.05'
+              currentY = `${CY}-(${PAN_Y_HALF}*${panMult}*${localSS})`
+              break
+            case 'shake': {
+              const shakePx = intensity === 'low' ? 3 : intensity === 'high' ? 12 : 7
+              currentZ = '1.05'
+              currentX = `${CX}+${shakePx}*sin(2*pi*on/3)`
+              currentY = `${CY}+${shakePx}*cos(2*pi*on/5)`
+              break
+            }
+            case 'breathing': {
+              const amp = intensity === 'low' ? 0.02 : intensity === 'high' ? 0.06 : 0.04
+              currentZ = `1.0+${amp}*sin(2*pi*on/120)`
+              break
+            }
+            case 'snap-zoom': {
+              const snapAt = (action as any).snapAtSec ?? actionDuration * 0.25
+              const peakZoom = (action as any).peakZoom ?? (intensity === 'high' ? 1.6 : 1.4)
+              const overshoot = intensity === 'high' ? 0.12 : 0.06
+              currentZ = buildCinematicSnapZoom(1, peakZoom, snapAt, 0.45, overshoot, startTime)
+              break
+            }
+            case 'dutch-tilt':
+              currentZ = '1.1'
               break
             case 'static':
             default:
@@ -1278,13 +1359,39 @@ export class VideoAssembler {
     targetDuration: number,
     outputPath: string,
     aspectRatio: string = '16:9',
-    resolutionPreset: string = '720p'
+    resolutionPreset: string = '720p',
+    actions: any[] = []
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const resolution = this.getResolution(aspectRatio, resolutionPreset)
       const [width, height] = resolution.split('x').map(Number)
 
-      const filterString = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${OUTPUT_FPS}`
+      // Calculate Rotation for Dutch Tilt
+      let angleExpr = '0'
+      actions.forEach((a: any) => {
+        if (a.type === 'dutch-tilt') {
+          const startTime = a.timestamp ?? 0
+          const aDuration = a.duration || targetDuration - startTime
+          const intensity = a.intensity || 'medium'
+          const angleVal = (intensity === 'high' ? 8 : intensity === 'low' ? 3 : 5) * (Math.PI / 180)
+          angleExpr = `if(between(t,${startTime},${startTime + aDuration}), ${angleVal}, ${angleExpr})`
+        }
+      })
+
+      // Calculate Snap Zoom
+      let zBaseExpr = '1'
+      const xRaw = '(iw-iw/zoom)/2'
+      const yRaw = '(ih-ih/zoom)/2'
+      actions.forEach((a: any) => {
+        if (a.type === 'snap-zoom') {
+          const startTime = a.timestamp ?? 0
+          const aDuration = a.duration || 0.5
+          const zoomFactor = a.zoomFactor || 1.2
+          zBaseExpr = `if(between(t,${startTime},${startTime + aDuration}), ${zoomFactor}, ${zBaseExpr})`
+        }
+      })
+
+      const filterString = `scale=${width * ZOOMPAN_SCALE_FACTOR}:${height * ZOOMPAN_SCALE_FACTOR}:force_original_aspect_ratio=increase,zoompan=z='${zBaseExpr}':x='${xRaw}':y='${yRaw}':d=${targetDuration * ZOOMPAN_INTERNAL_FPS}:s=${width}x${height}${angleExpr !== '0' ? `,rotate=angle='${angleExpr}':c=black:ow=${width}:oh=${height}` : ''},scale=${width}:${height},fps=${OUTPUT_FPS}`
 
       ffmpeg(videoPath)
         .inputOptions(['-stream_loop -1'])

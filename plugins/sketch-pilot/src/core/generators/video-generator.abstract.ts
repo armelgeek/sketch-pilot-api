@@ -79,6 +79,7 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     'DO NOT USE ABBREVIATIONS in the narration. Write everything exactly as it should be spoken (e.g., "100 pour cent" instead of "100%", "2 heures" instead of "2h").',
     `Every scene MUST have a cinematic 'transition' chosen EXCLUSIVELY from this list: [${TRANSITIONS_LIST.join(', ')}]. **'none' or 'cut' are NOT acceptable for intermediate scenes.**`,
     `Every scene MUST have a dynamic 'cameraAction' chosen from this list: [${CAMERA_ACTIONS_LIST.join(', ')}].`,
+    "NARRATION LENGTH: Écrivez des textes fluides et engageants. Si vous utilisez plusieurs 'cameraAction', assurez-vous que la narration est assez longue (min. 25-35 mots ou 2-3 phrases détaillées) pour permettre la transition harmonieuse entre les mouvements.",
     'CAMERA VARIATION: Do not use the same cameraAction for more than 2 consecutive scenes.',
     "CAMERA MOOD: Choose the cameraAction based on the emotional context (e.g., 'zoom-in' for focus/tension, 'pan' for scale/environment).",
     'NARRATIVE GUARDRAIL: DO NOT use speaker labels like "HOST:", "GUEST:", "NARRATEUR:" or "PERSONNAGE:". Write fluid narration only.',
@@ -565,7 +566,10 @@ ${mandatoryRules.join('\n')}
       "imagePrompt": "Description visuelle détaillée",
       "charactersInScene": [],
       "animationPrompt": "Instructions de mouvement",
-      "cameraAction": "zoom-in",
+      "cameraAction": [
+        { "type": "pan-right", "intensity": "low" },
+        { "type": "zoom-in", "intensity": "high" }
+      ],
       "preset": "hook",
       "transition": "fade"
     }
@@ -619,6 +623,22 @@ ${mandatoryRules.join('\n')}
       sections.push(
         `## DIRECTIVES DE NARRATION (CORE SYSTEM PILOT)\n${spec.instructions.map((i) => `- ${i}`).join('\n')}`
       )
+
+    sections.push(`## EXPERTISE CINÉMATOGRAPHIQUE (CAMÉRAMAN PRO)
+En tant qu'expert en réalisation, vous dirigez la caméra pour renforcer l'émotion. Utilisez 'cameraAction' (objet ou liste d'objets {type, intensity}) :
+
+TYPES DE MOUVEMENTS :
+- 'zoom-in' / 'zoom-out' : Focus psychologique ou révélation d'environnement.
+- 'shake' : Instabilité, peur, impact, ou malaise croissant.
+- 'breathing' : Vie organique pour les plans contemplatifs (toujours en 'low').
+- 'snap-zoom' : Effet de surprise, révélation brutale, ou punchline comique.
+- 'pan-left/right/up/down' : Suivi de mouvement ou exploration de l'espace.
+- 'dutch-tilt' : Désorientation, folie, ou situation qui "déraille".
+
+DYNAMISME :
+- N'hésitez pas à CHAÎNER les mouvements (ex: un pan, puis un zoom-in).
+- Adaptez l'intensité ('low', 'medium', 'high') à la charge émotionnelle.
+- Variez les angles : ne répétez pas le même mouvement sur deux scènes consécutives.`)
 
     return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
   }

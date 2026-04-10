@@ -768,15 +768,31 @@ export class VideoScriptGenerator {
       const currentType = typeof currentCamObj === 'object' ? currentCamObj?.type : currentCamObj
 
       if (!currentType || currentType === 'static' || currentType === 'none') {
-        let smartCam = 'zoom-in'
-        if (tension > 7) smartCam = 'snap-zoom'
-        else if (tension <= 3) smartCam = 'breathing'
-        else if (idx % 2 === 0) smartCam = 'pan-right'
-        else smartCam = 'zoom-in'
+        const tension = (scene as any).tension || this.pacingToTension(scene.pacing || 'medium')
 
-        scene.cameraAction = smartCam as any
+        // Simple algorithmic fallback if LLM didn't specify
+        let smartCam = 'zoom-in'
+        let smartIntensity = 'medium'
+
+        if (tension > 7) {
+          smartCam = 'snap-zoom'
+          smartIntensity = 'high'
+        } else if (tension <= 3) {
+          smartCam = 'breathing'
+          smartIntensity = 'low'
+        } else if (idx % 2 === 0) {
+          smartCam = 'pan-right'
+        } else {
+          smartCam = 'zoom-in'
+        }
+
+        scene.cameraAction = {
+          type: smartCam,
+          intensity: smartIntensity
+        } as any
+
         console.log(
-          `[VideoScriptGen] 🎥 Smart-assigned camera action to scene ${idx + 1} (tension ${tension}): ${smartCam}`
+          `[VideoScriptGen] 🎥 Smart-assigned fallback camera action to scene ${idx + 1} (tension ${tension}): ${smartCam} (${smartIntensity})`
         )
       }
 
