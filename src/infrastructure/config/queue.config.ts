@@ -107,5 +107,7 @@ export interface VideoJobData {
     audioOverlap?: number
     backgroundColor?: string
     imageStyle?: any
+    lastCliffhanger?: string
+    unresolvedThreads?: string[]
   }
 }

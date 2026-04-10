@@ -23,7 +23,14 @@ export const videos = pgTable('videos', {
   // Metadata
   language: text('language').default('en'),
   characterModelId: text('character_model_id'),
+  seriesId: text('series_id'), // Will be linked in code, no hard FK to avoid migration circularity if needed, but referencing series.id is better
+  episodeNumber: integer('episode_number'),
   creditsUsed: integer('credits_used').notNull().default(1),
+
+  // Persistent registries for visual consistency (intra-video and regeneration)
+  characterRegistry: jsonb('character_registry').$type<Record<string, any>>().default({}),
+  locationRegistry: jsonb('location_registry').$type<Record<string, any>>().default({}),
+
   // Script / scenes data
   script: jsonb('script'),
   scenes: jsonb('scenes'),

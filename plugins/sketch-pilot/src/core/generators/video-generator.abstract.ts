@@ -77,8 +77,10 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     "Each scene narration MUST be a verbatim slice of 'fullNarration'.",
     'Transitions MUST occur at natural pauses (full stops, commas, breath marks).',
     'DO NOT USE ABBREVIATIONS in the narration. Write everything exactly as it should be spoken (e.g., "100 pour cent" instead of "100%", "2 heures" instead of "2h").',
-    "Every scene MUST have a cinematic 'transition' (chosen from the allowed list) to ensure visual flow. **'none' or 'cut' are NOT acceptable transitions for any scene except the final one.**",
-    "Every scene MUST have a dynamic 'cameraAction' (zoom, pan, snap-zoom, etc.). **'static' or 'none' are NOT acceptable camera actions.**",
+    `Every scene MUST have a cinematic 'transition' chosen EXCLUSIVELY from this list: [${TRANSITIONS_LIST.join(', ')}]. **'none' or 'cut' are NOT acceptable for intermediate scenes.**`,
+    `Every scene MUST have a dynamic 'cameraAction' chosen EXCLUSIVELY from this list: [${CAMERA_ACTIONS_LIST.join(', ')}]. **'static' or 'none' are NOT acceptable.**`,
+    'NARRATIVE GUARDRAIL: DO NOT use speaker labels like "HOST:", "GUEST:", "NARRATEUR:" or "PERSONNAGE:". Write fluid narration only.',
+    'NARRATIVE GUARDRAIL: If dialogue is needed, write it naturally without tags, or use character names ONLY if defined in the registry.',
     'THINK STEP BY STEP.'
   ],
   scenePresets: {
@@ -100,7 +102,8 @@ export interface VideoGeneratorConfig {
     seriesId: string
     episodeNumber: number
     previousEpisodesContext: string
-    characterRegistry: Record<string, string>
+    characterRegistry: Record<string, any>
+    seed?: string
   }
 }
 
@@ -122,6 +125,34 @@ export abstract class VideoGenerator {
 
   public getTransitionTypes(): string[] {
     return this.transitionTypes
+  }
+
+  public getVisualSeed(): number | undefined {
+    // Priority 1: Direct spec seed
+    const specSeed = (this.config.scriptSpec as any)?.seriesMetadata?.seed || (this.config.scriptSpec as any)?.seed
+    if (specSeed) return this.normalizeSeed(specSeed)
+
+    // Priority 2: Series context seed
+    const contextSeed = this.config.seriesContext?.seed
+    if (contextSeed) return this.normalizeSeed(contextSeed)
+
+    return undefined
+  }
+
+  private normalizeSeed(seed: any): number {
+    if (typeof seed === 'number') return seed
+    const s = String(seed)
+    const num = parseInt(s, 10)
+    return isNaN(num) ? this.hashCode(s) : num
+  }
+
+  private hashCode(s: string): number {
+    let hash = 0
+    for (let i = 0; i < s.length; i++) {
+      hash = (hash << 5) - hash + s.charCodeAt(i)
+      hash = Math.trunc(hash) // Convert to 32bit integer
+    }
+    return Math.abs(hash)
   }
 
   // ─── Provider helpers ──────────────────────────────────────────────────────
@@ -184,12 +215,12 @@ export abstract class VideoGenerator {
       : undefined
   }
 
-  public async resolveCharacterImages(): Promise<string[]> {
+  public async resolveCharacterImages(): Promise<any[]> {
     const metadata = await this.resolveCharacterMetadata()
     return metadata?.images || []
   }
 
-  public async resolveThumbnailInspirations(): Promise<string[]> {
+  public async resolveThumbnailInspirations(): Promise<any[]> {
     const metadata = await this.resolveCharacterMetadata()
     return metadata?.thumbnailInspirations || []
   }
@@ -559,6 +590,7 @@ ${mandatoryRules.join('\n')}
       "narration": "Segment de narration exact pour cette scène...",
       "locationId": "identifiant-lieu-unique",
       "imagePrompt": "Description visuelle détaillée",
+      "charactersInScene": [],
       "animationPrompt": "Instructions de mouvement",
       "cameraAction": "zoom-in",
       "preset": "hook",

@@ -103,9 +103,12 @@ export class RenderVideoUseCase extends IUseCase<RenderVideoParams, RenderVideoR
           imageProvider: videoOptions.imageProvider,
           qualityMode: videoOptions.qualityMode,
           characterConsistency: videoOptions.characterConsistency,
-          autoTransitions: videoOptions.autoTransitions,
           generateFromScript: true, // FLAG indicating to skip LLM
-          customSpec: spec || videoOptions.customSpec
+          customSpec: {
+            ...(spec || videoOptions.customSpec || {}),
+            localCharacterRegistry: (video as any).characterRegistry || {},
+            localLocationRegistry: (video as any).locationRegistry || {}
+          }
         }
       }
 

@@ -5,15 +5,21 @@ import type { VideoGenerator, VideoGeneratorConfig } from './video-generator.abs
 
 export const VideoGeneratorFactory = {
   create(config: VideoGeneratorConfig, extraOptions: Record<string, any> = {}): VideoGenerator {
-    if (extraOptions.seriesId) {
+    // Support both extraOptions (legacy/direct) and config.seriesContext (new preferred)
+    const seriesId = extraOptions.seriesId || config.seriesContext?.seriesId
+    if (seriesId) {
+      const sc = (config.seriesContext || {}) as any
       return new SeriesVideoGenerator(config, {
-        seriesId: extraOptions.seriesId,
-        episodeNumber: extraOptions.episodeNumber || 1,
-        previousEpisodesContext: extraOptions.previousEpisodesContext || '',
-        characterRegistry: extraOptions.characterRegistry || {},
-        totalEpisodes: extraOptions.totalEpisodes,
-        isFinalEpisode: !!extraOptions.isFinalEpisode
-      })
+        seriesId,
+        episodeNumber: extraOptions.episodeNumber || sc.episodeNumber || 1,
+        globalContext: extraOptions.globalContext || sc.globalContext,
+        previousEpisodesContext: extraOptions.previousEpisodesContext || sc.previousEpisodesContext || '',
+        characterRegistry: extraOptions.characterRegistry || sc.characterRegistry || {},
+        lastCliffhanger: extraOptions.lastCliffhanger || sc.lastCliffhanger,
+        unresolvedThreads: extraOptions.unresolvedThreads || sc.unresolvedThreads,
+        totalEpisodes: extraOptions.totalEpisodes || sc.totalEpisodes,
+        isFinalEpisode: !!(extraOptions.isFinalEpisode || sc.isFinalEpisode)
+      } as any)
     }
 
     if (extraOptions.isQuotes || extraOptions.type === 'quotes') {

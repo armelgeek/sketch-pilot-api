@@ -227,6 +227,9 @@ export class VideoScriptGenerator {
       seriesMetadata: (baseScript as any).seriesMetadata
     }
 
+    // 4. Final safety pass on transitions just before Zod
+    this.normalizeTransitions(completeScript.scenes)
+
     let validated: CompleteVideoScript
     try {
       validated = completeVideoScriptSchema.parse(completeScript)
@@ -882,12 +885,31 @@ export class VideoScriptGenerator {
   private normalizeTransitions(scenes: RawScene[]): void {
     scenes.forEach((scene) => {
       if (!scene.transition) return
-      const t = String(scene.transition).toLowerCase().trim()
+      let t = String(scene.transition).toLowerCase().trim()
+      // Normalize common separators
+      t = t.replaceAll('-', ' ').replaceAll('_', ' ').replaceAll(/\s+/g, ' ')
 
-      const mapping: Record<string, any> = {
+      const mapping: Record<string, string> = {
         cut: 'none',
+        'cut to black': 'fade-black',
+        'cut to white': 'fade-white',
+        'fade black': 'fade-black',
+        'fade white': 'fade-white',
+        'cross fade': 'crossfade',
+        crossfade: 'crossfade',
+        'swipe left': 'wipe-left',
+        'swipe right': 'wipe-right',
+        'swipe up': 'wipe-up',
+        'swipe down': 'wipe-down',
+        'push left': 'slide-left',
+        'push right': 'slide-right',
+        'push up': 'slide-up',
+        'push down': 'slide-down',
         zoom: 'zoom-in',
         zoomin: 'zoom-in',
+        'zoom in': 'zoom-in',
+        'zoom out': 'zoom-out',
+        zoomout: 'zoom-out',
         slideright: 'slide-right',
         slideleft: 'slide-left',
         wiperight: 'wipe-right',
@@ -897,8 +919,8 @@ export class VideoScriptGenerator {
       }
 
       if (mapping[t]) {
-        console.log(`[VideoScriptGen] 🩹 Normalizing transition: ${t} -> ${mapping[t]}`)
-        scene.transition = mapping[t]
+        console.log(`[VideoScriptGen] 🩹 Normalizing transition: "${scene.transition}" -> "${mapping[t]}"`)
+        scene.transition = mapping[t] as any
       }
     })
   }

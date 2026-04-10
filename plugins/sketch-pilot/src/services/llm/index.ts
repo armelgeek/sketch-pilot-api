@@ -4,6 +4,7 @@
 
 export interface LLMService {
   generateContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => Promise<string>
+  streamContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => AsyncIterable<string>
 }
 
 export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku' | 'openai'

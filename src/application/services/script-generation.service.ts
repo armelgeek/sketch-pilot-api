@@ -16,6 +16,8 @@ import {
 import { PromptService } from '@/application/services/prompt.service'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 
+import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
+
 export type { ScriptValidationResult }
 
 export interface GenerateScriptOptions {
@@ -28,11 +30,18 @@ export interface GenerateScriptOptions {
   aspectRatio?: '9:16' | '16:9' | '1:1'
   backgroundMusic?: string
   characterModelId?: string
+  type?: 'standalone' | 'series' | 'quotes'
+  seriesId?: string
+  episodeNumber?: number
+  episodeSummary?: string
+  videoType?: string
+  videoGenre?: string
 }
 
 export class ScriptGenerationService {
   private readonly validator = new ScriptValidator()
   private readonly promptService = new PromptService(new PromptRepository())
+  private readonly seriesRepository = new SeriesRepository()
 
   /**
    * Generate a complete video script using the LLM engine.
@@ -58,6 +67,12 @@ export class ScriptGenerationService {
     // 1. Resolve Spec from DB by promptId
     const spec = await this.promptService.resolveSpec(options.promptId)
 
+    // 1.5. Resolve Series Context if applicable
+    let seriesContext = undefined
+    if (options.seriesId) {
+      seriesContext = await this.seriesRepository.getSeriesContext(options.seriesId)
+    }
+
     // 2. Build options using the schema for validation and transformation
     const targetDuration = options.duration ?? 60
     const genOptions = videoGenerationOptionsSchema.parse({
@@ -67,12 +82,15 @@ export class ScriptGenerationService {
       aspectRatio: options.aspectRatio,
       qualityMode: options.qualityMode,
       backgroundMusic: options.backgroundMusic,
-      customSpec: spec
+      customSpec: spec,
+      episodeSummary: options.episodeSummary,
+      seriesId: options.seriesId
     })
 
     // 3. Initialize generator and run (using the SAME spec for both script and image)
     const promptManager = VideoGeneratorFactory.create({
-      scriptSpec: spec as any
+      scriptSpec: spec as any,
+      seriesContext: seriesContext as any
     })
     const generator = new VideoScriptGenerator(llmService, promptManager)
     const script = await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)

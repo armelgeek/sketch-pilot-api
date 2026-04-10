@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { WELCOME_CREDITS } from '../config/video.config'
 import { db } from '../database/db'
 import { creditTransactions, userCredits } from '../database/schema'
@@ -102,13 +102,13 @@ export class CreditsRepository {
       }
     }
 
-    // Update database
+    // Update database using atomic operations
     if (planConsumed > 0 || extraConsumed > 0) {
       await db
         .update(userCredits)
         .set({
-          videosThisMonth: consumedThisMonth + planConsumed,
-          extraCredits: credits.extraCredits - extraConsumed,
+          videosThisMonth: sql`${userCredits.videosThisMonth} + ${planConsumed}`,
+          extraCredits: sql`${userCredits.extraCredits} - ${extraConsumed}`,
           updatedAt: now
         })
         .where(eq(userCredits.userId, userId))
@@ -118,11 +118,13 @@ export class CreditsRepository {
   }
 
   async addExtraCredits(userId: string, amount: number): Promise<void> {
-    const credits = await this.ensureUserCredits(userId)
-    if (!credits) return
+    await this.ensureUserCredits(userId)
     await db
       .update(userCredits)
-      .set({ extraCredits: credits.extraCredits + amount, updatedAt: new Date() })
+      .set({
+        extraCredits: sql`${userCredits.extraCredits} + ${amount}`,
+        updatedAt: new Date()
+      })
       .where(eq(userCredits.userId, userId))
   }
 
@@ -189,16 +191,12 @@ export class CreditsRepository {
     if (!credits) return
 
     // Refund plan credits by decrementing videosThisMonth
-    const newVideosThisMonth = Math.max(0, credits.videosThisMonth - metadata.planConsumed)
-
     // Refund extra credits
-    const newExtraCredits = credits.extraCredits + metadata.extraConsumed
-
     await db
       .update(userCredits)
       .set({
-        videosThisMonth: newVideosThisMonth,
-        extraCredits: newExtraCredits,
+        videosThisMonth: sql`GREATEST(0, ${userCredits.videosThisMonth} - ${metadata.planConsumed})`,
+        extraCredits: sql`${userCredits.extraCredits} + ${metadata.extraConsumed}`,
         updatedAt: new Date()
       })
       .where(eq(userCredits.userId, userId))

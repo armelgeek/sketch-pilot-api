@@ -11,6 +11,7 @@ import {
   PricingController,
   PromptController,
   ScriptsController,
+  SeriesController,
   UserController,
   VideoAdminController,
   VideosController
@@ -30,7 +31,8 @@ const app = new App([
   new VideoAdminController(),
   new PromptController(),
   new CharacterModelController(),
-  new PricingController()
+  new PricingController(),
+  new SeriesController()
 ]).getApp()
 
 let videoWorker: any = null

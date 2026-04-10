@@ -12,6 +12,7 @@ import { NanoBananaEngine } from '@sketch-pilot/core/nano-banana-engine'
 import { PromptService } from '@/application/services/prompt.service'
 import { redisClient } from '@/infrastructure/config/queue.config'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
 import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
 import type { ImageServiceConfig } from '@sketch-pilot/services/image'
@@ -30,6 +31,7 @@ export interface VideoGenerationInput {
 
 export class VideoGenerationService {
   private readonly promptService = new PromptService(new PromptRepository())
+  private readonly seriesRepository = new SeriesRepository()
 
   constructor() {}
 
@@ -38,6 +40,13 @@ export class VideoGenerationService {
 
     // 1. Resolve Spec from DB
     const scriptSpec = await this.promptService.resolveSpec((options as any).promptId)
+
+    // 1.5. Resolve Series Context if applicable
+    let seriesContext = undefined
+    const seriesId = options.seriesId || (options as any).seriesContext?.seriesId
+    if (seriesId) {
+      seriesContext = await this.seriesRepository.getSeriesContext(seriesId)
+    }
 
     // 2. Resolve Voice
     const effectiveVoiceId = options.kokoroVoicePreset as string | undefined
@@ -91,7 +100,8 @@ export class VideoGenerationService {
       undefined, // transcriptionConfig
       {
         scriptSpec: scriptSpec as any,
-        characterModelId: options.characterModelId
+        characterModelId: options.characterModelId,
+        seriesContext: seriesContext as any
       }
     )
   }

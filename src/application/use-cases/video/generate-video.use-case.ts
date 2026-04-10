@@ -5,7 +5,9 @@ import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/
 import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
+
 type GenerateVideoParams = {
   userId: string
   planId?: string
@@ -48,24 +50,91 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     type: options.type,
     isQuotes: options.isQuotes,
     seriesId: options.seriesId,
-    episodeNumber: options.episodeNumber
+    episodeNumber: options.episodeNumber || customSpec?.seriesMetadata?.episodeNumber,
+    lastCliffhanger: customSpec?.seriesMetadata?.lastCliffhanger || (options as any).lastCliffhanger,
+    unresolvedThreads: customSpec?.seriesMetadata?.unresolvedThreads || (options as any).unresolvedThreads
   }
 }
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
+const seriesRepository = new SeriesRepository()
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
   async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
     try {
       // 1. Resolve Spec from DB
-      const spec = await promptService.resolveSpec(options.promptId)
+      let spec = await promptService.resolveSpec(options.promptId)
+
+      // 1.5. If type is 'series' but no seriesId, try to find the last active series
+      if (options.type === 'series' && !options.seriesId) {
+        let lastSeries = await seriesRepository.findLastByUserId(userId)
+
+        // If still no series, create a default one on the fly
+        if (!lastSeries) {
+          const newSeriesId = crypto.randomUUID()
+          const defaultTitle =
+            topic
+              .split(/[.!?\n]/)[0]
+              .trim()
+              .slice(0, 50) || 'Ma Première Saga'
+
+          lastSeries = await seriesRepository.create({
+            id: newSeriesId,
+            userId,
+            title: `Saga: ${defaultTitle}`,
+            description: `Saga générée automatiquement à partir du sujet : ${topic}`,
+            seed: Math.floor(Math.random() * 1000000).toString()
+          })
+        }
+
+        if (lastSeries) {
+          options.seriesId = lastSeries.id
+        }
+      }
+
+      // 2. If Series, fetch and merge context
+      let seriesContext: any = null
+      if (options.seriesId) {
+        seriesContext = await seriesRepository.getSeriesContext(options.seriesId)
+        if (seriesContext) {
+          spec = {
+            ...spec,
+            seriesMetadata: {
+              seriesId: seriesContext.seriesId,
+              globalContext: seriesContext.globalContext,
+              previousEpisodesContext: seriesContext.previousEpisodesContext,
+              characterRegistry: seriesContext.characterRegistry,
+              locationRegistry: seriesContext.locationRegistry,
+              lastCliffhanger: seriesContext.lastCliffhanger,
+              unresolvedThreads: seriesContext.unresolvedThreads,
+              seed: seriesContext.seed,
+              totalEpisodes: seriesContext.totalEpisodes,
+              episodeNumber: options.episodeNumber || seriesContext.lastEpisodeNumber + 1
+            }
+          }
+
+          // INHERIT PREFERENCES
+          if (!options.audioProvider) options.audioProvider = seriesContext.audioProvider as any
+          if (!options.kokoroVoicePreset) options.kokoroVoicePreset = seriesContext.kokoroVoicePreset as any
+          if (!options.characterModelId) options.characterModelId = seriesContext.visualStyleModelId
+          if (!options.language) options.language = seriesContext.language
+          if (!options.aspectRatio) options.aspectRatio = seriesContext.aspectRatio as any
+          if (!options.duration && seriesContext.duration) {
+            options.duration = Number(seriesContext.duration)
+          }
+        }
+      }
 
       // 2. Build options using the schema for validation and transformation
       const videoOptions = videoGenerationOptionsSchema.parse({
         ...options,
-        customSpec: spec
+        customSpec: {
+          ...(spec || {}),
+          localCharacterRegistry: seriesContext?.characterRegistry || {},
+          localLocationRegistry: seriesContext?.locationRegistry || {}
+        }
       })
 
       const plan = planId || 'free'
@@ -121,6 +190,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         topic,
         title: preliminaryTitle,
         characterModelId: options.characterModelId,
+        seriesId: spec?.seriesMetadata?.seriesId,
+        episodeNumber: spec?.seriesMetadata?.episodeNumber,
         options: { ...videoOptions, creditsUsed: totalCost },
         language: options.language || 'en',
         creditsUsed: totalCost

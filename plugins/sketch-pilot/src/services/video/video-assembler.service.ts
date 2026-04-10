@@ -1445,9 +1445,8 @@ export class VideoAssembler {
   /**
    * Resolves the transition name to use between two scenes.
    *
-   * FIX: Added a default 'fade' for mid-range tension (4-7) when autoTransitions
-   * is enabled. Previously, tension values between 3 and 7 fell through to 'cut'
-   * even with useAuto=true, which silently disabled all transitions for typical content.
+   * Automatically selects a transition based on scene tension (premium feel).
+   * Mid-range tension (4-7) gets a nice dissolve instead of a hard cut.
    */
   private resolveTransition(suggested: string | undefined, tension: number): string {
     // 1. If the scene explicitly sets a non-trivial transition, always honour it

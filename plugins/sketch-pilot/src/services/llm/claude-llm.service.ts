@@ -102,4 +102,9 @@ export class ClaudeLLMService implements LLMService {
       throw error
     }
   }
+
+  async *streamContent(): AsyncIterable<string> {
+    throw new Error('Streaming not implemented for Claude')
+    yield ''
+  }
 }

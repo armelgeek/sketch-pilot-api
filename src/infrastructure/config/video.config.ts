@@ -20,7 +20,9 @@ export const CREDIT_COSTS = {
   EXPORT_1080P: 5, // was 10 — FFmpeg local + slight quality premium
   STUDIO_PASS_SURCHARGE: 3, // was 5 — ScriptDoctor/ArtDirector surcharge
   THUMBNAIL_GENERATION: 1, // was 2 — 1 image generation
-  CHARACTER_GENERATION: 5 // was 10 — 1 LoRA image generation
+  CHARACTER_GENERATION: 5, // was 10 — 1 LoRA image generation
+  SAGA_PREPARATION: 5, // Bible + Roadmap generation
+  SAGA_CONCEPT_SUGGESTION: 2 // Random idea suggestion
 }
 
 export const VOICES = {

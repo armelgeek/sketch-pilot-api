@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai'
+import axios from 'axios'
 import sharp from 'sharp'
 import type { ImageService, ImageServiceConfig } from './index'
 
@@ -60,25 +61,44 @@ export class GeminiImageService implements ImageService {
         contents.push({
           text: 'REFERENCE IMAGES: Use the following images as the ABSOLUTE SOURCE OF TRUTH for character identity, clothing, and artistic style. All generated scenes must remain 100% consistent with these models. If a name is provided before an image, it refers to that specific character.'
         })
-        baseImages.forEach((img) => {
+
+        for (const img of baseImages) {
           const isObject = typeof img === 'object'
           const name = isObject ? img.name : undefined
-          const raw = isObject ? (img as any).data : (img as string)
+          let raw = isObject ? (img as any).data : (img as string)
 
-          if (name) contents.push({ text: `NAME: @${name}` })
+          if (name) contents.push({ text: `NAME: ${name}` })
+
+          // Handle URLs by downloading them
+          if (raw.startsWith('http')) {
+            try {
+              const response = await axios.get(raw, { responseType: 'arraybuffer' })
+              raw = Buffer.from(response.data).toString('base64')
+            } catch (error) {
+              console.error(`[GeminiImage] Failed to download reference image from URL: ${raw}`, error)
+              continue // Skip this image if download fails
+            }
+          }
 
           const data = raw.replace(/^data:image\/[a-z]+;base64,/, '')
           let refMimeType = 'image/jpeg'
           if (data.startsWith('iVBORw0KGgo')) refMimeType = 'image/png'
           else if (data.startsWith('UklGR')) refMimeType = 'image/webp'
           contents.push({ inlineData: { mimeType: refMimeType, data } })
-        })
+        }
       }
 
-      const anatomyGuardrail = `\n\nCRITICAL ANATOMY RULES: The character must have exactly TWO arms, TWO legs, ONE head, and TWO hands. DO NOT generate extra floating hands, third arms, or merged limbs. Ensure strict, flawless physiological anatomy. Keep the pose physically possible. If conflicting actions are described (e.g. 'arms crossed' and 'hand on chin'), pick ONE to avoid extra limbs.`
-      const finalTextPrompt = originalPrompt.includes('CRITICAL ANATOMY')
+      const anatomyGuardrail = `\n\nCRITICAL ANATOMY RULES: The character must have exactly TWO arms, TWO legs, ONE head, and TWO hands. DO NOT generate extra floating hands, third arms, or merged limbs. Ensure strict, flawless physiological anatomy. Keep the pose physically possible. If conflicting actions are described (e.g. 'arms crossed' and 'hand on chin'), pick ONE to avoid extra limbs.
+      
+SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive historical elements, DO NOT block the generation. Instead, visually soften it. Use dark lighting, silhouettes, atmospheric fog, and metaphorical elements to convey the mood WITHOUT showing explicit gore, red blood, or banned content. Prioritize generating a safe, atmospheric image over exact literal interpretation of violent words.`
+
+      let finalTextPrompt = originalPrompt.includes('CRITICAL ANATOMY')
         ? originalPrompt
         : originalPrompt + anatomyGuardrail
+
+      if (options.systemInstruction) {
+        finalTextPrompt = `INSTRUCTIONS:\n${options.systemInstruction}\n\nPROMPT:\n${finalTextPrompt}`
+      }
 
       contents.push({ text: finalTextPrompt })
 

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
+import { SeriesVideoGenerator } from '@sketch-pilot/core/generators/series-video-generator'
 import { DelayedError, Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/video-checkpoint.service'
@@ -9,6 +10,7 @@ import { VideoGenerationService } from '@/application/services/video-generation.
 import { redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
+import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { CompleteVideoPackage } from '@/domain/types/video-script.types'
 
@@ -25,6 +27,7 @@ import type { CompleteVideoPackage } from '@/domain/types/video-script.types'
 const videoGenerationService = new VideoGenerationService()
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
+const seriesRepository = new SeriesRepository()
 
 const VIDEO_QUEUE_NAME = 'video-generation'
 const DEFAULT_VIDEO_DURATION = 60 // 1 minute default if not specified
@@ -266,6 +269,133 @@ async function handleSceneGenerated(
 }
 
 /**
+ * Evolves the Saga "Bible" by persisting AI-generated metadata (cliffhangers, characters, summaries)
+ * back to the Series record for the next episode.
+ */
+async function evolveSagaContext(seriesId: string, script: any) {
+  try {
+    console.info(`[VideoWorker] Evolving Saga context for series ${seriesId}...`)
+    const currentContext = await seriesRepository.getSeriesContext(seriesId)
+    if (!currentContext) {
+      console.warn(`[VideoWorker] Series ${seriesId} not found, skipping context evolution.`)
+      return
+    }
+
+    const updatedContext = SeriesVideoGenerator.updateContext(currentContext as any, script)
+    const updatedRegistry = { ...updatedContext.characterRegistry }
+    const updatedLocationRegistry = { ...updatedContext.locationRegistry }
+
+    // VISUAL CONTINUITY: Promote Portraits
+    if (script.scenes) {
+      for (const scene of script.scenes) {
+        // Characters promotion
+        const chars = scene.charactersId || scene.charactersInScene || []
+        if (chars.length > 0 && scene.thumbnailUrl) {
+          for (const charName of chars) {
+            if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
+              console.info(`[VideoWorker] Promoting scene image as portrait for character: ${charName}`)
+              updatedRegistry[charName].thumbnailUrl = scene.thumbnailUrl
+            }
+          }
+        }
+
+        // Locations promotion
+        if (
+          scene.locationId &&
+          scene.thumbnailUrl &&
+          updatedLocationRegistry[scene.locationId] &&
+          !updatedLocationRegistry[scene.locationId].thumbnailUrl
+        ) {
+          console.info(`[VideoWorker] Promoting scene image as portrait for location: ${scene.locationId}`)
+          updatedLocationRegistry[scene.locationId].thumbnailUrl = scene.thumbnailUrl
+        }
+      }
+    }
+
+    // 1. Propagate narrative state
+    await seriesRepository.updateNarrativeContext(seriesId, {
+      lastCliffhanger: updatedContext.lastCliffhanger,
+      unresolvedThreads: updatedContext.unresolvedThreads
+    })
+
+    // 2. Update registries
+    await seriesRepository.updateCharacterRegistry(seriesId, updatedRegistry)
+    await seriesRepository.updateLocationRegistry(seriesId, updatedLocationRegistry)
+
+    // 3. Append summary
+    if (script.seriesMetadata?.episodeSummary) {
+      await seriesRepository.appendEpisodeSummary(seriesId, script.seriesMetadata.episodeSummary)
+    }
+
+    // 4. Increment the series episode counter
+    await seriesRepository.incrementEpisodeNumber(seriesId)
+
+    console.info(`[VideoWorker] Saga context evolution successful for series ${seriesId}.`)
+  } catch (error) {
+    console.error(`[VideoWorker] Saga evolution failed for series ${seriesId}:`, error)
+  }
+}
+
+/**
+ * Evolves the local context for a standalone video (visual registries)
+ */
+async function evolveStandaloneContext(videoId: string, script: any) {
+  try {
+    console.info(`[VideoWorker] Evolving local context for video ${videoId}...`)
+    const video = await videoRepository.findById(videoId)
+    if (!video) return
+
+    const metadata = script.videoMetadata || script.seriesMetadata || {}
+    const updatedRegistry = { ...(video.characterRegistry || {}) }
+    const updatedLocationRegistry = { ...(video.locationRegistry || {}) }
+
+    // 1. Discover new entries
+    if (metadata.newCharacters) {
+      for (const [name, desc] of Object.entries(metadata.newCharacters)) {
+        if (!updatedRegistry[name]) updatedRegistry[name] = { description: desc as string }
+      }
+    }
+    if (metadata.newLocations) {
+      for (const [name, desc] of Object.entries(metadata.newLocations)) {
+        if (!updatedLocationRegistry[name]) updatedLocationRegistry[name] = { description: desc as string }
+      }
+    }
+
+    // 2. Promote visual portraits from scenes
+    if (script.scenes) {
+      for (const scene of script.scenes) {
+        const chars = scene.charactersId || scene.charactersInScene || []
+        if (chars.length > 0 && scene.thumbnailUrl) {
+          for (const charName of chars) {
+            if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
+              updatedRegistry[charName].thumbnailUrl = scene.thumbnailUrl
+            }
+          }
+        }
+        if (
+          scene.locationId &&
+          scene.thumbnailUrl &&
+          updatedLocationRegistry[scene.locationId] &&
+          !updatedLocationRegistry[scene.locationId].thumbnailUrl
+        ) {
+          updatedLocationRegistry[scene.locationId].thumbnailUrl = scene.thumbnailUrl
+        }
+      }
+    }
+
+    // 3. Persist
+    await videoRepository.update(videoId, {
+      characterRegistry: updatedRegistry,
+      locationRegistry: updatedLocationRegistry
+    })
+
+    console.info(`[VideoWorker] Local context evolution successful for video ${videoId}.`)
+  } catch (error) {
+    console.error(`[VideoWorker] Local evolution failed for video ${videoId}:`, error)
+  }
+}
+
+/**
  * Deduct credits from user account upon successful task completion.
  */
 async function deductCredits(userId: string, videoId: string, cost?: number, planLimit?: number, jobId?: string) {
@@ -315,9 +445,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   let effectiveProjectId = ''
 
   try {
-    // 2. Fetch video record
     const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId)
     if (!videoRecord) throw new Error('Video not found.')
+
+    if (videoRecord.status === 'completed') {
+      console.info(`[VideoWorker] Video ${videoId} is already completed. Skipping job ${job.id}.`)
+      return
+    }
 
     // 1. Initialize checkpoint (passing DB checkpoint if exists)
     let checkpoint = await initializeCheckpoint(videoId, job.id || 'unknown', (videoRecord.options as any)?._checkpoint)
@@ -325,9 +459,6 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     effectiveProjectId = (videoRecord.options as any)?.localProjectId
     if (!effectiveProjectId) {
       effectiveProjectId = `video-${Date.now()}-${Math.random().toString(36).slice(7)}`
-      await videoRepository.updateStatus(videoId, {
-        options: { ...((videoRecord.options as any) || {}), localProjectId: effectiveProjectId }
-      })
     }
 
     const storedOptions = (videoRecord.options as any) || {}
@@ -469,7 +600,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
           await videoRepository.updateStatus(videoId, {
             script: scriptToSave,
-            scenes: scriptToSave.scenes
+            scenes: scriptToSave.scenes,
+            options: { ...((videoRecord.options as any) || {}), localProjectId: effectiveProjectId }
           })
         },
         onSceneGenerated: async (scene, script, index, progress) => {
@@ -484,7 +616,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         if (validScript.titles && validScript.titles.length > 0) {
           title = validScript.titles[0]
         }
-        await videoRepository.updateStatus(videoId, { script: validScript, scenes: validScript.scenes, title })
+        await videoRepository.updateStatus(videoId, {
+          script: validScript,
+          scenes: validScript.scenes,
+          title,
+          options: { ...((videoRecord.options as any) || {}), localProjectId: effectiveProjectId }
+        })
       }
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       const serialized = checkpointStorage.save(checkpoint)
@@ -668,6 +805,14 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         scenes: pkg.script?.scenes as any,
         completedAt: new Date()
       })
+
+      // EVOLVE SAGA CONTEXT
+      const seriesId = job.data.options.seriesId
+      if (seriesId) {
+        await evolveSagaContext(seriesId, pkg.script)
+      } else {
+        await evolveStandaloneContext(videoId, pkg.script)
+      }
 
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
       const serialized = checkpointStorage.save(checkpoint)

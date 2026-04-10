@@ -6,8 +6,26 @@ import type { VideoGeneratorConfig } from './video-generator.abstract'
 export interface SeriesContext {
   seriesId: string
   episodeNumber: number
+  globalContext?: string
   previousEpisodesContext: string
-  characterRegistry: Record<string, { description: string; modelId?: string }>
+  characterRegistry: Record<
+    string,
+    {
+      description: string
+      modelId?: string
+      portraitPrompt?: string
+      thumbnailUrl?: string
+    }
+  >
+  locationRegistry: Record<
+    string,
+    {
+      description: string
+      thumbnailUrl?: string
+    }
+  >
+  lastCliffhanger?: string
+  unresolvedThreads?: string[]
   totalEpisodes?: number
   isFinalEpisode?: boolean
 }
@@ -48,12 +66,13 @@ export class SeriesVideoGenerator extends VideoGenerator {
       : `
   "seriesMetadata": {
     "episodeSummary": "Résumé narratif concis de cet épisode pour la mémoire à long terme.",
-    "cliffhanger": "Description du suspense final ou de l'ouverture pour l'épisode suivant.",
+    "cliffhanger": "Description détaillée du cliffhanger (Révélation, Péril, ou Choix).",
     "characterContinuity": { 
         "personnageA": { "description": "état/tenue/lieu à la fin", "isNew": true }, 
         "personnageB": { "description": "...", "isNew": false } 
     },
-    "nextEpisodeTease": "Une phrase d'accroche pour l'épisode suivant."
+    "nextEpisodeTease": "Une phrase d'accroche mystérieuse pour l'épisode suivant.",
+    "unresolvedThreads": ["Liste des petits mystères ou intrigues secondaires non résolus"]
   }`.trim()
 
     return `
@@ -69,6 +88,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
       "narration": "Narration verbatim...",
       "locationId": "identifiant-lieu-unique",
       "imagePrompt": "Description visuelle",
+      "charactersId": ["@Sarah"],
       "animationPrompt": "Instructions mouvement",
       "cameraAction": "zoom-in",
       "preset": "hook",
@@ -82,7 +102,28 @@ export class SeriesVideoGenerator extends VideoGenerator {
 
   protected validateNarrativeCoherence(scenes: any[]): string[] {
     const violations: string[] = []
-    // TODO: Add rules like "Episode must start with a hook that bridges the previous cliffhanger"
+
+    // Episode must start with a hook that bridges the previous cliffhanger
+    if (this.seriesContext.episodeNumber > 1 && this.seriesContext.lastCliffhanger) {
+      const hookScene = scenes.find((s) => s.preset === 'hook') || scenes[0]
+      if (hookScene) {
+        // We can't strictly check keywords without being too rigid,
+        // but we can look for "previously", "last time", or specific character names
+        const hookText = (hookScene.narration || '').toLowerCase()
+        const previousCliffhanger = this.seriesContext.lastCliffhanger.toLowerCase()
+
+        // This is a soft check - we just log if it seems disconnected
+        const hasBridgeKeywords = ['précédemment', 'alors que', 'souvenez-vous', 'pendant ce temps', 'encore'].some(
+          (k) => hookText.includes(k)
+        )
+        if (!hasBridgeKeywords && hookText.length < 50) {
+          console.warn(
+            `[SeriesVideoGenerator] Hook for Episode ${this.seriesContext.episodeNumber} may lack a narrative bridge to: "${this.seriesContext.lastCliffhanger.slice(0, 50)}..."`
+          )
+        }
+      }
+    }
+
     return violations
   }
 
@@ -98,20 +139,44 @@ export class SeriesVideoGenerator extends VideoGenerator {
       .map(([name, data]) => `• ${name}: ${data.description}${data.modelId ? ` (CASTING: ${data.modelId})` : ''}`)
       .join('\n')
 
+    const bridgeInstruction =
+      this.seriesContext.episodeNumber > 1 && this.seriesContext.lastCliffhanger
+        ? `\n\n⚠️ PONT NARRATIF OBLIGATOIRE : L'épisode DOIT commencer par adresser ou résoudre le cliffhanger de l'épisode précédent :\n"${this.seriesContext.lastCliffhanger}"`
+        : ''
+
+    const threadsInstruction = this.seriesContext.unresolvedThreads?.length
+      ? `\n\nINTRIGUES SECONDAIRES EN COURS :\n${this.seriesContext.unresolvedThreads.map((t) => `- ${t}`).join('\n')}`
+      : ''
+
     return {
       pass1: {
-        system: `Vous êtes un scénariste de séries spécialisé dans la continuité narrative.
+        system: `Vous êtes un scénariste de séries expert en binge-watching et en narration épisodique.
 Episode N° ${this.seriesContext.episodeNumber}.
-IMPORTANT: Répondez exclusivement au format JSON.
+Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber}.
 
-REGISTRE DES PERSONNAGES (Canon):
-${charSection || 'Aucun personnage récurrent défini.'}
+CONTEXTE GLOBAL (BIBLE) :
+${this.seriesContext.globalContext || 'Pas de bible spécifiée.'}
 
-CONTEXTE DES ÉPISODES PRÉCÉDENTS:
-${this.seriesContext.previousEpisodesContext}
+REGISTRE DES LIEUX (Canon) :
+${
+  Object.entries(this.seriesContext.locationRegistry)
+    .map(([name, data]) => `• ${name}: ${data.description}`)
+    .join('\n') || 'Aucun lieu récurrent défini.'
+}
 
-Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber} en respectant strictement le ton et l'évolution des personnages.`,
-        user: `Sujet de l'épisode (Format JSON): ${topic}. Cible: ${target} mots.`,
+ÉPISODES PRÉCÉDENTS :
+${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
+
+DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}
+
+RÈGLES D'OR DE NARRATION :
+• ÉVOLUTION : L'histoire DOIT avancer. Chaque épisode doit apporter de nouvelles informations, de nouveaux enjeux ou des changements de situation.
+• LIEUX : Réutilisez les lieux du registre pour créer un sentiment de familiarité. Décrivez-les avec constance.
+• RYTHME : Accompagnez la montée en tension. Ne vous contentez pas de décrire, faites vivre le conflit.
+• PERSONNAGES : Respectez scrupuleusement les traits de personnalité et les descriptions physiques du registre.
+• INTERDICTION DE TOUTE CONCLUSION : Sauf si c'est l'épisode FINAL, l'intrigue doit rester tendue au maximum.
+• SANS RÉCAPITULATIF : Ne commencez pas par "Le dernier épisode s'est terminé par...". Plongez directement dans l'action (In Media Res) tout en gardant une suite logique.`,
+        user: `DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga en vous basant sur le cliffhanger précédent.'}\nCible : ${target} mots.`,
         targetWords: target
       }
     }
@@ -123,26 +188,28 @@ Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber} e
     const seriesSpec: VideoTypeSpecification = {
       ...spec,
       task: `${spec.task}\n\nIMPORTANT: Vous DEVEZ inclure l'objet "seriesMetadata" pour permettre la continuité narrative. Sans cet objet, la série s'arrêtera.`,
-      context: `[CONTINUITÉ] 
+      context: `[CONTINUITÉ SAGA] 
 Épisode N°: ${this.seriesContext.episodeNumber}${this.seriesContext.totalEpisodes ? ` sur ${this.seriesContext.totalEpisodes}` : ''}
 ID Saga: ${this.seriesContext.seriesId}
-Contexte global: ${this.seriesContext.previousEpisodesContext || 'Nouveau départ.'}
+Bible (Contexte global): ${this.seriesContext.globalContext || 'Pas de bible.'}
+Historique récent: ${this.seriesContext.previousEpisodesContext || 'Nouveau départ.'}
+Dernier Cliffhanger (À RÉSOUDRE OU ÉVOLUER): ${this.seriesContext.lastCliffhanger || 'Aucun.'}
 
-REGISTRE DES PERSONNAGES (CASTING):
+REGISTRE DES PERSONNAGES (CASTING ACTIF):
 ${Object.entries(this.seriesContext.characterRegistry)
-  .map(
-    ([name, data]) => `• ${name}: ${data.description}${data.modelId ? ` (UTILISER MODÈLE ID: ${data.modelId})` : ''}`
-  )
+  .map(([name, data]) => `• ${name}: ${data.description}${data.modelId ? ` (ID MODÈLE: ${data.modelId})` : ''}`)
   .join('\n')}`,
       instructions: [
         ...(spec.instructions || []),
-        'Maintenez une continuité stricte avec les épisodes précédents.',
-        'CASTING: Si un personnage a un MODÈLE ID, incluez-le impérativement dans les imagePrompts pour garantir la ressemblance.',
-        "NOUVEAUX PERSONNAGES: Si vous introduisez un nouveau personnage important, décrivez-le précisément dans le bloc 'seriesMetadata'.",
+        "COHÉRENCE TOTALE : L'épisode DOIT s'inscrire dans la continuité directe du cliffhanger précédent.",
+        "ÉVOLUTION NARRATIVE : Faites progresser l'intrigue de manière significative. Évitez de stagner sur une seule idée.",
         this.seriesContext.isFinalEpisode
           ? "RÉSOLUTION FINALE (OBLIGATOIRE): Concluez TOUTES les intrigues. INTERDICTION de finir sur un cliffhanger. L'histoire doit être terminée et fermée."
-          : 'Finissez SUR UN CLIFFHANGER (suspense non résolu).',
-        "Fournissez obligatoirement le bloc 'seriesMetadata' au début de votre réponse JSON."
+          : `CLIFFHANGER MAJEUR : Finissez sur une tension insoutenable. Ne concluez rien. L'action doit rester "suspendue".`,
+        "PERSONNAGES: Utilisez UNIQUEMENT les personnages du registre. Remplissez 'charactersId' pour chaque scène (ex: ['King Arthur', 'Sarah']).",
+        "LIEUX: Utilisez 'locationId' pour chaque scène en utilisant les noms du registre (ex: 'The Dark Forest'). Si vous créez un NOUVEAU lieu, ajoutez-le dans 'seriesMetadata.newLocations' : { \"Nom du Lieu\": \"Description visuelle précise\" }.",
+        "CONTINUITÉ VISUELLE: Pour chaque scène, utilisez les noms EXACTS du registre (personnages et lieux) dans votre 'imagePrompt'.",
+        "MÉTAMÉMOIRE: Fournissez un 'episodeSummary' concis dans 'seriesMetadata' pour la mémoire des futurs épisodes."
       ]
     }
 
@@ -174,7 +241,7 @@ ${Object.entries(this.seriesContext.characterRegistry)
         sceneCountRange: range
       },
       spec
-    )}\n\nNARRATION EPISODE ${this.seriesContext.episodeNumber} (JSON):\n---\n${validatedNarration}\n---\n\n${this.seriesContext.isFinalEpisode ? '⚠️ ÉPISODE FINAL: Ne laissez aucune question sans réponse. Résolution totale.' : ''}\nTÂCHE: Découpe en scènes JSON valides en suivant strictement le format JSON demandé.`
+    )}\n\nNARRATION EPISODE ${this.seriesContext.episodeNumber} (JSON):\n---\n${validatedNarration}\n---\n\n${this.seriesContext.isFinalEpisode ? '⚠️ ÉPISODE FINAL: Ne laissez aucune question sans réponse. Résolution totale.' : ''}\nTÂCHE: Découpe en scènes JSON valides. Assurez-vous que le "seriesMetadata" contient bien le cliffhanger et les intrigues non résolues.`
   }
 
   public buildPass2Prompts(
@@ -236,21 +303,31 @@ Please expand the script for subject: ${topic}. Focus on narrative depth and con
     let paragraph = (scene.imagePrompt || scene.summary || '').trim()
 
     // 1. Resolve character model casting
-    const characterMatches = paragraph.match(/([A-Z][a-z]+)/g) || []
+    const characterMatches = scene.charactersId || scene.charactersInScene || []
+
     if (characterMatches.length > 0) {
       for (const name of characterMatches) {
         const char = this.seriesContext.characterRegistry[name]
-        if (char?.modelId && !paragraph.includes(char.modelId)) {
-          paragraph += `, Character ${name}: UTILISER MODÈLE ID: ${char.modelId}`
+        if (char) {
+          // Add detailed visual blueprint if available, otherwise fallback to description
+          const visualAnchor = char.portraitPrompt || char.description
+          if (visualAnchor && !paragraph.includes(visualAnchor.slice(0, 30))) {
+            paragraph += `, Character ${name}: ${visualAnchor}`
+          }
+
+          // Add model casting if available
+          if (char.modelId && !paragraph.includes(char.modelId)) {
+            paragraph += `, reference style ${char.modelId}`
+          }
         }
       }
     }
 
-    // 2. Resolve location memory (inherited behavior but in series)
-    if (scene.locationId && memory?.locations) {
-      const memorized = memory.locations.get(scene.locationId)
-      if (memorized && !paragraph.toLowerCase().includes(memorized.prompt.toLowerCase().slice(0, 20))) {
-        paragraph += `, in ${memorized.prompt}.`
+    // 2. Resolve Location Consistency
+    if (scene.locationId) {
+      const loc = this.seriesContext.locationRegistry[scene.locationId]
+      if (loc && loc.description && !paragraph.includes(loc.description.slice(0, 30))) {
+        paragraph = `Location ${scene.locationId}: ${loc.description}. ${paragraph}`
       }
     }
 
@@ -266,6 +343,24 @@ Please expand the script for subject: ${topic}. Focus on narrative depth and con
     imageStyle?: { characterDescription?: string }
   ): { sceneId: string; instructions: string; movements: any[] } {
     return { sceneId: scene.id, instructions: scene.animationPrompt || '', movements: [] }
+  }
+
+  public async resolveCharacterImages(): Promise<any[]> {
+    const parentImages = await super.resolveCharacterImages()
+    const registryImages = Object.entries(this.seriesContext.characterRegistry)
+      .map(([name, c]) => (c.thumbnailUrl ? { name, data: c.thumbnailUrl } : null))
+      .filter(Boolean)
+
+    return [...parentImages, ...registryImages]
+  }
+
+  public async resolveThumbnailInspirations(): Promise<any[]> {
+    const parentInspirations = await super.resolveThumbnailInspirations()
+    const registryImages = Object.entries(this.seriesContext.characterRegistry)
+      .map(([name, c]) => (c.thumbnailUrl ? { name, data: c.thumbnailUrl } : null))
+      .filter(Boolean)
+
+    return [...parentInspirations, ...registryImages]
   }
 
   public async buildThumbnailPrompt(title: string, environment?: string, inspirationUrl?: string): Promise<string> {
@@ -294,34 +389,43 @@ Please expand the script for subject: ${topic}. Focus on narrative depth and con
    */
   public static updateContext(currentContext: SeriesContext, scriptResult: any): SeriesContext {
     const metadata = scriptResult.seriesMetadata || {}
-    const newContinuity = metadata.characterContinuity || {}
 
-    // Merge characters
+    // Merge registries
     const updatedRegistry = { ...currentContext.characterRegistry }
+    const updatedLocationRegistry = { ...currentContext.locationRegistry }
 
-    for (const [name, data] of Object.entries(newContinuity)) {
-      const charData = data as any
-      if (updatedRegistry[name]) {
-        // Update description, keep modelId
-        updatedRegistry[name] = {
-          ...updatedRegistry[name],
-          description: charData.description || updatedRegistry[name].description
+    // VISUAL CONTINUITY: Discover new characters or locations from metadata
+    if (metadata) {
+      // Characters
+      if (metadata.newCharacters) {
+        for (const [name, desc] of Object.entries(metadata.newCharacters)) {
+          if (!updatedRegistry[name]) {
+            updatedRegistry[name] = { description: desc as string }
+          }
         }
-      } else {
-        // New character
-        updatedRegistry[name] = {
-          description: charData.description || 'Nouveau personnage',
-          modelId: undefined // Needs manual casting
+      }
+
+      // Locations
+      if (metadata.newLocations) {
+        for (const [name, desc] of Object.entries(metadata.newLocations)) {
+          if (!updatedLocationRegistry[name]) {
+            updatedLocationRegistry[name] = { description: desc as string }
+          }
         }
       }
     }
 
+    const episodeSummary = metadata.episodeSummary || 'Pas de résumé.'
+    const episodeHistory = `Episode ${currentContext.episodeNumber}: ${episodeSummary}`
+
     return {
       ...currentContext,
-      episodeNumber: currentContext.episodeNumber + 1,
-      previousEpisodesContext:
-        `${currentContext.previousEpisodesContext || ''}\nEpisode ${currentContext.episodeNumber}: ${metadata.episodeSummary || 'Pas de résumé.'}`.trim(),
-      characterRegistry: updatedRegistry
+      characterRegistry: updatedRegistry,
+      locationRegistry: updatedLocationRegistry,
+      lastCliffhanger: metadata.lastCliffhanger || currentContext.lastCliffhanger,
+      unresolvedThreads: metadata.unresolvedThreads || currentContext.unresolvedThreads || [],
+      previousEpisodesContext: `${currentContext.previousEpisodesContext || ''}\n${episodeHistory}`.trim(),
+      episodeNumber: currentContext.episodeNumber + 1
     }
   }
 }

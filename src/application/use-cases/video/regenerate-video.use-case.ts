@@ -36,9 +36,12 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     llmProvider: options.llmProvider,
     imageProvider: options.imageProvider,
     qualityMode: options.qualityMode,
-    autoTransitions: options.autoTransitions,
     repromptSceneIndex: (options as any).repromptSceneIndex,
-    customSpec: customSpec || options.customSpec
+    customSpec: {
+      ...(customSpec || options.customSpec || {}),
+      localCharacterRegistry: (options as any).localCharacterRegistry || {},
+      localLocationRegistry: (options as any).localLocationRegistry || {}
+    }
   }
 }
 
@@ -137,7 +140,14 @@ export class RegenerateVideoUseCase extends IUseCase<RegenerateVideoParams, Rege
         topic,
         cost: totalCost,
         planLimit: planLimit === -1 ? 0 : planLimit,
-        options: toJobOptions(options, spec)
+        options: toJobOptions(
+          {
+            ...options,
+            localCharacterRegistry: (video as any).characterRegistry || {},
+            localLocationRegistry: (video as any).locationRegistry || {}
+          } as any,
+          spec
+        )
       }
 
       const queue = getVideoQueue()

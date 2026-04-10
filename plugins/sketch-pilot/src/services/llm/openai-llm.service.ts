@@ -97,4 +97,33 @@ export class OpenAILLMService implements LLMService {
       { label: 'generateContent', maxAttempts: 3, baseDelayMs: 5000 }
     )
   }
+
+  async *streamContent(prompt: string, systemInstruction?: string, responseMimeType?: string): AsyncIterable<string> {
+    const messages: any[] = []
+
+    if (systemInstruction) {
+      messages.push({ role: 'system', content: systemInstruction })
+    }
+    messages.push({ role: 'user', content: prompt })
+
+    const options: any = {
+      model: this.modelId,
+      messages,
+      temperature: 0.8,
+      max_tokens: 4096,
+      stream: true
+    }
+
+    if (responseMimeType === 'application/json') {
+      options.response_format = { type: 'json_object' }
+    }
+
+    const stream = (await this.client.chat.completions.create(options)) as any
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || ''
+      if (content) {
+        yield content
+      }
+    }
+  }
 }

@@ -24,6 +24,10 @@ export class VideoRepository {
     scenes?: any
     creditsUsed?: number
     characterModelId?: string
+    seriesId?: string
+    episodeNumber?: number
+    characterRegistry?: Record<string, any>
+    locationRegistry?: Record<string, any>
   }) {
     const [video] = await db
       .insert(videos)
@@ -40,6 +44,10 @@ export class VideoRepository {
         scenes: data.scenes,
         creditsUsed: data.creditsUsed !== undefined ? data.creditsUsed : data.status === 'draft' ? 0 : 1,
         characterModelId: data.characterModelId,
+        seriesId: data.seriesId,
+        episodeNumber: data.episodeNumber,
+        characterRegistry: data.characterRegistry || {},
+        locationRegistry: data.locationRegistry || {},
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -63,6 +71,11 @@ export class VideoRepository {
   async findByJobId(jobId: string) {
     const [video] = await db.select().from(videos).where(eq(videos.jobId, jobId))
     return this.processVideoForFrontend(video) || null
+  }
+
+  async findBySeriesId(seriesId: string) {
+    const data = await db.select().from(videos).where(eq(videos.seriesId, seriesId)).orderBy(desc(videos.episodeNumber))
+    return data.map((v) => this.processVideoForFrontend(v))
   }
 
   async updateStatus(

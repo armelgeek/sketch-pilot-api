@@ -32,6 +32,7 @@ export type VideoType =
   | 'tutorial'
   | 'social'
   | 'Narrative System'
+  | 'horror'
   | 'other'
 export type VideoGenre = 'professional' | 'casual' | 'cinematic' | 'corporate' | 'humorous' | 'documentary' | 'other'
 
@@ -207,6 +208,11 @@ export const enrichedSceneSchema = z.object({
         'Scenes sharing the same locationId reuse the same visual background for consistency.'
     ),
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
+  charactersInScene: z
+    .array(z.string())
+    .default([])
+    .describe('List of exact character names present in this scene from the registry'),
+  charactersId: z.array(z.string()).default([]).describe('List of character names with @ prefix (e.g. ["@Sarah"])'),
   animationPrompt: z.string().optional().describe('Animation instructions for movement'),
   cameraAction: z
     .union([
@@ -336,8 +342,18 @@ export const completeVideoScriptSchema = z.object({
     .object({
       episodeSummary: z.string().optional(),
       cliffhanger: z.string().optional(),
-      characterContinuity: z.record(z.string()).optional(),
-      nextEpisodeTease: z.string().optional()
+      characterContinuity: z
+        .record(
+          z.object({
+            description: z.string().optional(),
+            isNew: z.boolean().optional()
+          })
+        )
+        .optional(),
+      nextEpisodeTease: z.string().optional(),
+      unresolvedThreads: z.array(z.string()).optional(),
+      resolution: z.string().optional(),
+      characterFinalState: z.record(z.string()).optional()
     })
     .optional()
     .describe('Episodic metadata for series-mode videos'),
@@ -628,6 +644,7 @@ export const videoGenerationOptionsSchema = z
     isQuotes: z.boolean().optional().describe('Shorthand for quotes generator mode'),
     seriesId: z.string().optional().describe('ID of the series for episodic continuity'),
     episodeNumber: z.number().optional().describe('Episode number within the series'),
+    episodeSummary: z.string().optional().describe('Planned summary for this specific episode'),
 
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),

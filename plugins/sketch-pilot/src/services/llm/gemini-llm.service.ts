@@ -90,4 +90,9 @@ export class GeminiLLMService implements LLMService {
       { label: 'generateContent', maxAttempts: 4, baseDelayMs: 5_000, maxDelayMs: 60_000 }
     )
   }
+
+  async *streamContent(): AsyncIterable<string> {
+    throw new Error('Streaming not implemented for Gemini')
+    yield ''
+  }
 }

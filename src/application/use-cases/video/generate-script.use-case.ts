@@ -2,6 +2,7 @@ import { IUseCase } from '@/domain/types'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
+import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { GenerateScriptOptions } from '@/application/services/script-generation.service'
 import type { CompleteVideoScript } from '@sketch-pilot/types/video-script.types'
@@ -27,6 +28,7 @@ type GenerateScriptResponse = {
 
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
+const seriesRepository = new SeriesRepository()
 
 export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, GenerateScriptResponse> {
   async execute({ userId, topic, options = {} }: GenerateScriptParams): Promise<GenerateScriptResponse> {
@@ -51,6 +53,57 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         }
       }
 
+      // 1.5. If type is 'series' but no seriesId, try to find the last active series
+      if (options.type === 'series' && !options.seriesId) {
+        let lastSeries = await seriesRepository.findLastByUserId(userId)
+
+        // If still no series, create a default one on the fly
+        if (!lastSeries) {
+          const newSeriesId = crypto.randomUUID()
+          const defaultTitle =
+            topic
+              .split(/[.!?\n]/)[0]
+              .trim()
+              .slice(0, 50) || 'Ma Première Saga'
+
+          lastSeries = await seriesRepository.create({
+            id: newSeriesId,
+            userId,
+            title: `Saga: ${defaultTitle}`,
+            description: `Saga générée automatiquement à partir du sujet : ${topic}`,
+            seed: Math.floor(Math.random() * 1000000).toString()
+          })
+        }
+
+        if (lastSeries) {
+          options.seriesId = lastSeries.id
+        }
+      }
+
+      // 1.6. If Series, fetch context for preference inheritance and episode numbering
+      let finalEpisodeNumber = options.episodeNumber
+      if (options.seriesId) {
+        const seriesContext = await seriesRepository.getSeriesContext(options.seriesId)
+        if (seriesContext) {
+          // Inherit preferences if not explicitly provided
+          options.language = options.language || seriesContext.language || 'fr'
+          options.duration = options.duration || (seriesContext.duration ? Number(seriesContext.duration) : 60)
+          options.promptId = options.promptId || seriesContext.promptId
+          options.videoType = options.videoType || seriesContext.videoType || 'series'
+          options.videoGenre = options.videoGenre || seriesContext.videoGenre
+
+          if (!finalEpisodeNumber) {
+            finalEpisodeNumber = seriesContext.lastEpisodeNumber + 1
+          }
+
+          // Fetch the summary for this specific episode from planned episodes
+          const planned = seriesContext.plannedEpisodes.find((e: any) => e.number === finalEpisodeNumber)
+          if (planned) {
+            options.episodeSummary = `${planned.title}: ${planned.hook}`
+          }
+        }
+      }
+
       // 2. Prepare Video Record (Don't deduct yet, just mark as queued)
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
@@ -61,9 +114,11 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         topic,
         status: 'queued',
         progress: 0,
-        options: { ...options, scriptOnly: true },
+        options: { ...options, scriptOnly: true, episodeNumber: finalEpisodeNumber },
         language: options.language || 'en',
-        characterModelId: options.characterModelId
+        characterModelId: options.characterModelId,
+        seriesId: options.seriesId,
+        episodeNumber: finalEpisodeNumber
       })
 
       // Update the status to lock as queued with the jobId
@@ -83,7 +138,8 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         options: {
           ...options,
           scriptOnly: true,
-          generateOnlyScenes: false
+          generateOnlyScenes: false,
+          episodeNumber: finalEpisodeNumber
         }
       }
 
@@ -100,7 +156,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         metadata: {
           sceneCount: options.sceneCount ?? 6,
           estimatedDuration: options.duration ?? 60,
-          language: options.language ?? 'en'
+          language: options.language ?? 'fr'
         }
       }
     } catch (error) {

@@ -163,6 +163,16 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
   public buildStructuringSystemPrompt(options: VideoGenerationOptions): string {
     const spec = this.getEffectiveSpec(options)
 
+    // Inject consistency instructions globally if not present
+    if (spec.instructions) {
+      spec.instructions.push(
+        "VISUAL CONSISTENCY: Use 'locationId' for each scene to identify recurring environments (e.g., 'Laboratory', 'Forest').",
+        "CHARACTER CONSISTENCY: Use 'charactersId' (array) for each scene to identify appearing characters.",
+        "DESCRIPTION: In 'imagePrompt', use exact names of locations and characters defined in your plan.",
+        "METADATA: Provide a 'videoMetadata' object at the root of your JSON containing 'newCharacters' (Record<string, string>) and 'newLocations' (Record<string, string>) where you describe characters and locations appearing for the first time."
+      )
+    }
+
     // We use the centralized builder which now includes outputFormat!
     return this.buildSystemInstructions(spec) || 'Structurez le script vidéo.'
   }

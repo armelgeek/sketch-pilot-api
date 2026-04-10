@@ -208,7 +208,8 @@ export class NanoBananaEngine {
         const imageUrl = await imageService.generateImage(fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
-          systemInstruction
+          systemInstruction,
+          seed: this.promptManager.getVisualSeed()
         })
         if (!bypassCache)
           this.sceneCache.set(fullPrompt, imageUrl, { sceneId: scene.id, imageStyle: this.currentOptions?.imageStyle })
@@ -309,9 +310,19 @@ export class NanoBananaEngine {
     if (scene.continueFromPrevious && lastSceneB64) effectiveRefs.push({ data: lastSceneB64 })
 
     // Location-based consistency: Reuse base image if same location exists in current project
-    if (scene.locationId && this.projectLocationCache.has(scene.locationId)) {
-      const locationB64 = this.projectLocationCache.get(scene.locationId)!
-      effectiveRefs.push({ name: 'LOCATION', data: locationB64 })
+    if (scene.locationId) {
+      if (this.projectLocationCache.has(scene.locationId)) {
+        const locationB64 = this.projectLocationCache.get(scene.locationId)!
+        effectiveRefs.push({ name: 'LOCATION', data: locationB64 })
+      } else {
+        // Look in Saga Bible (locationRegistry) for cross-episode consistency
+        const sagaRegistry = (options.customSpec as any)?.seriesMetadata?.locationRegistry
+        const sagaLocation = sagaRegistry ? sagaRegistry[scene.locationId] : null
+        if (sagaLocation && sagaLocation.thumbnailUrl) {
+          console.log(`[NanoBanana] 🌍 Saga location hit for: ${scene.locationId}`)
+          effectiveRefs.push({ name: 'LOCATION', data: sagaLocation.thumbnailUrl })
+        }
+      }
     }
 
     // --- OPTIMIZATION: Physical Reuse or Polyptych existing asset ---
@@ -556,6 +567,15 @@ export class NanoBananaEngine {
     const valid = videoGenerationOptionsSchema.parse(options)
     this.currentOptions = valid
     this.projectLocationCache.clear()
+
+    // Pre-load location cache from persistent registries
+    const spec = (valid.customSpec as any) || {}
+    const registry = spec.seriesMetadata?.locationRegistry || spec.localLocationRegistry || {}
+    for (const [id, data] of Object.entries(registry)) {
+      if ((data as any).thumbnailUrl) {
+        this.projectLocationCache.set(id, (data as any).thumbnailUrl)
+      }
+    }
     const projectName = projectId || script.id || `video-${Date.now()}`
     const projectDir = path.join(this.outputDir, projectName)
     const scenesDir = path.join(projectDir, 'scenes')

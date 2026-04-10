@@ -14,8 +14,10 @@ import { GenerateVideoUseCase } from '@/application/use-cases/video/generate-vid
 import { RegenerateVideoUseCase } from '@/application/use-cases/video/regenerate-video.use-case'
 import { RenderVideoUseCase } from '@/application/use-cases/video/render-video.use-case'
 import { RepromptSceneImageUseCase } from '@/application/use-cases/video/reprompt-scene-image.use-case'
+import { ResumeVideoUseCase } from '@/application/use-cases/video/resume-video.use-case'
 import { SuggestTopicsUseCase } from '@/application/use-cases/video/suggest-topics.use-case'
 import { UpdateVideoUseCase } from '@/application/use-cases/video/update-video.use-case'
+
 import type { Routes } from '@/domain/types'
 import { getVideoQueue, getVideoQueueEvents, redisClient } from '../config/queue.config'
 import { deleteVideoAssets, getSignedDownloadUrl, listVideoAssets } from '../config/storage.config'
@@ -41,6 +43,7 @@ const updateVideoUseCase = new UpdateVideoUseCase()
 const generateThumbnailUseCase = new GenerateThumbnailUseCase()
 const videoGenerationService = new VideoGenerationService()
 const creditsRepository = new CreditsRepository()
+const resumeVideoUseCase = new ResumeVideoUseCase()
 
 export class VideosController implements Routes {
   public controller: OpenAPIHono
@@ -252,7 +255,7 @@ export class VideosController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  topic: z.string().min(1).max(5000),
+                  topic: z.string().max(5000),
                   options: VideoOptionsSchema.optional()
                 })
               }
@@ -475,12 +478,12 @@ export class VideosController implements Routes {
 
       const { jobId } = c.req.param()
 
-      // Rate-limit: allow at most 5 concurrent SSE connections per user
+      // Rate-limit: allow at most 20 concurrent SSE connections per user
       const sseConnectionKey = `sse:connections:${user.id}`
       const currentConnectionsStr = await redisClient.get(sseConnectionKey)
       const currentConnections = currentConnectionsStr ? Number.parseInt(currentConnectionsStr, 10) : 0
 
-      if (currentConnections >= 5) {
+      if (currentConnections >= 20) {
         return c.json({ error: 'Too many active connections. Please wait.' }, 429)
       }
 
@@ -1050,7 +1053,52 @@ export class VideosController implements Routes {
       }
     )
 
+    // POST /v1/videos/:id/resume
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/videos/{id}/resume',
+        tags: ['Videos'],
+        summary: 'Resume a failed or cancelled video generation job',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Job resumed',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), jobId: z.string() }) } }
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          },
+          404: {
+            description: 'Not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const result = await resumeVideoUseCase.run({
+          videoId: id,
+          userId: user.id
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to resume job' }, 500)
+        }
+
+        return c.json({ success: true, jobId: result.jobId })
+      }
+    )
+
     // POST /v1/videos/:id/rescript
+
     this.controller.openapi(
       createRoute({
         method: 'post',
@@ -1141,6 +1189,8 @@ export class VideosController implements Routes {
                       genre: z.string().nullable().optional(),
                       type: z.string().nullable().optional(),
                       characterModelId: z.string().nullable().optional(),
+                      seriesId: z.string().nullable().optional(),
+                      episodeNumber: z.number().nullable().optional(),
                       createdAt: z.string(),
                       creditsUsed: z.number()
                     })
@@ -1185,6 +1235,8 @@ export class VideosController implements Routes {
             videoUrl: v.videoUrl,
             duration: v.duration,
             characterModelId: (v as any).characterModelId,
+            seriesId: v.seriesId,
+            episodeNumber: v.episodeNumber,
             createdAt: v.createdAt.toISOString(),
             creditsUsed: v.creditsUsed
           })),

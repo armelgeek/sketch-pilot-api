@@ -143,4 +143,9 @@ export class GrokLLMService implements LLMService {
 
     return content
   }
+
+  async *streamContent(): AsyncIterable<string> {
+    throw new Error('Streaming not implemented for Grok')
+    yield ''
+  }
 }
