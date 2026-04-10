@@ -105,7 +105,6 @@ export interface VideoGeneratorConfig {
     episodeNumber: number
     previousEpisodesContext: string
     characterRegistry: Record<string, any>
-    seed?: string
   }
 }
 
@@ -127,34 +126,6 @@ export abstract class VideoGenerator {
 
   public getTransitionTypes(): string[] {
     return this.transitionTypes
-  }
-
-  public getVisualSeed(): number | undefined {
-    // Priority 1: Direct spec seed
-    const specSeed = (this.config.scriptSpec as any)?.seriesMetadata?.seed || (this.config.scriptSpec as any)?.seed
-    if (specSeed) return this.normalizeSeed(specSeed)
-
-    // Priority 2: Series context seed
-    const contextSeed = this.config.seriesContext?.seed
-    if (contextSeed) return this.normalizeSeed(contextSeed)
-
-    return undefined
-  }
-
-  private normalizeSeed(seed: any): number {
-    if (typeof seed === 'number') return seed
-    const s = String(seed)
-    const num = parseInt(s, 10)
-    return isNaN(num) ? this.hashCode(s) : num
-  }
-
-  private hashCode(s: string): number {
-    let hash = 0
-    for (let i = 0; i < s.length; i++) {
-      hash = (hash << 5) - hash + s.charCodeAt(i)
-      hash = Math.trunc(hash) // Convert to 32bit integer
-    }
-    return Math.abs(hash)
   }
 
   // ─── Provider helpers ──────────────────────────────────────────────────────

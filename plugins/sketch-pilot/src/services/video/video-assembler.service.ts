@@ -819,9 +819,10 @@ export class VideoAssembler {
       const { xOscExpr, yOscExpr } = this.buildOrganicOscillation(2, oscSeed)
       const osc = (axis: 'x' | 'y') => (wantsOrganic ? `+(${axis === 'x' ? xOscExpr : yOscExpr})` : '')
 
-      // +0.001*on forces FFmpeg to use sub-pixel interpolation, eliminating micro-jitter on slow zoompan moves
-      const CX = `iw/2-(iw/zoom/2)+0.001*on`
-      const CY = `ih/2-(ih/zoom/2)+0.001*on`
+      // +0.0005*on forces FFmpeg to use sub-pixel interpolation, eliminating micro-jitter on slow zoompan moves.
+      // We apply it only to X to avoid diagonal drift while still breaking rounding locks.
+      const CX = `iw/2-(iw/zoom/2)+0.0005*on`
+      const CY = `ih/2-(ih/zoom/2)`
 
       const t = Math.max(1, Math.min(10, sceneTension))
 
@@ -1154,8 +1155,8 @@ export class VideoAssembler {
 
       const EASING = t <= 5 ? SS : EOC
 
-      const CX = `iw/2-(iw/zoom/2)+0.001*on`
-      const CY = `ih/2-(ih/zoom/2)+0.001*on`
+      const CX = `iw/2-(iw/zoom/2)+0.0005*on`
+      const CY = `ih/2-(ih/zoom/2)`
       const PX = `(iw-(iw/zoom))`
       const PY = `(ih-(ih/zoom))`
       const PXH = `((iw-(iw/zoom))/2)`

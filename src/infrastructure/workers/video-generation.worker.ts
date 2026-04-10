@@ -70,15 +70,6 @@ async function reportProgress(
 }
 
 /**
- * Helper to map local phase progress (0-100) to global video lifecycle progress (0-100).
- */
-function getGlobalProgress(localProgress: number): number {
-  // All-in-one or legacy
-  // The engine now returns unified progress [0-100] for topic -> video
-  return Math.max(0, Math.min(100, localProgress))
-}
-
-/**
  * Upload scene images and thumbnails to MinIO.
  * This is crucial for UI to display scenes before assembly.
  * Returns the updated scenes array with imageUrl and thumbnailUrl set.
@@ -241,7 +232,7 @@ async function handleSceneGenerated(
     console.info(`[VideoWorker] Scene ${index} persisted successfully.`)
 
     // 5. Report progress second (triggers SSE so UI fetches the now-updated DB)
-    const globalProgress = getGlobalProgress(progress)
+    const globalProgress = Math.max(0, Math.min(100, progress))
     await reportProgress(job, videoId, 'composing_scene', globalProgress, `Scene ${index} generated`, {
       currentSceneIndex: index - 1,
       scene: updatedScene
@@ -532,8 +523,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           script: { ...((videoRecord.script as any) || {}), narrationUrl: videoRecord.narrationUrl },
           options: genOptions,
           projectId: effectiveProjectId,
-          onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p), m, meta),
+          onProgress: async (p, m, meta) => await reportProgress(job, videoId, 'rendering', Math.round(p), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -568,8 +558,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           script: { ...((videoRecord.script as any) || {}), narrationUrl: videoRecord.narrationUrl },
           options: genOptions,
           projectId: effectiveProjectId,
-          onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p), m, meta),
+          onProgress: async (p, m, meta) => await reportProgress(job, videoId, 'rendering', Math.round(p), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -746,7 +735,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       const updatePayload: any = {
         status: 'scenes_generated',
-        progress: getGlobalProgress(100),
+        progress: 100,
         currentStep: 'done',
         scenes: scenesToSave,
         script: scriptToSave,
@@ -768,7 +757,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       await job.updateProgress({
         step: 'completed',
-        progress: getGlobalProgress(100),
+        progress: 100,
         status: 'completed',
         videoId
       })
