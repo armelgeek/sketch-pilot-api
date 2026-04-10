@@ -166,10 +166,9 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     // Inject consistency instructions globally if not present
     if (spec.instructions) {
       spec.instructions.push(
-        "VISUAL CONSISTENCY: Use 'locationId' for each scene to identify recurring environments (e.g., 'Laboratory', 'Forest').",
-        "CHARACTER CONSISTENCY: Use 'charactersId' (array) for each scene to identify appearing characters.",
-        "DESCRIPTION: In 'imagePrompt', use exact names of locations and characters defined in your plan.",
-        "METADATA: Provide a 'videoMetadata' object at the root of your JSON containing 'newCharacters' (Record<string, string>) and 'newLocations' (Record<string, string>) where you describe characters and locations appearing for the first time."
+        "VISUAL CONSISTENCY: Use 'locationId' to identify recurring environments.",
+        "DESCRIPTION: In 'imagePrompt', write a natural and vivid visual description in the target language. Describe subjects naturally (ex: 'la personne marche', 'une chambre sombre') without using technical IDs (like 'YoungMan') as words.",
+        "METADATA: Provide a 'videoMetadata' object at the root of your JSON containing descriptions for any recurring locations."
       )
     }
 

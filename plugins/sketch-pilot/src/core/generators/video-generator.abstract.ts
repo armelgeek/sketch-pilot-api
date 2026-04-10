@@ -78,7 +78,9 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     'Transitions MUST occur at natural pauses (full stops, commas, breath marks).',
     'DO NOT USE ABBREVIATIONS in the narration. Write everything exactly as it should be spoken (e.g., "100 pour cent" instead of "100%", "2 heures" instead of "2h").',
     `Every scene MUST have a cinematic 'transition' chosen EXCLUSIVELY from this list: [${TRANSITIONS_LIST.join(', ')}]. **'none' or 'cut' are NOT acceptable for intermediate scenes.**`,
-    `Every scene MUST have a dynamic 'cameraAction' chosen EXCLUSIVELY from this list: [${CAMERA_ACTIONS_LIST.join(', ')}]. **'static' or 'none' are NOT acceptable.**`,
+    `Every scene MUST have a dynamic 'cameraAction' chosen from this list: [${CAMERA_ACTIONS_LIST.join(', ')}].`,
+    'CAMERA VARIATION: Do not use the same cameraAction for more than 2 consecutive scenes.',
+    "CAMERA MOOD: Choose the cameraAction based on the emotional context (e.g., 'zoom-in' for focus/tension, 'pan' for scale/environment).",
     'NARRATIVE GUARDRAIL: DO NOT use speaker labels like "HOST:", "GUEST:", "NARRATEUR:" or "PERSONNAGE:". Write fluid narration only.',
     'NARRATIVE GUARDRAIL: If dialogue is needed, write it naturally without tags, or use character names ONLY if defined in the registry.',
     'THINK STEP BY STEP.'

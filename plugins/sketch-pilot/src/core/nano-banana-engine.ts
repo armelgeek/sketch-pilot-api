@@ -346,7 +346,7 @@ export class NanoBananaEngine {
           lastImageError = error
           if (attempt < MAX_IMAGE_RETRIES) {
             console.warn(
-              `[NanoBanana] Image attempt ${attempt}/${MAX_IMAGE_RETRIES} failed, retrying in ${attempt * 3}s...`
+              `[NanoBanana] Image attempt ${attempt}/${MAX_IMAGE_RETRIES} failed: ${error.message}. Retrying in ${attempt * 3}s...`
             )
             await new Promise((r) => setTimeout(r, attempt * 3000))
           } else {
@@ -463,7 +463,9 @@ export class NanoBananaEngine {
       return await this.generationQueue.add(
         () =>
           this.scriptGenerator.generateCompleteScript(topic, valid, async (p, m) => {
-            if (onProgress) await onProgress(Math.round((p / 100) * 15), m)
+            // Keep original behavior if caller didn't scale,
+            // but generateVideoFromTopic now handles the 0-15 scaling.
+            if (onProgress) await onProgress(p, m)
           }),
         `Script: ${topic}`,
         'llm'
@@ -509,7 +511,7 @@ export class NanoBananaEngine {
         current += 1
         onProgress(current, message).catch(() => {})
       }
-    }, 2500)
+    }, 800)
 
     try {
       const result = await task()
@@ -531,8 +533,10 @@ export class NanoBananaEngine {
   ): Promise<CompleteVideoPackage> {
     const valid = videoGenerationOptionsSchema.parse(options)
     if (onProgress) await onProgress(0, `[Étape 1/3] Démarrage de l'écriture: ${topic}`)
-    const script = await this.withPulse(0, 100, 'Studio: Crafting your unique script...', onProgress, () =>
-      this.generateStructuredScript(topic, valid, onProgress)
+    const script = await this.withPulse(0, 15, `[Étape 1/3] Écriture du script: ${topic}`, onProgress, () =>
+      this.generateStructuredScript(topic, valid, async (p, m) => {
+        if (onProgress) await onProgress(Math.round((p / 100) * 15), m)
+      })
     )
     if (valid.scriptOnly)
       return {
@@ -542,10 +546,10 @@ export class NanoBananaEngine {
         generatedAt: new Date().toISOString(),
         metadata: { apiCalls: script.sceneCount }
       }
-    if (onProgress) await onProgress(100, `[Étape 1/3] Script terminé.`)
+    if (onProgress) await onProgress(15, `[Étape 1/3] Script terminé.`)
     return this.generateVideoFromScript(
       script,
-      options,
+      { ...options, _isTopicCall: true } as any,
       baseImages,
       projectId,
       onProgress,
@@ -583,6 +587,13 @@ export class NanoBananaEngine {
     if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true })
     await this.exportVideoPackage(script, projectDir)
 
+    // PROGRESS SCALING LOGIC
+    const isTopicCall = !!(valid as any)._isTopicCall
+    const startOffset = isTopicCall ? 15 : 0
+    const totalWeight = 100 - startOffset - 10 // Leave 10% for worker upload/cleanup
+    const step2Weight = Math.round(totalWeight * 0.8) // Scenes (Composition + Audio)
+    const step3Weight = totalWeight - step2Weight // Assembly
+
     const assConfig = valid.assCaptions || {
       enabled: false,
       style: 'colored' as const,
@@ -593,7 +604,7 @@ export class NanoBananaEngine {
     }
     this.currentAssCaptionConfig = assConfig
 
-    const skipAudio = valid.skipAudio || valid.generateOnlyScenes
+    const skipAudio = valid.skipAudio || valid.generateOnlyScenes || valid.repromptSceneIndex != null
     const skipComposition = (valid.generateOnlyAudio || valid.generateOnlyAssembly) && valid.repromptSceneIndex == null
 
     // ─── OPTIMIZATION: Check for existing audio/transcription reuse ───────────
@@ -614,7 +625,7 @@ export class NanoBananaEngine {
     // ─── POLYPTYCH PRE-PROCESSING ──────────────────────────────────────────
     // Group scenes only if polyptychMode is explicitly enabled.
     if (valid.polyptychMode) {
-      if (onProgress) await onProgress(0, '[Étape 2/3] Organisation des scènes...')
+      if (onProgress) await onProgress(startOffset, '[Étape 2/3] Organisation des scènes...')
 
       // 1. Automatically group scenes that are not manually grouped
       PolyptychEngine.autoGroup(script.scenes)
@@ -659,7 +670,7 @@ export class NanoBananaEngine {
 
     // ─── AUDIO GENERATION (Scene by Scene) ──────────────────────────────────
     if (!skipAudio) {
-      if (onProgress) await onProgress(5, '[Étape 2/3] Préparation de la narration...')
+      if (onProgress) await onProgress(startOffset + 2, '[Étape 2/3] Préparation de la narration...')
       for (let i = 0; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
         const sceneDir = path.join(scenesDir, scene.id)
@@ -695,6 +706,10 @@ export class NanoBananaEngine {
             !fs.existsSync(audioPath) || !fs.existsSync(hashFile) || fs.readFileSync(hashFile, 'utf8') !== textHash
 
           if (stillInvalid) {
+            if (onProgress) {
+              const audioPr = Math.round(startOffset + (i / script.scenes.length) * 5)
+              await onProgress(audioPr, `[Étape 2/3] Préparation audio: Scène ${i + 1}/${script.scenes.length}`)
+            }
             console.log(`[NanoBanana] 🎤 Generating audio for Scene ${i + 1}/${script.scenes.length}...`)
             const audio = await this.getAudioService()
             const res = await audio.generateSpeech(scene.narration, audioPath)
@@ -729,6 +744,7 @@ export class NanoBananaEngine {
       script.totalDuration = currentTime
 
       if (audioFiles.length > 0) {
+        if (onProgress) await onProgress(startOffset + 2, '[Étape 2/3] Assemblage de la narration finale...')
         console.log(`[NanoBanana] 🧵 Stitching ${audioFiles.length} audio clips into global narration...`)
         await this.stitchAudioFiles(audioFiles, globalAudioPath)
         script.globalAudio = 'narration.mp3'
@@ -743,7 +759,7 @@ export class NanoBananaEngine {
           fs.existsSync(transcriptHashPath) && fs.readFileSync(transcriptHashPath, 'utf8') === audioStatHash
 
         if (!cachedTranscriptValid) {
-          if (onProgress) await onProgress(20, '[Étape 2/3] Synchronisation des paroles (Whisper AI)...')
+          if (onProgress) await onProgress(startOffset + 5, '[Étape 2/3] Synchronisation des paroles (Whisper AI)...')
           try {
             const { TranscriptionServiceFactory } = await import('../services/audio/transcription.service')
             const transcriptionService = await TranscriptionServiceFactory.create({
@@ -752,7 +768,13 @@ export class NanoBananaEngine {
               device: 'cpu',
               language: valid.language?.split('-')[0] || 'en'
             } as any)
-            const result = await transcriptionService.transcribe(globalAudioPath)
+            const result = await this.withPulse(
+              startOffset + 5,
+              startOffset + 8,
+              '[Étape 2/3] Synchronisation des paroles (Whisper AI)...',
+              onProgress,
+              () => transcriptionService.transcribe(globalAudioPath)
+            )
             const { TimingMapper } = await import('../utils/timing-mapper')
             const sceneNarrations = script.scenes.map((s: any) => ({ sceneId: s.id, narration: s.narration }))
             const mappedTimings = TimingMapper.mapScenes(sceneNarrations, result.wordTimings)
@@ -782,6 +804,10 @@ export class NanoBananaEngine {
 
       if (!fs.existsSync(sceneImg) && (scene as any).imageUrl && !isTarget) {
         try {
+          if (onProgress) {
+            const dlPr = Math.round(startOffset + 5 + (i / script.scenes.length) * 5)
+            await onProgress(dlPr, `[Étape 2/3] Téléchargement: Scène ${i + 1}/${script.scenes.length}`)
+          }
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
           const res = await axios.get((scene as any).imageUrl, { responseType: 'arraybuffer' })
           fs.writeFileSync(sceneImg, Buffer.from(res.data))
@@ -815,8 +841,10 @@ export class NanoBananaEngine {
               completed++
 
               const localPr = Math.round((completed / script.scenes.length) * 100)
-              if (onProgress)
-                await onProgress(localPr, `[Étape 2/3] Scène ${completed}/${script.scenes.length} (cache)`)
+              if (onProgress) {
+                const globalPr = Math.round(startOffset + 10 + (localPr / 100) * (step2Weight - 10))
+                await onProgress(globalPr, `[Étape 2/3] Scène ${completed}/${script.scenes.length} (cache)`)
+              }
 
               if (onSceneGenerated) {
                 console.log(`[NanoBanana] 📣 Triggering onSceneGenerated for cached scene ${scene.id}...`)
@@ -853,7 +881,10 @@ export class NanoBananaEngine {
 
           completed++
           const localPr = Math.round((completed / script.scenes.length) * 100)
-          if (onProgress) await onProgress(localPr, `[Étape 2/3] Scène ${completed}/${script.scenes.length}`)
+          if (onProgress) {
+            const globalPr = Math.round(startOffset + 10 + (localPr / 100) * (step2Weight - 10))
+            await onProgress(globalPr, `[Étape 2/3] Scène ${completed}/${script.scenes.length}`)
+          }
           if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, localPr)
           return fs.existsSync(sceneImg) ? fs.readFileSync(sceneImg).toString('base64') : undefined
         })
@@ -877,12 +908,23 @@ export class NanoBananaEngine {
             globalAudioPath: fs.existsSync(globalAudioPath) ? globalAudioPath : undefined
           },
           async (p, m) => {
-            if (onProgress) await onProgress(p, `[Étape 3/3] ${m}`)
+            if (onProgress) {
+              const globalPr = Math.round(startOffset + step2Weight + (p / 100) * step3Weight)
+              await onProgress(Math.min(100, globalPr), `[Étape 3/3] ${m}`)
+            }
           }
         )
         await this.cleanupProject(projectDir, 'intermediate')
-      } catch (error) {
+
+        // Final sanity check: ensure at least one video output exists
+        const finalMp4 = path.join(projectDir, 'final_video.mp4')
+        const assembledMp4 = path.join(projectDir, 'assembled_video.mp4')
+        if (!fs.existsSync(finalMp4) && !fs.existsSync(assembledMp4)) {
+          throw new Error(`Assembly completed but final video file not found in ${projectDir}`)
+        }
+      } catch (error: any) {
         console.error(`[NanoBanana] Assembly fail:`, error)
+        throw error // Propagate error to worker
       }
     }
 

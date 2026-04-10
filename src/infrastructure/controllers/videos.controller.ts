@@ -118,108 +118,134 @@ export class VideosController implements Routes {
       const queueEvents = getVideoQueueEvents()
 
       queueEvents.on('progress', async ({ jobId, data }) => {
-        const streams = this.sseStreamsByJobId.get(jobId)
-        console.info(
-          `[SSE Controller] BullMQ progress event for job ${jobId}. Has Streams: ${!!streams}. Data type: ${typeof data}`
-        )
+        let parsedData: any = data
+        if (typeof data === 'string') {
+          try {
+            parsedData = JSON.parse(data)
+          } catch {
+            // Not JSON, keep as is
+          }
+        }
 
-        if (streams && streams.size > 0) {
-          let parsedData: any = data
-          if (typeof data === 'string') {
-            try {
-              parsedData = JSON.parse(data)
-            } catch {
-              // Not JSON, keep as is
+        try {
+          const progressPayload: any =
+            typeof parsedData === 'object' && parsedData !== null
+              ? { jobId, ...parsedData }
+              : { jobId, progress: parsedData }
+
+          // BROADCAST BRIDGING:
+          // Fetch all streams registered for THIS JOB and ALSO for the associated VIDEO ID.
+          // This ensures "shadow" jobs (deferred duplicates) get the progress from the active job.
+          const streams = new Set<any>(this.sseStreamsByJobId.get(jobId) || [])
+          const vId = progressPayload.videoId
+          if (vId && this.sseStreamsByJobId.get(vId)) {
+            for (const s of this.sseStreamsByJobId.get(vId)!) {
+              streams.add(s)
             }
           }
 
-          try {
-            const progressPayload: any =
-              typeof parsedData === 'object' && parsedData !== null
-                ? { jobId, ...parsedData }
-                : { jobId, progress: parsedData }
+          if (streams.size === 0) return
 
-            const video = await videoRepository.findByJobId(jobId)
-            const videoOptions = video?.options
-            const scenes = video?.scenes || (video?.script as any)?.scenes || []
-            const totalScenes = (video?.script as any)?.scenes?.length || 0
+          const video = await videoRepository.findByJobId(jobId)
+          const videoOptions = video?.status === 'processing' ? video.options : null
+          const scenes = video?.scenes || (video?.script as any)?.scenes || []
+          const totalScenes = (video?.script as any)?.scenes?.length || 0
 
-            // If we are in composing_scene step but missing the scene object, try to find it
-            if (progressPayload.step === 'composing_scene' && !progressPayload.scene) {
-              let currentSceneIndex = progressPayload.currentSceneIndex
-
-              if (scenes.length > 0) {
-                // If parsedData didn't have currentSceneIndex, find the highest index with an image
-                if (currentSceneIndex === undefined) {
-                  for (let i = scenes.length - 1; i >= 0; i--) {
-                    if (scenes[i].imageUrl) {
-                      currentSceneIndex = i
-                      progressPayload.scene = scenes[i]
-                      progressPayload.currentSceneIndex = i
-                      break
-                    }
+          // If we are in composing_scene step but missing the scene object, try to find it
+          if (progressPayload.step === 'composing_scene' && !progressPayload.scene) {
+            let currentSceneIndex = progressPayload.currentSceneIndex
+            if (scenes.length > 0) {
+              if (currentSceneIndex === undefined) {
+                for (let i = scenes.length - 1; i >= 0; i--) {
+                  if (scenes[i].imageUrl) {
+                    currentSceneIndex = i
+                    progressPayload.scene = scenes[i]
+                    progressPayload.currentSceneIndex = i
+                    break
                   }
-                } else if (scenes[currentSceneIndex]) {
-                  // If we have index but no scene data, pull it from DB
-                  progressPayload.scene = scenes[currentSceneIndex]
                 }
+              } else if (scenes[currentSceneIndex]) {
+                progressPayload.scene = scenes[currentSceneIndex]
               }
             }
+          }
 
-            const enrichedPayload = {
-              ...progressPayload,
-              options: videoOptions,
-              totalScenes // Added
-            }
+          const enrichedPayload = {
+            ...progressPayload,
+            options: videoOptions,
+            totalScenes
+          }
 
-            for (const enqueue of streams) {
-              enqueue('progress', enrichedPayload)
-            }
-          } catch (error) {
-            console.error(`[SSE Controller] Failed to process progress payload:`, error)
-            // Ultimate fallback
-            const progressPayload =
-              typeof parsedData === 'object' && parsedData !== null
-                ? { jobId, ...parsedData }
-                : { jobId, progress: parsedData }
+          for (const enqueue of streams) {
+            enqueue('progress', enrichedPayload)
+          }
+        } catch (error) {
+          console.error(`[SSE Controller] Failed to process progress payload:`, error)
+          const progressPayload =
+            typeof parsedData === 'object' && parsedData !== null
+              ? { jobId, ...parsedData }
+              : { jobId, progress: parsedData }
+
+          const streams = this.sseStreamsByJobId.get(jobId)
+          if (streams) {
             for (const enqueue of streams) enqueue('progress', progressPayload)
           }
         }
       })
 
       queueEvents.on('completed', async ({ jobId }) => {
-        const streams = this.sseStreamsByJobId.get(jobId)
-        if (streams && streams.size > 0) {
-          try {
-            const completedVideo = await videoRepository.findByJobId(jobId)
+        const streams = new Set<any>(this.sseStreamsByJobId.get(jobId) || [])
+        try {
+          const completedVideo = await videoRepository.findByJobId(jobId)
+          if (completedVideo?.id && this.sseStreamsByJobId.has(completedVideo.id)) {
+            for (const s of this.sseStreamsByJobId.get(completedVideo.id)!) streams.add(s)
+          }
+
+          if (streams.size > 0) {
             for (const enqueue of streams) {
               enqueue('completed', {
                 jobId,
                 status: 'completed',
-                progress: 100, // Always 100% when job is completed
+                progress: 100,
                 videoId: completedVideo?.id,
                 videoUrl: completedVideo?.videoUrl,
                 thumbnailUrl: completedVideo?.thumbnailUrl,
-                options: completedVideo?.options, // Added
+                options: completedVideo?.options,
                 script: completedVideo?.script,
                 duration: completedVideo?.duration
               })
             }
-          } catch {
+          }
+        } catch {
+          if (streams.size > 0) {
             for (const enqueue of streams) enqueue('completed', { jobId, status: 'completed', progress: 100 })
           }
         }
       })
 
       queueEvents.on('failed', ({ jobId, failedReason }) => {
-        const streams = this.sseStreamsByJobId.get(jobId)
-        if (streams) {
-          for (const enqueue of streams)
-            enqueue('error', { jobId, status: 'failed', error: failedReason, retryable: true })
-
-          // Cleanup map after a small delay to ensure events are sent
-          setTimeout(() => this.cleanupJobStreams(jobId), 5000)
-        }
+        const streams = new Set<any>(this.sseStreamsByJobId.get(jobId) || [])
+        // Notify video-based listeners if possible
+        videoRepository
+          .findByJobId(jobId)
+          .then((v) => {
+            if (v?.id && this.sseStreamsByJobId.has(v.id)) {
+              for (const s of this.sseStreamsByJobId.get(v.id)!) streams.add(s)
+            }
+            if (streams.size > 0) {
+              for (const enqueue of streams)
+                enqueue('error', { jobId, status: 'failed', error: failedReason, retryable: true })
+            }
+          })
+          .catch(() => {
+            if (streams.size > 0) {
+              for (const enqueue of streams)
+                enqueue('error', { jobId, status: 'failed', error: failedReason, retryable: true })
+            }
+          })
+          .finally(() => {
+            setTimeout(() => this.cleanupJobStreams(jobId), 5000)
+          })
       })
 
       queueEvents.on('stalled', ({ jobId }) => {
@@ -731,8 +757,7 @@ export class VideosController implements Routes {
           }
         },
         cancel() {
-          // Client disconnected - release resources
-          // Releasing is handled by controller.close() which eventually sets closed
+          cleanupStreamResources()
         }
       })
 

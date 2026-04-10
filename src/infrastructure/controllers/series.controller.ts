@@ -141,7 +141,7 @@ export class SeriesController implements Routes {
                     .optional()
                     .openapi({ description: 'The narrative bible for the saga' }),
                   characterRegistry: z.record(z.any()).optional(),
-                  seed: z.string().optional(),
+
                   totalEpisodes: z.string().optional(),
                   language: z.string().optional(),
                   aspectRatio: z.string().optional(),
@@ -276,7 +276,7 @@ export class SeriesController implements Routes {
                   description: z.string().max(1000).optional(),
                   globalContext: z.string().max(10000).optional(),
                   characterRegistry: z.record(z.any()).optional(),
-                  seed: z.string().optional(),
+
                   totalEpisodes: z.string().optional(),
                   language: z.string().optional(),
                   aspectRatio: z.string().optional(),

@@ -70,8 +70,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
             id: newSeriesId,
             userId,
             title: `Saga: ${defaultTitle}`,
-            description: `Saga générée automatiquement à partir du sujet : ${topic}`,
-            seed: Math.floor(Math.random() * 1000000).toString()
+            description: `Saga générée automatiquement à partir du sujet : ${topic}`
           })
         }
 

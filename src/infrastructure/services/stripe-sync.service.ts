@@ -10,8 +10,11 @@ export class StripeSyncService {
 
     if (!product) {
       product = await stripe.products.create({ name })
-    } else if (product.name !== name) {
-      await stripe.products.update(product.id, { name })
+    } else {
+      await stripe.products.update(product.id, {
+        name,
+        description: `Video generation service - ${name}`
+      })
     }
 
     return product
@@ -48,10 +51,16 @@ export class StripeSyncService {
     )
 
     if (!price) {
+      const billingPeriod = interval === 'year' ? 'yearly' : interval === 'month' ? 'monthly' : 'one-time'
       price = await stripe.prices.create({
         unit_amount: unitAmount,
         currency,
         product: productId,
+        nickname: `${billingPeriod.toUpperCase()} - ${currency.toUpperCase()} ${amount}`,
+        metadata: {
+          billing_period: billingPeriod,
+          plan_name: productId
+        },
         ...(interval ? { recurring: { interval } } : {})
       })
     }

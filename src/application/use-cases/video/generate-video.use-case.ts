@@ -84,8 +84,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
             id: newSeriesId,
             userId,
             title: `Saga: ${defaultTitle}`,
-            description: `Saga générée automatiquement à partir du sujet : ${topic}`,
-            seed: Math.floor(Math.random() * 1000000).toString()
+            description: `Saga générée automatiquement à partir du sujet : ${topic}`
           })
         }
 
@@ -109,7 +108,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
               locationRegistry: seriesContext.locationRegistry,
               lastCliffhanger: seriesContext.lastCliffhanger,
               unresolvedThreads: seriesContext.unresolvedThreads,
-              seed: seriesContext.seed,
+
               totalEpisodes: seriesContext.totalEpisodes,
               episodeNumber: options.episodeNumber || seriesContext.lastEpisodeNumber + 1
             }

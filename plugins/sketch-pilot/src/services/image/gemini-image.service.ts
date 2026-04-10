@@ -167,7 +167,7 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
           console.warn(`[GeminiImage] ❌ NO_IMAGE after ${GeminiImageService.NO_IMAGE_MAX_RETRIES} retries.`)
         }
       } catch (error: any) {
-        console.error(`[GeminiImage] ❌ Error:`, JSON.stringify(error, null, 2))
+        console.error(`[GeminiImage] ❌ Error:`, error)
         const errMsg = error.message?.slice(0, 500) || 'Unknown error'
 
         const isRetryable =

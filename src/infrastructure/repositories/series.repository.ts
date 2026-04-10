@@ -11,7 +11,7 @@ export class SeriesRepository {
     globalContext?: string
     characterRegistry?: Record<string, any>
     locationRegistry?: Record<string, any>
-    seed?: string
+
     totalEpisodes?: string
     language?: string
     aspectRatio?: string
@@ -82,7 +82,7 @@ export class SeriesRepository {
       previousEpisodesContext: s.previousEpisodesContext || '',
       characterRegistry: (s.characterRegistry as Record<string, any>) || {},
       locationRegistry: (s.locationRegistry as Record<string, any>) || {},
-      seed: s.seed ?? undefined,
+
       totalEpisodes: s.totalEpisodes ? Number(s.totalEpisodes) : undefined,
       lastEpisodeNumber: s.lastEpisodeNumber ? Number(s.lastEpisodeNumber) : 0,
       lastCliffhanger: s.lastCliffhanger ?? undefined,

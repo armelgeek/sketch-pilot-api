@@ -206,9 +206,9 @@ ${Object.entries(this.seriesContext.characterRegistry)
         this.seriesContext.isFinalEpisode
           ? "RÉSOLUTION FINALE (OBLIGATOIRE): Concluez TOUTES les intrigues. INTERDICTION de finir sur un cliffhanger. L'histoire doit être terminée et fermée."
           : `CLIFFHANGER MAJEUR : Finissez sur une tension insoutenable. Ne concluez rien. L'action doit rester "suspendue".`,
-        "PERSONNAGES: Utilisez UNIQUEMENT les personnages du registre. Remplissez 'charactersId' pour chaque scène (ex: ['King Arthur', 'Sarah']).",
-        "LIEUX: Utilisez 'locationId' pour chaque scène en utilisant les noms du registre (ex: 'The Dark Forest'). Si vous créez un NOUVEAU lieu, ajoutez-le dans 'seriesMetadata.newLocations' : { \"Nom du Lieu\": \"Description visuelle précise\" }.",
-        "CONTINUITÉ VISUELLE: Pour chaque scène, utilisez les noms EXACTS du registre (personnages et lieux) dans votre 'imagePrompt'.",
+        "PERSONNAGES: Utilisez les identifiants du registre pour remplir 'charactersId'.",
+        "LIEUX: Utilisez l'identifiant 'locationId' pour chaque scène. Si vous créez un NOUVEAU lieu, ajoutez-le dans 'seriesMetadata.newLocations'.",
+        "DESCRIPTION: Dans 'imagePrompt', écrivez une description visuelle naturelle et vivante dans la langue cible. N'utilisez PAS les identifiants techniques (comme 'YoungMan') comme des mots ; décrivez le sujet naturellement (ex: 'un jeune homme', 'une chambre sombre').",
         "MÉTAMÉMOIRE: Fournissez un 'episodeSummary' concis dans 'seriesMetadata' pour la mémoire des futurs épisodes."
       ]
     }

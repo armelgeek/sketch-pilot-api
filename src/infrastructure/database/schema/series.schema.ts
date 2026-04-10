@@ -20,9 +20,6 @@ export const series = pgTable('series', {
   // Cumulative context of previous episodes (summaries, cliffhangers)
   previousEpisodesContext: text('previous_episodes_context').default(''),
 
-  // Visual seed for thematic consistency
-  seed: text('seed'),
-
   // Total planned episodes (optional)
   totalEpisodes: text('total_episodes'),
 

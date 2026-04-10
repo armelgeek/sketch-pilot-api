@@ -7,7 +7,7 @@ import { DelayedError, Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
-import { redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
+import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
@@ -72,27 +72,10 @@ async function reportProgress(
 /**
  * Helper to map local phase progress (0-100) to global video lifecycle progress (0-100).
  */
-function getGlobalProgress(localProgress: number, options: any): number {
-  const p = Math.max(0, Math.min(100, localProgress))
-
-  // Phase 1: Script & Scenes (0-70% total lifecycle)
-  if (options.generateOnlyScenes || !options.generateFromScript) {
-    // If it's a standalone scene generation job, let it reach 100%
-    if (options.generateOnlyScenes) return p
-    return Math.round((p / 100) * 70)
-  }
-
-  // Phase 2: Assembly/Rendering (70-100% total lifecycle)
-  if (options.generateOnlyAssembly) {
-    // If it's a standalone assembly job, let's start at 0 if it was queued at 10%
-    // but the user expects 100% at the end.
-    // To avoid the jump from 10 to 70, we'll just return the raw progress
-    // so it's a 0-100 experience for this specific job.
-    return p
-  }
-
+function getGlobalProgress(localProgress: number): number {
   // All-in-one or legacy
-  return p
+  // The engine now returns unified progress [0-100] for topic -> video
+  return Math.max(0, Math.min(100, localProgress))
 }
 
 /**
@@ -258,7 +241,7 @@ async function handleSceneGenerated(
     console.info(`[VideoWorker] Scene ${index} persisted successfully.`)
 
     // 5. Report progress second (triggers SSE so UI fetches the now-updated DB)
-    const globalProgress = getGlobalProgress(progress, job.data.options)
+    const globalProgress = getGlobalProgress(progress)
     await reportProgress(job, videoId, 'composing_scene', globalProgress, `Scene ${index} generated`, {
       currentSceneIndex: index - 1,
       scene: updatedScene
@@ -427,25 +410,48 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
 
   const lockKey = `active-video-job:${videoId}`
+  const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId).catch(() => null)
 
   // Defer if another job is already processing this videoId
   const existingJobId = await redisClient.get(lockKey)
+
   if (existingJobId && existingJobId !== job.id) {
-    console.warn(`[VideoWorker] Job ${job.id} deferred — videoId ${videoId} already processing in job ${existingJobId}`)
-    await job.moveToDelayed(Date.now() + 15_000, job.token)
-    throw new DelayedError()
+    // 1. Check if the holding job is still physically in the BullMQ waiting/active states
+    const holdingJob = await getVideoQueue().getJob(existingJobId)
+    const state = holdingJob ? await holdingJob.getState() : 'unknown'
+    const isBullMQStuck = !holdingJob || state === 'failed' || state === 'completed'
+
+    // 2. STALE LOCK DETECTION (Cross-reference with Database)
+    // If the holding jobId is NOT what the database thinks is current, it's stale (leftover from a previous crashed run or cancelled job)
+    const isStaleLock = videoRecord && videoRecord.jobId !== existingJobId
+
+    // 3. CANCELLATION SIGNAL DETECTION
+    // If there's a cancel-video flag in Redis, the holding job is marked for death
+    const wasMarkedForCancellation = await redisClient.get(`cancel-video-${videoId}`)
+
+    if (!isBullMQStuck && !isStaleLock && !wasMarkedForCancellation) {
+      console.warn(
+        `[VideoWorker] Job ${job.id} deferred — videoId ${videoId} already processing in job ${existingJobId} (State: ${state})`
+      )
+      await job.moveToDelayed(Date.now() + 15_000, job.token)
+      throw new DelayedError()
+    }
+
+    console.warn(
+      `[VideoWorker] Reclaiming lock for videoId ${videoId} from job ${existingJobId} (Stale: ${!!isStaleLock}, Cancelled: ${!!wasMarkedForCancellation}, BullMQ Stuck: ${!!isBullMQStuck})`
+    )
+    await redisClient.del(lockKey)
   }
 
   if (job.id) {
-    // Set lock valid for 2 hours just in case worker crashes
-    await redisClient.set(lockKey, job.id, 'EX', 2 * 3600)
+    // Initialize or reclaim the lock
+    await redisClient.set(lockKey, job.id, 'EX', 1800)
   }
 
   let pkg: CompleteVideoPackage | null = null
   let effectiveProjectId = ''
 
   try {
-    const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId)
     if (!videoRecord) throw new Error('Video not found.')
 
     if (videoRecord.status === 'completed') {
@@ -527,7 +533,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p, job.data.options), m, meta),
+            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -563,7 +569,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           options: genOptions,
           projectId: effectiveProjectId,
           onProgress: async (p, m, meta) =>
-            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p, job.data.options), m, meta),
+            await reportProgress(job, videoId, 'rendering', getGlobalProgress(p), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -687,26 +693,29 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     }
 
     // 5. ASSET PERSISTENCE (If only scenes requested)
-    if (options.generateOnlyScenes && !checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.ASSET_GENERATION)) {
-      await reportProgress(job, videoId, 'upload_scenes', 90, 'Uploading scene visuals...')
-      const updatedScenes = [...(pkg.script?.scenes || [])]
-      await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
+    if (options.generateOnlyScenes) {
+      if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.COMPLETED)) {
+        await reportProgress(job, videoId, 'upload_scenes', 90, 'Uploading scene visuals...')
+        const updatedScenes = [...(pkg.script?.scenes || [])]
+        await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
 
-      // Sync script column too
-      if (pkg.script) pkg.script.scenes = updatedScenes
+        // Sync script column too
+        if (pkg.script) pkg.script.scenes = updatedScenes
 
-      await videoRepository.updateStatus(videoId, {
-        status: 'scenes_generated',
-        progress: 100, // Storyboard phase is finished for this job
-        scenes: updatedScenes as any,
-        script: pkg.script as any,
-        completedAt: new Date()
-      })
-      checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
-      const serialized = checkpointStorage.save(checkpoint)
-      await videoRepository.updateStatus(videoId, {
-        options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
-      })
+        await videoRepository.updateStatus(videoId, {
+          status: 'scenes_generated',
+          progress: 100, // Storyboard phase is finished for this job
+          scenes: updatedScenes as any,
+          script: pkg.script as any,
+          completedAt: new Date()
+        })
+        checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
+        const serialized = checkpointStorage.save(checkpoint)
+        await videoRepository.updateStatus(videoId, {
+          options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
+        })
+      }
+
       await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
 
       // DEDUCT CREDITS ON SUCCESS
@@ -737,7 +746,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
       const updatePayload: any = {
         status: 'scenes_generated',
-        progress: getGlobalProgress(100, options),
+        progress: getGlobalProgress(100),
         currentStep: 'done',
         scenes: scenesToSave,
         script: scriptToSave,
@@ -759,7 +768,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       await job.updateProgress({
         step: 'completed',
-        progress: getGlobalProgress(100, options),
+        progress: getGlobalProgress(100),
         status: 'completed',
         videoId
       })
@@ -772,12 +781,23 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
     // 7. FINAL UPLOAD (Full Video)
     if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.UPLOAD)) {
-      await reportProgress(job, videoId, 'upload', 96, 'Uploading final video to storage...')
+      await reportProgress(job, videoId, 'upload', 94, 'Preparing final video package...')
       const finalMp4 = path.join(pkg.outputPath, 'final_video.mp4')
       const assembledMp4 = path.join(pkg.outputPath, 'assembled_video.mp4')
       const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
 
+      await reportProgress(job, videoId, 'upload', 96, 'Uploading final video to storage...')
+
       const videoUrl = videoFilePath ? await uploadVideoToMinio(videoId, videoFilePath) : undefined
+
+      // STRICT VALIDATION: If we reach this point but have no video URL, the generation FAILED.
+      // Do not mark as completed.
+      if (!videoUrl) {
+        throw new Error(
+          `Final video upload failed for ${videoId}: No video file found or upload returned empty URL. Check engine logs for assembly errors.`
+        )
+      }
+
       const thumbnailJpgRoot = path.join(pkg.outputPath, 'thumbnail.jpg')
       let thumbnailUrl = fs.existsSync(thumbnailJpgRoot)
         ? await uploadBuffer(`videos/${videoId}/thumbnail.jpg`, fs.readFileSync(thumbnailJpgRoot), 'image/jpeg')
@@ -835,8 +855,15 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Job failed'
     console.error(`[VideoWorker] Error during job ${job.id}:`, error)
-    const isLast = job.attemptsMade >= (job.opts.attempts || 1)
-    if (isLast) await videoRepository.updateStatus(videoId, { status: 'failed', errorMessage: msg })
+    const isLast = (job.attemptsMade ?? 0) >= (job.opts?.attempts ?? 1)
+    if (isLast) {
+      // PERMANENT FAILURE: Ensure clear error message in database for support
+      await videoRepository.updateStatus(videoId, {
+        status: 'failed',
+        errorMessage: `Critical Error: ${msg}`,
+        progress: 0
+      })
+    }
     throw error
   } finally {
     // 8. Dynamic Cleanup Logic

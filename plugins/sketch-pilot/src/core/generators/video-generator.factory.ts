@@ -15,6 +15,7 @@ export const VideoGeneratorFactory = {
         globalContext: extraOptions.globalContext || sc.globalContext,
         previousEpisodesContext: extraOptions.previousEpisodesContext || sc.previousEpisodesContext || '',
         characterRegistry: extraOptions.characterRegistry || sc.characterRegistry || {},
+        locationRegistry: extraOptions.locationRegistry || sc.locationRegistry || {},
         lastCliffhanger: extraOptions.lastCliffhanger || sc.lastCliffhanger,
         unresolvedThreads: extraOptions.unresolvedThreads || sc.unresolvedThreads,
         totalEpisodes: extraOptions.totalEpisodes || sc.totalEpisodes,

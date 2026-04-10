@@ -1,4 +1,4 @@
-# Principes SOLID dans Meko Academy Backend
+# Principes SOLID dans Sketch Pilot Backend
 
 Les principes SOLID sont fondamentaux dans notre architecture. Voici comment nous les appliquons dans notre projet.
 
@@ -139,7 +139,7 @@ export class UserService {
         await this.emailService.sendEmail(
             user.email,
             'Bienvenue',
-            'Bienvenue sur Meko Academy!'
+            'Bienvenue sur Sketch Pilot!'
         )
         return user
     }

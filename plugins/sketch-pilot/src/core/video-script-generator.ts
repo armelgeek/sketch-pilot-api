@@ -172,7 +172,7 @@ export class VideoScriptGenerator {
         current += 1
         onProgress(current, message).catch(() => {})
       }
-    }, 2000)
+    }, 800)
 
     try {
       const result = await task()

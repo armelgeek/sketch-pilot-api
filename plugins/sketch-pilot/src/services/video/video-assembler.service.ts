@@ -198,7 +198,7 @@ export class VideoAssembler {
 
     const finalVideoNoMusic = path.join(projectDir, 'final_video_no_music.mp4')
     const audioOverlap = hasGlobalAudio ? 0.05 : (globalOptions.audioOverlap ?? 0.3)
-    await this.stitchClips(finalClips, finalVideoNoMusic, finalTransitions, audioOverlap)
+    await this.stitchClips(finalClips, finalVideoNoMusic, finalTransitions, audioOverlap, onProgress, 45, 60)
 
     // --- GLOBAL AUDIO OVERLAY ---
     let finalVisualPath = finalVideoNoMusic
@@ -252,8 +252,16 @@ export class VideoAssembler {
     )
 
     if (globalOptions.branding) {
+      if (onProgress) await onProgress(90, 'Applying branding overlays...')
       const brandedVideoPath = path.join(projectDir, 'final_video_branded.mp4')
-      finalVisualPath = await this.applyBranding(finalVisualPath, globalOptions.branding, brandedVideoPath)
+      finalVisualPath = await this.applyBranding(
+        finalVisualPath,
+        globalOptions.branding,
+        brandedVideoPath,
+        onProgress,
+        90,
+        95
+      )
     }
 
     if (globalOptions.assCaptions?.enabled !== false) {
@@ -520,9 +528,16 @@ export class VideoAssembler {
   // BRANDING
   // ─────────────────────────────────────────────────────────────────────────
 
-  async applyBranding(videoPath: string, config: any, outputPath: string): Promise<string> {
+  async applyBranding(
+    videoPath: string,
+    config: any,
+    outputPath: string,
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    startRange: number = 0,
+    endRange: number = 100
+  ): Promise<string> {
     console.log(`[VideoAssembler] Applying branding overlays...`)
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       let filter = ''
       const inputs: string[] = [videoPath]
 
@@ -550,6 +565,11 @@ export class VideoAssembler {
       let cmd = ffmpeg(videoPath)
       if (config.logoPath && fs.existsSync(config.logoPath)) {
         cmd = cmd.input(config.logoPath)
+      }
+
+      if (onProgress) {
+        const duration = await this.getClipDuration(videoPath).catch(() => 0)
+        this.attachProgressListener(cmd, duration, startRange, endRange, onProgress, 'Applying branding overlays...')
       }
 
       cmd
@@ -1620,7 +1640,10 @@ export class VideoAssembler {
     clips: string[],
     outputPath: string,
     transitions: (string | undefined)[] = [],
-    audioOverlap: number = 0.1
+    audioOverlap: number = 0.1,
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    startRange: number = 0,
+    endRange: number = 100
   ): Promise<string> {
     if (clips.length === 0) throw new Error('No clips to stitch')
     if (clips.length === 1) {
@@ -1634,7 +1657,7 @@ export class VideoAssembler {
     })
 
     if (!hasTransitions && audioOverlap <= 0) {
-      return this.stitchClipsSimple(clips, outputPath)
+      return this.stitchClipsSimple(clips, outputPath, onProgress, startRange, endRange)
     }
 
     console.log(`[VideoAssembler] Stitching ${clips.length} clips with xfade transitions...`)
@@ -1741,6 +1764,11 @@ export class VideoAssembler {
 
     filterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex
 
+    if (onProgress) {
+      const totalDur = durations.reduce((acc, d) => acc + d, 0)
+      this.attachProgressListener(command, totalDur, startRange, endRange, onProgress, 'Stitching scenes together...')
+    }
+
     return new Promise<string>((resolve, reject) => {
       command
         .complexFilter(filterComplex)
@@ -1770,26 +1798,37 @@ export class VideoAssembler {
     })
   }
 
-  private async stitchClipsSimple(clips: string[], outputPath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const command = ffmpeg()
-      const listFileName = path.join(path.dirname(outputPath), 'concat_list.txt')
-      const fileContent = clips.map((clip) => `file '${clip}'`).join('\n')
-      fs.writeFileSync(listFileName, fileContent)
+  private async stitchClipsSimple(
+    clips: string[],
+    outputPath: string,
+    onProgress?: (progress: number, message: string) => Promise<void>,
+    startRange: number = 0,
+    endRange: number = 100
+  ): Promise<string> {
+    console.log(`[VideoAssembler] Stitching ${clips.length} clips (simple concat)...`)
+    const listFile = `${outputPath}.list.txt`
+    fs.writeFileSync(listFile, clips.map((p) => `file '${path.resolve(p)}'`).join('\n'))
 
-      command
-        .input(listFileName)
-        .inputOptions(['-f concat', '-safe 0'])
-        .outputOptions(['-c copy'])
-        .save(outputPath)
+    const cmd = ffmpeg().input(listFile).inputOptions(['-f', 'concat', '-safe', '0']).outputOptions(['-c copy', '-y'])
+
+    if (onProgress) {
+      const durations = await Promise.all(clips.map((c) => this.getClipDuration(c).catch(() => 0)))
+      const totalDur = durations.reduce((acc, d) => acc + d, 0)
+      this.attachProgressListener(cmd, totalDur, startRange, endRange, onProgress, 'Stitching clips (concat)...')
+    }
+
+    return new Promise((resolve, reject) => {
+      cmd
+        .on('error', (err) => {
+          console.error('[VideoAssembler] Simple stitching failed:', err.message)
+          if (fs.existsSync(listFile)) fs.unlinkSync(listFile)
+          reject(err)
+        })
         .on('end', () => {
-          fs.unlinkSync(listFileName)
+          if (fs.existsSync(listFile)) fs.unlinkSync(listFile)
           resolve(outputPath)
         })
-        .on('error', (err) => {
-          if (fs.existsSync(listFileName)) fs.unlinkSync(listFileName)
-          reject(new Error(`Stitching failed: ${err.message}`))
-        })
+        .save(outputPath)
     })
   }
 

@@ -1,10 +1,10 @@
-# Meko Academy Backend
+# Sketch Pilot Backend
 
-Backend API pour la plateforme Meko Academy développée avec Hono.js et une architecture hexagonale.
+Backend API pour la plateforme Sketch Pilot développée avec Hono.js et une architecture hexagonale.
 
 ## Table des matières 📋
 
-- [Meko Academy Backend](#sketch-pilot-backend)
+- [Sketch Pilot Backend](#sketch-pilot-backend)
   - [Table des matières 📋](#table-des-matières-)
   - [Features 🛠️](#features-️)
   - [Installation 🚀](#installation-)
