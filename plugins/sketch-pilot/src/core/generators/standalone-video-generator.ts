@@ -28,34 +28,6 @@ export class StandaloneVideoGenerator extends VideoGenerator {
     return 'standalone'
   }
 
-  // ─── Narrative Overrides ──────────────────────────────────────────────────
-
-  protected validateNarrativeCoherence(scenes: any[]): string[] {
-    const violations: string[] = []
-
-    for (let i = 0; i < scenes.length - 1; i++) {
-      const current = scenes[i]
-      const next = scenes[i + 1]
-
-      const currentSentences = (current.narration || '').split(/(?<=[.!?])\s+/)
-      const lastSentence = currentSentences.at(-1)?.trim() ?? ''
-
-      const nextSentences = (next.narration || '').split(/(?<=[.!?])\s+/)
-      const firstSentence = nextSentences[0]?.trim() ?? ''
-
-      const bridgeKeywords = this.extractKeywords(lastSentence)
-      const openingKeywords = this.extractKeywords(firstSentence)
-
-      const overlap = bridgeKeywords.filter((k) => openingKeywords.includes(k))
-
-      if (overlap.length === 0 && bridgeKeywords.length > 0) {
-        violations.push(`Scene ${current.sceneNumber} → ${next.sceneNumber}: No semantic bridge detected.`)
-      }
-    }
-
-    return violations
-  }
-
   // ─── Pass 1: Narration-only prompts ─────────────────────────────────────
 
   public buildNarrationOnlySystemPrompt(options: VideoGenerationOptions, targetWords: number): string {
@@ -63,10 +35,10 @@ export class StandaloneVideoGenerator extends VideoGenerator {
     const duration = this.getEffectiveDuration(options)
     const spec = this.getEffectiveSpec(options)
 
-    const pilotInstructions = spec.instructions?.filter((i) => !i.includes('PRIME DIRECTIVE')).join('\n') || ''
+    const pilotInstructions = spec.instructions?.filter((i) => !i.includes('DIRECTIVE PRINCIPALE')).join('\n') || ''
     const pilotRules = spec.rules?.join('\n') || ''
     const primeDirective =
-      spec.instructions?.find((i: string) => i.includes('PRIME DIRECTIVE')) ||
+      spec.instructions?.find((i: string) => i.includes('DIRECTIVE PRINCIPALE')) ||
       'Suivez les instructions du CORE SYSTEM PILOT pour la voix et le style narratif.'
 
     const minWords = Math.round(targetWords * 0.95)
@@ -166,9 +138,9 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     // Inject consistency instructions globally if not present
     if (spec.instructions) {
       spec.instructions.push(
-        "VISUAL CONSISTENCY: Use 'locationId' to identify recurring environments.",
-        "DESCRIPTION: In 'imagePrompt', write a natural and vivid visual description in the target language. Describe subjects naturally (ex: 'la personne marche', 'une chambre sombre') without using technical IDs (like 'YoungMan') as words.",
-        "METADATA: Provide a 'videoMetadata' object at the root of your JSON containing descriptions for any recurring locations."
+        "COHÉRENCE VISUELLE : Utilisez 'locationId' pour identifier les environnements récurrents.",
+        "DESCRIPTION : Dans 'imagePrompt', écrivez une description visuelle naturelle et vivante dans la langue cible. Décrivez les sujets naturellement (ex : 'la personne marche', 'une chambre sombre') sans utiliser d'identifiants techniques (comme 'YoungMan') comme des mots.",
+        "MÉTADONNÉES : Fournissez un objet 'videoMetadata' à la racine de votre JSON contenant les descriptions de tous les lieux récurrents."
       )
     }
 

@@ -208,23 +208,6 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
   protected validateNarrativeCoherence(scenes: any[]): string[] {
     const violations: string[] = []
 
-    // Episode must start with a hook that bridges the previous cliffhanger
-    if (this.seriesContext.episodeNumber > 1 && this.seriesContext.lastCliffhanger) {
-      const hookScene = scenes.find((s) => s.preset === 'hook') || scenes[0]
-      if (hookScene) {
-        const hookText = (hookScene.narration || '').toLowerCase()
-
-        const hasBridgeKeywords = ['précédemment', 'alors que', 'souvenez-vous', 'pendant ce temps', 'encore'].some(
-          (k) => hookText.includes(k)
-        )
-        if (!hasBridgeKeywords && hookText.length < 50) {
-          console.warn(
-            `[SeriesVideoGenerator] Hook for Episode ${this.seriesContext.episodeNumber} may lack a narrative bridge to: "${cliffhangerDescription(this.seriesContext.lastCliffhanger).slice(0, 50)}..."`
-          )
-        }
-      }
-    }
-
     // Warn if no false resolution beat is detected (scenes 3-5)
     const midScenes = scenes.slice(2, 5)
     const hasFalseResolution = midScenes.some(
@@ -259,33 +242,33 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
     return {
       pass1: {
         system: `Vous êtes un scénariste de séries expert en binge-watching et en narration épisodique.
-Episode N° ${this.seriesContext.episodeNumber}.
-Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber}.
+      Episode N° ${this.seriesContext.episodeNumber}.
+      Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber}.
 
-CONTEXTE GLOBAL (BIBLE) :
-${this.seriesContext.globalContext || 'Pas de bible spécifiée.'}
+      CONTEXTE GLOBAL (BIBLE) :
+      ${this.seriesContext.globalContext || 'Pas de bible spécifiée.'}
 
-REGISTRE DES LIEUX (Canon) :
-${
-  Object.entries(this.seriesContext.locationRegistry)
-    .map(([name, data]) => `• ${name}: ${data.description}`)
-    .join('\n') || 'Aucun lieu récurrent défini.'
-}
+      REGISTRE DES LIEUX (Canon) :
+      ${
+        Object.entries(this.seriesContext.locationRegistry)
+          .map(([name, data]) => `• ${name}: ${data.description}`)
+          .join('\n') || 'Aucun lieu récurrent défini.'
+      }
 
-ÉPISODES PRÉCÉDENTS :
-${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
+      ÉPISODES PRÉCÉDENTS :
+      ${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
 
-DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}
+      DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}
 
-RÈGLES D'OR DE NARRATION :
-• ÉVOLUTION IRRÉVERSIBLE : Chaque épisode doit changer la situation des personnages de façon permanente. Rien ne doit pouvoir revenir "comme avant" à la fin de l'épisode.
-• FAUSSE RÉSOLUTION (OBLIGATOIRE) : Entre la scène 3 et 5, inclure un moment où le personnage croit avoir résolu le problème principal — avant une aggravation inattendue. C'est le coeur du ressort addictif.
-• CURIOSITÉ EN ESCALIER : Ouvrez de nouvelles questions à chaque fois que vous fermez une ancienne. Le ratio doit être 1 réponse pour 2 nouvelles questions.
-• LIEUX : Réutilisez les lieux du registre pour créer un sentiment de familiarité. Décrivez-les avec constance.
-• PERSONNAGES : Respectez scrupuleusement les traits de personnalité et les descriptions physiques du registre.
-• RÉCAPITULATIF (Optionnel) : Si l'épisode est > 1, vous pouvez commencer par une courte scène de récapitulatif (preset: 'recap') pour rafraîchir la mémoire de l'audience.
-• PONT NARRATIF : Plongez directement dans l'action (In Media Res) tout en gardant une suite logique.
-`,
+      RÈGLES D'OR DE NARRATION :
+      • ÉVOLUTION IRRÉVERSIBLE : Chaque épisode doit changer la situation des personnages de façon permanente. Rien ne doit pouvoir revenir "comme avant" à la fin de l'épisode.
+      • FAUSSE RÉSOLUTION (OBLIGATOIRE) : Entre la scène 3 et 5, inclure un moment où le personnage croit avoir résolu le problème principal — avant une aggravation inattendue. C'est le coeur du ressort addictif.
+      • CURIOSITÉ EN ESCALIER : Ouvrez de nouvelles questions à chaque fois que vous fermez une ancienne. Le ratio doit être 1 réponse pour 2 nouvelles questions.
+      • LIEUX : Réutilisez les lieux du registre pour créer un sentiment de familiarité. Décrivez-les avec constance.
+      • PERSONNAGES : Respectez scrupuleusement les traits de personnalité et les descriptions physiques du registre.
+      • RÉCAPITULATIF (Optionnel) : Si l'épisode est > 1, vous pouvez commencer par une courte scène de récapitulatif (preset: 'recap') pour rafraîchir la mémoire de l'audience.
+      • PONT NARRATIF : Plongez directement dans l'action (In Media Res) tout en gardant une suite logique.
+      `,
         user: `DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga en vous basant sur le cliffhanger précédent.'}\nCible : ${target} mots.`,
         targetWords: target
       }
@@ -331,9 +314,9 @@ ${Object.entries(this.seriesContext.characterRegistry)
           ? "RÉSOLUTION FINALE (OBLIGATOIRE): Concluez TOUTES les intrigues. INTERDICTION de finir sur un cliffhanger. Répondez à chaque unresolvedThread. L'histoire doit être terminée et fermée."
           : "CLIFFHANGER TYPÉ (OBLIGATOIRE) : Finissez sur une tension insoutenable. Choisissez un type parmi : revelation / peril / choice / betrayal. Formulez 'audienceQuestion' comme une vraie question que le public emportera en tête.",
         // next episode tease
-        "NEXTÉPISODE TEASE : Doit contenir un nom propre, une action concrète, et un enjeu. Pas de vague promesse. Exemple valide : 'Saura-t-on pourquoi Elena a effacé les caméras avant le meurtre ?' Exemple invalide : 'Les révélations vont s'enchaîner...'",
+        "TEASING PROCHAIN ÉPISODE : Doit contenir un nom propre, une action concrète, et un enjeu. Pas de vague promesse. Exemple valide : 'Saura-t-on pourquoi Elena a effacé les caméras avant le meurtre ?' Exemple invalide : 'Les révélations vont s'enchaîner...'",
         // Episodic summary as a promise
-        'EPISODE SUMMARY : Formulez-le comme une promesse narrative orientée vers la suite, pas comme un compte-rendu factuel. Il sera injecté dans le contexte des prochains épisodes.',
+        "RÉSUMÉ DE L'ÉPISODE : Formulez-le comme une promesse narrative orientée vers la suite, pas comme un compte-rendu factuel. Il sera injecté dans le contexte des prochains épisodes.",
         // Casting & locations
         "PERSONNAGES: Utilisez les identifiants du registre pour remplir 'charactersId'.",
         "LIEUX: Utilisez l'identifiant 'locationId' pour chaque scène."
@@ -370,11 +353,11 @@ ${Object.entries(this.seriesContext.characterRegistry)
         sceneCountRange: range
       },
       spec
-    )}\n\nNARRATION EPISODE ${this.seriesContext.episodeNumber} (JSON):\n---\n${validatedNarration}\n---\n\n${
+    )}\n\nNARRATION ÉPISODE ${this.seriesContext.episodeNumber} (JSON) :\n---\n${validatedNarration}\n---\n\n${
       this.seriesContext.isFinalEpisode
-        ? '⚠️ ÉPISODE FINAL: Ne laissez aucune question sans réponse. Résolution totale de chaque unresolvedThread.'
-        : '⚠️ RAPPEL ADDICTIF: Vérifiez que la fausse résolution est présente (scènes 3-5), que le cliffhanger est typé, et que les unresolvedThreads sont des questions actives.'
-    }\nTÂCHE: Découpe en scènes JSON valides. Assurez-vous que "seriesMetadata" est complet et respecte le format ci-dessus.`
+        ? '⚠️ ÉPISODE FINAL : Ne laissez aucune question sans réponse. Résolution totale de chaque unresolvedThread.'
+        : '⚠️ RAPPEL ADDICTIF : Vérifiez que la fausse résolution est présente (scènes 3-5), que le cliffhanger est typé, et que les unresolvedThreads sont des questions actives.'
+    }\nTÂCHE : Découpe en scènes JSON valides. Assurez-vous que "seriesMetadata" est complet et respecte le format ci-dessus.`
   }
 
   // ─── Pass 2: Build prompts ──────────────────────────────────────────────────
@@ -388,8 +371,8 @@ ${Object.entries(this.seriesContext.characterRegistry)
     let userPrompt = this.buildStructuringUserPrompt(validatedNarration, topic, options)
 
     if (chunkContext) {
-      userPrompt += `\n\n⚠️ CHUNK MODE: Part ${chunkContext.chunkIndex + 1} of ${chunkContext.totalChunks}\n`
-      userPrompt += `Scene numbering must start at ${chunkContext.startSceneNumber}.\n`
+      userPrompt += `\n\n⚠️ MODE TRONÇON : Partie ${chunkContext.chunkIndex + 1} sur ${chunkContext.totalChunks}\n`
+      userPrompt += `La numérotation des scènes doit commencer à ${chunkContext.startSceneNumber}.\n`
     }
 
     return {

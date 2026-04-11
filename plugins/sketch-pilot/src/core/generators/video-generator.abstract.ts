@@ -75,20 +75,20 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
   visualRules: [],
   orchestration: [],
   instructions: [
-    'FAVOR SHORT, PUNCHY SENTENCES.',
-    "Each scene narration MUST be a verbatim slice of 'fullNarration'.",
-    'Transitions MUST occur at natural pauses (full stops, commas, breath marks).',
-    'DO NOT USE ABBREVIATIONS in the narration. Write everything exactly as it should be spoken (e.g., "100 pour cent" instead of "100%", "2 heures" instead of "2h").',
-    `Every scene MUST have a cinematic 'transition' chosen EXCLUSIVELY from this list: [${TRANSITIONS_LIST.join(', ')}]. **'none' or 'cut' are NOT acceptable for intermediate scenes.**`,
-    `Every scene MUST have a dynamic 'cameraAction' chosen from this list: [${CAMERA_ACTIONS_LIST.join(', ')}].`,
-    "NARRATION LENGTH: Écrivez des textes fluides et engageants. Si vous utilisez plusieurs 'cameraAction', assurez-vous que la narration est assez longue (min. 25-35 mots ou 2-3 phrases détaillées) pour permettre la transition harmonieuse entre les mouvements.",
-    'CAMERA VARIATION: Do not use the same cameraAction for more than 2 consecutive scenes.',
-    "CAMERA MOOD: Choose the cameraAction based on the emotional context (e.g., 'zoom-in' for focus/tension, 'pan' for scale/environment).",
-    'NARRATIVE GUARDRAIL: DO NOT use speaker labels like "HOST:", "GUEST:", "NARRATEUR:" or "PERSONNAGE:". Write fluid narration only.',
-    'NARRATIVE GUARDRAIL: If dialogue is needed, write it naturally without tags, or use character names ONLY if defined in the registry.',
-    'VISUAL CONTINUITY: By default, set "continueFromPrevious": true for consecutive scenes happening in the same location so the engine can generate a continuous camera movement from the previous frame. Only set it to false when the location or time changes entirely.',
-    'PERSISTENT DECOR: You MUST populate "persistentDecorTokens" with 2 or 3 visually precise, narratively neutral background elements. 1. At least one token MUST describe the lighting/atmosphere (e.g., "warm morning light", "cold blue neon glow"). 2. Other tokens should be secondary objects (e.g., "blue kettle on counter", "hanging plant"). 3. AVOID directional markers like "left" or "right" in tokens to ensure consistency during shot/reverse-shot transitions (champ-contrechamp). For scene 1, extract these from the location. For subsequent scenes in the SAME location, REUSE the EXACT same tokens. When moving to a NEW location, keep the lighting token if applicable and introduce 1 new object token.',
-    'THINK STEP BY STEP.'
+    'PRIVILÉGIEZ LES PHRASES COURTES ET PERCUTANTES.',
+    "Chaque narration de scène DOIT être une tranche verbatim de 'fullNarration'.",
+    'Les transitions DOIVENT se produire aux pauses naturelles (points, virgules, respirations).',
+    'N\'UTILISEZ PAS D\'ABRÉVIATIONS dans la narration. Écrivez tout exactement comme cela doit être prononcé (ex: "100 pour cent" au lieu de "100%", "2 heures" au lieu de "2h").',
+    `Chaque scène DOIT avoir une 'transition' cinématographique choisie EXCLUSIVEMENT dans cette liste : [${TRANSITIONS_LIST.join(', ')}]. **'none' ou 'cut' ne sont PAS acceptables pour les scènes intermédiaires.**`,
+    `Chaque scène DOIT avoir une 'cameraAction' dynamique choisie dans cette liste : [${CAMERA_ACTIONS_LIST.join(', ')}].`,
+    "LONGUEUR DE LA NARRATION : Écrivez des textes fluides et engageants. Si vous utilisez plusieurs 'cameraAction', assurez-vous que la narration est assez longue (min. 25-35 mots ou 2-3 phrases détaillées) pour permettre la transition harmonieuse entre les mouvements.",
+    "VARIATION DE CAMÉRA : N'utilisez pas la même cameraAction pour plus de 2 scènes consécutives.",
+    "AMBIANCE DE CAMÉRA : Choisissez la cameraAction en fonction du contexte émotionnel (ex: 'zoom-in' pour la focalisation/tension, 'pan' pour l'ampleur/l'environnement).",
+    'GARDE-FOU NARRATIF : N\'utilisez PAS de balises de locuteur comme "HÔTE :", "INVITÉ :", "NARRATEUR :" ou "PERSONNAGE :". Écrivez uniquement une narration fluide.',
+    "GARDE-FOU NARRATIF : Si un dialogue est nécessaire, écrivez-le naturellement sans balises, ou utilisez les noms de personnages UNIQUEMENT s'ils sont définis dans le registre.",
+    'CONTINUITÉ VISUELLE : Par défaut, définissez "continueFromPrevious": true pour les scènes consécutives se déroulant au même endroit afin que le moteur puisse générer un mouvement de caméra continu à partir de l\'image précédente. Ne le définissez sur false que lorsque le lieu ou le moment change complètement.',
+    'DÉCOR PERSISTANT : Vous DEVEZ remplir "persistentDecorTokens" avec 2 ou 3 éléments d\'arrière-plan visuellement précis et narrativement neutres. 1. Au moins un jeton DOIT décrire la lumière ou l\'ambiance (ex: "lumière chaude du matin", "éclat bleu froid des néons"). 2. Les autres jetons doivent être des objets secondaires (ex: "bouilloire bleue sur le comptoir", "plante suspendue"). 3. ÉVITEZ les marqueurs directionnels comme "gauche" ou "droite" dans les jetons pour garantir la cohérence lors des changements d\'angle (champ-contrechamp). Pour la scène 1, extrayez-les du lieu. Pour les scènes suivantes dans le MÊME lieu, RÉUTILISEZ EXACTEMENT les mêmes jetons. Lors du passage à un NOUVEAU lieu, conservez le jeton de lumière si possible et introduisez 1 nouvel objet.',
+    'RÉFLÉCHISSEZ ÉTAPE PAR ÉTAPE.'
   ],
   scenePresets: {
     hook: { minWords: 15, minSentences: 3, description: "Accroche percutante pour captiver l'attention" },
@@ -630,28 +630,29 @@ ${mandatoryRules.join('\n')}
       )
 
     sections.push(`## EXPERTISE CINÉMATOGRAPHIQUE (CAMÉRAMAN PRO)
-En tant qu'expert en réalisation, vous dirigez la caméra pour renforcer l'émotion.
+      En tant qu'expert en réalisation, vous dirigez la caméra pour renforcer l'émotion.
 
---- ⚠️ GARDES-FOUS CINÉMATOGRAPHIQUES ⚠️ ---
-Utilise EXCLUSIVEMENT les valeurs suivantes :
+      --- ⚠️ GARDES-FOUS CINÉMATOGRAPHIQUES ⚠️ ---
+      Utilise EXCLUSIVEMENT les valeurs suivantes :
 
-TRANSITIONS :
-none, fade, blur, crossfade, zoom-in, dissolve, fade-black, fade-white, 
-wipe-left, wipe-right, wipe-up, wipe-down, slide-left, slide-right, slide-up, slide-down,
-circleopen, circleclose, pixelize, radial, smooth-left, smooth-right, smooth-up, smooth-down,
-squeezev, squeezeh, zoomin, zoomout, diagtl, diagtr, diagbl, diagbr
+      TRANSITIONS :
+      none, fade, blur, crossfade, zoom-in, dissolve, fade-black, fade-white, 
+      wipe-left, wipe-right, wipe-up, wipe-down, slide-left, slide-right, slide-up, slide-down,
+      circleopen, circleclose, pixelize, radial, smooth-left, smooth-right, smooth-up, smooth-down,
+      squeezev, squeezeh, zoomin, zoomout, diagtl, diagtr, diagbl, diagbr
 
-CAMERA ACTIONS :
-none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing, snap-zoom
+      CAMERA ACTIONS :
+      none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing, snap-zoom
 
-- 'dutch-tilt' : Désorientation, folie, malaise, ou situation qui "déraille" (angle incliné).
-- 'pan-left/right/up/down' : Suivi de mouvement ou exploration lente de l'espace.
-- 'static' : À utiliser UNIQUEMENT pour un effet de "souffle coupé" ou une sidération totale. Sinon, préférez 'breathing'.
+      - 'dutch-tilt' : Désorientation, folie, malaise, ou situation qui "déraille" (angle incliné).
+      - 'pan-left/right/up/down' : Suivi de mouvement ou exploration lente de l'espace.
+      - 'static' : À utiliser UNIQUEMENT pour un effet de "souffle coupé" ou une sidération totale. Sinon, préférez 'breathing'.
 
-DYNAMISME :
-- N'hésitez pas à CHAÎNER les mouvements (ex: un pan, puis un zoom-in).
-- Adaptez l'intensité ('low', 'medium', 'high') à la charge émotionnelle.
-- Variez les angles : ne répétez pas le même mouvement sur deux scènes consécutives.`)
+      DYNAMISME :
+      - N'hésitez pas à CHAÎNER les mouvements (ex: un pan, puis un zoom-in).
+      - Adaptez l'intensité ('low', 'medium', 'high') à la charge émotionnelle.
+      - Variez les angles : ne répétez pas le même mouvement sur deux scènes consécutives.
+    `)
 
     return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
   }
@@ -666,13 +667,13 @@ DYNAMISME :
     const constraints =
       targetWordCount && targetDuration
         ? [
-            `⛔ CONTRAINTES STRICTES:`,
-            `• Narration totale: ~${targetWordCount} mots (~${totalDur}s à ${effectiveWps.toFixed(1)} m/s)`,
-            `• Scènes: flexible ${range.min}-${range.max} (cible: ~${range.ideal})`,
-            `• Minimum par preset: ${Object.entries(presets)
+            `⛔ CONTRAINTES STRICTES :`,
+            `• Narration totale : ~${targetWordCount} mots (~${totalDur}s à ${effectiveWps.toFixed(1)} m/s)`,
+            `• Scènes : flexible ${range.min}-${range.max} (cible : ~${range.ideal})`,
+            `• Minimum par preset : ${Object.entries(presets)
               .map(([name, config]) => `${name} ≥ ${(config as any).minWords}`)
               .join(' | ')} mots`,
-            `• Dernière scène: preset "conclusion" obligatoire`,
+            `• Dernière scène : preset "conclusion" obligatoire`,
             `• Utilisez une scène "bridge" juste avant la finale pour tension`,
             `• Comptez les mots scène par scène, vérifiez total avant de passer à la suivante`,
             `• NE PAS dépasser ou ignorer ces règles — violation = rejet automatique`
@@ -711,67 +712,5 @@ DYNAMISME :
       .replaceAll(/,\s*,/g, ',')
       .replaceAll(/\s{2,}/g, ' ')
       .trim()
-  }
-
-  protected extractKeywords(text: string): string[] {
-    const stopwords = new Set([
-      'the',
-      'a',
-      'an',
-      'and',
-      'or',
-      'but',
-      'in',
-      'on',
-      'at',
-      'to',
-      'for',
-      'of',
-      'with',
-      'is',
-      'are',
-      'was',
-      'were',
-      'this',
-      'that',
-      'it',
-      'you',
-      'we',
-      'they',
-      'he',
-      'she',
-      'i',
-      'me',
-      'my',
-      'your',
-      'our',
-      'their',
-      'have',
-      'has',
-      'had',
-      'be',
-      'been',
-      'do',
-      'does',
-      'did',
-      'will',
-      'would',
-      'can',
-      'could',
-      'should',
-      'may',
-      'might',
-      'not',
-      'no',
-      'so',
-      'if',
-      'as'
-    ])
-
-    return text
-      .toLowerCase()
-      .replaceAll(/[^a-z\s]/g, '')
-      .split(/\s+/)
-      .filter((w) => w.length > 3 && !stopwords.has(w))
   }
 }

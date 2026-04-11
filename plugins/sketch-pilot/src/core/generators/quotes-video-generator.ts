@@ -116,10 +116,10 @@ export class QuotesVideoGenerator extends StandaloneVideoGenerator {
   }
 
   public async buildImageSystemInstruction(): Promise<string> {
-    return `Cinematic Dark Academia aesthetic. Focus on marble textures, chiaroscuro lighting (extreme contrast), and heavy atmospheric fog or smoke. Style should be respectful, ancient, and powerful.`
+    return `Esthétique Cinematic Dark Academia. Focus sur les textures de marbre, l'éclairage chiaroscuro (contraste extrême) et le brouillard ou la fumée atmosphérique dense. Le style doit être respectueux, ancien et puissant.`
   }
 
   public async buildThumbnailPrompt(title: string): Promise<string> {
-    return `Powerful Stoic thumbnail: Marble statue of a philosopher, glowing eyes or golden cracks, dark background, dramatic text 'SAGESSE'.`
+    return `Vignette Stoïcienne puissante : Statue de marbre d'un philosophe, yeux brillants ou fissures dorées, fond sombre, texte dramatique 'SAGESSE'.`
   }
 }
