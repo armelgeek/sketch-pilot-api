@@ -855,6 +855,9 @@ export class NanoBananaEngine {
 
     // ─── COMPOSITION DES SCÈNES ───────────────────────────────────────────────
     if (!skipComposition) {
+      if (onProgress) {
+        await onProgress(0, '[Étape 2/3] Analyse et préparation des scènes...')
+      }
       const sceneImagePromises = new Map<number, Promise<string | undefined>>()
       let completed = 0
 

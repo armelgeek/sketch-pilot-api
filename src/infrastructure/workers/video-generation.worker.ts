@@ -631,7 +631,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         await videoRepository.updateStatus(videoId, {
           options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
         })
-        await job.updateProgress({ step: 'completed', progress: 15, status: 'completed', videoId })
+        await job.updateProgress({ step: 'completed', progress: 15, status: 'draft', videoId })
         return
       }
     } else if (videoRecord.script) {
@@ -674,7 +674,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await videoRepository.updateStatus(videoId, {
         options: { ...((videoRecord.options as any) || {}), _checkpoint: serialized }
       })
-      await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId, narrationUrl })
+      await job.updateProgress({
+        step: 'completed',
+        progress: 100,
+        status: 'narration_generated',
+        videoId,
+        narrationUrl
+      })
 
       // DEDUCT CREDITS ON SUCCESS
       await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
@@ -705,7 +711,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         })
       }
 
-      await job.updateProgress({ step: 'completed', progress: 100, status: 'completed', videoId })
+      await job.updateProgress({ step: 'completed', progress: 100, status: 'scenes_generated', videoId })
 
       // DEDUCT CREDITS ON SUCCESS
       await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
@@ -758,7 +764,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       await job.updateProgress({
         step: 'completed',
         progress: 100,
-        status: 'completed',
+        status: 'scenes_generated',
         videoId
       })
       console.info(`[VideoWorker] Reprompt completed for video ${videoId}`)

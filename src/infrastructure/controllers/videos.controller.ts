@@ -581,6 +581,8 @@ export class VideosController implements Routes {
         return new Response(body, { headers })
       }
 
+      let cleanupStreamResources: (() => Promise<void>) | undefined
+
       // Stream events
       const stream = new ReadableStream({
         start: (controller) => {
@@ -593,7 +595,7 @@ export class VideosController implements Routes {
           let pollTimeout: any = null
           let connectionTimeout: any = null
 
-          const cleanupStreamResources = async () => {
+          cleanupStreamResources = async () => {
             if (closed) return
             closed = true
 
@@ -634,12 +636,12 @@ export class VideosController implements Routes {
               try {
                 controller.enqueue(encoder.encode(text))
               } catch {
-                cleanupStreamResources()
+                cleanupStreamResources?.()
               }
             }
           }
           const close = () => {
-            cleanupStreamResources()
+            cleanupStreamResources?.()
           }
 
           c.req.raw.signal.addEventListener('abort', () => {
@@ -652,14 +654,39 @@ export class VideosController implements Routes {
             enqueue(sendEvent('ping', { timestamp: new Date().toISOString() }))
           }, heartbeatInterval)
 
-          // Send initial connected event
-          enqueue(
-            sendEvent('connected', {
-              jobId,
-              status: video.status,
-              progress: video.progress || 0
-            })
-          )
+          // Send initial connected event with active job progress if available
+          ;(async () => {
+            let initialProgress = video.progress || 0
+            let initialMessage = video.errorMessage || undefined
+            let initialStep = video.currentStep || 'idle'
+
+            try {
+              const queue = getVideoQueue()
+              const job = await queue.getJob(jobId)
+              if (job && job.progress) {
+                const p = typeof job.progress === 'string' ? JSON.parse(job.progress) : job.progress
+                if (typeof p === 'object' && p !== null) {
+                  initialProgress = p.progress !== undefined ? p.progress : initialProgress
+                  initialMessage = p.message || initialMessage
+                  initialStep = p.step || initialStep
+                } else if (typeof p === 'number') {
+                  initialProgress = p
+                }
+              }
+            } catch (error) {
+              console.warn('[SSE] Could not fetch active job progress on connect', error)
+            }
+
+            enqueue(
+              sendEvent('connected', {
+                jobId,
+                status: video.status,
+                progress: initialProgress,
+                message: initialMessage,
+                step: initialStep
+              })
+            )
+          })()
 
           // Handle incoming events from the global registry
           const handleGlobalEvent = (eventName: string, data: any) => {
@@ -757,7 +784,9 @@ export class VideosController implements Routes {
           }
         },
         cancel() {
-          cleanupStreamResources()
+          if (cleanupStreamResources) {
+            cleanupStreamResources()
+          }
         }
       })
 
@@ -1109,7 +1138,7 @@ export class VideosController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const { id } = c.req.valid('param')
-        const result = await resumeVideoUseCase.run({
+        const { result } = await resumeVideoUseCase.run({
           videoId: id,
           userId: user.id
         })
