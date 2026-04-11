@@ -181,7 +181,22 @@ export const transitionTypeSchema = z.enum([
   'pixelize',
   'radial',
   'smooth-left',
-  'smooth-right'
+  'smooth-right',
+  'smooth-up',
+  'smooth-down',
+  'squeezev',
+  'squeezeh',
+  'zoomin',
+  'zoomout',
+  'diagtl',
+  'diagtr',
+  'diagbl',
+  'diagbr',
+  'hlslice',
+  'hrslice',
+  'vuslice',
+  'vdslice',
+  'hblur'
 ])
 export type TransitionType = z.infer<typeof transitionTypeSchema>
 
@@ -213,7 +228,7 @@ export const enrichedSceneSchema = z.object({
     .default([])
     .describe('List of exact character names present in this scene from the registry'),
   charactersId: z.array(z.string()).default([]).describe('List of character names with @ prefix (e.g. ["@Sarah"])'),
-  animationPrompt: z.string().optional().describe('Animation instructions for movement'),
+  animationPrompt: z.string().optional().describe('Animation instructions for movement (subject motion)'),
   cameraAction: z
     .union([
       cameraActionSchema,
@@ -313,6 +328,17 @@ export function computeAudioCoverage(videoDuration: number, audioDuration: numbe
 }
 
 /**
+ * Narrative Escalation types
+ */
+export const typedCliffhangerSchema = z.object({
+  type: z.string().describe('revelation | peril | choice | betrayal | unknown'),
+  description: z.string(),
+  audienceQuestion: z.string().optional().describe('The active question the audience is left with')
+})
+
+export type TypedCliffhanger = z.infer<typeof typedCliffhangerSchema>
+
+/**
  * Complete video script with all scenes
  */
 export const completeVideoScriptSchema = z.object({
@@ -341,7 +367,7 @@ export const completeVideoScriptSchema = z.object({
   seriesMetadata: z
     .object({
       episodeSummary: z.string().optional(),
-      cliffhanger: z.string().optional(),
+      cliffhanger: z.union([z.string(), typedCliffhangerSchema]).optional(),
       characterContinuity: z
         .record(
           z.object({

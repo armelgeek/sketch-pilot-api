@@ -101,7 +101,7 @@ export class SeriesRepository {
     }
   }
 
-  async updateNarrativeContext(id: string, data: { lastCliffhanger?: string; unresolvedThreads?: string[] }) {
+  async updateNarrativeContext(id: string, data: { lastCliffhanger?: any; unresolvedThreads?: string[] }) {
     const [updated] = await db
       .update(series)
       .set({

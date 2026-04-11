@@ -894,20 +894,23 @@ export class NanoBananaEngine {
       try {
         const globalAudioPath = path.join(projectDir, 'narration.mp3')
         const assembler = new VideoAssembler()
-        await assembler.assembleVideo(
-          {
-            projectId: projectName,
-            script,
-            outputPath: projectDir,
-            options: valid,
-            globalAudioPath: fs.existsSync(globalAudioPath) ? globalAudioPath : undefined
-          },
-          async (p, m) => {
-            if (onProgress) {
-              const totalPr = Math.round(50 + (p / 100) * 50)
-              await onProgress(Math.min(100, totalPr), `[Étape 3/3] ${m}`)
+        await this.withPulse(50, 98, '[Étape 3/3] Assemblage du montage vidéo...', onProgress, async () =>
+          assembler.assembleVideo(
+            {
+              projectId: projectName,
+              script,
+              outputPath: projectDir,
+              options: valid,
+              globalAudioPath: fs.existsSync(globalAudioPath) ? globalAudioPath : undefined
+            },
+            async (p, m) => {
+              if (onProgress) {
+                // Map assembler 0-100 to 50-98 for fine-grained SSE updates
+                const totalPr = Math.round(50 + (p / 100) * 48)
+                await onProgress(Math.min(98, totalPr), `[Étape 3/3] ${m}`)
+              }
             }
-          }
+          )
         )
         await this.cleanupProject(projectDir, 'intermediate')
 

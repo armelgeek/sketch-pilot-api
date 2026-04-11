@@ -36,7 +36,9 @@ export const CAMERA_ACTIONS_LIST = [
   'pan-up',
   'pan-down',
   'snap-zoom',
-  'breathing'
+  'breathing',
+  'shake',
+  'dutch-tilt'
 ]
 
 export const TRANSITIONS_LIST = [
@@ -565,7 +567,6 @@ ${mandatoryRules.join('\n')}
       "locationId": "identifiant-lieu-unique",
       "imagePrompt": "Description visuelle détaillée",
       "charactersInScene": [],
-      "animationPrompt": "Instructions de mouvement",
       "cameraAction": [
         { "type": "pan-right", "intensity": "low" },
         { "type": "zoom-in", "intensity": "high" }
@@ -625,15 +626,23 @@ ${mandatoryRules.join('\n')}
       )
 
     sections.push(`## EXPERTISE CINÉMATOGRAPHIQUE (CAMÉRAMAN PRO)
-En tant qu'expert en réalisation, vous dirigez la caméra pour renforcer l'émotion. Utilisez 'cameraAction' (objet ou liste d'objets {type, intensity}) :
+En tant qu'expert en réalisation, vous dirigez la caméra pour renforcer l'émotion.
 
-TYPES DE MOUVEMENTS :
-- 'zoom-in' / 'zoom-out' : Focus psychologique ou révélation d'environnement.
-- 'shake' : Instabilité, peur, impact, ou malaise croissant.
-- 'breathing' : Vie organique pour les plans contemplatifs (toujours en 'low').
-- 'snap-zoom' : Effet de surprise, révélation brutale, ou punchline comique.
-- 'pan-left/right/up/down' : Suivi de mouvement ou exploration de l'espace.
-- 'dutch-tilt' : Désorientation, folie, ou situation qui "déraille".
+--- ⚠️ GARDES-FOUS CINÉMATOGRAPHIQUES ⚠️ ---
+Utilise EXCLUSIVEMENT les valeurs suivantes :
+
+TRANSITIONS :
+none, fade, blur, crossfade, zoom-in, dissolve, fade-black, fade-white, 
+wipe-left, wipe-right, wipe-up, wipe-down, slide-left, slide-right, slide-up, slide-down,
+circleopen, circleclose, pixelize, radial, smooth-left, smooth-right, smooth-up, smooth-down,
+squeezev, squeezeh, zoomin, zoomout, diagtl, diagtr, diagbl, diagbr
+
+CAMERA ACTIONS :
+none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing, snap-zoom
+
+- 'dutch-tilt' : Désorientation, folie, malaise, ou situation qui "déraille" (angle incliné).
+- 'pan-left/right/up/down' : Suivi de mouvement ou exploration lente de l'espace.
+- 'static' : À utiliser UNIQUEMENT pour un effet de "souffle coupé" ou une sidération totale. Sinon, préférez 'breathing'.
 
 DYNAMISME :
 - N'hésitez pas à CHAÎNER les mouvements (ex: un pan, puis un zoom-in).

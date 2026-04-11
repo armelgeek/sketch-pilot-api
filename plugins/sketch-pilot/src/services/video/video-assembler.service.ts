@@ -101,6 +101,14 @@ export class VideoAssembler {
     return `max(1.001,${expr})`
   }
 
+  /** Escapes text for FFmpeg drawtext filter */
+  private escapeDrawText(text: string): string {
+    return text
+      .replaceAll('\\', '\\\\\\\\')
+      .replaceAll("'", String.raw`'\\\''`)
+      .replaceAll(':', String.raw`\:`)
+  }
+
   private getFileMTime(filePath: string): number {
     try {
       if (fs.existsSync(filePath)) {
@@ -914,11 +922,13 @@ export class VideoAssembler {
             zBaseExpr = buildCinematicSnapZoom(1, peakZoom, snapAt, 0.45, overshoot)
             break
           }
-          case 'dutch-tilt': {
-            // Managed later via rotate filter
+          case 'dutch-tilt':
             zBaseExpr = '1.1'
             break
-          }
+          case 'static':
+          case 'none':
+            zBaseExpr = '1.001'
+            break
           default: {
             zBaseExpr = `1.0+(${DZ}*${SS})`
             const driftX = `(${PAN_X_HALF}*0.25)`
@@ -1058,15 +1068,15 @@ export class VideoAssembler {
 
       const ffmpegCommand = ffmpeg().input(imagePath).inputOptions(['-loop 1'])
 
-      // Dutch Tilt: integrate rotation directly into FFmpeg filtergraph (single pass, no quality loss)
       let cameraFilterString = filterString
+
       const actionForTilt = Array.isArray(cameraAction) ? cameraAction[0] : cameraAction
       const tiltType = (actionForTilt as any)?.type ?? 'static'
       if (tiltType === 'dutch-tilt') {
         const tiltDeg = (actionForTilt as any)?.tiltDeg ?? 1.8
         const angleRad = ((tiltDeg * Math.PI) / 180).toFixed(4)
         const rotExpr = `${angleRad}*sin(2*PI*t/${duration.toFixed(2)})`
-        cameraFilterString = `${filterString},rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`
+        cameraFilterString += `,rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`
       }
 
       if (keywordVisuals.length > 0) {
@@ -1416,21 +1426,6 @@ export class VideoAssembler {
   // UTILITIES
   // ─────────────────────────────────────────────────────────────────────────
 
-  private normalizeColor(color: string | undefined): string {
-    if (!color) return 'white'
-    const colorName = color.toLowerCase().trim()
-    const validColors = ['white', 'black', 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta', 'transparent']
-    if (validColors.includes(colorName)) return colorName
-    let hex = colorName.replace('#', '')
-    if (hex.length === 3)
-      hex = hex
-        .split('')
-        .map((c) => c + c)
-        .join('')
-    if (/^[0-9A-F]{6}$/i.test(hex)) return `0x${hex}`
-    return 'white'
-  }
-
   private getResolution(aspectRatio: string, preset: string = '720p'): string {
     let baseHeight = 720
     if (preset === '1080p') baseHeight = 1080
@@ -1703,6 +1698,10 @@ export class VideoAssembler {
       'smooth-right': { name: 'smoothright', duration: defaultDurations.smoothright },
       'smooth-up': { name: 'smoothup', duration: defaultDurations.smoothup },
       'smooth-down': { name: 'smoothdown', duration: defaultDurations.smoothdown },
+      'squeeze-v': { name: 'squeezev', duration: defaultDurations.squeezev },
+      'squeeze-h': { name: 'squeezeh', duration: defaultDurations.squeezeh },
+      squeezev: { name: 'squeezev', duration: defaultDurations.squeezev },
+      squeezeh: { name: 'squeezeh', duration: defaultDurations.squeezeh },
       pop: { name: 'fadeblack', duration: defaultDurations.fadeblack },
       'fade-black': { name: 'fadeblack', duration: defaultDurations.fadeblack },
       'fade-white': { name: 'fadewhite', duration: defaultDurations.fadewhite },
@@ -1958,28 +1957,6 @@ export class VideoAssembler {
         if (err) return reject(err)
         resolve(metadata.format.duration || 5)
       })
-    })
-  }
-
-  private async detectLeadingSilence(audioPath: string): Promise<number> {
-    return new Promise((resolve) => {
-      if (!fs.existsSync(audioPath)) return resolve(0)
-      let firstSilenceEnd = 0
-      ffmpeg(audioPath)
-        .audioFilters('silencedetect=n=-40dB:d=0.5')
-        .format('null')
-        .output('-')
-        .on('stderr', (stderrLine) => {
-          if (stderrLine.includes('silence_end:') && !stderrLine.includes('silence_start:')) {
-            const match = stderrLine.match(/silence_end:\s*([\d.]+)/)
-            if (match && firstSilenceEnd === 0) {
-              firstSilenceEnd = parseFloat(match[1])
-            }
-          }
-        })
-        .on('error', () => resolve(0))
-        .on('end', () => resolve(firstSilenceEnd))
-        .run()
     })
   }
 

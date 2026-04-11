@@ -42,7 +42,7 @@ export const series = pgTable('series', {
   status: text('status').default('active'),
 
   // Last cliffhanger and unresolved threads for continuity
-  lastCliffhanger: text('last_cliffhanger'),
+  lastCliffhanger: jsonb('last_cliffhanger').$type<any>(),
   unresolvedThreads: jsonb('unresolved_threads').$type<string[]>().default([]),
 
   // Planned episodes generated during prep phase
