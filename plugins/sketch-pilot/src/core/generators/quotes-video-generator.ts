@@ -47,6 +47,7 @@ export class QuotesVideoGenerator extends StandaloneVideoGenerator {
       "summary": "Introduction philosophique",
       "narration": "Texte de la citation...",
       "locationId": "temple-grec",
+      "persistentDecorTokens": ["buste en marbre", "lumière tamisée"],
       "imagePrompt": "Buste en marbre de Marc Aurèle, éclairage cinématique Chiaroscuro",
       "animationPrompt": "Légère rotation de caméra, fumée mystérieuse en arrière-plan",
       "cameraAction": "zoom-in",
@@ -115,8 +116,14 @@ export class QuotesVideoGenerator extends StandaloneVideoGenerator {
     }
   }
 
-  public async buildImageSystemInstruction(): Promise<string> {
-    return `Esthétique Cinematic Dark Academia. Focus sur les textures de marbre, l'éclairage chiaroscuro (contraste extrême) et le brouillard ou la fumée atmosphérique dense. Le style doit être respectueux, ancien et puissant.`
+  public async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
+    const styleRule = hasReferenceImages
+      ? 'STYLE RULE: Follow reference images style and colors.'
+      : 'STYLE RULE: Strictly black and white. Grayscale only.'
+
+    return `Esthétique Cinematic Dark Academia. Focus sur les textures de marbre, l'éclairage chiaroscuro (contraste extrême).
+PHYSICAL LOGIC: Render only the narrative scene. Organic anatomy and grounding required. No meta-elements.
+${styleRule}`
   }
 
   public async buildThumbnailPrompt(title: string): Promise<string> {

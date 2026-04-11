@@ -496,11 +496,20 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
     const spec = this.getEffectiveSpec({} as any)
     const base = this.buildCharacterDescription(spec)
 
+    const styleRule = hasReferenceImages
+      ? 'STYLE RULE: Follow the visual style and color of the REFERENCE IMAGES.'
+      : 'STYLE RULE: Strict black and white pencil drawing. No colors.'
+
+    const negativeConstraints = `
+PHYSICAL LOGIC: Only render what is explicitly described. Anatomy and interactions must be organic and narratively grounded. No meta-elements.
+${styleRule}`
+
     if (hasReferenceImages) {
-      return `${base.split('\n')[0]}\nCRITICAL: Use the provided REFERENCE IMAGES as the primary guide for character identity. Character descriptions are secondary.`
+      const charRef = base.split('\n')[0]
+      return `${charRef}\nCRITICAL: Use the provided REFERENCE IMAGES as the primary guide.\n${negativeConstraints}`
     }
 
-    return base
+    return `${base}\n${negativeConstraints}`
   }
 
   protected buildCharacterDescription(spec: VideoTypeSpecification): string {

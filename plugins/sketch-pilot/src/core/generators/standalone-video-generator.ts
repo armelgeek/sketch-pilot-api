@@ -265,7 +265,15 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
       ? 'CRITICAL: Maintain 100% visual consistency with the provided REFERENCE IMAGES for character identity.'
       : ''
 
-    return [stylePrefix, styleAnchor, consistencyReminder].filter(Boolean).join('\n')
+    const styleRule = hasReferenceImages
+      ? 'STYLE RULE: Maintain 100% visual style and color consistency with the provided REFERENCE IMAGES.'
+      : 'STYLE RULE: Strict high-contrast black and white pencil drawing. NO COLORS allowed.'
+
+    const negativeConstraints = `
+PHYSICAL LOGIC: Only render requested subjects. Every element must be physically and narratively grounded. Anatomy and interactions must be organic and consistent. Do not add meta-elements.
+${styleRule}`
+
+    return [stylePrefix, styleAnchor, consistencyReminder, negativeConstraints].filter(Boolean).join('\n')
   }
 
   public async buildImagePrompt(
@@ -285,7 +293,7 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     }
 
     if (scene.persistentDecorTokens && scene.persistentDecorTokens.length > 0) {
-      paragraph = `[Persistent decor] ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
+      paragraph = `Background elements: ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
     }
 
     const spec = this.getEffectiveSpec({} as any)

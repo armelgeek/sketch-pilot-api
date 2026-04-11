@@ -268,8 +268,8 @@ export const enrichedSceneSchema = z.object({
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene'),
   transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene'),
   persistentDecorTokens: z
-    .array(z.string())
-    .optional()
+    .preprocess((val) => (typeof val === 'string' ? val.split(',').map((s) => s.trim()) : val), z.array(z.string()))
+    .default([])
     .describe('Neutral background visual elements kept across scenes for cinematic continuity'),
   // Polyptych fields
   polyptychGroupId: z.string().optional().describe('ID of the group sharing a single multi-panel image'),

@@ -738,7 +738,10 @@ export class NanoBananaEngine {
             !fs.existsSync(audioPath) || !fs.existsSync(hashFile) || fs.readFileSync(hashFile, 'utf8') !== textHash
 
           if (stillInvalid) {
-            await this.withPulse(0, 100, `step.step_3_audio_prep:${i + 1}`, onProgress, async () => {
+            const globalStart = Math.round((i / script.scenes.length) * 100)
+            const globalEnd = Math.round(((i + 1) / script.scenes.length) * 100)
+
+            await this.withPulse(globalStart, globalEnd, `step.step_3_audio_prep:${i + 1}`, onProgress, async () => {
               console.log(`[NanoBanana] 🎤 Generating audio for Scene ${i + 1}/${script.scenes.length}...`)
               const audio = await this.getAudioService()
               const res = await audio.generateSpeech(scene.narration, audioPath)
@@ -891,10 +894,10 @@ export class NanoBananaEngine {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
           const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
 
-          const localStartPr = 0
-          const localEndPr = 100
+          const globalStartPr = Math.round((i / script.scenes.length) * 100)
+          const globalEndPr = Math.round(((i + 1) / script.scenes.length) * 100)
 
-          await this.withPulse(localStartPr, localEndPr, `step.step_2_scene:${i + 1}`, onProgress, async () => {
+          await this.withPulse(globalStartPr, globalEndPr, `step.step_2_scene:${i + 1}`, onProgress, async () => {
             const prevScenePath = i > 0 ? path.join(scenesDir, script.scenes[i - 1].id, 'scene.webp') : undefined
             await this.composeScene(scene, baseImages, sceneDir, prevB64, prevScenePath, isTarget, script)
           })
