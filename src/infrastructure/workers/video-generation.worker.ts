@@ -3,7 +3,7 @@ import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { SeriesVideoGenerator } from '@sketch-pilot/core/generators/series-video-generator'
-import { DelayedError, Worker, type Job } from 'bullmq'
+import { DelayedError, UnrecoverableError, Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
@@ -233,7 +233,7 @@ async function handleSceneGenerated(
 
     // 5. Report progress second (triggers SSE so UI fetches the now-updated DB)
     const globalProgress = Math.max(0, Math.min(100, progress))
-    await reportProgress(job, videoId, 'composing_scene', globalProgress, `Scene ${index} generated`, {
+    await reportProgress(job, videoId, 'composing_scene', globalProgress, `step.composing_scene:${index}`, {
       currentSceneIndex: index - 1,
       scene: updatedScene
     })
@@ -477,7 +477,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     // Sets generateOnlyAudio: true in genOptions, which tells NanoBanana to skip image generation.
     if (options.generateOnlyAudio) {
       if (!videoRecord.script) throw new Error('No script found for audio generation. Run storyboard first.')
-      await reportProgress(job, videoId, 'audio_generation', 5, 'Initializing audio generation...')
+      await reportProgress(job, videoId, 'audio_generation', 5, 'step.audio_init')
       // `generateOnlyAudio: true` in genOptions instructs NanoBanana to skip all visual/scene generation
       genOptions.generateOnlyAudio = true
       genOptions.skipImageGeneration = true
@@ -515,7 +515,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       }
       const skipScript = checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       if (!skipScript) {
-        await reportProgress(job, videoId, 'rendering', 70, 'Initializing video assembly...')
+        await reportProgress(job, videoId, 'rendering', 70, 'step.assembly_init')
         pkg = await videoGenerationService.renderVideoFromScript({
           videoId,
           topic,
@@ -578,7 +578,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         })
       }
     } else if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)) {
-      await reportProgress(job, videoId, 'script_generation', 5, 'Studio: Initializing pipeline...')
+      await reportProgress(job, videoId, 'script_generation', 5, 'step.pipeline_init')
       pkg = await videoGenerationService.generateVideo({
         videoId,
         topic,
@@ -644,7 +644,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
     // 4. NARRATION PERSISTENCE (If only audio requested)
     if (options.generateOnlyAudio) {
-      await reportProgress(job, videoId, 'upload_audio', 90, 'Uploading audio results...')
+      await reportProgress(job, videoId, 'upload_audio', 90, 'step.upload_audio')
       const narrationMp3 = fs.existsSync(path.join(pkg.outputPath, 'global_narration.mp3'))
         ? path.join(pkg.outputPath, 'global_narration.mp3')
         : path.join(pkg.outputPath, 'narration.mp3')
@@ -690,7 +690,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     // 5. ASSET PERSISTENCE (If only scenes requested)
     if (options.generateOnlyScenes) {
       if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.COMPLETED)) {
-        await reportProgress(job, videoId, 'upload_scenes', 90, 'Uploading scene visuals...')
+        await reportProgress(job, videoId, 'upload_scenes', 90, 'step.upload_scenes')
         const updatedScenes = [...(pkg.script?.scenes || [])]
         await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
 
@@ -721,13 +721,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
     // 6. REPROMPT PERSISTENCE
     if (options.repromptSceneIndex !== undefined) {
       // Phase 28 : ALWAYS process reprompt completion, ignore previous asset checkpoints.
-      await reportProgress(
-        job,
-        videoId,
-        'upload_reprompt',
-        90,
-        `Uploading reprompted scene ${options.repromptSceneIndex}...`
-      )
+      await reportProgress(job, videoId, 'upload_reprompt', 90, `step.upload_reprompt:${options.repromptSceneIndex}`)
 
       const updatedScenes = [...(pkg.script?.scenes || [])]
       await uploadSceneImages(videoId, updatedScenes, pkg.outputPath)
@@ -776,12 +770,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
 
     // 7. FINAL UPLOAD (Full Video)
     if (!checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.UPLOAD)) {
-      await reportProgress(job, videoId, 'upload', 94, 'Preparing final video package...')
+      await reportProgress(job, videoId, 'upload', 94, 'step.upload_prepare')
       const finalMp4 = path.join(pkg.outputPath, 'final_video.mp4')
       const assembledMp4 = path.join(pkg.outputPath, 'assembled_video.mp4')
       const videoFilePath = fs.existsSync(finalMp4) ? finalMp4 : fs.existsSync(assembledMp4) ? assembledMp4 : null
 
-      await reportProgress(job, videoId, 'upload', 96, 'Uploading final video to storage...')
+      await reportProgress(job, videoId, 'upload', 96, 'step.upload_video')
 
       const videoUrl = videoFilePath ? await uploadVideoToMinio(videoId, videoFilePath) : undefined
 
@@ -850,6 +844,11 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Job failed'
     console.error(`[VideoWorker] Error during job ${job.id}:`, error)
+
+    if (msg === 'Generation cancelled by user') {
+      throw new UnrecoverableError('Generation cancelled by user')
+    }
+
     const isLast = (job.attemptsMade ?? 0) >= (job.opts?.attempts ?? 1)
     if (isLast) {
       // PERMANENT FAILURE: Ensure clear error message in database for support

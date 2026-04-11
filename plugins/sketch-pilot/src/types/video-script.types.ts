@@ -267,6 +267,10 @@ export const enrichedSceneSchema = z.object({
     .describe('List of strategic pause locations (e.g. "after sentence 1", "before the reveal")'),
   thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene'),
   transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene'),
+  persistentDecorTokens: z
+    .array(z.string())
+    .optional()
+    .describe('Neutral background visual elements kept across scenes for cinematic continuity'),
   // Polyptych fields
   polyptychGroupId: z.string().optional().describe('ID of the group sharing a single multi-panel image'),
   panelIndex: z.number().optional().describe('0-based index of the panel to extract from the polyptych image'),

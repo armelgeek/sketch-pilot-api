@@ -312,6 +312,10 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
       }
     }
 
+    if (scene.persistentDecorTokens && scene.persistentDecorTokens.length > 0) {
+      paragraph = `[Persistent decor] ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
+    }
+
     const spec = this.getEffectiveSpec({} as any)
     const finalPrompt = this.getEnrichedImagePrompt(paragraph, spec)
 

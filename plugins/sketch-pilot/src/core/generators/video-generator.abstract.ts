@@ -86,6 +86,8 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     "CAMERA MOOD: Choose the cameraAction based on the emotional context (e.g., 'zoom-in' for focus/tension, 'pan' for scale/environment).",
     'NARRATIVE GUARDRAIL: DO NOT use speaker labels like "HOST:", "GUEST:", "NARRATEUR:" or "PERSONNAGE:". Write fluid narration only.',
     'NARRATIVE GUARDRAIL: If dialogue is needed, write it naturally without tags, or use character names ONLY if defined in the registry.',
+    'VISUAL CONTINUITY: By default, set "continueFromPrevious": true for consecutive scenes happening in the same location so the engine can generate a continuous camera movement from the previous frame. Only set it to false when the location or time changes entirely.',
+    'PERSISTENT DECOR: You MUST populate "persistentDecorTokens" with 2 or 3 visually precise, narratively neutral background elements. 1. At least one token MUST describe the lighting/atmosphere (e.g., "warm morning light", "cold blue neon glow"). 2. Other tokens should be secondary objects (e.g., "blue kettle on counter", "hanging plant"). 3. AVOID directional markers like "left" or "right" in tokens to ensure consistency during shot/reverse-shot transitions (champ-contrechamp). For scene 1, extract these from the location. For subsequent scenes in the SAME location, REUSE the EXACT same tokens. When moving to a NEW location, keep the lighting token if applicable and introduce 1 new object token.',
     'THINK STEP BY STEP.'
   ],
   scenePresets: {
@@ -565,6 +567,7 @@ ${mandatoryRules.join('\n')}
       "summary": "Résumé visuel court",
       "narration": "Segment de narration exact pour cette scène...",
       "locationId": "identifiant-lieu-unique",
+      "persistentDecorTokens": ["vase bleu sur la table", "lumière matinale"],
       "imagePrompt": "Description visuelle détaillée",
       "charactersInScene": [],
       "cameraAction": [
@@ -572,7 +575,8 @@ ${mandatoryRules.join('\n')}
         { "type": "zoom-in", "intensity": "high" }
       ],
       "preset": "hook",
-      "transition": "fade"
+      "transition": "fade",
+      "continueFromPrevious": true
     }
   ]
 }`.trim()

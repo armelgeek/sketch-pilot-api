@@ -174,6 +174,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
       "summary": "Résumé visuel",
       "narration": "Narration verbatim...",
       "locationId": "identifiant-lieu-unique",
+      "persistentDecorTokens": ["lampe de bureau rouge", "plante verte", "lumière de fin de journée"],
       "imagePrompt": "Description visuelle",
       "charactersId": ["@Sarah"],
       "animationPrompt": "Instructions pour le sujet (ex: il pleure, elle court)...",
@@ -182,7 +183,8 @@ export class SeriesVideoGenerator extends VideoGenerator {
         { "type": "shake", "intensity": "low" }
       ],
       "preset": "hook",
-      "transition": "fade"
+      "transition": "fade",
+      "continueFromPrevious": true
     }
   ]
 }
@@ -462,6 +464,10 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       if (loc && loc.description && !paragraph.includes(loc.description.slice(0, 30))) {
         paragraph = `Location ${scene.locationId}: ${loc.description}. ${paragraph}`
       }
+    }
+
+    if (scene.persistentDecorTokens && scene.persistentDecorTokens.length > 0) {
+      paragraph = `[Persistent decor] ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
     }
 
     if (this.seriesContext.globalContext) {
