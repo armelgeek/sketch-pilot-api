@@ -3,12 +3,12 @@
   "jobId": "014ccf52-7a3f-4c0c-a0e6-ec7a0ab12cb0",
   "phases": {
     "script_generation": { "name": "script_generation", "completed": true, "completedAt": "2026-04-10T21:54:48.453Z" },
-    "asset_generation": { "name": "asset_generation", "completed": true, "completedAt": "2026-04-10T21:58:09.854Z" },
+    "asset_generation": { "name": "asset_generation", "completed": true, "completedAt": "2026-04-11T05:40:38.961Z" },
     "narration_generation": { "name": "narration_generation", "completed": false },
     "video_assembly": { "name": "video_assembly", "completed": false },
     "upload": { "name": "upload", "completed": false },
-    "completed": { "name": "completed", "completed": true, "completedAt": "2026-04-10T21:58:10.144Z" }
+    "completed": { "name": "completed", "completed": true, "completedAt": "2026-04-11T05:40:40.580Z" }
   },
   "createdAt": "2026-04-10T21:54:00.788Z",
-  "updatedAt": "2026-04-10T21:58:10.144Z"
+  "updatedAt": "2026-04-11T05:40:40.580Z"
 }

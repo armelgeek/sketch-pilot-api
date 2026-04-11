@@ -1,6 +1,9 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { streamSSE } from 'hono/streaming'
+import { DeleteSeriesUseCase } from '../../application/use-cases/series/delete-series.use-case'
+import { GenerateNextEpisodeUseCase } from '../../application/use-cases/series/generate-next-episode.use-case'
 import { PrepareSeriesUseCase } from '../../application/use-cases/series/prepare-series.use-case'
+import { PromoteRegistryItemUseCase } from '../../application/use-cases/series/promote-registry-item.use-case'
 import { RegenerateSeriesCharacterImageUseCase } from '../../application/use-cases/series/regenerate-series-character-image.use-case'
 import { SuggestSeriesConceptUseCase } from '../../application/use-cases/series/suggest-series-concept.use-case'
 import { SeriesRepository } from '../repositories/series.repository'
@@ -13,6 +16,9 @@ export class SeriesController implements Routes {
   private prepareSeriesUseCase: PrepareSeriesUseCase
   private suggestSeriesConceptUseCase: SuggestSeriesConceptUseCase
   private regenerateSeriesCharacterImageUseCase: RegenerateSeriesCharacterImageUseCase
+  private generateNextEpisodeUseCase: GenerateNextEpisodeUseCase
+  private promoteRegistryItemUseCase: PromoteRegistryItemUseCase
+  private deleteSeriesUseCase: DeleteSeriesUseCase
 
   constructor() {
     this.controller = new OpenAPIHono()
@@ -20,6 +26,9 @@ export class SeriesController implements Routes {
     this.prepareSeriesUseCase = new PrepareSeriesUseCase()
     this.suggestSeriesConceptUseCase = new SuggestSeriesConceptUseCase()
     this.regenerateSeriesCharacterImageUseCase = new RegenerateSeriesCharacterImageUseCase()
+    this.generateNextEpisodeUseCase = new GenerateNextEpisodeUseCase()
+    this.promoteRegistryItemUseCase = new PromoteRegistryItemUseCase()
+    this.deleteSeriesUseCase = new DeleteSeriesUseCase()
   }
 
   public initRoutes() {
@@ -98,6 +107,7 @@ export class SeriesController implements Routes {
       const description = c.req.query('description')
       const language = c.req.query('language') || 'fr'
       const promptId = c.req.query('promptId')
+      const visualStyleModelId = c.req.query('visualStyleModelId')
 
       if (!title) return c.json({ error: 'Title is required' }, 400)
 
@@ -107,7 +117,8 @@ export class SeriesController implements Routes {
           title,
           description,
           language,
-          promptId
+          promptId,
+          visualStyleModelId
         })
 
         for await (const event of generator) {
@@ -214,6 +225,30 @@ export class SeriesController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const data = await this.seriesRepository.findByUserId(user.id)
+        return c.json({ success: true, data })
+      }
+    )
+
+    // GET /v1/series/active
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/series/active',
+        tags: ['Series'],
+        summary: 'Get the last active (updated) saga for the user',
+        security: [{ Bearer: [] }],
+        responses: {
+          200: {
+            description: 'Active series found',
+            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: z.any().nullable() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const data = await this.seriesRepository.findLastByUserId(user.id)
         return c.json({ success: true, data })
       }
     )
@@ -423,6 +458,125 @@ export class SeriesController implements Routes {
           return c.json({ error: result.error || 'Failed to regenerate image' }, 400)
         }
 
+        return c.json(result)
+      }
+    )
+
+    // POST /v1/series/{id}/generate-next
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/series/{id}/generate-next',
+        tags: ['Series'],
+        summary: 'Start generating the next episode from the roadmap',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          202: {
+            description: 'Next episode generation started',
+            content: {
+              'application/json': { schema: z.object({ success: z.boolean(), jobId: z.string(), videoId: z.string() }) }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const result = await this.generateNextEpisodeUseCase.execute({
+          userId: user.id,
+          seriesId: id,
+          planId: (user as any).planId
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to start generation' }, 400)
+        }
+
+        return c.json({ success: true, jobId: result.jobId, videoId: result.videoId }, 202)
+      }
+    )
+
+    // POST /v1/series/{id}/promote
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/series/{id}/promote',
+        tags: ['Series'],
+        summary: 'Manually promote a scene image to the character or location registry',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  type: z.enum(['character', 'location']),
+                  name: z.string().min(1),
+                  thumbnailUrl: z.string().url()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Item promoted successfully',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id } = c.req.valid('param')
+        const body = c.req.valid('json')
+
+        const result = await this.promoteRegistryItemUseCase.execute({
+          userId: user.id,
+          seriesId: id,
+          ...body
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to promote item' }, 400)
+        }
+
+        return c.json({ success: true })
+      }
+    )
+
+    // DELETE /v1/series/{id}
+    this.controller.openapi(
+      createRoute({
+        method: 'delete',
+        path: '/v1/series/{id}',
+        tags: ['Series'],
+        summary: 'Delete a saga',
+        security: [{ Bearer: [] }],
+        request: { params: z.object({ id: z.string() }) },
+        responses: {
+          200: {
+            description: 'Series deleted',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          },
+          404: {
+            description: 'Series not found',
+            content: { 'application/json': { schema: z.object({ error: z.string() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const { id } = c.req.valid('param')
+        const result = await this.deleteSeriesUseCase.execute({ userId: user.id, seriesId: id })
+        if (!result.success) return c.json({ error: result.error }, 404)
         return c.json(result)
       }
     )

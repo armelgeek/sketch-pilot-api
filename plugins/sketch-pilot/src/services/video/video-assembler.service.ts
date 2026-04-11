@@ -42,11 +42,6 @@ function easeOutCubic(p: string): string {
   return `(1-pow(1-(${p}),3))`
 }
 
-/** Ease-in cubic: starts slowly, accelerates (suspense) */
-function easeInCubic(p: string): string {
-  return `pow(${p},3)`
-}
-
 /**
  * Cinematic snap zoom with overshoot.
  * Rises sharply to peak then decays with a small overshoot (like a physical lens "clack").
@@ -164,8 +159,23 @@ export class VideoAssembler {
     const animationMode = globalOptions.animationMode || 'panning'
     const scenesDir = path.join(projectDir, 'scenes')
     const hasGlobalAudio = !!args.globalAudioPath || !!globalOptions.globalAudioPath
-    const globalAudioPath = args.globalAudioPath || globalOptions.globalAudioPath
+    let globalAudioPath = args.globalAudioPath || globalOptions.globalAudioPath
     console.log(`[VideoAssembler] Assembling video in ${animationMode} mode...`)
+
+    // --- Silence Fallback: If audio requested but missing, generate a silent track ---
+    if (hasGlobalAudio && !globalAudioPath) {
+      console.warn(`[VideoAssembler] ⚠ Global audio requested but path is undefined. Generating silence...`)
+      const silencePath = path.join(projectDir, 'silence_fallback.mp3')
+      const duration = script.totalDuration || 5
+      await this.generateSilence(silencePath, duration)
+      globalAudioPath = silencePath
+    } else if (hasGlobalAudio && globalAudioPath && !fs.existsSync(globalAudioPath)) {
+      console.warn(`[VideoAssembler] ⚠ Global audio file not found: ${globalAudioPath}. Generating silence...`)
+      const silencePath = path.join(projectDir, 'silence_fallback.mp3')
+      const duration = script.totalDuration || 5
+      await this.generateSilence(silencePath, duration)
+      globalAudioPath = silencePath
+    }
 
     const sceneTasks = script.scenes.map((_, i) => i)
     const processedClips: string[] = Array.from({ length: script.scenes.length })
@@ -414,14 +424,6 @@ export class VideoAssembler {
   // ─────────────────────────────────────────────────────────────────────────
   // SOUND EFFECTS
   // ─────────────────────────────────────────────────────────────────────────
-
-  private async applySoundEffects(
-    scenePath: string,
-    soundEffects: Array<{ type: string; timestamp: number; volume?: number }> = []
-  ): Promise<string | null> {
-    // SFX application disabled for minimalist aesthetic
-    return scenePath
-  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // AUDIO CROSSFADE
@@ -696,43 +698,6 @@ export class VideoAssembler {
   // CAMERA EFFECT (post-process)
   // ─────────────────────────────────────────────────────────────────────────
 
-  async applyCameraEffect(
-    videoPath: string,
-    cameraAction: { type: string; intensity: string },
-    outputPath: string,
-    aspectRatio: string = '16:9',
-    resolutionPreset: string = '720p'
-  ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const resolution = this.getResolution(aspectRatio, resolutionPreset)
-      const intensityMap: Record<string, number> = { low: 1.05, medium: 1.15, high: 1.3 }
-      const zoomFactor = intensityMap[cameraAction.intensity] || 1.1
-      const shakeIntensityMap: Record<string, number> = { low: 3, medium: 7, high: 15 }
-      const shakePx = shakeIntensityMap[cameraAction.intensity] || 5
-
-      let videoFilter: string
-
-      if (cameraAction.type === 'zoom-in') {
-        videoFilter = `scale=iw*${zoomFactor}:ih*${zoomFactor},crop=${resolution.replace('x', ':')}`
-      } else if (cameraAction.type === 'zoom-out') {
-        videoFilter = `scale=iw*${zoomFactor}:ih*${zoomFactor},crop=${resolution.replace('x', ':')},scale=${resolution.replace('x', ':')}`
-      } else if (cameraAction.type === 'shake') {
-        videoFilter = `crop=iw-${shakePx * 2}:ih-${shakePx * 2}:${shakePx}+${shakePx}*sin(n/3):${shakePx}+${shakePx}*cos(n/5),scale=${resolution.replace('x', ':')}`
-      } else if (cameraAction.type === 'breathing') {
-        videoFilter = `zoompan=z='${this.clampZ('1.0+0.05*sin(2*pi*on/100)')}':d=1:x='${this.clampX('iw/2-(iw/zoom/2)')}':y='${this.clampY('ih/2-(ih/zoom/2)')}':s=${resolution}:fps=${ZOOMPAN_INTERNAL_FPS},fps=${OUTPUT_FPS}`
-      } else {
-        return resolve(videoPath)
-      }
-
-      ffmpeg(videoPath)
-        .videoFilters(videoFilter)
-        .outputOptions(['-c:a copy', '-c:v libx264', '-pix_fmt yuv420p'])
-        .save(outputPath)
-        .on('end', () => resolve(outputPath))
-        .on('error', (err) => reject(new Error(`Camera effect failed: ${err.message}`)))
-    })
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
   // ORGANIC OSCILLATION (kept for opt-in use)
   // ─────────────────────────────────────────────────────────────────────────
@@ -770,29 +735,6 @@ export class VideoAssembler {
   // ─────────────────────────────────────────────────────────────────────────
   // DUTCH TILT
   // ─────────────────────────────────────────────────────────────────────────
-
-  async applyDutchTilt(
-    inputPath: string,
-    outputPath: string,
-    angleDeg: number = 1.8,
-    oscillate: boolean = false,
-    duration: number = 5
-  ): Promise<string> {
-    return new Promise((resolve) => {
-      const angleRad = (angleDeg * Math.PI) / 180
-      const rotExpr = oscillate ? `${angleRad.toFixed(4)}*sin(2*PI*t/${duration.toFixed(2)})` : `${angleRad.toFixed(4)}`
-
-      ffmpeg(inputPath)
-        .videoFilter(`rotate='${rotExpr}':fillcolor=black@0:ow=iw:oh=ih`)
-        .outputOptions(['-c:v libx264', '-preset fast', '-crf 18', '-c:a copy', '-pix_fmt yuv420p'])
-        .save(outputPath)
-        .on('end', () => resolve(outputPath))
-        .on('error', (err) => {
-          console.warn(`[VideoAssembler] Dutch tilt failed: ${err.message}, skipping...`)
-          resolve(inputPath)
-        })
-    })
-  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // CINEMATIC PANNING CLIP — tension-driven
@@ -1438,11 +1380,13 @@ export class VideoAssembler {
 
     switch (aspectRatio) {
       case '9:16':
-        return `${makeEven(baseHeight * (9 / 16))}x${makeEven(baseHeight)}`
+        // For 9:16, baseHeight is the width (shorter side), height is width * 16/9
+        return `${makeEven(baseHeight)}x${makeEven(baseHeight * (16 / 9))}`
       case '1:1':
         return `${makeEven(baseHeight)}x${makeEven(baseHeight)}`
       case '16:9':
       default:
+        // For 16:9, baseHeight is the height (shorter side), width is height * 16/9
         return `${makeEven(baseHeight * (16 / 9))}x${makeEven(baseHeight)}`
     }
   }
@@ -1549,16 +1493,6 @@ export class VideoAssembler {
         })
         .save(outputPath)
     })
-  }
-
-  public async muxAudio(
-    videoPath: string,
-    audioPath: string,
-    outputPath: string,
-    duration: number,
-    delayMs: number = 600
-  ): Promise<string> {
-    return this.mixSceneAudio(videoPath, audioPath, null, [], outputPath, duration, delayMs / 1000)
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1733,6 +1667,18 @@ export class VideoAssembler {
   // ─────────────────────────────────────────────────────────────────────────
   // CLIP STITCHING
   // ─────────────────────────────────────────────────────────────────────────
+
+  private async generateSilence(outputPath: string, duration: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      ffmpeg()
+        .input('anullsrc=channel_layout=stereo:sample_rate=44100')
+        .inputFormat('lavfi')
+        .outputOptions(['-t', duration.toFixed(3)])
+        .save(outputPath)
+        .on('end', () => resolve(outputPath))
+        .on('error', (err) => reject(new Error(`Failed to generate silence: ${err.message}`)))
+    })
+  }
 
   private getClipDuration(clipPath: string): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -2018,8 +1964,10 @@ export class VideoAssembler {
     }
 
     const aspectRatio = options.aspectRatio || '16:9'
-    const dimensions = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1080, 1080] : [1280, 720]
-    const assService = new AssCaptionService(dimensions[0], dimensions[1], options.assCaptions)
+    const resolution = this.getResolution(aspectRatio, options.resolution)
+    const [width, height] = resolution.split('x').map(Number)
+
+    const assService = new AssCaptionService(width, height, options.assCaptions)
     const assContent = assService.buildASSFile(allWordTimings)
     fs.writeFileSync(outputPath, assContent)
   }

@@ -193,7 +193,11 @@ export class NanoBananaEngine {
     const systemInstruction = await this.promptManager.buildImageSystemInstruction(hasReferenceImages)
 
     if (!bypassCache) {
-      const cached = this.sceneCache.get(fullPrompt, { sceneId: scene.id, imageStyle: this.currentOptions?.imageStyle })
+      const cached = this.sceneCache.get(fullPrompt, {
+        sceneId: scene.id,
+        imageStyle: this.currentOptions?.imageStyle,
+        aspectRatio: this.currentOptions?.aspectRatio
+      })
       if (cached && fs.existsSync(cached)) {
         if (cached !== filename) fs.copyFileSync(cached, filename)
         return filename
@@ -211,7 +215,11 @@ export class NanoBananaEngine {
           systemInstruction
         })
         if (!bypassCache)
-          this.sceneCache.set(fullPrompt, imageUrl, { sceneId: scene.id, imageStyle: this.currentOptions?.imageStyle })
+          this.sceneCache.set(fullPrompt, imageUrl, {
+            sceneId: scene.id,
+            imageStyle: this.currentOptions?.imageStyle,
+            aspectRatio: this.currentOptions?.aspectRatio
+          })
         return imageUrl
       } catch (error: any) {
         lastError = error
@@ -299,8 +307,27 @@ export class NanoBananaEngine {
     memory?: SceneMemory
   ): Promise<void> {
     const options = this.currentOptions
+    const resolutionPreset = options.resolution || '720p'
+    let baseHeight = 720
+    if (resolutionPreset === '1080p') baseHeight = 1080
+    if (resolutionPreset === '4k') baseHeight = 2160
+
+    const makeEven = (val: number) => {
+      const rounded = Math.round(val)
+      return rounded % 2 === 0 ? rounded : rounded + 1
+    }
+
     const aspectRatio = options.aspectRatio || '16:9'
-    const [width, height] = aspectRatio === '9:16' ? [720, 1280] : aspectRatio === '1:1' ? [1024, 1024] : [1280, 720]
+    console.log(`[Resolution]: ${aspectRatio}`)
+    let [width, height] = [1280, 720]
+
+    if (aspectRatio === '9:16') {
+      ;[width, height] = [makeEven(baseHeight), makeEven(baseHeight * (16 / 9))]
+    } else if (aspectRatio === '1:1') {
+      ;[width, height] = [makeEven(baseHeight), makeEven(baseHeight)]
+    } else {
+      ;[width, height] = [makeEven(baseHeight * (16 / 9)), makeEven(baseHeight)]
+    }
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true })
     const imagePath = path.join(outputDir, 'scene.webp')
     const tempBg = path.join(outputDir, 'temp_bg.webp')
@@ -531,8 +558,8 @@ export class NanoBananaEngine {
     onSceneGenerated?: (s: any, sc: any, i: number, pr: number) => Promise<void>
   ): Promise<CompleteVideoPackage> {
     const valid = videoGenerationOptionsSchema.parse(options)
-    if (onProgress) await onProgress(0, `[Étape 1/3] Démarrage de l'écriture: ${topic}`)
-    const script = await this.withPulse(0, 100, `[Étape 1/3] Écriture du script: ${topic}`, onProgress, () =>
+    if (onProgress) await onProgress(0, `[Étape 1/3] Démarrage de l'écriture`)
+    const script = await this.withPulse(0, 100, `[Étape 1/3] Écriture du script`, onProgress, () =>
       this.generateStructuredScript(topic, valid, async (p, m) => {
         if (onProgress) await onProgress(p, m)
       })
@@ -568,8 +595,20 @@ export class NanoBananaEngine {
   ): Promise<CompleteVideoPackage> {
     const startTime = Date.now()
     const valid = videoGenerationOptionsSchema.parse(options)
+
+    // ─── RESYNC OPTIONS IF NEEDED (Aspect Ratio Sync) ────────────────────────
+    if (script.aspectRatio && script.aspectRatio !== valid.aspectRatio) {
+      console.log(`[NanoBanana] 📐 Syncing engine aspect ratio to script: ${script.aspectRatio}`)
+      valid.aspectRatio = script.aspectRatio as any
+    }
+
+    // --- Persist Location Cache cross-appels ---
+    const persistLocationCache = !!(options as any)?.persistLocationCache
+    if (!persistLocationCache) {
+      this.projectLocationCache.clear()
+    }
+
     this.currentOptions = valid
-    this.projectLocationCache.clear()
 
     // Pre-load location cache from persistent registries
     const spec = (valid.customSpec as any) || {}
@@ -976,7 +1015,25 @@ export class NanoBananaEngine {
 
   private async stitchAudioFiles(filePaths: string[], outputPath: string): Promise<void> {
     const listFile = `${outputPath}.list.txt`
-    fs.writeFileSync(listFile, filePaths.map((p) => `file '${path.resolve(p)}'`).join('\n'))
+
+    // --- Verification: Filter out invalid/corrupted files via ffprobe ---
+    const validFiles: string[] = []
+    for (const f of filePaths) {
+      if (!fs.existsSync(f)) continue
+      const duration = await this.getRealDuration(f)
+      if (duration > 0) {
+        validFiles.push(f)
+      } else {
+        console.warn(`[NanoBanana] ⚠ Skipping corrupted/empty audio file: ${f}`)
+      }
+    }
+
+    if (validFiles.length === 0) {
+      console.warn(`[NanoBanana] ⚠ No valid audio files to stitch for ${outputPath}`)
+      return
+    }
+
+    fs.writeFileSync(listFile, validFiles.map((p) => `file '${path.resolve(p)}'`).join('\n'))
     try {
       await runFfmpeg([
         '-f',
@@ -1034,7 +1091,12 @@ export class NanoBananaEngine {
       return
     }
     const scDir = path.join(projectDir, 'scenes')
-    if (fs.existsSync(scDir)) fs.rmSync(scDir, { recursive: true, force: true })
+    if (fs.existsSync(scDir)) {
+      // --- cleanupDelay: Ensure SSE events and files are fully flushed before deletion ---
+      console.log(`[NanoBanana] 🧹 Cleaning up scenes in ${projectDir} (delay: 2s)...`)
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      fs.rmSync(scDir, { recursive: true, force: true })
+    }
     const keep = [
       'final_video.mp4',
       'assembled_video.mp4',

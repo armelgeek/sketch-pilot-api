@@ -1,9 +1,9 @@
 import process from 'node:process'
 import { LLMServiceFactory, type LLMServiceConfig } from '@sketch-pilot/services/llm'
 import { PromptService } from '@/application/services/prompt.service'
+import { GenerateCharacterImageUseCase } from '@/application/use-cases/character-model/generate-character-image.use-case'
 import { IUseCase } from '@/domain/types'
 import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
-import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
@@ -14,6 +14,7 @@ type PrepareSeriesParams = {
   description?: string
   language?: string
   promptId?: string
+  visualStyleModelId?: string
 }
 
 type PrepareSeriesResponse = {
@@ -30,9 +31,9 @@ type PrepareSeriesResponse = {
 
 export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareSeriesResponse> {
   private readonly promptService = new PromptService(new PromptRepository())
-  private readonly modelRepository = new CharacterModelRepository()
 
   private readonly creditsRepository = new CreditsRepository()
+  private readonly generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
 
   async execute({
     userId,
@@ -83,7 +84,10 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareS
             3. Le bloc "globalContext" doit décrire l'univers, le ton, les enjeux et les règles du monde.
             4. Le bloc "characterRegistry" doit contenir 3-5 personnages principaux fascinants.
             5. Décrivez précisément chaque personnage par son rôle et sa personnalité.
-            6. Fournissez un "portraitPrompt" consistant (description physique détaillée pour génération d'image) pour chaque personnage.
+            6. Fournissez un "portraitPrompt" consistant et DÉTAILLÉ pour chaque personnage. 
+               IMPORTANT : Le "portraitPrompt" DOIT être une description de type "FULL BODY SHOT" (corps entier, de la tête aux pieds) pour servir de référence anatomique complète.
+               Détaillez les vêtements, la posture et les attributs physiques.
+               Le prompt doit être en parfaite adéquation avec l'univers décrit dans "globalContext" et le genre "${description || title}". 
             7. Le bloc "videoGenre" doit suggérer une niche/genre précis.
             8. Le bloc "totalEpisodes" doit suggérer un nombre total d'épisodes pour cette saga (entre 6 et 12).
             9. Le bloc "suggestedTitles" doit proposer 5 titres alternatifs percutants adaptés au genre et à la spécification.
@@ -144,7 +148,8 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareS
     title,
     description,
     language = 'fr',
-    promptId
+    promptId,
+    visualStyleModelId
   }: PrepareSeriesParams): AsyncIterable<{ type: string; data: any }> {
     try {
       const totalCost = CREDIT_COSTS.SAGA_PREPARATION
@@ -177,7 +182,10 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareS
 
       const systemPrompt = `Vous êtes un expert en narration cinématographique. 
             Répondez exclusivement au format JSON.
-            ${specContext}`
+            ${specContext}
+            
+            IMPORTANT : Les "portraitPrompt" dans "characterRegistry" DOIVENT être des descriptions physiques "FULL BODY SHOT" (corps entier visible) ultra-précises et thématiquement ancrées dans l'univers de la saga. 
+            Évitez les descriptions génériques. Si l'univers est "Steampunk Renaissance", le personnage doit avoir des rouages, de la dentelle, du velours délavé, etc.`
 
       const userPrompt = `Titre actuel de la Saga : "${title}"
             Description initiale : ${description || 'À inventer'}
@@ -203,7 +211,7 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareS
       const cleanJson = response.replaceAll(/```json|```/g, '').trim()
       const parsed = JSON.parse(cleanJson)
 
-      // Deduct credits at the end of successful generation
+      // Action succeeded! Now deduct credits.
       const { planConsumed, extraConsumed } = await this.creditsRepository.consumeCredits(userId, totalCost, planLimit)
       await this.creditsRepository.addTransaction({
         userId,
@@ -211,6 +219,40 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareS
         amount: -totalCost,
         metadata: { planConsumed, extraConsumed }
       })
+
+      // Backend Automation: Generate character portraits if a style is selected
+      if (visualStyleModelId && parsed.characterRegistry) {
+        const characters = Object.entries(parsed.characterRegistry)
+        for (const [name, char] of characters) {
+          const cast = char as any
+          if (cast.portraitPrompt) {
+            yield {
+              type: 'progress',
+              data: {
+                status: 'generating_character',
+                progress: 95,
+                message: `Génération de ${name}...`
+              }
+            }
+
+            try {
+              const charResult = await this.generateCharacterImageUseCase.execute({
+                userId,
+                baseModelId: visualStyleModelId,
+                prompt: cast.portraitPrompt
+              })
+
+              if (charResult.success && charResult.imageUrl) {
+                cast.thumbnailUrl = charResult.imageUrl
+                // Notify frontend of a single update
+                yield { type: 'character_portrait', data: { name, imageUrl: charResult.imageUrl } }
+              }
+            } catch (error) {
+              console.error(`Failed to generate portrait for ${name}:`, error)
+            }
+          }
+        }
+      }
 
       yield { type: 'final', data: parsed }
     } catch (error) {

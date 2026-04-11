@@ -43,6 +43,14 @@ export class SeriesRepository {
     return result || null
   }
 
+  async findByIdAndUserId(id: string, userId: string) {
+    const [result] = await db
+      .select()
+      .from(series)
+      .where(and(eq(series.id, id), eq(series.userId, userId)))
+    return result || null
+  }
+
   async findByUserId(userId: string) {
     return await db.select().from(series).where(eq(series.userId, userId))
   }

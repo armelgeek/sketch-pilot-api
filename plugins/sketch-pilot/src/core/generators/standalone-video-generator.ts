@@ -284,10 +284,16 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     const characterDescription = characterMetadata?.description || spec.characterDescription
     const stylePrefix = characterMetadata?.stylePrefix || ''
 
-    const styleAnchor = `Style: Highly detailed black and white pencil drawing with rich grayscale shading. ${characterDescription ? `Character: ${characterDescription}` : ''}`
+    const styleAnchor = `Style: Highly detailed black and white pencil drawing with rich grayscale shading. ${
+      characterDescription && !hasReferenceImages ? `Character: ${characterDescription}` : ''
+    }`
 
-    // We can also leverage buildSystemInstructions if we want full rules in image generation
-    return [stylePrefix, styleAnchor].filter(Boolean).join('\n')
+    // If we have references, we add a gentle reminder to stay consistent instead of re-describing
+    const consistencyReminder = hasReferenceImages
+      ? 'CRITICAL: Maintain 100% visual consistency with the provided REFERENCE IMAGES for character identity.'
+      : ''
+
+    return [stylePrefix, styleAnchor, consistencyReminder].filter(Boolean).join('\n')
   }
 
   public async buildImagePrompt(

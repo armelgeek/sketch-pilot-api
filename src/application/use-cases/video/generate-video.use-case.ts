@@ -110,7 +110,8 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
               unresolvedThreads: seriesContext.unresolvedThreads,
 
               totalEpisodes: seriesContext.totalEpisodes,
-              episodeNumber: options.episodeNumber || seriesContext.lastEpisodeNumber + 1
+              episodeNumber: options.episodeNumber || seriesContext.lastEpisodeNumber + 1,
+              visualStyleModelId: seriesContext.visualStyleModelId
             }
           }
 

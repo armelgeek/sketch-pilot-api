@@ -53,6 +53,7 @@ export interface SeriesContext {
   unresolvedThreads?: string[]
   totalEpisodes?: number
   isFinalEpisode?: boolean
+  visualStyleModelId?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -442,12 +443,15 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       for (const name of characterMatches) {
         const char = this.seriesContext.characterRegistry[name]
         if (char) {
+          // Only add visualAnchor if we DON'T have reference images, to avoid character drift
           const visualAnchor = char.portraitPrompt || char.description
-          if (visualAnchor && !paragraph.includes(visualAnchor.slice(0, 30))) {
+          if (visualAnchor && !hasReferenceImages && !paragraph.includes(visualAnchor.slice(0, 30))) {
             paragraph += `, Character ${name}: ${visualAnchor}`
           }
-          if (char.modelId && !paragraph.includes(char.modelId)) {
-            paragraph += `, reference style ${char.modelId}`
+
+          const effectiveModelId = char.modelId || this.seriesContext.visualStyleModelId
+          if (effectiveModelId && !paragraph.includes(effectiveModelId)) {
+            paragraph += `, reference style ${effectiveModelId}`
           }
         }
       }
@@ -458,6 +462,10 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       if (loc && loc.description && !paragraph.includes(loc.description.slice(0, 30))) {
         paragraph = `Location ${scene.locationId}: ${loc.description}. ${paragraph}`
       }
+    }
+
+    if (this.seriesContext.globalContext) {
+      paragraph = `Universe Context (${this.seriesContext.globalContext.slice(0, 200)}): ${paragraph}`
     }
 
     const spec = this.getEffectiveSpec({} as any)
@@ -497,18 +505,27 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
 
   public async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
     const spec = this.getEffectiveSpec({} as any)
-    return this.buildCharacterDescription(spec)
+    const base = this.buildCharacterDescription(spec)
+
+    if (hasReferenceImages) {
+      return `${base.split('\n')[0]}\nCRITICAL: Use the provided REFERENCE IMAGES as the primary guide for character identity. Character descriptions are secondary.`
+    }
+
+    return base
   }
 
   protected buildCharacterDescription(spec: VideoTypeSpecification): string {
+    const globalModelId = this.seriesContext.visualStyleModelId
+
     const charSection = Object.entries(this.seriesContext.characterRegistry)
-      .map(
-        ([name, data]) =>
-          `Recurring Character "${name}": ${data.description}${data.modelId ? ` (MODEL: ${data.modelId})` : ''}`
-      )
+      .map(([name, data]) => {
+        const modelId = data.modelId || globalModelId
+        return `Recurring Character "${name}" (Full body reference): ${data.description}${modelId ? ` (MODEL: ${modelId})` : ''}`
+      })
       .join(', ')
 
     return [
+      `Universe/Genre: ${this.seriesContext.globalContext?.slice(0, 200) || 'Series Continuity'}.`,
       spec.characterDescription || '',
       `Style episodic series consistency. ${charSection ? `Recalling characters: ${charSection}` : ''}`
     ]
@@ -569,7 +586,8 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       lastCliffhanger: nextCliffhanger,
       unresolvedThreads: rawThreads,
       previousEpisodesContext: `${currentContext.previousEpisodesContext || ''}\n${episodeHistory}`.trim(),
-      episodeNumber: currentContext.episodeNumber + 1
+      episodeNumber: currentContext.episodeNumber + 1,
+      visualStyleModelId: currentContext.visualStyleModelId
     }
   }
 }

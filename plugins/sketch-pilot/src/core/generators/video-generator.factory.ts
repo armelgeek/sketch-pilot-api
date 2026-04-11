@@ -19,7 +19,8 @@ export const VideoGeneratorFactory = {
         lastCliffhanger: extraOptions.lastCliffhanger || sc.lastCliffhanger,
         unresolvedThreads: extraOptions.unresolvedThreads || sc.unresolvedThreads,
         totalEpisodes: extraOptions.totalEpisodes || sc.totalEpisodes,
-        isFinalEpisode: !!(extraOptions.isFinalEpisode || sc.isFinalEpisode)
+        isFinalEpisode: !!(extraOptions.isFinalEpisode || sc.isFinalEpisode),
+        visualStyleModelId: extraOptions.visualStyleModelId || sc.visualStyleModelId
       } as any)
     }
 

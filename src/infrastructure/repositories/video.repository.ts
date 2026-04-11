@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm'
 import { db } from '../database/db'
 import { videos } from '../database/schema'
 
@@ -128,8 +128,7 @@ export class VideoRepository {
   async listByUser(userId: string, filters: VideoFilters) {
     const { page = 1, limit = 20, status, search, sort } = filters
     const offset = (page - 1) * limit
-
-    const conditions = [eq(videos.userId, userId)]
+    const conditions = [eq(videos.userId, userId), isNull(videos.seriesId)]
     if (status) conditions.push(eq(videos.status, status))
     if (search) conditions.push(ilike(videos.topic, `%${search}%`))
 
