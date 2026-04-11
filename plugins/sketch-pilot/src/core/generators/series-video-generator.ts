@@ -494,33 +494,26 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
 
   public async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
     const spec = this.getEffectiveSpec({} as any)
-    const base = this.buildCharacterDescription(spec)
+    const characterDescription = this.buildCharacterDescription(spec, hasReferenceImages)
 
-    const styleRule = hasReferenceImages
-      ? 'STYLE RULE: Follow the visual style and color of the REFERENCE IMAGES.'
-      : 'STYLE RULE: Strict black and white pencil drawing. No colors.'
-
-    const negativeConstraints = `
-PHYSICAL LOGIC: Only render what is explicitly described. Anatomy and interactions must be organic and narratively grounded. No meta-elements.
-${styleRule}`
-
-    if (hasReferenceImages) {
-      const charRef = base.split('\n')[0]
-      return `${charRef}\nCRITICAL: Use the provided REFERENCE IMAGES as the primary guide.\n${negativeConstraints}`
-    }
-
-    return `${base}\n${negativeConstraints}`
+    return this.buildImageGenerationInstructions(hasReferenceImages, {
+      characterDescription
+    })
   }
 
-  protected buildCharacterDescription(spec: VideoTypeSpecification): string {
+  protected buildCharacterDescription(spec: VideoTypeSpecification, hasReferenceImages: boolean = false): string {
     const globalModelId = this.seriesContext.visualStyleModelId
 
     const charSection = Object.entries(this.seriesContext.characterRegistry)
       .map(([name, data]) => {
         const modelId = data.modelId || globalModelId
-        return `Recurring Character "${name}" (Full body reference): ${data.description}${modelId ? ` (MODEL: ${modelId})` : ''}`
+        return `Recurring Character "${name}"${!hasReferenceImages ? ` (${data.description})` : ''}${modelId ? ` (MODEL: ${modelId})` : ''}`
       })
       .join(', ')
+
+    if (hasReferenceImages) {
+      return charSection ? `Recalling characters from references: ${charSection}` : 'Character from reference.'
+    }
 
     return [
       `Universe/Genre: ${this.seriesContext.globalContext?.slice(0, 200) || 'Series Continuity'}.`,

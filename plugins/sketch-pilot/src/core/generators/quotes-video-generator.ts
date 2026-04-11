@@ -105,25 +105,25 @@ export class QuotesVideoGenerator extends StandaloneVideoGenerator {
     aspectRatio?: string
   ): Promise<any> {
     // Enforce the Stoic/Marble aesthetic even if the LLM didn't mention it
-    const marbleBuffer =
-      scene.imagePrompt?.toLowerCase().includes('statue') || scene.imagePrompt?.toLowerCase().includes('marble')
-        ? ''
-        : 'White marble statue bust, ancient Greek style, '
+    const marblePrefix = hasReferenceImages
+      ? 'Subject from reference, '
+      : 'White marble statue bust, ancient Greek style, '
+
+    const marbleSuffix = hasReferenceImages
+      ? ', maintain style and color from reference.'
+      : ', cinematic lighting, dark moody background, high contrast, extreme detail, 8k.'
 
     return {
       sceneId: scene.id,
-      prompt: `${marbleBuffer}${scene.imagePrompt || ''}, cinematic lighting, dark moody background, high contrast, extreme detail, 8k.`
+      prompt: `${marblePrefix}${scene.imagePrompt || ''}${marbleSuffix}`
     }
   }
 
   public async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
-    const styleRule = hasReferenceImages
-      ? 'STYLE RULE: Follow reference images style and colors.'
-      : 'STYLE RULE: Strictly black and white. Grayscale only.'
-
-    return `Esthétique Cinematic Dark Academia. Focus sur les textures de marbre, l'éclairage chiaroscuro (contraste extrême).
-PHYSICAL LOGIC: Render only the narrative scene. Organic anatomy and grounding required. No meta-elements.
-${styleRule}`
+    return this.buildImageGenerationInstructions(hasReferenceImages, {
+      styleAnchor:
+        "Esthétique Cinematic Dark Academia. Focus sur les textures de marbre, l'éclairage chiaroscuro (contraste extrême)."
+    })
   }
 
   public async buildThumbnailPrompt(title: string): Promise<string> {

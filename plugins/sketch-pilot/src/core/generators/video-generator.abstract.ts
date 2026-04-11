@@ -713,4 +713,41 @@ ${mandatoryRules.join('\n')}
       .replaceAll(/\s{2,}/g, ' ')
       .trim()
   }
+  /**
+   * Builds the common part of image generation instructions (Shared logic).
+   */
+  protected buildImageGenerationInstructions(
+    hasReferenceImages: boolean,
+    params: {
+      styleAnchor?: string
+      characterDescription?: string
+      customNegative?: string
+    } = {}
+  ): string {
+    const styleRule = hasReferenceImages
+      ? 'STYLE RULE: Maintain 100% visual style, color palette, and textures from the provided REFERENCE IMAGES. The images are the absolute master for visual truth.'
+      : 'STYLE RULE: Strict high-contrast black and white pencil drawing. No colors or glows allowed.'
+
+    const logicRule =
+      'PHYSICAL LOGIC: Render only requested subjects. Anatomy and interactions must be organic and narratively grounded. No disembodied parts or external production elements (artist hands, tools, screens).'
+
+    const parts = []
+
+    if (hasReferenceImages) {
+      parts.push(
+        'CRITICAL: THE REFERENCE IMAGES SUPERSEDE ALL TEXT DESCRIPTIONS for visual style and identity.',
+        params.characterDescription ? `Subject Identity: ${params.characterDescription}.` : '',
+        'Style: Follow the exact visual style, colors, and textures of the provided REFERENCE IMAGES.'
+      )
+    } else {
+      if (params.styleAnchor) parts.push(params.styleAnchor)
+      if (params.characterDescription) parts.push(`Character/Subject: ${params.characterDescription}`)
+    }
+
+    parts.push(styleRule, logicRule)
+    if (params.customNegative) parts.push(`NEGATIVE CONSTRAINT: ${params.customNegative}`)
+    else parts.push('NEGATIVE CONSTRAINT: No whiteboard meta-elements.')
+
+    return parts.filter(Boolean).join('\n')
+  }
 }
