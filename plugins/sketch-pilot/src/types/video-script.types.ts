@@ -265,12 +265,61 @@ export const enrichedSceneSchema = z.object({
     .array(z.string())
     .default([])
     .describe('List of strategic pause locations (e.g. "after sentence 1", "before the reveal")'),
-  thumbnailUrl: z.string().optional().describe('URL to the generated thumbnail for this scene'),
+  thumbnailUrl: z.string().url().optional().describe('URL to the generated thumbnail for this scene'),
   transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene'),
   persistentDecorTokens: z
     .preprocess((val) => (typeof val === 'string' ? val.split(',').map((s) => s.trim()) : val), z.array(z.string()))
     .default([])
     .describe('Neutral background visual elements kept across scenes for cinematic continuity'),
+  isEstablishingShot: z
+    .boolean()
+    .default(false)
+    .describe('If true, this scene is an establishing shot (Wide Shot) to introduce a new location or context'),
+  spatialAnchor: z
+    .string()
+    .optional()
+    .describe(
+      'Logical position of this scene in the world (e.g. "at the foot of the mountains", "north of the village")'
+    ),
+  emotionalTokens: z
+    .record(z.array(z.string()))
+    .default({})
+    .describe('Map of character @Name to their specific emotional keywords (e.g. {"@Marek": ["Angry"]})'),
+  interactions: z
+    .record(z.string())
+    .default({})
+    .describe('Dynamic tension between character pairs (e.g. {"@Alexandre-@Marek": "Suspicion"})'),
+  composition: z
+    .object({
+      shotType: z.enum(['CLOSEUP', 'MEDIUM', 'WIDE', 'ESTABLISHING', 'POV', 'OVERSHOULDER']).default('MEDIUM'),
+      layout: z
+        .enum(['SINGLE', 'SPLIT', 'MONTAGE', 'DIAGONAL'])
+        .default('SINGLE')
+        .describe('Layout type: SINGLE for one frame, SPLIT/MONTAGE for multiple panels/polyptychs'),
+      foregroundAnchor: z.string().optional().describe('Context-aware object for Dirty Frame (e.g. "blurry pillar")'),
+      lightingMood: z.string().optional().describe('Specific lighting (e.g. "low key", "warm sunset")'),
+      focusTarget: z.string().optional().describe('Where the character is looking or the camera focuses')
+    })
+    .default({ shotType: 'MEDIUM', layout: 'SINGLE' }),
+  visualEvolution: z
+    .record(z.string())
+    .default({})
+    .describe(
+      'Physical changes for characters/entities (e.g. {"@Alexandre": "Cicatrice au front", "@Marek": "Vêtements brûlés"})'
+    ),
+  weatherState: z.string().optional().describe('Current weather/climate (e.g. "Orage violent", "Brume épaisse")'),
+  timeOfDay: z.string().optional().describe('Current time (e.g. "Minuit", "Aube", "Crépuscule")'),
+  relationshipMap: z
+    .record(z.record(z.string()))
+    .default({})
+    .describe('Social status changes (e.g. {"@Alexandre": {"@Sarah": "Trahison", "@Marek": "Alliance"}})'),
+  assetEvolution: z
+    .record(z.string())
+    .default({})
+    .describe('Physical changes for key objects (e.g. {"Épée": "Brisée", "Grimoire": "Brûlé"})'),
+  colorPalette: z.string().optional().describe('Global color grading (e.g. "Sépia", "Néons froids")'),
+  symbolicMotifs: z.array(z.string()).default([]).describe('Recurring symbols/motifs in this scene'),
+  cameraStyle: z.string().optional().describe('Global camera language (e.g. "Handheld", "Static")'),
   // Polyptych fields
   polyptychGroupId: z.string().optional().describe('ID of the group sharing a single multi-panel image'),
   panelIndex: z.number().optional().describe('0-based index of the panel to extract from the polyptych image'),
@@ -376,14 +425,31 @@ export const completeVideoScriptSchema = z.object({
         .record(
           z.object({
             description: z.string().optional(),
-            isNew: z.boolean().optional()
+            isNew: z.boolean().optional(),
+            thumbnailUrl: z.string().url().optional()
           })
         )
-        .optional(),
+        .optional()
+        .describe('Detailed continuity info for characters in this episode'),
+      assetRegistry: z
+        .record(
+          z.object({
+            description: z.string(),
+            thumbnailUrl: z.string().url().optional(),
+            type: z.enum(['creature', 'monster', 'artifact', 'object', 'other']).default('other')
+          })
+        )
+        .optional()
+        .describe('Registry for recurring story assets (MacGuffins, Monsters, Special Objects)'),
       nextEpisodeTease: z.string().optional(),
       unresolvedThreads: z.array(z.string()).optional(),
       resolution: z.string().optional(),
-      characterFinalState: z.record(z.string()).optional()
+      characterFinalState: z.record(z.string()).optional(),
+      newCharacters: z
+        .record(z.string())
+        .optional()
+        .describe('Map of newly discovered characters [name]: [description]'),
+      newAssets: z.record(z.string()).optional().describe('Map of newly discovered story assets [name]: [description]')
     })
     .optional()
     .describe('Episodic metadata for series-mode videos'),
@@ -811,7 +877,8 @@ export const imagePromptSchema = z.object({
     .string()
     .describe(
       'Concise, single-string prompt (Crayon Capital style by default) including aspect ratio suffix at the end'
-    )
+    ),
+  referenceImage: z.string().optional().describe('Optional visual reference image (URL or Base64)')
 })
 
 export type ImagePrompt = z.infer<typeof imagePromptSchema>

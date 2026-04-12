@@ -28,6 +28,7 @@ export class VideoRepository {
     episodeNumber?: number
     characterRegistry?: Record<string, any>
     locationRegistry?: Record<string, any>
+    assetRegistry?: Record<string, any>
   }) {
     const [video] = await db
       .insert(videos)
@@ -48,6 +49,7 @@ export class VideoRepository {
         episodeNumber: data.episodeNumber,
         characterRegistry: data.characterRegistry || {},
         locationRegistry: data.locationRegistry || {},
+        assetRegistry: data.assetRegistry || {},
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -96,6 +98,9 @@ export class VideoRepository {
       options?: any
       completedAt?: Date
       title?: string
+      characterRegistry?: Record<string, any>
+      locationRegistry?: Record<string, any>
+      assetRegistry?: Record<string, any>
     }
   ) {
     const updateData: any = { ...data }

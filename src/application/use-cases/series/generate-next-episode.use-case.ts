@@ -52,7 +52,8 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
         options: {
           seriesId,
           type: 'series',
-          episodeNumber: nextEpisodeNumber
+          episodeNumber: nextEpisodeNumber,
+          scriptOnly: true
         }
       })
 

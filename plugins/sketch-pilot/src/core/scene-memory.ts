@@ -4,7 +4,7 @@ import type { CompleteVideoScript } from '../types/video-script.types'
  * Minimum scene fields required by SceneMemoryBuilder.
  */
 export interface SceneMemoryInput {
-  id: string
+  id?: string
   locationId?: string | null
   background?: string | null
 }
@@ -73,7 +73,7 @@ export class SceneMemoryBuilder {
     if (!memory.locations.has(locationId)) {
       memory.locations.set(locationId, {
         prompt: scene.background,
-        referenceImageId: scene.id
+        referenceImageId: scene.id || 'unknown'
       })
     }
   }

@@ -103,7 +103,7 @@ export class QuotesVideoGenerator extends StandaloneVideoGenerator {
     scene: EnrichedScene,
     hasReferenceImages?: boolean,
     aspectRatio?: string
-  ): Promise<any> {
+  ): Promise<import('../../types/video-script.types').ImagePrompt> {
     // Enforce the Stoic/Marble aesthetic even if the LLM didn't mention it
     const marblePrefix = hasReferenceImages
       ? 'Subject from reference, '

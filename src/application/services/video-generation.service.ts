@@ -13,6 +13,7 @@ import { PromptService } from '@/application/services/prompt.service'
 import { redisClient } from '@/infrastructure/config/queue.config'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
+import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { AnimationServiceConfig } from '@sketch-pilot/services/animation'
 import type { AudioServiceConfig } from '@sketch-pilot/services/audio'
 import type { ImageServiceConfig } from '@sketch-pilot/services/image'
@@ -32,22 +33,46 @@ export interface VideoGenerationInput {
 export class VideoGenerationService {
   private readonly promptService = new PromptService(new PromptRepository())
   private readonly seriesRepository = new SeriesRepository()
+  private readonly videoRepository = new VideoRepository()
 
   constructor() {}
 
-  private async buildEngine(options: Partial<VideoGenerationOptions> = {}): Promise<NanoBananaEngine> {
+  private async buildEngine(
+    options: Partial<VideoGenerationOptions> = {},
+    videoId?: string
+  ): Promise<NanoBananaEngine | null> {
     const apiKey = process.env.GEMINI_API_KEY || ''
 
     // 1. Resolve Spec from DB
     const scriptSpec = await this.promptService.resolveSpec((options as any).promptId)
 
-    // 1.5. Resolve Series Context if applicable
+    // 1.5. Resolve Registries and Series Context
     let seriesContext = undefined
-    const seriesId = options.seriesId || (options as any).seriesContext?.seriesId
-    if (seriesId) {
-      seriesContext = await this.seriesRepository.getSeriesContext(seriesId)
+    let videoRecord = undefined
+
+    if (videoId) {
+      videoRecord = await this.videoRepository.findById(videoId)
     }
 
+    const seriesId = options.seriesId || (options as any).seriesContext?.seriesId || videoRecord?.seriesId
+    if (seriesId) {
+      seriesContext = await this.seriesRepository.getSeriesContext(seriesId)
+
+      // Arc Welding: Extract the pitch for the specific episode number
+      if (seriesContext && seriesContext.plannedEpisodes && videoRecord?.episodeNumber !== undefined) {
+        const currentPitch = seriesContext.plannedEpisodes.find((p) => Number(p.number) === videoRecord.episodeNumber)
+        if (currentPitch) {
+          seriesContext.currentEpisodePitch = currentPitch.hook || currentPitch.title
+        }
+
+        // Dynamic Pacing: Determine if this is the end of the road
+        const total = seriesContext.totalEpisodes || 0
+        seriesContext.isFinalEpisode = videoRecord.episodeNumber >= total && total > 0
+
+        // V16: Pass the whole plan for foreshadowing
+        seriesContext.plannedEpisodes = seriesContext.plannedEpisodes || []
+      }
+    }
     // 2. Resolve Voice
     const effectiveVoiceId = options.kokoroVoicePreset as string | undefined
 
@@ -89,6 +114,27 @@ export class VideoGenerationService {
       cacheSystemPrompt: true
     }
 
+    // Unify registries (Series + Standalone) to ensure absolute identity locking
+    // Series Bible takes precedence over local video snapshots
+    const unifiedRegistries = {
+      characterRegistry: {
+        ...(videoRecord?.characterRegistry || {}),
+        ...(seriesContext?.characterRegistry || {})
+      },
+      locationRegistry: {
+        ...(videoRecord?.locationRegistry || {}),
+        ...(seriesContext?.locationRegistry || {})
+      },
+      assetRegistry: {
+        ...(videoRecord?.assetRegistry || {}),
+        ...(seriesContext?.assetRegistry || {})
+      }
+    }
+
+    console.info(
+      `[VideoGenerationService] Unified Registry -> Characters: ${Object.keys(unifiedRegistries.characterRegistry).length}, Locations: ${Object.keys(unifiedRegistries.locationRegistry).length}, Assets: ${Object.keys(unifiedRegistries.assetRegistry).length}`
+    )
+
     // NanoBananaEngine constructor
     return new NanoBananaEngine(
       apiKey,
@@ -101,7 +147,11 @@ export class VideoGenerationService {
       {
         scriptSpec: scriptSpec as any,
         characterModelId: options.characterModelId,
-        seriesContext: seriesContext as any
+        seriesContext: seriesContext as any,
+        // Standalone registries (now unified)
+        characterRegistry: unifiedRegistries.characterRegistry,
+        locationRegistry: unifiedRegistries.locationRegistry,
+        assetRegistry: unifiedRegistries.assetRegistry
       }
     )
   }
@@ -111,7 +161,8 @@ export class VideoGenerationService {
    */
   async generateVideo(input: VideoGenerationInput & { projectId?: string }): Promise<CompleteVideoPackage> {
     const { topic, options = {}, projectId, onProgress, videoId } = input
-    const engine = await this.buildEngine(options)
+    const engine = await this.buildEngine(options, videoId)
+    if (!engine) throw new Error('Failed to initialize video generation engine')
 
     if (videoId) {
       await redisClient.del(`cancel-video-${videoId}`)
@@ -142,13 +193,26 @@ export class VideoGenerationService {
   }
 
   /**
+   * Only generate the script (Pass 1 & Pass 2).
+   */
+  async generateScriptOnly(input: VideoGenerationInput): Promise<any> {
+    const { topic, options = {}, videoId } = input
+    const engine = await this.buildEngine(options, videoId)
+    if (!engine) throw new Error('Failed to initialize script generation engine')
+    return await engine.generateStructuredScript(topic, options, async (p, m) => {
+      if (input.onProgress) await input.onProgress(p, m)
+    })
+  }
+
+  /**
    * Render a video directly from an existing script.
    */
   async renderVideoFromScript(
     input: VideoGenerationInput & { script: any; projectId?: string }
   ): Promise<CompleteVideoPackage> {
     const { script, options = {}, projectId, onProgress, videoId } = input
-    const engine = await this.buildEngine(options)
+    const engine = await this.buildEngine(options, videoId)
+    if (!engine) throw new Error('Failed to initialize video rendering engine')
 
     if (videoId) {
       await redisClient.del(`cancel-video-${videoId}`)
@@ -184,7 +248,6 @@ export class VideoGenerationService {
   async stopGeneration(videoId: string): Promise<void> {
     const key = `cancel-video-${videoId}`
     await redisClient.set(key, 'true', 'EX', 3600)
-    console.info(`[VideoGenerationService] Marked video ${videoId} for cancellation`)
   }
 
   /**
@@ -196,18 +259,26 @@ export class VideoGenerationService {
     options?: Partial<VideoGenerationOptions>
     outputDir?: string
     count?: number
+    videoId?: string
   }): Promise<string[]> {
-    const { title, inspirationUrl, options = {}, outputDir, count } = input
-    const engine = await this.buildEngine(options)
+    const { title, inspirationUrl, options = {}, outputDir, count, videoId } = input
+    const engine = await this.buildEngine(options, videoId)
+    if (!engine) throw new Error('Failed to initialize thumbnail generation engine')
     return await engine.generateAIThumbnail(title, inspirationUrl, outputDir, count)
   }
 
   /**
    * Generate a single character image.
    */
-  async generateCharacterImage(input: { prompt: string; baseModelId: string; outputDir?: string }): Promise<string> {
-    const { prompt, baseModelId, outputDir } = input
-    const engine = await this.buildEngine({ characterModelId: baseModelId })
+  async generateCharacterImage(input: {
+    prompt: string
+    baseModelId: string
+    outputDir?: string
+    videoId?: string
+  }): Promise<string> {
+    const { prompt, baseModelId, outputDir, videoId } = input
+    const engine = await this.buildEngine({ characterModelId: baseModelId }, videoId)
+    if (!engine) throw new Error('Failed to initialize character generation engine')
 
     const tempDir = outputDir || path.join(process.cwd(), 'uploads', 'temp', `char-${Date.now()}`)
     if (!(await fs.stat(tempDir).catch(() => null))) {

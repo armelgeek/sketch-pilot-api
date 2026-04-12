@@ -11,6 +11,7 @@ export class SeriesRepository {
     globalContext?: string
     characterRegistry?: Record<string, any>
     locationRegistry?: Record<string, any>
+    assetRegistry?: Record<string, any>
 
     totalEpisodes?: string
     language?: string
@@ -30,6 +31,7 @@ export class SeriesRepository {
         ...data,
         characterRegistry: data.characterRegistry || {},
         locationRegistry: data.locationRegistry || {},
+        assetRegistry: data.assetRegistry || {},
         plannedEpisodes: data.plannedEpisodes || [],
         createdAt: new Date(),
         updatedAt: new Date()
@@ -90,11 +92,17 @@ export class SeriesRepository {
       previousEpisodesContext: s.previousEpisodesContext || '',
       characterRegistry: (s.characterRegistry as Record<string, any>) || {},
       locationRegistry: (s.locationRegistry as Record<string, any>) || {},
+      assetRegistry: (s.assetRegistry as Record<string, any>) || {},
 
       totalEpisodes: s.totalEpisodes ? Number(s.totalEpisodes) : undefined,
       lastEpisodeNumber: s.lastEpisodeNumber ? Number(s.lastEpisodeNumber) : 0,
       lastCliffhanger: s.lastCliffhanger ?? undefined,
       unresolvedThreads: (s.unresolvedThreads as string[]) || [],
+
+      // PROJECT SEQUEL: Episode Bridging context
+      lastEpisodeFinalImage: s.lastEpisodeFinalImage ?? undefined,
+      lastEpisodeFinalScene: s.lastEpisodeFinalScene || undefined,
+
       status: s.status ?? undefined,
       language: s.language ?? undefined,
       aspectRatio: s.aspectRatio ?? undefined,
@@ -105,11 +113,45 @@ export class SeriesRepository {
       visualStyleModelId: s.visualStyleModelId ?? undefined,
       audioProvider: s.audioProvider ?? undefined,
       kokoroVoicePreset: s.kokoroVoicePreset ?? undefined,
-      plannedEpisodes: (s.plannedEpisodes as { number: number; title: string; hook: string }[]) || []
+      plannedEpisodes: (s.plannedEpisodes as { number: number; title: string; hook: string }[]) || [],
+      currentEpisodePitch: undefined as string | undefined,
+      isFinalEpisode: undefined as boolean | undefined,
+
+      // V13, V14 & V15 fields
+      visualEvolution: (s.visualEvolution as Record<string, string>) || {},
+      weatherState: s.weatherState ?? undefined,
+      timeOfDay: s.timeOfDay ?? undefined,
+      relationshipMap: (s.relationshipMap as Record<string, Record<string, string>>) || {},
+      assetEvolution: (s.assetEvolution as Record<string, string>) || {},
+      colorPalette: s.colorPalette ?? undefined,
+      symbolicMotifs: (s.symbolicMotifs as string[]) || [],
+      cameraStyle: s.cameraStyle ?? undefined,
+
+      // V21 Recency Bias
+      lastEpisodeSummary: this.getLastEpisodeSummary(s.previousEpisodesContext || '')
     }
   }
 
+  private getLastEpisodeSummary(history: string): string | undefined {
+    if (!history) return undefined
+    const parts = history.split('--- Episode Summary ---')
+    const lastPart = parts.at(-1)
+    return lastPart ? lastPart.trim() : undefined
+  }
+
   async updateNarrativeContext(id: string, data: { lastCliffhanger?: any; unresolvedThreads?: string[] }) {
+    const [updated] = await db
+      .update(series)
+      .set({
+        ...data,
+        updatedAt: new Date()
+      })
+      .where(eq(series.id, id))
+      .returning()
+    return updated
+  }
+
+  async updateFinalBridge(id: string, data: { lastEpisodeFinalImage: string; lastEpisodeFinalScene: any }) {
     const [updated] = await db
       .update(series)
       .set({
@@ -160,6 +202,18 @@ export class SeriesRepository {
       .update(series)
       .set({
         locationRegistry: registry,
+        updatedAt: new Date()
+      })
+      .where(eq(series.id, id))
+      .returning()
+    return updated
+  }
+
+  async updateAssetRegistry(id: string, registry: Record<string, any>) {
+    const [updated] = await db
+      .update(series)
+      .set({
+        assetRegistry: registry,
         updatedAt: new Date()
       })
       .where(eq(series.id, id))

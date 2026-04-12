@@ -16,6 +16,8 @@ export const series = pgTable('series', {
   characterRegistry: jsonb('character_registry').$type<Record<string, any>>().default({}),
   // Persistent registry of locations: { name: { description, thumbnailUrl } }
   locationRegistry: jsonb('location_registry').$type<Record<string, any>>().default({}),
+  // Persistent registry of assets (monsters, objects, etc.): { name: { description, type } }
+  assetRegistry: jsonb('asset_registry').$type<Record<string, any>>().default({}),
 
   // Cumulative context of previous episodes (summaries, cliffhangers)
   previousEpisodesContext: text('previous_episodes_context').default(''),
@@ -47,6 +49,20 @@ export const series = pgTable('series', {
 
   // Planned episodes generated during prep phase
   plannedEpisodes: jsonb('planned_episodes').$type<{ number: number; title: string; hook: string }[]>().default([]),
+
+  // Final bridge for next episode continuity
+  lastEpisodeFinalImage: text('last_episode_final_image'),
+  lastEpisodeFinalScene: jsonb('last_episode_final_scene').$type<any>(),
+
+  // V13: Visual & Temporal Evolution
+  visualEvolution: jsonb('visual_evolution').$type<Record<string, string>>().default({}),
+  weatherState: text('weather_state'),
+  timeOfDay: text('time_of_day'),
+  relationshipMap: jsonb('relationship_map').$type<Record<string, Record<string, string>>>().default({}),
+  assetEvolution: jsonb('asset_evolution').$type<Record<string, string>>().default({}),
+  colorPalette: text('color_palette'),
+  symbolicMotifs: jsonb('symbolic_motifs').$type<string[]>().default([]),
+  cameraStyle: text('camera_style'),
 
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()

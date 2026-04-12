@@ -146,13 +146,14 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
       const exportCost =
         videoOptions.resolution === '1080p' || plan !== 'free' ? CREDIT_COSTS.EXPORT_1080P : CREDIT_COSTS.EXPORT_720P
 
-      const totalCost =
-        CREDIT_COSTS.SCRIPT_GENERATION +
-        imageCostPerScene * estimatedScenes +
-        CREDIT_COSTS.TTS_VOICE +
-        CREDIT_COSTS.SUBTITLES +
-        exportCost +
-        (options.promptId ? CREDIT_COSTS.STUDIO_PASS_SURCHARGE : 0)
+      const totalCost = videoOptions.scriptOnly
+        ? CREDIT_COSTS.SCRIPT_GENERATION
+        : CREDIT_COSTS.SCRIPT_GENERATION +
+          imageCostPerScene * estimatedScenes +
+          CREDIT_COSTS.TTS_VOICE +
+          CREDIT_COSTS.SUBTITLES +
+          exportCost +
+          (options.promptId ? CREDIT_COSTS.STUDIO_PASS_SURCHARGE : 0)
 
       const credits = await creditsRepository.ensureUserCredits(userId)
       await creditsRepository.getActiveSubscription(userId)

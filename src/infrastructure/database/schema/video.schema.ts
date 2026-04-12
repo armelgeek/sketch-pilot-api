@@ -30,6 +30,7 @@ export const videos = pgTable('videos', {
   // Persistent registries for visual consistency (intra-video and regeneration)
   characterRegistry: jsonb('character_registry').$type<Record<string, any>>().default({}),
   locationRegistry: jsonb('location_registry').$type<Record<string, any>>().default({}),
+  assetRegistry: jsonb('asset_registry').$type<Record<string, any>>().default({}),
 
   // Script / scenes data
   script: jsonb('script'),

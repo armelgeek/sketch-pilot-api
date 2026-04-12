@@ -65,7 +65,8 @@ export class GenerateThumbnailUseCase extends IUseCase<GenerateThumbnailParams, 
         inspirationUrl,
         options: { characterModelId: characterId || (video.options as any)?.characterModelId },
         outputDir,
-        count: 1
+        count: 1,
+        videoId: video.id
       })
 
       // Upload to MinIO - Limiting to 1 variation

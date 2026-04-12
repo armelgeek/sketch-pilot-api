@@ -1,5 +1,5 @@
 import { computeSceneCountRange, QualityMode } from '../../types/video-script.types'
-import type { EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../../types/video-script.types'
+import type { EnrichedScene, VideoGenerationOptions } from '../../types/video-script.types'
 import type { SceneMemory } from '../scene-memory'
 import { BASE_SPEC, VideoGenerator } from './video-generator.abstract'
 import type { VideoGeneratorConfig } from './video-generator.abstract'
@@ -269,7 +269,7 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     aspectRatio: string = '16:9',
     memory?: SceneMemory,
     hasLocationReference: boolean = false
-  ): Promise<ImagePrompt> {
+  ): Promise<import('../../types/video-script.types').ImagePrompt> {
     let paragraph = (scene.imagePrompt || scene.summary || '').trim()
 
     if (scene.locationId && memory) {
@@ -280,8 +280,14 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     }
 
     if (scene.persistentDecorTokens && scene.persistentDecorTokens.length > 0) {
-      paragraph = `Background elements: ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
+      paragraph = `PERSISTENT SCENE ELEMENTS: ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
     }
+
+    // Standard Registry Identities
+    paragraph = this.applyIdentityLocking(paragraph, !!hasReferenceImages, {
+      character: this.config.characterRegistry,
+      asset: this.config.assetRegistry
+    })
 
     const spec = this.getEffectiveSpec({} as any)
     const finalPrompt = this.getEnrichedImagePrompt(paragraph, spec)

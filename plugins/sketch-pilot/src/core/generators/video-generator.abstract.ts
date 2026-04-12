@@ -85,9 +85,13 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     "VARIATION DE CAMÉRA : N'utilisez pas la même cameraAction pour plus de 2 scènes consécutives.",
     "AMBIANCE DE CAMÉRA : Choisissez la cameraAction en fonction du contexte émotionnel (ex: 'zoom-in' pour la focalisation/tension, 'pan' pour l'ampleur/l'environnement).",
     'GARDE-FOU NARRATIF : N\'utilisez PAS de balises de locuteur comme "HÔTE :", "INVITÉ :", "NARRATEUR :" ou "PERSONNAGE :". Écrivez uniquement une narration fluide.',
+    "RYTHME ET IMMERSION : Privilégiez un rythme lent et contemplatif. Ne vous précipitez pas vers l'action.",
+    "DÉVELOPPEMENT DES PERSONNAGES : Dans les premiers épisodes, consacrez du temps à installer la personnalité, les tics et le quotidien des protagonistes. Le public doit être familier avec eux avant que le cœur de l'histoire ou l'horreur ne surgisse.",
+    'TRANSITIONS RÉALISTES : Évitez les sauts temporels ou spatiaux trop brusques. Chaque nouvelle scène doit avoir une connexion logique ou thématique fluide avec la précédente.',
     "GARDE-FOU NARRATIF : Si un dialogue est nécessaire, écrivez-le naturellement sans balises, ou utilisez les noms de personnages UNIQUEMENT s'ils sont définis dans le registre.",
     'CONTINUITÉ VISUELLE : Par défaut, définissez "continueFromPrevious": true pour les scènes consécutives se déroulant au même endroit afin que le moteur puisse générer un mouvement de caméra continu à partir de l\'image précédente. Ne le définissez sur false que lorsque le lieu ou le moment change complètement.',
-    'DÉCOR PERSISTANT : Vous DEVEZ remplir "persistentDecorTokens" avec 2 ou 3 éléments visuels stables. 1. Au moins un jeton DOIT être un **Ancrage Structurel** (ex: "rivière sinueuse large", "chaîne de montagnes escarpées", "architecture gothique") pour fixer le décor global. 2. Au moins un jeton DOIT décrire la lumière ou l\'ambiance (ex: "lumière froide du matin", "éclat bleu néon"). 3. ÉVITEZ les marqueurs directionnels (gauche/droite) et les personnages. Pour la scène 1, extrayez-les du lieu. Pour les scènes suivantes dans le MÊME lieu, RÉUTILISEZ EXACTEMENT les mêmes jetons.',
+    'DÉCOR PERSISTANT : Vous DEVEZ remplir "persistentDecorTokens" avec 3 ou 4 éléments visuels stables. 1. Au moins un jeton DOIT être un **Ancrage Structurel** (ex: "rivière sinueuse large", "chaîne de montagnes escarpées", "architecture gothique") pour fixer le décor global. 2. Au moins un jeton DOIT décrire un **Objet Fixe Clé** (Key Prop) s\'il y en a un (ex: "grande table en chêne", "trône sculpté", "bibliothèque murale"). 3. Au moins un jeton DOIT décrire la lumière ou l\'ambiance (ex: "lumière froide du matin", "éclat bleu néon"). 4. ÉVITEZ les personnages. Pour la scène 1, extrayez-les du lieu. Pour les scènes suivantes dans le MÊME lieu, RÉUTILISEZ EXACTEMENT les mêmes jetons. NE supprimez JAMAIS un jeton entre deux scènes dans le même lieu.',
+    'MÉMOIRE VISUELLE (PROMOTION) : Tout élément récurrent (personnage secondaire, monstre, artefact, animal) DOIT être identifié. Si vous introduisez une nouvelle entité, décrivez-la dans "newCharacters" (pour les êtres vivants) ou "newAssets" (pour les objets/entités non-humaines comme un démon, une épée magique, etc.) afin que le système puisse lui créer un portrait permanent.',
     'RÉFLÉCHISSEZ ÉTAPE PAR ÉTAPE.'
   ],
   scenePresets: {
@@ -110,7 +114,13 @@ export interface VideoGeneratorConfig {
     episodeNumber: number
     previousEpisodesContext: string
     characterRegistry: Record<string, any>
+    locationRegistry: Record<string, any>
+    assetRegistry: Record<string, any>
   }
+  // Standalone registries
+  characterRegistry?: Record<string, any>
+  locationRegistry?: Record<string, any>
+  assetRegistry?: Record<string, any>
 }
 
 export abstract class VideoGenerator {
@@ -195,12 +205,62 @@ export abstract class VideoGenerator {
 
   public async resolveCharacterImages(): Promise<any[]> {
     const metadata = await this.resolveCharacterMetadata()
-    return metadata?.images || []
+    const baseImages = metadata?.images || []
+
+    const characterRegistry = {
+      ...(this.config.characterRegistry || {}),
+      ...((this as any).seriesContext?.characterRegistry || {}),
+      ...(this.config.seriesContext?.characterRegistry || {})
+    }
+
+    console.log(`[VideoGenerator] Registry lookup: ${Object.keys(characterRegistry).length} characters found.`)
+
+    const registryImages = Object.entries(characterRegistry)
+      .map(([name, c]) => ((c as any).thumbnailUrl ? { name, data: (c as any).thumbnailUrl } : null))
+      .filter(Boolean)
+
+    const assetRegistry = {
+      ...(this.config.assetRegistry || {}),
+      ...((this as any).seriesContext?.assetRegistry || {}),
+      ...(this.config.seriesContext?.assetRegistry || {})
+    }
+
+    console.log(`[VideoGenerator] Asset lookup: ${Object.keys(assetRegistry).length} assets found.`)
+
+    const assetImages = Object.entries(assetRegistry)
+      .map(([name, a]) => ((a as any).thumbnailUrl ? { name, data: (a as any).thumbnailUrl } : null))
+      .filter(Boolean)
+
+    const allResolved = [...baseImages, ...registryImages, ...assetImages]
+    console.log(`[VideoGenerator] Total resolved images: ${allResolved.length}`)
+    return allResolved
   }
 
   public async resolveThumbnailInspirations(): Promise<any[]> {
     const metadata = await this.resolveCharacterMetadata()
-    return metadata?.thumbnailInspirations || []
+    const baseInspirations = metadata?.thumbnailInspirations || []
+
+    const characterRegistry = {
+      ...(this.config.characterRegistry || {}),
+      ...((this as any).seriesContext?.characterRegistry || {}),
+      ...(this.config.seriesContext?.characterRegistry || {})
+    }
+
+    const registryImages = Object.entries(characterRegistry)
+      .map(([name, c]) => ((c as any).thumbnailUrl ? { name, data: (c as any).thumbnailUrl } : null))
+      .filter(Boolean)
+
+    const assetRegistry =
+      this.config.assetRegistry ||
+      (this as any).seriesContext?.assetRegistry ||
+      this.config.seriesContext?.assetRegistry ||
+      {}
+
+    const assetImages = Object.entries(assetRegistry)
+      .map(([name, a]) => ((a as any).thumbnailUrl ? { name, data: (a as any).thumbnailUrl } : null))
+      .filter(Boolean)
+
+    return [...baseInspirations, ...registryImages, ...assetImages]
   }
 
   // ─── Speed & timing ───────────────────────────────────────────────────────
@@ -569,16 +629,23 @@ ${mandatoryRules.join('\n')}
       "locationId": "identifiant-lieu-unique",
       "persistentDecorTokens": ["vase bleu sur la table", "lumière matinale"],
       "imagePrompt": "Description visuelle détaillée",
-      "charactersInScene": [],
-      "cameraAction": [
-        { "type": "pan-right", "intensity": "low" },
-        { "type": "zoom-in", "intensity": "high" }
-      ],
+      "charactersInScene": ["Nom exacte du perso"],
+      "cameraAction": [{ "type": "pan-right", "intensity": "low" }],
       "preset": "hook",
       "transition": "fade",
       "continueFromPrevious": true
     }
-  ]
+  ],
+  "seriesMetadata": {
+    "episodeSummary": "Résumé de l'intrigue",
+    "newCharacters": {
+      "Garde Du Corps": "Un colosse en armure noire, cicatrice à l'œil gauche"
+    },
+    "newAssets": {
+      "Orbe de Feu": "Une sphère de cristal rouge pulsant d'une lumière volcanique",
+      "Le Démon": "Une ombre cornue aux yeux ardents, silhouette vaporeuse"
+    }
+  }
 }`.trim()
   }
 
@@ -749,5 +816,67 @@ ${mandatoryRules.join('\n')}
     else parts.push('NEGATIVE CONSTRAINT: No whiteboard meta-elements.')
 
     return parts.filter(Boolean).join('\n')
+  }
+
+  /**
+   * Universal Identity Locking (Multi-language safe):
+   * Strips registry-based descriptions from the prompt and applies standardized anchors.
+   */
+  protected applyIdentityLocking(
+    paragraph: string,
+    hasReferenceImages: boolean,
+    registries: { character?: Record<string, any>; asset?: Record<string, any> }
+  ): string {
+    let result = paragraph.trim()
+
+    // 1. Character Locking
+    if (registries.character) {
+      for (const [name, data] of Object.entries(registries.character)) {
+        const visualAnchor = (data as any).portraitPrompt || (data as any).description
+        if (hasReferenceImages && visualAnchor) {
+          const anchorParts = [visualAnchor, visualAnchor.slice(0, 30), name].filter((p) => (p || '').length > 5)
+          for (const part of anchorParts) {
+            try {
+              const escapedPart = (part || '').replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
+              const regex = new RegExp(`\\b${escapedPart}\\b`, 'gi')
+              result = result.replace(regex, '').trim()
+            } catch {
+              result = result.replace(part, '').trim()
+            }
+          }
+          if (name) {
+            const nameRegex = new RegExp(`\\b${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\b`, 'gi')
+            result = result.replace(nameRegex, '').trim()
+          }
+          // Prepend Reference anchor
+          if (paragraph.toLowerCase().includes(name.toLowerCase()) || paragraph.length < 50) {
+            result = `Reference (${name}), ${result}`
+          }
+        } else if (visualAnchor && !result.includes(visualAnchor.slice(0, 30))) {
+          // Fallback to text anchor if no reference images
+          result += `, Character ${name}: ${visualAnchor}`
+        }
+      }
+    }
+
+    // 2. Asset Locking
+    if (registries.asset) {
+      for (const [name, asset] of Object.entries(registries.asset)) {
+        const desc = (asset as any).description
+        if (hasReferenceImages && (asset as any).thumbnailUrl && desc) {
+          if (result.toLowerCase().includes(desc.toLowerCase().slice(0, 20))) {
+            result = result
+              .replaceAll(new RegExp(desc.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'gi'), '')
+              .trim()
+          }
+          result = `Reference (${name}), ${result}`
+        } else if (desc && !result.toLowerCase().includes(desc.toLowerCase().slice(0, 20))) {
+          result += `, Recurring Asset ${name}: ${desc}`
+        }
+      }
+    }
+
+    // 3. Final Cleanup
+    return result.replaceAll(/,\s*,/g, ',').replaceAll(/\s+/g, ' ').replace(/^,\s*/, '').replace(/,\s*$/, '').trim()
   }
 }

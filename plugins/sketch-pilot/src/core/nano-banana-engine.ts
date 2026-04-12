@@ -179,10 +179,28 @@ export class NanoBananaEngine {
     filename: string,
     bypassCache: boolean = false
   ): Promise<string> {
+    // 1. Resolve Bridge URL (Project Sequel)
+    const isFirstScene = scene.sceneNumber === 1 || scene.id === (this.promptManager as any).seriesContext?.firstSceneId
+    const sequelBridgeUrl = isFirstScene ? (this.promptManager as any).seriesContext?.lastEpisodeFinalImage : undefined
+
     const characterImages = await this.promptManager.resolveCharacterImages()
     const allBaseImages = await this.downloadAndEncodeImages([...baseImages, ...characterImages])
+
+    // 2. Inject Bridge into references if it exists
+    if (sequelBridgeUrl) {
+      console.info(`[NanoBanana] 🎬 PROJECT SEQUEL: Bridging with last episode final frame...`)
+      const encodedBridge = await this.downloadAndEncodeImages([
+        {
+          name: 'Sequel Bridge',
+          data: sequelBridgeUrl
+        }
+      ])
+      allBaseImages.push(...encodedBridge)
+    }
+
     const hasReferenceImages = allBaseImages.length > 0
     const hasLocationReference = allBaseImages.some((img: any) => img.name === 'LOCATION')
+
     const { prompt: fullPrompt } = await this.promptManager.buildImagePrompt(
       scene,
       hasReferenceImages,
@@ -190,7 +208,10 @@ export class NanoBananaEngine {
       undefined,
       hasLocationReference
     )
-    const systemInstruction = await this.promptManager.buildImageSystemInstruction(hasReferenceImages)
+
+    const systemInstruction = await this.promptManager.buildImageSystemInstruction(
+      hasReferenceImages || !!sequelBridgeUrl
+    )
 
     if (!bypassCache) {
       const cached = this.sceneCache.get(fullPrompt, {
@@ -341,9 +362,14 @@ export class NanoBananaEngine {
         const locationB64 = this.projectLocationCache.get(scene.locationId)!
         effectiveRefs.push({ name: 'LOCATION', data: locationB64 })
       } else {
-        // Look in Saga Bible (locationRegistry) for cross-episode consistency
-        const sagaRegistry = (options.customSpec as any)?.seriesMetadata?.locationRegistry
+        // Robust registry lookup (Service-first model)
+        const sc = (this.promptManager as any).seriesContext
+        const sagaRegistry =
+          sc?.locationRegistry ||
+          (this.promptManager as any).config?.locationRegistry ||
+          (options.customSpec as any)?.seriesMetadata?.locationRegistry
         const sagaLocation = sagaRegistry ? sagaRegistry[scene.locationId] : null
+
         if (sagaLocation && sagaLocation.thumbnailUrl) {
           console.log(`[NanoBanana] 🌍 Saga location hit for: ${scene.locationId}`)
           effectiveRefs.push({ name: 'LOCATION', data: sagaLocation.thumbnailUrl })
@@ -358,6 +384,14 @@ export class NanoBananaEngine {
     } else {
       const MAX_IMAGE_RETRIES = 3
       let lastImageError: any
+
+      // REPROMPT CONTINUITY: If we are reprompting, use the existing image as a strong reference
+      // to maintain props, layout, and character posture while applying NEW text instructions.
+      if (isReprompt && fs.existsSync(imagePath)) {
+        const currentImageB64 = fs.readFileSync(imagePath).toString('base64')
+        effectiveRefs.push({ name: 'ORIGINAL_SCENE', data: currentImageB64 })
+      }
+
       for (let attempt = 1; attempt <= MAX_IMAGE_RETRIES; attempt++) {
         try {
           await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
@@ -614,6 +648,10 @@ export class NanoBananaEngine {
         this.projectLocationCache.set(id, (data as any).thumbnailUrl)
       }
     }
+
+    const { SceneMemoryBuilder } = await import('./scene-memory')
+    const memory = new SceneMemoryBuilder().build(script)
+
     const projectName = projectId || script.id || `video-${Date.now()}`
     const projectDir = path.join(this.outputDir, projectName)
     const scenesDir = path.join(projectDir, 'scenes')
@@ -710,9 +748,10 @@ export class NanoBananaEngine {
         const audioPath = path.join(sceneDir, 'narration.mp3')
 
         // MD5 hash of narration to detect changes
+        const cleanNarration = (scene.narration || '').replace(/^[A-Z\s]+[:-]\s*/i, '').trim()
         const textHash = crypto
           .createHash('md5')
-          .update(scene.narration + voiceId)
+          .update(cleanNarration + voiceId)
           .digest('hex')
         const hashFile = path.join(sceneDir, 'audio_hash.txt')
         const isAudioValid =
@@ -744,7 +783,7 @@ export class NanoBananaEngine {
             await this.withPulse(globalStart, globalEnd, `step.step_3_audio_prep:${i + 1}`, onProgress, async () => {
               console.log(`[NanoBanana] 🎤 Generating audio for Scene ${i + 1}/${script.scenes.length}...`)
               const audio = await this.getAudioService()
-              const res = await audio.generateSpeech(scene.narration, audioPath)
+              const res = await audio.generateSpeech(cleanNarration, audioPath)
               if (res.wordTimings) (scene as any).globalWordTimings = res.wordTimings
               ;(scene as any).audioDuration = res.duration
               fs.writeFileSync(hashFile, textHash)
@@ -872,7 +911,7 @@ export class NanoBananaEngine {
 
               const localPr = Math.round((completed / script.scenes.length) * 100)
               if (onProgress) {
-                await onProgress(localPr, `step.step_2_scene:${completed}`)
+                await onProgress(localPr, `step.step_2_scene:${i + 1}`)
               }
 
               if (onSceneGenerated) {
@@ -894,18 +933,20 @@ export class NanoBananaEngine {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
           const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
 
-          const globalStartPr = Math.round((i / script.scenes.length) * 100)
-          const globalEndPr = Math.round(((i + 1) / script.scenes.length) * 100)
+          const prevScenePath = i > 0 ? path.join(scenesDir, script.scenes[i - 1].id, 'scene.webp') : undefined
+          const prevScene = i > 0 ? script.scenes[i - 1] : undefined
 
-          await this.withPulse(globalStartPr, globalEndPr, `step.step_2_scene:${i + 1}`, onProgress, async () => {
-            const prevScenePath = i > 0 ? path.join(scenesDir, script.scenes[i - 1].id, 'scene.webp') : undefined
-            await this.composeScene(scene, baseImages, sceneDir, prevB64, prevScenePath, isTarget, script)
-          })
+          const sceneMemory = {
+            ...(memory || {}),
+            previousScene: prevScene
+          } as any
+
+          await this.composeScene(scene, baseImages, sceneDir, prevB64, prevScenePath, isTarget, script, sceneMemory)
 
           completed++
           const localPr = Math.round((completed / script.scenes.length) * 100)
           if (onProgress) {
-            await onProgress(localPr, `step.step_2_scene:${completed}`)
+            await onProgress(localPr, `step.step_2_scene:${i + 1}`)
           }
           if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, localPr)
           return fs.existsSync(sceneImg) ? fs.readFileSync(sceneImg).toString('base64') : undefined

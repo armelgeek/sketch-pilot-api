@@ -39,7 +39,15 @@ export class GeminiImageService implements ImageService {
       characterSheets?: any[]
     } = {}
   ): Promise<string> {
+    const referenceImages = options.referenceImages || []
+    console.log(
+      `[GeminiImageService] Generating with ${referenceImages.length} reference images. Labels: ${referenceImages
+        .map((img: any) => img.name)
+        .filter(Boolean)
+        .join(', ')}`
+    )
     const baseImages = options.referenceImages || []
+    console.log('[GEMINI BASE IMAGES]', baseImages)
     const originalPrompt = prompt
     const geminiAspectRatio = options.aspectRatio || '16:9'
     const fileFormat = options.format || 'png'
@@ -66,7 +74,10 @@ export class GeminiImageService implements ImageService {
           const name = isObject ? img.name : undefined
           let raw = isObject ? (img as any).data : (img as string)
 
-          if (name) contents.push({ text: `NAME: ${name}` })
+          if (name) {
+            console.log(`[GeminiImage] 🖼️  Reference: ${name}`)
+            contents.push({ text: `Reference (${name}):` })
+          }
 
           // Handle URLs by downloading them
           if (raw.startsWith('http')) {
@@ -105,8 +116,11 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
         if (attempt === 0) {
           console.log(`[GeminiImage] Generating with model ${this.modelId}...`)
           console.log(`[GeminiImage] Prompt: ${originalPrompt}`)
+          if (options.systemInstruction) {
+            console.log(`[GeminiImage] System Instruction: ${options.systemInstruction.slice(0, 300)}...`)
+          }
           console.log(
-            `[GeminiImage] Ratio: ${geminiAspectRatio} | Format: ${fileFormat} | Quality: ${options.quality ?? this.defaultQuality}`
+            `[GeminiImage] Refs: ${baseImages.length} | Ratio: ${geminiAspectRatio} | Format: ${fileFormat} | Quality: ${options.quality ?? this.defaultQuality}`
           )
         } else {
           console.log(`[GeminiImage] Retry ${attempt}/${GeminiImageService.NO_IMAGE_MAX_RETRIES}...`)
