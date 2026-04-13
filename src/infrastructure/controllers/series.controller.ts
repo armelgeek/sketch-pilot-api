@@ -48,7 +48,8 @@ export class SeriesController implements Routes {
                   title: z.string().min(1),
                   description: z.string().optional(),
                   language: z.string().optional(),
-                  promptId: z.string().optional()
+                  promptId: z.string().optional(),
+                  skipPortraits: z.boolean().optional()
                 })
               }
             }
@@ -104,21 +105,32 @@ export class SeriesController implements Routes {
       if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
       const title = c.req.query('title')
+      const seriesId = c.req.query('seriesId')
       const description = c.req.query('description')
       const language = c.req.query('language') || 'fr'
       const promptId = c.req.query('promptId')
       const visualStyleModelId = c.req.query('visualStyleModelId')
+      const videoGenre = c.req.query('videoGenre')
+      const totalEpisodesStr = c.req.query('totalEpisodes')
+      const totalEpisodes = totalEpisodesStr ? Number.parseInt(totalEpisodesStr, 10) : undefined
+      const skipPortraits = c.req.query('skipPortraits') === 'true'
+      const roadmapOnly = c.req.query('roadmapOnly') === 'true'
 
       if (!title) return c.json({ error: 'Title is required' }, 400)
 
       return streamSSE(c, async (stream) => {
         const generator = this.prepareSeriesUseCase.streamExecute({
           userId: user.id,
+          seriesId,
           title,
           description,
           language,
           promptId,
-          visualStyleModelId
+          visualStyleModelId,
+          videoGenre,
+          totalEpisodes,
+          skipPortraits,
+          roadmapOnly
         })
 
         for await (const event of generator) {
@@ -321,7 +333,9 @@ export class SeriesController implements Routes {
                   promptId: z.string().optional(),
                   visualStyleModelId: z.string().optional(),
                   audioProvider: z.string().optional(),
-                  kokoroVoicePreset: z.string().optional()
+                  kokoroVoicePreset: z.string().optional(),
+                  plannedEpisodes: z.array(z.any()).optional(),
+                  status: z.enum(['active', 'archived', 'draft']).optional()
                 })
               }
             }

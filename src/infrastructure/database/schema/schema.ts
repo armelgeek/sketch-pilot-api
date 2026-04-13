@@ -22,7 +22,7 @@ export const users = pgTable('users', {
   utmContent: text('utm_content'),
   defaultCharacterId: text('default_character_id'),
   defaultPromptId: text('default_prompt_id'),
-  language: text('language').default('fr-FR'),
+  language: text('language').default('fr'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

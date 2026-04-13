@@ -179,8 +179,8 @@ export class NanoBananaEngine {
     filename: string,
     bypassCache: boolean = false
   ): Promise<string> {
-    // 1. Resolve Bridge URL (Project Sequel)
-    const isFirstScene = scene.sceneNumber === 1 || scene.id === (this.promptManager as any).seriesContext?.firstSceneId
+    // 1. Resolve Bridge URL (Project Sequel) - STRICT SCENE 1 ANCHOR
+    const isFirstScene = scene.sceneNumber === 1
     const sequelBridgeUrl = isFirstScene ? (this.promptManager as any).seriesContext?.lastEpisodeFinalImage : undefined
 
     const characterImages = await this.promptManager.resolveCharacterImages()
@@ -199,15 +199,32 @@ export class NanoBananaEngine {
     }
 
     const hasReferenceImages = allBaseImages.length > 0
-    const hasLocationReference = allBaseImages.some((img: any) => img.name === 'LOCATION')
+    const hasLocationReference = allBaseImages.some((img: any) => (img.name || '').startsWith('LOCATION'))
 
-    const { prompt: fullPrompt } = await this.promptManager.buildImagePrompt(
+    const { prompt: fullPrompt, reuseReferenceImage } = await this.promptManager.buildImagePrompt(
       scene,
       hasReferenceImages,
       this.currentOptions?.aspectRatio || '16:9',
       undefined,
       hasLocationReference
     )
+
+    // --- ZERO-DRIFT BRIDGE: Physical reuse of last episode final frame (MANDATORY) ---
+    const forceReuse = isFirstScene && !!sequelBridgeUrl
+    if ((reuseReferenceImage || forceReuse) && sequelBridgeUrl) {
+      console.info(`[NanoBanana] 🛡️ ZERO-DRIFT SOUDURE : Reusing sequel bridge image for scene ${scene.id}`)
+      try {
+        if (sequelBridgeUrl.startsWith('http')) {
+          const response = await axios.get(sequelBridgeUrl, { responseType: 'arraybuffer' })
+          fs.writeFileSync(filename, Buffer.from(response.data))
+        } else if (fs.existsSync(sequelBridgeUrl)) {
+          fs.copyFileSync(sequelBridgeUrl, filename)
+        }
+        return filename
+      } catch (error) {
+        console.warn(`[NanoBanana] ⚠ Failed to reuse bridge image, falling back to generation: ${error}`)
+      }
+    }
 
     const systemInstruction = await this.promptManager.buildImageSystemInstruction(
       hasReferenceImages || !!sequelBridgeUrl
@@ -354,7 +371,10 @@ export class NanoBananaEngine {
     const tempBg = path.join(outputDir, 'temp_bg.webp')
 
     const effectiveRefs = [...referenceImages]
-    if (scene.continueFromPrevious && lastSceneB64) effectiveRefs.push({ data: lastSceneB64 })
+    if (scene.continueFromPrevious && lastSceneB64) {
+      console.info(`[NanoBanana] 🔗 CONTINUITY: Adding previous scene as reference anchor.`)
+      effectiveRefs.push({ name: 'PREVIOUS_SCENE', data: lastSceneB64 })
+    }
 
     // Location-based consistency: Reuse base image if same location exists in current project
     if (scene.locationId) {
@@ -777,8 +797,8 @@ export class NanoBananaEngine {
             !fs.existsSync(audioPath) || !fs.existsSync(hashFile) || fs.readFileSync(hashFile, 'utf8') !== textHash
 
           if (stillInvalid) {
-            const globalStart = Math.round((i / script.scenes.length) * 100)
-            const globalEnd = Math.round(((i + 1) / script.scenes.length) * 100)
+            const globalStart = Math.min(14, Math.round((i / script.scenes.length) * 15))
+            const globalEnd = Math.min(15, Math.round(((i + 1) / script.scenes.length) * 15))
 
             await this.withPulse(globalStart, globalEnd, `step.step_3_audio_prep:${i + 1}`, onProgress, async () => {
               console.log(`[NanoBanana] 🎤 Generating audio for Scene ${i + 1}/${script.scenes.length}...`)
@@ -816,7 +836,7 @@ export class NanoBananaEngine {
       script.totalDuration = currentTime
 
       if (audioFiles.length > 0) {
-        if (onProgress) await onProgress(41, 'step.step_3_narration')
+        if (onProgress) await onProgress(15, 'step.step_3_narration')
         console.log(`[NanoBanana] 🧵 Stitching ${audioFiles.length} audio clips into global narration...`)
         await this.stitchAudioFiles(audioFiles, globalAudioPath)
         script.globalAudio = 'narration.mp3'
@@ -840,7 +860,7 @@ export class NanoBananaEngine {
               device: 'cpu',
               language: valid.language?.split('-')[0] || 'en'
             } as any)
-            const result = await this.withPulse(42, 48, 'step.step_3_whisper', onProgress, () =>
+            const result = await this.withPulse(15, 17, 'step.step_3_whisper', onProgress, () =>
               transcriptionService.transcribe(globalAudioPath)
             )
             const { TimingMapper } = await import('../utils/timing-mapper')
@@ -873,7 +893,9 @@ export class NanoBananaEngine {
       if (!fs.existsSync(sceneImg) && (scene as any).imageUrl && !isTarget) {
         try {
           if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
-          await this.withPulse(0, 100, `step.step_2_download:${i + 1}`, onProgress, async () => {
+          const globalStart = 17 + Math.round((i / script.scenes.length) * 5)
+          const globalEnd = 17 + Math.round(((i + 1) / script.scenes.length) * 5)
+          await this.withPulse(globalStart, globalEnd, `step.step_2_download:${i + 1}`, onProgress, async () => {
             const res = await axios.get((scene as any).imageUrl, { responseType: 'arraybuffer' })
             fs.writeFileSync(sceneImg, Buffer.from(res.data))
           })
@@ -886,7 +908,7 @@ export class NanoBananaEngine {
     // ─── COMPOSITION DES SCÈNES ───────────────────────────────────────────────
     if (!skipComposition) {
       if (onProgress) {
-        await onProgress(0, 'step.step_2_images')
+        await onProgress(22, 'step.step_2_images')
       }
       const sceneImagePromises = new Map<number, Promise<string | undefined>>()
       let completed = 0
@@ -909,14 +931,14 @@ export class NanoBananaEngine {
               const b64 = fs.readFileSync(sceneImg).toString('base64')
               completed++
 
-              const localPr = Math.round((completed / script.scenes.length) * 100)
+              const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)
               if (onProgress) {
-                await onProgress(localPr, `step.step_2_scene:${i + 1}`)
+                await onProgress(globalPr, `step.step_2_scene:${i + 1}`)
               }
 
               if (onSceneGenerated) {
                 console.log(`[NanoBanana] 📣 Triggering onSceneGenerated for cached scene ${scene.id}...`)
-                await onSceneGenerated(scene, script, i + 1, localPr)
+                await onSceneGenerated(scene, script, i + 1, globalPr)
               }
 
               return b64
@@ -944,11 +966,11 @@ export class NanoBananaEngine {
           await this.composeScene(scene, baseImages, sceneDir, prevB64, prevScenePath, isTarget, script, sceneMemory)
 
           completed++
-          const localPr = Math.round((completed / script.scenes.length) * 100)
+          const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)
           if (onProgress) {
-            await onProgress(localPr, `step.step_2_scene:${i + 1}`)
+            await onProgress(globalPr, `step.step_2_scene:${i + 1}`)
           }
-          if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, localPr)
+          if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, globalPr)
           return fs.existsSync(sceneImg) ? fs.readFileSync(sceneImg).toString('base64') : undefined
         })
         sceneImagePromises.set(i, task)
@@ -962,7 +984,7 @@ export class NanoBananaEngine {
       try {
         const globalAudioPath = path.join(projectDir, 'narration.mp3')
         const assembler = new VideoAssembler()
-        await this.withPulse(0, 100, 'step.step_3_assembly', onProgress, async () =>
+        await this.withPulse(85, 100, 'step.step_3_assembly', onProgress, async () =>
           assembler.assembleVideo(
             {
               projectId: projectName,
@@ -973,7 +995,8 @@ export class NanoBananaEngine {
             },
             async (p, m) => {
               if (onProgress) {
-                await onProgress(Math.min(100, Math.round(p)), `[Étape 3/3] ${m}`)
+                const scaledP = 85 + Math.round((p / 100) * 15)
+                await onProgress(Math.min(100, scaledP), `[Étape 3/3] ${m}`)
               }
             }
           )

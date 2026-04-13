@@ -1,6 +1,13 @@
 import { jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { users } from './schema'
 
+export interface NarrativeThread {
+  title: string
+  status: 'open' | 'partial' | 'resolved' | 'new'
+  description: string
+  lastUpdatedEpisode?: number
+}
+
 export const series = pgTable('series', {
   id: text('id').primaryKey(),
   userId: text('user_id')
@@ -34,6 +41,8 @@ export const series = pgTable('series', {
   promptId: text('prompt_id'),
   // Global visual style reference model for all character image generations
   visualStyleModelId: text('visual_style_model_id'),
+  visualStyleGuide: text('visual_style_guide'),
+  thumbnailUrl: text('thumbnail_url'),
   audioProvider: text('audio_provider'),
   kokoroVoicePreset: text('kokoro_voice_preset'),
 
@@ -45,7 +54,7 @@ export const series = pgTable('series', {
 
   // Last cliffhanger and unresolved threads for continuity
   lastCliffhanger: jsonb('last_cliffhanger').$type<any>(),
-  unresolvedThreads: jsonb('unresolved_threads').$type<string[]>().default([]),
+  unresolvedThreads: jsonb('unresolved_threads').$type<NarrativeThread[]>().default([]),
 
   // Planned episodes generated during prep phase
   plannedEpisodes: jsonb('planned_episodes').$type<{ number: number; title: string; hook: string }[]>().default([]),
@@ -63,6 +72,8 @@ export const series = pgTable('series', {
   colorPalette: text('color_palette'),
   symbolicMotifs: jsonb('symbolic_motifs').$type<string[]>().default([]),
   cameraStyle: text('camera_style'),
+  threads: jsonb('threads').$type<any[]>().default([]),
+  roadmap: jsonb('roadmap').$type<any>().default({}),
 
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()

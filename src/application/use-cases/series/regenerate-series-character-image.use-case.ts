@@ -74,12 +74,22 @@ export class RegenerateSeriesCharacterImageUseCase extends IUseCase<
 
       // We augment the prompt with the global rules of the series if available
       let basePrompt = portraitPrompt
+      if (series.visualStyleGuide) {
+        basePrompt += `\n\nStyle Guide: ${series.visualStyleGuide}`
+      }
       if (series.videoGenre) {
         basePrompt += `, Style: ${series.videoGenre}`
       }
 
-      // Build reference images — priority: global visual style model > individual character thumbnail
+      // Build reference images — priority: series global thumbnail > visual style model > individual character thumbnail
       const referenceImages: { name?: string; data: string }[] = []
+
+      // 0. Series Global Reference Image (The "DNA" of the saga)
+      // @ts-ignore - added in schema
+      if (series.thumbnailUrl) {
+        // @ts-ignore
+        referenceImages.push({ name: 'series-reference', data: series.thumbnailUrl })
+      }
 
       // 1. Global visual style from the saga's visualStyleModelId (e.g. stickman)
       if (series.visualStyleModelId) {

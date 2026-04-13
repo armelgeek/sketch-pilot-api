@@ -1,4 +1,7 @@
+import { and, eq, notInArray } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
+import { db } from '@/infrastructure/database/db'
+import { videos } from '@/infrastructure/database/schema'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { GenerateVideoUseCase } from '../video/generate-video.use-case'
 
@@ -28,18 +31,40 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
         return { success: false, error: 'Series not found' }
       }
 
-      const nextEpisodeNumber = Number(series.lastEpisodeNumber || 0) + 1
+      const latestContext = await this.seriesRepository.getSeriesContext(seriesId)
+      if (!latestContext) {
+        return { success: false, error: 'Failed to retrieve series context' }
+      }
+
+      // 🛡️ NARRATIVE GUARD: Check if an episode is already generating
+      const incompleteVideos = await db
+        .select()
+        .from(videos)
+        .where(and(eq(videos.seriesId, seriesId), notInArray(videos.status, ['completed', 'failed', 'cancelled'])))
+        .limit(1)
+
+      if (incompleteVideos.length > 0) {
+        return {
+          success: false,
+          error: `Un épisode (${incompleteVideos[0].episodeNumber}) est déjà en cours de génération. Veuillez attendre sa fin pour garantir la continuité narrative.`
+        }
+      }
+
+      const nextEpisodeNumber = latestContext.episodeNumber
       const plannedEpisodes = (series.plannedEpisodes as any[]) || []
 
       // Try to find the planned episode in the roadmap
       const planned = plannedEpisodes.find((e) => e.number === nextEpisodeNumber)
 
       let topic = ''
+      let displayTitle = `Épisode ${nextEpisodeNumber}`
+
       if (planned) {
-        topic = `${planned.title}: ${planned.hook}`
+        displayTitle = planned.title
+        topic = `MISSION NARRATIVE : Suivez scrupuleusement le plan prévu pour cet épisode. 
+TITRE PRÉVU : ${planned.title}
+PITCH / INTRIGUE : ${planned.hook}`
       } else {
-        // Fallback: If no planned episode found, ask AI to generate the logical next one
-        // For now, we simple-default or fail if the user wants strict management
         topic = `Épisode ${nextEpisodeNumber}`
       }
 
@@ -52,9 +77,10 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
         options: {
           seriesId,
           type: 'series',
+          title: displayTitle,
           episodeNumber: nextEpisodeNumber,
           scriptOnly: true
-        }
+        } as any
       })
 
       if (!result.success) {

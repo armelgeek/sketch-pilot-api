@@ -1,4 +1,5 @@
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai'
 import axios from 'axios'
 import sharp from 'sharp'
@@ -150,6 +151,12 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
           for (const part of response.candidates[0].content.parts) {
             if (part.inlineData?.data) {
               const buffer = Buffer.from(part.inlineData.data, 'base64')
+
+              // Ensure directory exists
+              const dir = path.dirname(filename)
+              if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true })
+              }
 
               // Gemini retourne du JPEG natif.
               // Si PNG demandé : ré-encoder via sharp (PNG lossless, compressionLevel 0 = vitesse max).

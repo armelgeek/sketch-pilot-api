@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { LLMServiceFactory, type LLMServiceConfig } from '@sketch-pilot/services/llm'
+import pLimit from 'p-limit'
 import { PromptService } from '@/application/services/prompt.service'
 import { GenerateCharacterImageUseCase } from '@/application/use-cases/character-model/generate-character-image.use-case'
 import { IUseCase } from '@/domain/types'
@@ -7,257 +8,398 @@ import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
+import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
+
+/* ---------------- TYPES ---------------- */
+
+type SeriesBible = {
+  globalContext: string
+  visualStyleGuide: string
+  characterRegistry: Record<
+    string,
+    {
+      fullName: string
+      description: string
+      portraitPrompt: string
+      visualIdentity?: {
+        age: string
+        build: string
+        colors: string[]
+        signature: string
+      }
+      thumbnailUrl?: string
+    }
+  >
+  videoGenre: string
+  totalEpisodes: number
+  suggestedTitles: string[]
+  suggestedEpisodes: {
+    number: number
+    title: string
+    hook: string
+  }[]
+}
 
 type PrepareSeriesParams = {
   userId: string
   title: string
+  seriesId?: string
+  videoGenre?: string
+  totalEpisodes?: number
   description?: string
   language?: string
   promptId?: string
   visualStyleModelId?: string
+  skipPortraits?: boolean
+  roadmapOnly?: boolean
 }
 
-type PrepareSeriesResponse = {
-  success: boolean
-  globalContext?: string
-  characterRegistry?: Record<string, { description: string; modelId?: string; portraitPrompt?: string }>
-  videoGenre?: string
-  totalEpisodes?: number
-  suggestedTitles?: string[]
-  suggestedEpisodes?: { number: number; title: string; hook: string }[]
-  insufficientCredits?: boolean
-  error?: string
+/* ---------------- UTILS ---------------- */
+
+function safeJsonParse(text: string): SeriesBible {
+  try {
+    return JSON.parse(text)
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/)
+    if (!match) throw new Error('Invalid JSON response from LLM')
+    return JSON.parse(match[0])
+  }
 }
 
-export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, PrepareSeriesResponse> {
+/* ---------------- USE CASE ---------------- */
+
+export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
   private readonly promptService = new PromptService(new PromptRepository())
-
   private readonly creditsRepository = new CreditsRepository()
   private readonly generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
+  private readonly seriesRepository = new SeriesRepository()
 
-  async execute({
-    userId,
-    title,
-    description,
-    language = 'fr',
-    promptId
-  }: PrepareSeriesParams): Promise<PrepareSeriesResponse> {
+  /* ---------------- LLM CORE ---------------- */
+
+  private async generateSeriesLLM(params: PrepareSeriesParams): Promise<SeriesBible> {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('Missing OPENAI_API_KEY')
+    }
+
+    const llmConfig: LLMServiceConfig = {
+      provider: 'openai',
+      apiKey: process.env.OPENAI_API_KEY
+    }
+
+    const llmService = await LLMServiceFactory.create(llmConfig)
+
+    // 1. Resolve Spec
+    const spec = params.promptId ? await this.promptService.resolveSpec(params.promptId) : null
+
+    let specContext = ''
+    if (spec) {
+      const sections = []
+      if (spec.role) sections.push(`🎨 RÔLE :\n${spec.role}`)
+      if (spec.context) sections.push(`🌍 CONTEXTE :\n${spec.context}`)
+      if (spec.task) sections.push(`🎯 TÂCHE :\n${spec.task}`)
+      if (spec.goals?.length > 0) sections.push(`🏁 OBJECTIFS :\n${(spec.goals as string[]).join('\n')}`)
+      if (spec.structure?.length > 0) {
+        const struct = Array.isArray(spec.structure) ? spec.structure.join(' → ') : spec.structure
+        sections.push(`🏗️ STRUCTURE :\n${struct}`)
+      }
+      if (spec.rules?.length > 0)
+        sections.push(`📜 RÈGLES :\n${(spec.rules as string[]).map((r) => `- ${r}`).join('\n')}`)
+      if (spec.visualRules?.length > 0)
+        sections.push(`👁️ RÈGLES VISUELLES :\n${(spec.visualRules as string[]).map((r) => `- ${r}`).join('\n')}`)
+      if (spec.characterDescription) sections.push(`👤 DESCRIPTION PERSONNAGES :\n${spec.characterDescription}`)
+      if (spec.instructions?.length > 0)
+        sections.push(`💡 INSTRUCTIONS :\n${(spec.instructions as string[]).map((i) => `- ${i}`).join('\n')}`)
+
+      specContext = `\n--- 📘 SPÉCIFICATION NARRATIVE SUR MESURE (${spec.name}) ---\n${sections.join('\n\n')}\n`
+    }
+
+    // 2. Resolve Saga Context (if extension)
+    let extensionContext = ''
+    let startEpisode = 1
+    let existingCharacters = ''
+
+    if (params.seriesId) {
+      const seriesData = await this.seriesRepository.getSeriesContext(params.seriesId)
+      if (seriesData) {
+        startEpisode = seriesData.lastEpisodeNumber + 1
+        existingCharacters = Object.entries(seriesData.characterRegistry)
+          .map(([name, data]) => `- ${name}: ${(data as any).description}`)
+          .join('\n')
+
+        extensionContext = `
+        --- 🔄 CONTINUITÉ DE LA SAGA (EXTENSION) ---
+        HISTOIRE JUSQU'ICI :
+        ${seriesData.previousEpisodesContext || 'N/A'}
+
+        SITUATION ACTUELLE (CLIFFHANGER ÉPISODE ${seriesData.lastEpisodeNumber}) :
+        ${seriesData.lastCliffhanger ? (seriesData.lastCliffhanger as any).description : "Le démon s'est libéré et menace le village."}
+
+        PERSONNAGES ÉTABLIS :
+        ${existingCharacters}
+
+        VOTRE MISSION : Brainstormer la SUITE (Saison 2 / Arc Suivant) en commençant DIRECTEMENT là où le suspens nous a laissé.
+        L'épisode ${startEpisode} doit résoudre ou intensifier immédiatement le cliffhanger précédent.
+        `
+      }
+    }
+
+    /* ---------------- PROMPT V2 ---------------- */
+
+    const systemPrompt = `
+Tu es un moteur de génération de séries automatisé.
+${params.seriesId ? 'INTERDICTION : Ne réinventez pas la série. Vous générez une EXTENSION de la roadmap existante.' : ''}
+
+MISSION :
+Créer une Bible de série STRUCTURÉE, COHÉRENTE et EXPLOITABLE.
+
+RÈGLES :
+- JSON STRICT UNIQUEMENT
+- AUCUN texte hors JSON
+- FORMAT RESPECTÉ
+
+PROCESSUS :
+1. Génération
+2. Auto-validation + correction
+
+PERSONNAGES :
+- 3 à 5 personnages
+- FULL BODY SHOT obligatoire
+- cohérence visuelle totale
+- IDENTIFIANT UNIQUE OBLIGATOIRE : La clé du registre DOIT être un handle commençant par @ (ex: "@Victor").
+
+LANGUE : ${params.language || 'fr'}
+${params.roadmapOnly ? 'MISSION SPECIFIQUE : RÉGÉNÉRER UNIQUEMENT LE PLANNING DES ÉPISODES (suggestedTitles et suggestedEpisodes). Gardez le même univers.' : ''}
+${specContext}
+`
+
+    const epCount = params.totalEpisodes || 5
+    const genre = params.videoGenre || 'À extrapoler'
+
+    const userPrompt = `
+CONCEPT : "${params.title}"
+GENRE : "${genre}"
+NOMBRE D'ÉPISODES À GÉNÉRER : ${epCount}
+DESCRIPTION : ${params.description || 'À extrapoler'}
+${extensionContext}
+
+FORMAT JSON :
+
+{
+  "globalContext": "string (Description globale de l'univers)",
+  "visualStyleGuide": "string (Directives visuelles pour l'IA)",
+
+  "characterRegistry": {
+    "@Handle": {
+      "fullName": "Prénom Nom",
+      "description": "string",
+      "portraitPrompt": "FULL BODY SHOT...",
+      "visualIdentity": {
+        "age": "string",
+        "build": "string",
+        "colors": ["string"],
+        "signature": "string"
+      }
+    }
+  },
+
+  "videoGenre": "${genre}",
+  "totalEpisodes": ${params.seriesId ? 'Laissez le total actuel' : epCount},
+
+  "suggestedTitles": ["Titre Episode ${startEpisode}", "Titre Episode ${startEpisode + 1}", ...],
+
+  "suggestedEpisodes": [
+    { "number": ${startEpisode}, "title": "string", "hook": "string" },
+    { "number": ${startEpisode + 1}, "title": "string", "hook": "string" },
+    ...
+  ]
+}
+
+RÈGLES NARRATIVES ROADMAP :
+- JSON valide obligatoire
+- Générez EXACTEMENT ${epCount} épisodes dans "suggestedEpisodes" en commençant à l'épisode ${startEpisode}
+- Générez EXACTEMENT ${epCount} titres dans "suggestedTitles"
+- ${params.seriesId ? 'RÉUTILISEZ les personnages de la liste "PERSONNAGES ÉTABLIS" ci-dessus dans le registre. N\'en inventez de nouveaux que si nécessaire.' : '3 à 5 personnages dans "characterRegistry"'}
+- Le "hook" doit être une description précise du tournant narratif de l'épisode.
+`
+
+    const response = await llmService.generateContent(userPrompt, systemPrompt, 'application/json')
+
+    return safeJsonParse(response.replaceAll(/```json|```/g, '').trim())
+  }
+
+  /* ---------------- EXECUTE ---------------- */
+
+  async execute(params: PrepareSeriesParams) {
     try {
       const totalCost = CREDIT_COSTS.SAGA_PREPARATION
-      const credits = await this.creditsRepository.ensureUserCredits(userId)
-      const planLimit = await this.creditsRepository.getCurrentPlanLimit(userId)
+
+      const credits = await this.creditsRepository.ensureUserCredits(params.userId)
+      const planLimit = await this.creditsRepository.getCurrentPlanLimit(params.userId)
+
       const totalAvailable = (credits?.extraCredits || 0) + Math.max(0, planLimit - (credits?.videosThisMonth || 0))
 
       if (totalAvailable < totalCost) {
+        return { success: false, insufficientCredits: true }
+      }
+
+      const parsed = await this.generateSeriesLLM(params)
+
+      /* 🔥 PARALLEL IMAGE GEN */
+      if (!params.skipPortraits && params.visualStyleModelId && parsed.characterRegistry) {
+        const limit = pLimit(2)
+
+        await Promise.all(
+          Object.entries(parsed.characterRegistry).map(([, char]) =>
+            limit(async () => {
+              if (!char.portraitPrompt) return
+
+              const result = await this.generateCharacterImageUseCase.execute({
+                userId: params.userId,
+                baseModelId: params.visualStyleModelId!,
+                prompt: char.portraitPrompt
+              })
+
+              if (result.success && result.imageUrl) {
+                char.thumbnailUrl = result.imageUrl
+              }
+            })
+          )
+        )
+      }
+
+      await this.creditsRepository.consumeCredits(params.userId, totalCost, planLimit)
+
+      const seriesData = {
+        title: params.title,
+        description: params.description,
+        globalContext: parsed.globalContext,
+        characterRegistry: parsed.characterRegistry,
+        plannedEpisodes: parsed.suggestedEpisodes,
+        language: params.language || 'fr',
+        videoGenre: parsed.videoGenre || params.videoGenre,
+        totalEpisodes: String(parsed.totalEpisodes),
+        visualStyleModelId: params.visualStyleModelId,
+        visualStyleGuide: parsed.visualStyleGuide,
+        thumbnailUrl: Object.values(parsed.characterRegistry || {})[0]?.thumbnailUrl,
+        status: 'draft' as const
+      }
+
+      let seriesId = params.seriesId
+      if (seriesId) {
+        await this.seriesRepository.update(seriesId, seriesData)
+      } else {
+        seriesId = crypto.randomUUID()
+        await this.seriesRepository.create({
+          id: seriesId,
+          userId: params.userId,
+          ...seriesData
+        })
+      }
+
+      if (params.roadmapOnly) {
         return {
-          success: false,
-          insufficientCredits: true,
-          error: `Credits insuffisants. Requis: ${totalCost}, Disponible: ${totalAvailable}`
+          success: true,
+          seriesId,
+          suggestedTitles: parsed.suggestedTitles,
+          suggestedEpisodes: parsed.suggestedEpisodes
         }
       }
 
-      const llmConfig: LLMServiceConfig = {
-        provider: 'openai',
-        apiKey: process.env.OPENAI_API_KEY || ''
-      }
-
-      if (!llmConfig.apiKey) {
-        throw new Error('AI API Key not configured.')
-      }
-
-      const llmService = await LLMServiceFactory.create(llmConfig)
-
-      // Resolve Spec if promptId is provided
-      const spec = promptId ? await this.promptService.resolveSpec(promptId) : null
-      const specContext = spec
-        ? `\nRÈGLES DE STYLE/GENRE (Spécification: ${spec.name}) :\n${spec.instructions.join('\n')}\n${spec.context || ''}`
-        : ''
-
-      const systemPrompt = `Vous êtes un expert en narration cinématographique et en "Sagas" transmédias.
-            Votre tâche est de créer les fondations narratives (Bible) d'une nouvelle série à partir de son titre.
-            Le contenu doit être inspirant, structuré et propice à une génération d'épisodes riche en suspense.
-            ${specContext}
-
-            RÈGLES :
-            1. Langue : ${language}.
-            2. Répondez exclusivement au format JSON.
-            3. Le bloc "globalContext" doit décrire l'univers, le ton, les enjeux et les règles du monde.
-            4. Le bloc "characterRegistry" doit contenir 3-5 personnages principaux fascinants.
-            5. Décrivez précisément chaque personnage par son rôle et sa personnalité.
-            6. Fournissez un "portraitPrompt" consistant et DÉTAILLÉ pour chaque personnage. 
-               IMPORTANT : Le "portraitPrompt" DOIT être une description de type "FULL BODY SHOT" (corps entier, de la tête aux pieds) pour servir de référence anatomique complète.
-               Détaillez les vêtements, la posture et les attributs physiques.
-               Le prompt doit être en parfaite adéquation avec l'univers décrit dans "globalContext" et le genre "${description || title}". 
-            7. Le bloc "videoGenre" doit suggérer une niche/genre précis.
-            8. Le bloc "totalEpisodes" doit suggérer un nombre total d'épisodes pour cette saga (entre 6 et 12).
-            9. Le bloc "suggestedTitles" doit proposer 5 titres alternatifs percutants adaptés au genre et à la spécification.
-            10. Le bloc "suggestedEpisodes" doit proposer les 5 premiers épisodes (Titre, Accroche narrative).`
-
-      const userPrompt = `Titre actuel de la Saga : "${title}"
-            Description initiale : ${description || 'À inventer'}
-
-            Générez la Bible narrative complète au format JSON :
-            {
-            "globalContext": "...",
-            "characterRegistry": {
-                "Nom Personnage": { 
-                "description": "...", 
-                "portraitPrompt": "Description physique pour IA..." 
-                }
-            },
-            "videoGenre": "...",
-            "totalEpisodes": 10,
-            "suggestedTitles": ["...", "...", "...", "...", "..."],
-            "suggestedEpisodes": [
-                { "number": 1, "title": "...", "hook": "..." }
-            ]
-            }`
-
-      const response = await llmService.generateContent(userPrompt, systemPrompt, 'application/json')
-      const parsed = JSON.parse(response.replaceAll(/```json|```/g, '').trim())
-
-      // Deduct credits
-      const { planConsumed, extraConsumed } = await this.creditsRepository.consumeCredits(userId, totalCost, planLimit)
-      await this.creditsRepository.addTransaction({
-        userId,
-        type: 'consumption_saga_preparation',
-        amount: -totalCost,
-        metadata: { planConsumed, extraConsumed }
-      })
-
-      return {
-        success: true,
-        globalContext: parsed.globalContext,
-        characterRegistry: parsed.characterRegistry,
-        videoGenre: parsed.videoGenre,
-        totalEpisodes: parsed.totalEpisodes,
-        suggestedTitles: parsed.suggestedTitles,
-        suggestedEpisodes: parsed.suggestedEpisodes
-      }
+      return { success: true, seriesId, ...parsed }
     } catch (error) {
-      console.error('[PrepareSeriesUseCase] Error:', error)
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to prepare series context'
+        error: error instanceof Error ? error.message : 'Failed'
       }
     }
   }
 
-  async *streamExecute({
-    userId,
-    title,
-    description,
-    language = 'fr',
-    promptId,
-    visualStyleModelId
-  }: PrepareSeriesParams): AsyncIterable<{ type: string; data: any }> {
+  /* ---------------- STREAM ---------------- */
+
+  async *streamExecute(params: PrepareSeriesParams): AsyncIterable<any> {
     try {
       const totalCost = CREDIT_COSTS.SAGA_PREPARATION
-      const credits = await this.creditsRepository.ensureUserCredits(userId)
-      const planLimit = await this.creditsRepository.getCurrentPlanLimit(userId)
+      const credits = await this.creditsRepository.ensureUserCredits(params.userId)
+      const planLimit = await this.creditsRepository.getCurrentPlanLimit(params.userId)
       const totalAvailable = (credits?.extraCredits || 0) + Math.max(0, planLimit - (credits?.videosThisMonth || 0))
 
       if (totalAvailable < totalCost) {
-        yield { type: 'error', data: { error: 'Credits insuffisants', insufficientCredits: true } }
+        yield { type: 'error', data: { error: 'Insufficient credits', insufficientCredits: true } }
         return
       }
 
-      yield { type: 'progress', data: { status: 'analyzing', progress: 10, message: 'Analyse de la thématique...' } }
+      yield { type: 'progress', data: { status: 'analyzing', progress: 10 } }
 
-      const llmConfig: LLMServiceConfig = {
-        provider: 'openai',
-        apiKey: process.env.OPENAI_API_KEY || ''
+      const parsed = await this.generateSeriesLLM(params)
+      await this.creditsRepository.consumeCredits(params.userId, totalCost, planLimit)
+
+      yield { type: 'progress', data: { status: 'generating_characters', progress: 60 } }
+
+      // Persist Draft
+      const seriesData = {
+        title: params.title,
+        description: params.description,
+        globalContext: parsed.globalContext,
+        characterRegistry: parsed.characterRegistry,
+        plannedEpisodes: parsed.suggestedEpisodes,
+        language: params.language || 'fr',
+        videoGenre: parsed.videoGenre || params.videoGenre,
+        totalEpisodes: String(parsed.totalEpisodes),
+        visualStyleModelId: params.visualStyleModelId,
+        visualStyleGuide: parsed.visualStyleGuide,
+        thumbnailUrl: Object.values(parsed.characterRegistry || {})[0]?.thumbnailUrl,
+        status: 'draft' as const
       }
 
-      const llmService = await LLMServiceFactory.create(llmConfig)
-      const spec = promptId ? await this.promptService.resolveSpec(promptId) : null
-      const specContext = spec
-        ? `\nRÈGLES DE STYLE/GENRE (Spécification: ${spec.name}) :\n${spec.instructions.join('\n')}\n${spec.context || ''}`
-        : ''
-
-      yield {
-        type: 'progress',
-        data: { status: 'creating_bible', progress: 30, message: 'Rédaction de la Bible Narrative...' }
+      let seriesId = params.seriesId
+      if (seriesId) {
+        await this.seriesRepository.update(seriesId, seriesData)
+      } else {
+        seriesId = crypto.randomUUID()
+        await this.seriesRepository.create({
+          id: seriesId,
+          userId: params.userId,
+          ...seriesData
+        })
       }
 
-      const systemPrompt = `Vous êtes un expert en narration cinématographique. 
-            Répondez exclusivement au format JSON.
-            ${specContext}
-            
-            IMPORTANT : Les "portraitPrompt" dans "characterRegistry" DOIVENT être des descriptions physiques "FULL BODY SHOT" (corps entier visible) ultra-précises et thématiquement ancrées dans l'univers de la saga. 
-            Évitez les descriptions génériques. Si l'univers est "Steampunk Renaissance", le personnage doit avoir des rouages, de la dentelle, du velours délavé, etc.`
+      yield { type: 'series_id', data: { id: seriesId } }
 
-      const userPrompt = `Titre actuel de la Saga : "${title}"
-            Description initiale : ${description || 'À inventer'}
-            Langue : ${language}.
+      if (!params.skipPortraits && params.visualStyleModelId && parsed.characterRegistry) {
+        for (const [name, char] of Object.entries(parsed.characterRegistry)) {
+          if (!char.portraitPrompt) continue
 
-            Générez la Bible narrative complète au format JSON suivant :
-            {
-              "globalContext": "...",
-              "characterRegistry": { "Name": { "description": "...", "portraitPrompt": "..." } },
-              "videoGenre": "...",
-              "totalEpisodes": 10,
-              "suggestedTitles": ["...", "..."],
-              "suggestedEpisodes": [{ "number": 1, "title": "...", "hook": "..." }]
-            }`
+          const result = await this.generateCharacterImageUseCase.execute({
+            userId: params.userId,
+            baseModelId: params.visualStyleModelId!,
+            prompt: char.portraitPrompt
+          })
 
-      const response = await llmService.generateContent(userPrompt, systemPrompt, 'application/json')
+          if (result.success && result.imageUrl) {
+            char.thumbnailUrl = result.imageUrl
 
-      yield {
-        type: 'progress',
-        data: { status: 'finalizing', progress: 90, message: 'Finalisation du casting et de la roadmap...' }
-      }
-
-      const cleanJson = response.replaceAll(/```json|```/g, '').trim()
-      const parsed = JSON.parse(cleanJson)
-
-      // Action succeeded! Now deduct credits.
-      const { planConsumed, extraConsumed } = await this.creditsRepository.consumeCredits(userId, totalCost, planLimit)
-      await this.creditsRepository.addTransaction({
-        userId,
-        type: 'consumption_saga_preparation',
-        amount: -totalCost,
-        metadata: { planConsumed, extraConsumed }
-      })
-
-      // Backend Automation: Generate character portraits if a style is selected
-      if (visualStyleModelId && parsed.characterRegistry) {
-        const characters = Object.entries(parsed.characterRegistry)
-        for (const [name, char] of characters) {
-          const cast = char as any
-          if (cast.portraitPrompt) {
             yield {
-              type: 'progress',
-              data: {
-                status: 'generating_character',
-                progress: 95,
-                message: `Génération de ${name}...`
-              }
-            }
-
-            try {
-              const charResult = await this.generateCharacterImageUseCase.execute({
-                userId,
-                baseModelId: visualStyleModelId,
-                prompt: cast.portraitPrompt
-              })
-
-              if (charResult.success && charResult.imageUrl) {
-                cast.thumbnailUrl = charResult.imageUrl
-                // Notify frontend of a single update
-                yield { type: 'character_portrait', data: { name, imageUrl: charResult.imageUrl } }
-              }
-            } catch (error) {
-              console.error(`Failed to generate portrait for ${name}:`, error)
+              type: 'character_portrait',
+              data: { name, imageUrl: result.imageUrl }
             }
           }
         }
       }
 
-      yield { type: 'final', data: parsed }
+      yield { type: 'progress', data: { status: 'finalizing', progress: 90 } }
+      if (params.roadmapOnly) {
+        yield {
+          type: 'final',
+          data: { suggestedTitles: parsed.suggestedTitles, suggestedEpisodes: parsed.suggestedEpisodes }
+        }
+      } else {
+        yield { type: 'final', data: parsed }
+      }
     } catch (error) {
-      console.error('[PrepareSeriesUseCase] Stream error:', error)
-      yield { type: 'error', data: { error: error instanceof Error ? error.message : 'Streaming failed' } }
+      yield {
+        type: 'error',
+        data: { error: error instanceof Error ? error.message : 'Streaming failed' }
+      }
     }
   }
 }

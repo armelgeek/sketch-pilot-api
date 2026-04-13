@@ -194,6 +194,7 @@ export class VideoScriptGenerator {
     console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
 
     const baseScript = await this.generateVideoStructure(topic, options, onProgress)
+    console.log('BASSE SCRIPT', baseScript)
     if (onProgress) await onProgress(10, 'Studio: Script structure finalized. Building visuals...')
 
     const enrichedScenes = await this.enrichScenes(baseScript.scenes, options, onProgress)

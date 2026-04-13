@@ -6,3 +6,4 @@ dist/
 uploads/
 .github
 plugins/sketch-pilot/output/*
+storage

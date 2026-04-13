@@ -109,9 +109,10 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
               lastCliffhanger: seriesContext.lastCliffhanger,
               unresolvedThreads: seriesContext.unresolvedThreads,
 
-              totalEpisodes: seriesContext.totalEpisodes,
-              episodeNumber: options.episodeNumber || seriesContext.lastEpisodeNumber + 1,
-              visualStyleModelId: seriesContext.visualStyleModelId
+              totalEpisodes: seriesContext.totalEpisodes ? Number(seriesContext.totalEpisodes) : undefined,
+              episodeNumber: options.episodeNumber || Number(seriesContext.lastEpisodeNumber || 0) + 1,
+              visualStyleModelId: seriesContext.visualStyleModelId,
+              videoGenre: seriesContext.videoGenre
             }
           }
 
@@ -189,7 +190,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         id: videoId,
         userId,
         topic,
-        title: preliminaryTitle,
+        title: (options as any).title || preliminaryTitle,
         characterModelId: options.characterModelId,
         seriesId: spec?.seriesMetadata?.seriesId,
         episodeNumber: spec?.seriesMetadata?.episodeNumber,

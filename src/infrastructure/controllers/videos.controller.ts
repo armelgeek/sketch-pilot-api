@@ -205,7 +205,7 @@ export class VideosController implements Routes {
             for (const enqueue of streams) {
               enqueue('completed', {
                 jobId,
-                status: 'completed',
+                status: completedVideo?.status || 'completed',
                 progress: 100,
                 videoId: completedVideo?.id,
                 videoUrl: completedVideo?.videoUrl,
@@ -545,16 +545,19 @@ export class VideosController implements Routes {
       }
 
       // If already completed or failed, return immediately
-      if (video.status === 'completed') {
+      const isActuallyDone = ['completed', 'narration_generated', 'scenes_generated'].includes(video.status)
+      if (isActuallyDone) {
         await releaseConnection()
         const body = sendEvent('completed', {
           jobId,
-          status: 'completed',
+          status: video.status,
           progress: 100,
           videoId: video.id,
           videoUrl: video.videoUrl,
           thumbnailUrl: video.thumbnailUrl,
-          duration: video.duration
+          duration: video.duration,
+          options: video.options,
+          script: video.script
         })
         return new Response(body, { headers })
       }

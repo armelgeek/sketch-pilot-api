@@ -8,6 +8,99 @@ const hexColorSchema = z
   .regex(/^#([A-F0-9]{6}|[A-F0-9]{3})$/i, 'Must be a valid hex color (e.g. #FFFFFF)')
   .default('#FFFFFF')
 
+/**
+ * Narrative thread tracking for sagas
+ */
+export const threadSchema = z.object({
+  title: z.string().describe('Title of the plot thread (e.g. "Le secret d\'Alexandre")'),
+  status: z.enum(['open', 'partial', 'resolved', 'new']).default('open'),
+  description: z.string().describe('Detailed description of the thread and its current state'),
+  lastUpdatedEpisode: z.number().int().optional()
+})
+
+export type NarrativeThread = z.infer<typeof threadSchema>
+
+/**
+ * Narrative watchpoints to track unresolved questions or pending choices
+ */
+export const watchpointSchema = z.object({
+  id: z.string().describe('Unique identifier for the watchpoint (e.g. "escape-choice")'),
+  question: z.string().describe('The specific question or ambiguity to resolve (e.g. "Did Elias take the ring?")'),
+  context: z.string().optional().describe('Additional context for resolution'),
+  deadlineEpisode: z.number().int().positive().optional().describe('Episode number by which this must be addressed')
+})
+
+export type NarrativeWatchpoint = z.infer<typeof watchpointSchema>
+
+/**
+ * Narrative hints to seed future payoffs (traisons, faiblesses, secrets)
+ */
+export const hintSchema = z.object({
+  id: z.string().describe('Unique identifier for the hint (e.g. "mira-suspicion")'),
+  description: z.string().describe('The hint or setup planted (e.g. "Mira regarde le Baron avec un air complice")'),
+  targetPayoff: z.string().describe('The intended revelation (e.g. "Mira est une traîtresse")'),
+  motivation: z
+    .string()
+    .optional()
+    .describe('The "Why" behind this payoff (e.g. "Le Baron détient sa famille en otage")'),
+  episodePlanted: z.number().int().positive().describe('Episode number where this hint was first introduced')
+})
+
+export type NarrativeHint = z.infer<typeof hintSchema>
+
+/**
+ * Strategic choices that MUST be addressed in the next episode
+ */
+export const pendingChoiceSchema = z.object({
+  id: z.string().describe('Unique identifier for the choice (e.g. "tactical-approach")'),
+  description: z.string().describe('The choice that was posed (e.g. "Infiltration vs Direct Attack")'),
+  options: z.array(z.string()).optional().describe('Explicit options if provided (e.g. ["Stealth", "Brute Force"])')
+})
+
+export type PendingChoice = z.infer<typeof pendingChoiceSchema>
+
+/**
+ * Roadmap for the entire series
+ */
+export const sagaRoadmapSchema = z.object({
+  majorBeats: z.array(z.string()).default([]).describe('List of mandatory milestones to hit'),
+  openThreads: z.array(threadSchema).default([]).describe('List of all active narrative threads'),
+  watchpoints: z
+    .array(watchpointSchema)
+    .default([])
+    .describe('List of specific questions to resolve in future episodes'),
+  pendingChoices: z
+    .array(pendingChoiceSchema)
+    .default([])
+    .describe('Unresolved strategic choices from previous episodes'),
+  narrativeHints: z.array(hintSchema).default([]).describe('List of established hints waiting for a payoff'),
+  unresolvedStakes: z
+    .array(z.string())
+    .default([])
+    .describe('Concrete plot anchors (e.g. "Famille de @Kael otage", "Le Trône de Fer")'),
+  deceasedCharacters: z
+    .array(z.string())
+    .default([])
+    .describe('List of characters who are canonically DEAD and cannot return'),
+  irreversibleFacts: z
+    .array(z.string())
+    .default([])
+    .describe('List of permanent state changes (e.g. "@Kael a choisi son camp", "Le Fort est détruit")'),
+  genreConstraints: z
+    .object({
+      technologyLevel: z.string().describe('e.g. "Low Fantasy / Medieval (No electricity, no robots)"'),
+      magicLevel: z.string().describe('e.g. "Rare / Ritual based only"'),
+      forbiddenElements: z
+        .array(z.string())
+        .default([])
+        .describe('Things that MUST NOT appear (e.g. "holograms", "guns")')
+    })
+    .optional(),
+  finalResolutionTarget: z.string().optional().describe('Brief description of the expected saga ending')
+})
+
+export type SagaRoadmap = z.infer<typeof sagaRoadmapSchema>
+
 export type ImageProvider = 'gemini' | 'grok' | 'demo'
 export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku' | 'openai'
 
@@ -156,48 +249,105 @@ export const cameraActionSchema = z.object({
 export type CameraAction = z.infer<typeof cameraActionSchema>
 
 // Transition types supported by xfade
-export const transitionTypeSchema = z.enum([
-  'none',
-  'fade',
-  'blur',
-  'crossfade',
-  'zoom-in',
-  'dissolve',
-  'distance',
-  'fade-black',
-  'fade-white',
-  'wipe-left',
-  'wipe-right',
-  'wipe-up',
-  'wipe-down',
-  'slide-left',
-  'slide-right',
-  'slide-up',
-  'slide-down',
-  'circlecrop',
-  'rectcrop',
-  'circleopen',
-  'circleclose',
-  'pixelize',
-  'radial',
-  'smooth-left',
-  'smooth-right',
-  'smooth-up',
-  'smooth-down',
-  'squeezev',
-  'squeezeh',
-  'zoomin',
-  'zoomout',
-  'diagtl',
-  'diagtr',
-  'diagbl',
-  'diagbr',
-  'hlslice',
-  'hrslice',
-  'vuslice',
-  'vdslice',
-  'hblur'
-])
+export const transitionTypeSchema = z
+  .enum([
+    'none',
+    'fade',
+    'blur',
+    'crossfade',
+    'zoom-in',
+    'dissolve',
+    'distance',
+    'fade-black',
+    'fade-white',
+    'wipe-left',
+    'wipe-right',
+    'wipe-up',
+    'wipe-down',
+    'slide-left',
+    'slide-right',
+    'slide-up',
+    'slide-down',
+    'circlecrop',
+    'rectcrop',
+    'circleopen',
+    'circleclose',
+    'pixelize',
+    'radial',
+    'smooth-left',
+    'smooth-right',
+    'smooth-up',
+    'smooth-down',
+    'squeezev',
+    'squeezeh',
+    'zoomin',
+    'zoomout',
+    'diagtl',
+    'diagtr',
+    'diagbl',
+    'diagbr',
+    'hlslice',
+    'hrslice',
+    'vuslice',
+    'vdslice',
+    'hblur'
+  ])
+  .or(
+    z.string().transform((val) => {
+      const lower = val.toLowerCase().trim()
+      // AI common mistakes: camera actions accidentally put in transitions
+      if (['shake', 'breathing', 'static', 'zoom-in', 'zoom-out', 'dutch-tilt', 'snap-zoom'].includes(lower)) {
+        console.warn(`[Schema] Mapping camera action '${val}' used as transition to 'none'`)
+        return 'none' as const
+      }
+      // Check if it's a valid enum value despite being a string
+      const validTransitions = [
+        'none',
+        'fade',
+        'blur',
+        'crossfade',
+        'zoom-in',
+        'dissolve',
+        'distance',
+        'fade-black',
+        'fade-white',
+        'wipe-left',
+        'wipe-right',
+        'wipe-up',
+        'wipe-down',
+        'slide-left',
+        'slide-right',
+        'slide-up',
+        'slide-down',
+        'circlecrop',
+        'rectcrop',
+        'circleopen',
+        'circleclose',
+        'pixelize',
+        'radial',
+        'smooth-left',
+        'smooth-right',
+        'smooth-up',
+        'smooth-down',
+        'squeezev',
+        'squeezeh',
+        'zoomin',
+        'zoomout',
+        'diagtl',
+        'diagtr',
+        'diagbl',
+        'diagbr',
+        'hlslice',
+        'hrslice',
+        'vuslice',
+        'vdslice',
+        'hblur'
+      ]
+      if (validTransitions.includes(lower)) return lower as any
+
+      return 'none' as const
+    })
+  )
 export type TransitionType = z.infer<typeof transitionTypeSchema>
 
 /**
@@ -286,12 +436,24 @@ export const enrichedSceneSchema = z.object({
     .default({})
     .describe('Map of character @Name to their specific emotional keywords (e.g. {"@Marek": ["Angry"]})'),
   interactions: z
-    .record(z.string())
+    .record(z.any())
     .default({})
     .describe('Dynamic tension between character pairs (e.g. {"@Alexandre-@Marek": "Suspicion"})'),
   composition: z
     .object({
-      shotType: z.enum(['CLOSEUP', 'MEDIUM', 'WIDE', 'ESTABLISHING', 'POV', 'OVERSHOULDER']).default('MEDIUM'),
+      shotType: z
+        .enum(['CLOSEUP', 'MEDIUM', 'WIDE', 'ESTABLISHING', 'POV', 'OVERSHOULDER', 'PANORAMIC'])
+        .or(
+          z.string().transform((val) => {
+            const upper = val.toUpperCase()
+            if (upper.includes('PANO')) return 'PANORAMIC' as const
+            if (upper.includes('ESTABLISH')) return 'ESTABLISHING' as const
+            if (upper.includes('WIDE')) return 'WIDE' as const
+            if (upper.includes('CLOSE')) return 'CLOSEUP' as const
+            return 'MEDIUM' as const
+          })
+        )
+        .default('MEDIUM'),
       layout: z
         .enum(['SINGLE', 'SPLIT', 'MONTAGE', 'DIAGONAL'])
         .default('SINGLE')
@@ -302,7 +464,7 @@ export const enrichedSceneSchema = z.object({
     })
     .default({ shotType: 'MEDIUM', layout: 'SINGLE' }),
   visualEvolution: z
-    .record(z.string())
+    .record(z.any())
     .default({})
     .describe(
       'Physical changes for characters/entities (e.g. {"@Alexandre": "Cicatrice au front", "@Marek": "Vêtements brûlés"})'
@@ -310,11 +472,11 @@ export const enrichedSceneSchema = z.object({
   weatherState: z.string().optional().describe('Current weather/climate (e.g. "Orage violent", "Brume épaisse")'),
   timeOfDay: z.string().optional().describe('Current time (e.g. "Minuit", "Aube", "Crépuscule")'),
   relationshipMap: z
-    .record(z.record(z.string()))
+    .record(z.any())
     .default({})
     .describe('Social status changes (e.g. {"@Alexandre": {"@Sarah": "Trahison", "@Marek": "Alliance"}})'),
   assetEvolution: z
-    .record(z.string())
+    .record(z.any())
     .default({})
     .describe('Physical changes for key objects (e.g. {"Épée": "Brisée", "Grimoire": "Brûlé"})'),
   colorPalette: z.string().optional().describe('Global color grading (e.g. "Sépia", "Néons froids")'),
@@ -419,18 +581,55 @@ export const completeVideoScriptSchema = z.object({
   globalAudio: z.string().optional().describe('Path to the global audio narration file if used'),
   seriesMetadata: z
     .object({
+      currentEpisodeObjective: z
+        .string()
+        .optional()
+        .describe('The primary goal of this episode (e.g. "Infiltrer la forteresse")'),
+      objectiveOutcome: z
+        .string()
+        .optional()
+        .describe('The result of the objective (e.g. "Réussite : Lia est à l\'intérieur")'),
       episodeSummary: z.string().optional(),
       cliffhanger: z.union([z.string(), typedCliffhangerSchema]).optional(),
       characterContinuity: z
         .record(
           z.object({
             description: z.string().optional(),
+            motivation: z.string().optional().describe('The primary driver for the character'),
+            abilities: z.array(z.string()).default([]).describe('List of pre-established skills or powers'),
+            knownFacts: z
+              .array(z.string())
+              .default([])
+              .describe('List of critical revelations this character is aware of (e.g. "@Kael is a traitor")'),
+            fate: z
+              .enum(['ALIVE', 'DEAD', 'SACRIFICED', 'INCAPACITATED', 'FUGITIVE', 'UNKNOWN'])
+              .default('ALIVE')
+              .describe('The canon status of the character at the end of the episode'),
+            lastStatusUpdate: z
+              .string()
+              .optional()
+              .describe('Brief context of how they reached this fate (e.g. "Abdomen transpercé par le Baron")'),
             isNew: z.boolean().optional(),
             thumbnailUrl: z.string().url().optional()
           })
         )
         .optional()
         .describe('Detailed continuity info for characters in this episode'),
+      locationContinuity: z
+        .record(
+          z.object({
+            description: z.string().optional(),
+            atmosphere: z.string().optional(),
+            isNew: z.boolean().optional(),
+            thumbnailUrl: z.string().url().optional()
+          })
+        )
+        .optional()
+        .describe('Detailed continuity info for locations in this episode'),
+      resolvedStakes: z
+        .array(threadSchema)
+        .optional()
+        .describe('List of plot points or cliffhangers definitively resolved in this episode'),
       assetRegistry: z
         .record(
           z.object({
@@ -442,14 +641,16 @@ export const completeVideoScriptSchema = z.object({
         .optional()
         .describe('Registry for recurring story assets (MacGuffins, Monsters, Special Objects)'),
       nextEpisodeTease: z.string().optional(),
-      unresolvedThreads: z.array(z.string()).optional(),
+      unresolvedThreads: z.array(threadSchema).optional(),
       resolution: z.string().optional(),
       characterFinalState: z.record(z.string()).optional(),
       newCharacters: z
         .record(z.string())
         .optional()
         .describe('Map of newly discovered characters [name]: [description]'),
-      newAssets: z.record(z.string()).optional().describe('Map of newly discovered story assets [name]: [description]')
+      newAssets: z.record(z.string()).optional().describe('Map of newly discovered story assets [name]: [description]'),
+      threadUpdates: z.array(threadSchema).optional().describe('New or updated plot threads for the saga ledger'),
+      roadmapUpdate: sagaRoadmapSchema.optional().describe('Progress update on the series-wide milestones')
     })
     .optional()
     .describe('Episodic metadata for series-mode videos'),
@@ -878,7 +1079,11 @@ export const imagePromptSchema = z.object({
     .describe(
       'Concise, single-string prompt (Crayon Capital style by default) including aspect ratio suffix at the end'
     ),
-  referenceImage: z.string().optional().describe('Optional visual reference image (URL or Base64)')
+  referenceImage: z.string().optional().describe('Optional visual reference image (URL or Base64)'),
+  reuseReferenceImage: z
+    .boolean()
+    .optional()
+    .describe('If true, bypass generation and reuse the reference image directly')
 })
 
 export type ImagePrompt = z.infer<typeof imagePromptSchema>

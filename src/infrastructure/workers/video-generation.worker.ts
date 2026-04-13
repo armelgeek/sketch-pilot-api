@@ -259,9 +259,12 @@ async function handleSceneGenerated(
         const chars = scene.charactersId || scene.charactersInScene || []
         if (chars.length > 0 && updatedScene.thumbnailUrl) {
           for (const charName of chars) {
-            if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
+            const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, charName)
+            if (existing && (!existing.thumbnailUrl || existing.isNew)) {
               console.info(`[VideoWorker] ✨ Promoting scene image for character: ${charName} (Real-time)`)
-              updatedRegistry[charName].thumbnailUrl = updatedScene.thumbnailUrl
+              existing.thumbnailUrl = updatedScene.thumbnailUrl
+              existing.referenceSceneId = updatedScene.id
+              existing.referenceEpisode = currentContext.episodeNumber
               registryChanged = true
             }
           }
@@ -276,7 +279,24 @@ async function handleSceneGenerated(
         ) {
           console.info(`[VideoWorker] ✨ Promoting scene image for location: ${scene.locationId} (Real-time)`)
           updatedLocationRegistry[scene.locationId].thumbnailUrl = updatedScene.thumbnailUrl
+          updatedLocationRegistry[scene.locationId].referenceSceneId = updatedScene.id
+          updatedLocationRegistry[scene.locationId].referenceEpisode = currentContext.episodeNumber
           registryChanged = true
+        }
+
+        // Promotion Assets
+        if (updatedScene.thumbnailUrl) {
+          for (const [assetName, assetData] of Object.entries(updatedAssetRegistry)) {
+            const assetRef = assetData as any
+            const inPrompt = (scene.summary || scene.imagePrompt || '').toLowerCase().includes(assetName.toLowerCase())
+            if (!assetRef.thumbnailUrl && inPrompt) {
+              console.info(`[VideoWorker] ✨ Promoting scene image for asset: ${assetName} (Real-time)`)
+              assetRef.thumbnailUrl = updatedScene.thumbnailUrl
+              assetRef.referenceSceneId = updatedScene.id
+              assetRef.referenceEpisode = currentContext.episodeNumber
+              registryChanged = true
+            }
+          }
         }
 
         if (registryChanged) {
@@ -300,8 +320,9 @@ async function handleSceneGenerated(
         const chars = scene.charactersId || scene.charactersInScene || []
         if (chars.length > 0 && updatedScene.thumbnailUrl) {
           for (const charName of chars) {
-            if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
-              updatedRegistry[charName].thumbnailUrl = updatedScene.thumbnailUrl
+            const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, charName)
+            if (existing && !existing.thumbnailUrl) {
+              existing.thumbnailUrl = updatedScene.thumbnailUrl
               registryChanged = true
             }
           }
@@ -313,7 +334,21 @@ async function handleSceneGenerated(
           !updatedLocationRegistry[scene.locationId].thumbnailUrl
         ) {
           updatedLocationRegistry[scene.locationId].thumbnailUrl = updatedScene.thumbnailUrl
+          updatedLocationRegistry[scene.locationId].referenceSceneId = updatedScene.id
           registryChanged = true
+        }
+
+        // Evolution Assets
+        if (updatedScene.thumbnailUrl) {
+          for (const [assetName, assetData] of Object.entries(updatedAssetRegistry)) {
+            const assetRef = assetData as any
+            const inPrompt = (scene.summary || scene.imagePrompt || '').toLowerCase().includes(assetName.toLowerCase())
+            if (!assetRef.thumbnailUrl && inPrompt) {
+              assetRef.thumbnailUrl = updatedScene.thumbnailUrl
+              assetRef.referenceSceneId = updatedScene.id
+              registryChanged = true
+            }
+          }
         }
 
         if (registryChanged) {
@@ -342,85 +377,19 @@ async function handleSceneGenerated(
  * Evolves the Saga "Bible" by persisting AI-generated metadata (cliffhangers, characters, summaries)
  * back to the Series record for the next episode.
  */
-async function evolveSagaContext(seriesId: string, videoId: string, script: any) {
+/**
+ * Phase 1 of Saga Evolution: Syncs narrative and registry state immediately after script generation.
+ */
+async function syncNarrativeSagaContext(seriesId: string, videoId: string, script: any) {
   try {
-    console.info(`[VideoWorker] Evolving Saga context for series ${seriesId}...`)
+    console.info(`[VideoWorker] [Pre-Sync] Syncing Narrative Saga context for series ${seriesId}...`)
     const currentContext = await seriesRepository.getSeriesContext(seriesId)
     if (!currentContext) {
-      console.warn(`[VideoWorker] Series ${seriesId} not found, skipping context evolution.`)
+      console.warn(`[VideoWorker] Series ${seriesId} not found, skipping narrative sync.`)
       return
     }
 
     const updatedContext = SeriesVideoGenerator.updateContext(currentContext as any, script)
-    const updatedRegistry = { ...updatedContext.characterRegistry }
-    const updatedLocationRegistry = { ...updatedContext.locationRegistry }
-    const updatedAssetRegistry = { ...(updatedContext.assetRegistry || {}) }
-    const updatedVisualEvolution = { ...(currentContext.visualEvolution || {}) }
-    const updatedRelationshipMap = { ...(currentContext.relationshipMap || {}) }
-    const updatedAssetEvolution = { ...(currentContext.assetEvolution || {}) }
-    let lastWeather = currentContext.weatherState
-    let lastTime = currentContext.timeOfDay
-
-    const scenes = script.scenes || []
-
-    // 1. Capture evolution from all scenes
-    for (const scene of scenes) {
-      if (scene.visualEvolution) Object.assign(updatedVisualEvolution, scene.visualEvolution)
-      if (scene.assetEvolution) Object.assign(updatedAssetEvolution, scene.assetEvolution)
-      if (scene.relationshipMap) {
-        for (const [char, targets] of Object.entries(scene.relationshipMap)) {
-          updatedRelationshipMap[char] = { ...(updatedRelationshipMap[char] || {}), ...(targets as any) }
-        }
-      }
-    }
-
-    // 2. Capture final weather/time from the last scene
-    const lastScene = scenes.at(-1)
-    if (lastScene?.weatherState) lastWeather = lastScene.weatherState
-    if (lastScene?.timeOfDay) lastTime = lastScene.timeOfDay
-
-    for (const scene of scenes) {
-      // Identity locking: only promote characters from Registry
-      const chars = scene.charactersId || scene.charactersInScene || []
-      if (chars.length > 0 && scene.thumbnailUrl) {
-        for (const charName of chars) {
-          if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
-            console.info(`[VideoWorker] Promoting scene image as portrait for character: ${charName}`)
-            updatedRegistry[charName].thumbnailUrl = scene.thumbnailUrl
-          }
-        }
-      }
-
-      // Locations promotion (with pro-active discovery)
-      if (scene.locationId && scene.thumbnailUrl) {
-        // Pro-active discovery if not in registry
-        if (!updatedLocationRegistry[scene.locationId]) {
-          console.info(`[VideoWorker] ✨ Pro-actively discovered new location: ${scene.locationId}`)
-          updatedLocationRegistry[scene.locationId] = {
-            description: scene.summary || scene.imagePrompt || `Lieu: ${scene.locationId}`
-          }
-        }
-
-        // Promote portrait if missing
-        if (!updatedLocationRegistry[scene.locationId].thumbnailUrl) {
-          console.info(`[VideoWorker] Promoting scene image as portrait for location: ${scene.locationId}`)
-          updatedLocationRegistry[scene.locationId].thumbnailUrl = scene.thumbnailUrl
-        }
-      }
-
-      // Assets promotion (Objects, monsters, entities)
-      if (scene.thumbnailUrl) {
-        for (const [assetName, assetData] of Object.entries(updatedAssetRegistry)) {
-          if (
-            !(assetData as any).thumbnailUrl &&
-            (scene.summary || scene.imagePrompt || '').toLowerCase().includes(assetName.toLowerCase())
-          ) {
-            console.info(`[VideoWorker] Promoting scene image as portrait for asset: ${assetName}`)
-            ;(assetData as any).thumbnailUrl = scene.thumbnailUrl
-          }
-        }
-      }
-    }
 
     // 1. Propagate narrative state
     await seriesRepository.updateNarrativeContext(seriesId, {
@@ -428,58 +397,156 @@ async function evolveSagaContext(seriesId: string, videoId: string, script: any)
       unresolvedThreads: updatedContext.unresolvedThreads
     })
 
-    // 2. Update Series record with all evolutions
+    console.log('[................UPDATE................]', updatedContext)
+    // 2. Update Series record with narrative evolutions (Registry/State only)
+    await seriesRepository.update(seriesId, {
+      characterRegistry: updatedContext.characterRegistry,
+      locationRegistry: updatedContext.locationRegistry,
+      assetRegistry: updatedContext.assetRegistry,
+      visualEvolution: updatedContext.visualEvolution,
+      relationshipMap: updatedContext.relationshipMap,
+      assetEvolution: updatedContext.assetEvolution,
+      lastCliffhanger: updatedContext.lastCliffhanger,
+      weatherState: updatedContext.weatherState,
+      timeOfDay: updatedContext.timeOfDay,
+      unresolvedThreads: updatedContext.unresolvedThreads,
+      threads: updatedContext.threads,
+      roadmap: updatedContext.roadmap,
+      globalContext: updatedContext.globalContext
+    })
+
+    // 2.5. Update Video Title based on intrigue (V43)
+    const episodeTitle = script.titles?.[0] || script.metadata?.title
+    if (episodeTitle) {
+      console.info(`[VideoWorker] ✨ Updating video title to intrigue-based one: "${episodeTitle}"`)
+      await videoRepository.update(videoId, { title: episodeTitle })
+    }
+
+    // 3. Update video record for UI consistency + History Snapshot
+    await videoRepository.updateStatus(videoId, {
+      characterRegistry: updatedContext.characterRegistry,
+      locationRegistry: updatedContext.locationRegistry,
+      assetRegistry: updatedContext.assetRegistry,
+      previousEpisodesContext: updatedContext.previousEpisodesContext,
+      globalContext: updatedContext.globalContext,
+      lastCliffhanger: updatedContext.lastCliffhanger,
+      continuityAnalysis: script.seriesMetadata?.continuityAnalysis
+    })
+
+    // 4. Save Narrative Audit (V20) - Early save
+    saveNarrationAudit(seriesId, updatedContext.episodeNumber, script)
+
+    console.info(`[VideoWorker] [Pre-Sync] Narrative saga context sync successful for ${seriesId}.`)
+    return updatedContext
+  } catch (error) {
+    console.error(`[VideoWorker] [Pre-Sync] Narrative sync failed:`, error)
+  }
+}
+
+/**
+ * Phase 2 of Saga Evolution: Promotes generated images to portraits and saves final bridge.
+ */
+async function promoteVisualSagaContext(seriesId: string, videoId: string, script: any) {
+  try {
+    console.info(`[VideoWorker] [Final] Promoting Visual assets to Saga Bible for ${seriesId}...`)
+    const currentContext = await seriesRepository.getSeriesContext(seriesId)
+    if (!currentContext) return
+
+    const updatedRegistry = { ...currentContext.characterRegistry }
+    const updatedLocationRegistry = { ...currentContext.locationRegistry }
+    const updatedAssetRegistry = { ...(currentContext.assetRegistry || {}) }
+
+    const scenes = script.scenes || []
+    for (const scene of scenes) {
+      // Character Portrait Promotion
+      const chars = scene.charactersId || scene.charactersInScene || []
+      if (chars.length > 0 && scene.thumbnailUrl) {
+        for (const charName of chars) {
+          const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, charName)
+          if (existing && (!existing.thumbnailUrl || existing.isNew)) {
+            console.info(`[VideoWorker] Promoting character portrait: ${charName}`)
+            existing.thumbnailUrl = scene.thumbnailUrl
+            existing.referenceSceneId = scene.id
+            existing.referenceEpisode = currentContext.episodeNumber
+          }
+        }
+      }
+
+      // Location Portrait Promotion
+      if (
+        scene.locationId &&
+        scene.thumbnailUrl &&
+        updatedLocationRegistry[scene.locationId] &&
+        (!updatedLocationRegistry[scene.locationId].thumbnailUrl || scene.isEstablishingShot)
+      ) {
+        console.info(`[VideoWorker] Promoting location portrait: ${scene.locationId}`)
+        updatedLocationRegistry[scene.locationId].thumbnailUrl = scene.thumbnailUrl
+        updatedLocationRegistry[scene.locationId].referenceSceneId = scene.id
+        updatedLocationRegistry[scene.locationId].referenceEpisode = currentContext.episodeNumber
+      }
+
+      // Asset Promotion (Heuristic)
+      if (scene.thumbnailUrl) {
+        for (const [assetName, assetData] of Object.entries(updatedAssetRegistry)) {
+          const assetRef = assetData as any
+          const inPrompt = (scene.summary || scene.imagePrompt || '').toLowerCase().includes(assetName.toLowerCase())
+          if (!assetRef.thumbnailUrl && inPrompt) {
+            console.info(`[VideoWorker] Promoting asset portrait: ${assetName}`)
+            assetRef.thumbnailUrl = scene.thumbnailUrl
+            assetRef.referenceSceneId = scene.id
+            assetRef.referenceEpisode = currentContext.episodeNumber
+          }
+        }
+      }
+    }
+
+    // Capture final weather/time if they changed by the end (unlikely but safe)
+    const lastScene = scenes.at(-1)
+
+    // Save promoted registries
     await seriesRepository.update(seriesId, {
       characterRegistry: updatedRegistry,
       locationRegistry: updatedLocationRegistry,
       assetRegistry: updatedAssetRegistry,
-      visualEvolution: updatedVisualEvolution,
-      relationshipMap: updatedRelationshipMap,
-      assetEvolution: updatedAssetEvolution,
-      weatherState: lastWeather,
-      timeOfDay: lastTime,
-      unresolvedThreads: updatedContext.unresolvedThreads
+      weatherState: lastScene?.weatherState !== 'None' ? lastScene?.weatherState : currentContext.weatherState,
+      timeOfDay: lastScene?.timeOfDay || currentContext.timeOfDay
     })
 
-    // 3. Update video record for UI consistency
-    await videoRepository.updateStatus(videoId, {
-      characterRegistry: updatedRegistry,
-      locationRegistry: updatedLocationRegistry,
-      assetRegistry: updatedAssetRegistry
-    })
-
-    // 4. Append summary
-    if (script.seriesMetadata?.episodeSummary) {
-      await seriesRepository.appendEpisodeSummary(seriesId, script.seriesMetadata.episodeSummary)
-    }
-
-    // 5. Increment episode counter
-    await seriesRepository.incrementEpisodeNumber(seriesId)
-
-    // 6. Final bridge
+    // Final bridge for next episode (Visual phase)
     if (scenes.length > 0) {
       const finalScene = scenes.at(-1)
-      await seriesRepository.updateFinalBridge(seriesId, {
-        lastEpisodeFinalImage: finalScene.thumbnailUrl || finalScene.imageUrl,
-        lastEpisodeFinalScene: {
-          summary: finalScene.summary,
-          imagePrompt: finalScene.imagePrompt,
-          locationId: finalScene.locationId,
-          persistentDecorTokens: finalScene.persistentDecorTokens,
-          emotionalTokens: finalScene.emotionalTokens,
-          interactions: finalScene.interactions,
-          charactersId: finalScene.charactersId || finalScene.charactersInScene || []
+      const finalImageUrl = finalScene.thumbnailUrl || finalScene.imageUrl || (finalScene as any).image
+
+      if (finalImageUrl) {
+        const finalBridge = {
+          lastEpisodeFinalImage: finalImageUrl,
+          lastEpisodeFinalScene: {
+            summary: finalScene.summary,
+            narration: finalScene.narration,
+            imagePrompt: finalScene.imagePrompt,
+            locationId: finalScene.locationId,
+            persistentDecorTokens: finalScene.persistentDecorTokens,
+            emotionalTokens: finalScene.emotionalTokens,
+            interactions: finalScene.interactions,
+            charactersId: finalScene.charactersId || finalScene.charactersInScene || []
+          }
         }
-      })
+
+        // 1. Snapshot into video (Source of Truth)
+        await videoRepository.updateStatus(videoId, finalBridge)
+
+        // 2. Update series record (Bible)
+        await seriesRepository.updateFinalBridge(seriesId, finalBridge)
+      }
     }
 
-    console.info(`[VideoWorker] Saga context evolution successful for series ${seriesId}.`)
+    console.info(`[VideoWorker] [Final] Visual promotion successful for series ${seriesId}.`)
 
-    // 7. Save Narrative Audit (V20)
+    // Save audit if it hasn't been saved yet (as fallback, though syncNarrative handles it)
     const episodeNum = (currentContext.lastEpisodeNumber || 0) + 1
-    await saveNarrationAudit(seriesId, episodeNum, script)
+    saveNarrationAudit(seriesId, episodeNum, script)
   } catch (error) {
-    console.error(`[VideoWorker] Saga evolution failed for series ${seriesId}:`, error)
+    console.error(`[VideoWorker] [Final] Visual promotion failed:`, error)
   }
 }
 
@@ -516,110 +583,6 @@ export function saveNarrationAudit(seriesId: string, episodeNumber: number, scri
 }
 
 /**
- * PROJECT SEQUEL: Pre-registers surging entities BEFORE scene composition.
- * This ensures that a character appearing for the first time is ALREADY in the registry
- * so that its very first scene image can be promoted and reused for consistency.
- */
-async function preSyncSagaRegistries(seriesId: string, videoId: string, scriptMetadata: any) {
-  try {
-    const s = await seriesRepository.findById(seriesId)
-    if (!s) return
-    console.info(
-      `[VideoWorker] Saga Pre-Sync Trace: Series ${seriesId} current chars: ${Object.keys(s.characterRegistry || {}).length}`
-    )
-
-    const updatedRegistry = { ...((s.characterRegistry as Record<string, any>) || {}) }
-    const updatedLocationRegistry = { ...((s.locationRegistry as Record<string, any>) || {}) }
-    const updatedAssetRegistry = { ...((s.assetRegistry as Record<string, any>) || {}) }
-
-    let changed = false
-    if (scriptMetadata.newCharacters) {
-      for (const [name, desc] of Object.entries(scriptMetadata.newCharacters)) {
-        if (!updatedRegistry[name]) {
-          console.info(`[VideoWorker] ✨ Pre-registering new character: ${name}`)
-          updatedRegistry[name] = { description: desc as string }
-          changed = true
-        }
-      }
-    }
-    if (scriptMetadata.newLocations) {
-      for (const [name, desc] of Object.entries(scriptMetadata.newLocations)) {
-        if (!updatedLocationRegistry[name]) {
-          console.info(`[VideoWorker] ✨ Pre-registering new location: ${name}`)
-          updatedLocationRegistry[name] = { description: desc as string }
-          changed = true
-        }
-      }
-    }
-    if (scriptMetadata.newAssets) {
-      for (const [name, desc] of Object.entries(scriptMetadata.newAssets)) {
-        if (!updatedAssetRegistry[name]) {
-          console.info(`[VideoWorker] ✨ Pre-registering new story asset: ${name}`)
-          updatedAssetRegistry[name] = { description: desc as string, type: 'other' }
-          changed = true
-        }
-      }
-    }
-
-    if (changed) {
-      await Promise.all([
-        seriesRepository.updateCharacterRegistry(seriesId, updatedRegistry),
-        seriesRepository.updateLocationRegistry(seriesId, updatedLocationRegistry),
-        seriesRepository.updateAssetRegistry(seriesId, updatedAssetRegistry)
-      ])
-      console.info(
-        `[VideoWorker] ✓ Pre-composition registry sync successful for series ${seriesId}. Now: ${Object.keys(updatedRegistry).length} chars`
-      )
-    }
-
-    // ALWAYS snapshot the series registry into the video record for visibility/Studio integration
-    await videoRepository.updateStatus(videoId, {
-      characterRegistry: updatedRegistry,
-      locationRegistry: updatedLocationRegistry,
-      assetRegistry: updatedAssetRegistry
-    })
-    console.info(`[VideoWorker] ✓ Snapshotted Series Bible into Video ${videoId}`)
-  } catch (error) {
-    console.error(`[VideoWorker] Pre-sync failed:`, error)
-  }
-}
-
-/**
- * PROJECT SEQUEL: Pre-registers surging entities for STANDALONE videos.
- */
-async function preSyncStandaloneRegistries(videoId: string, scriptMetadata: any) {
-  try {
-    const video = await videoRepository.findById(videoId)
-    if (!video) return
-
-    const updatedRegistry = { ...(video.characterRegistry || {}) }
-    const updatedLocationRegistry = { ...(video.locationRegistry || {}) }
-    const updatedAssetRegistry = { ...(video.assetRegistry || {}) }
-
-    let changed = false
-    if (scriptMetadata.newCharacters) {
-      for (const [name, desc] of Object.entries(scriptMetadata.newCharacters)) {
-        if (!updatedRegistry[name]) {
-          console.info(`[VideoWorker] ✨ Pre-registering character (Standalone): ${name}`)
-          updatedRegistry[name] = { description: desc as string }
-          changed = true
-        }
-      }
-    }
-    if (scriptMetadata.newLocations) {
-      for (const [name, desc] of Object.entries(scriptMetadata.newLocations)) {
-        if (!updatedLocationRegistry[name]) {
-          console.info(`[VideoWorker] ✨ Pre-registering location (Standalone): ${name}`)
-          updatedLocationRegistry[name] = { description: desc as string }
-          changed = true
-        }
-      }
-    }
-    if (scriptMetadata.newAssets) {
-      for (const [name, desc] of Object.entries(scriptMetadata.newAssets)) {
-        if (!updatedAssetRegistry[name]) {
-          console.info(`[VideoWorker] ✨ Pre-registering story asset (Standalone): ${name}`)
-          updatedAssetRegistry[name] = { description: desc as string, type: 'other' }
           changed = true
         }
       }
@@ -679,6 +642,7 @@ async function evolveStandaloneContext(videoId: string, script: any) {
           for (const charName of chars) {
             if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
               updatedRegistry[charName].thumbnailUrl = scene.thumbnailUrl
+              updatedRegistry[charName].referenceSceneId = scene.id
             }
           }
         }
@@ -689,6 +653,19 @@ async function evolveStandaloneContext(videoId: string, script: any) {
           !updatedLocationRegistry[scene.locationId].thumbnailUrl
         ) {
           updatedLocationRegistry[scene.locationId].thumbnailUrl = scene.thumbnailUrl
+          updatedLocationRegistry[scene.locationId].referenceSceneId = scene.id
+        }
+
+        // Asset Promotion
+        if (scene.thumbnailUrl) {
+          for (const [assetName, assetData] of Object.entries(updatedAssetRegistry)) {
+            const assetRef = assetData as any
+            const inPrompt = (scene.summary || scene.imagePrompt || '').toLowerCase().includes(assetName.toLowerCase())
+            if (!assetRef.thumbnailUrl && inPrompt) {
+              assetRef.thumbnailUrl = scene.thumbnailUrl
+              assetRef.referenceSceneId = scene.id
+            }
+          }
         }
       }
     }
@@ -736,7 +713,7 @@ async function deductCredits(userId: string, videoId: string, cost?: number, pla
  */
 async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
-
+  console.log(`[ACTIVE VIDEO JOB]`, options)
   const lockKey = `active-video-job:${videoId}`
   const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId).catch(() => null)
   // Defer if another job is already processing this videoId
@@ -940,15 +917,43 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         onProgress: async (p, m) => await reportProgress(job, videoId, 'script_generation', p, m)
       })
 
+      console.log('[...........SCRIPT............]', script)
+
       // Phase 2: PRE-SYNC (Project Sequel) - Lock in surging characters/locations before they are drawn
       await reportProgress(job, videoId, 'pre_sync', 0, 'step.analyzing_assets')
       const metadata = script.seriesMetadata || {}
       const seriesId = genOptions.seriesId || (videoRecord as any).seriesId
       if (seriesId) {
-        await preSyncSagaRegistries(seriesId, videoId, metadata)
+        await syncNarrativeSagaContext(seriesId, videoId, script)
       } else {
-        // Handle standalone surging entities
-        await preSyncStandaloneRegistries(videoId, metadata)
+        // Handle standalone surging entities (New Characters/Locations)
+        const updatedCharRegistry = { ...(videoRecord.characterRegistry || {}) }
+        const updatedLocRegistry = { ...(videoRecord.locationRegistry || {}) }
+        let changed = false
+
+        if (metadata.newCharacters) {
+          for (const [name, desc] of Object.entries(metadata.newCharacters)) {
+            if (!updatedCharRegistry[name]) {
+              updatedCharRegistry[name] = { description: desc as string, isNew: true }
+              changed = true
+            }
+          }
+        }
+        if (metadata.newLocations) {
+          for (const [name, desc] of Object.entries(metadata.newLocations)) {
+            if (!updatedLocRegistry[name]) {
+              updatedLocRegistry[name] = { description: desc as string }
+              changed = true
+            }
+          }
+        }
+
+        if (changed) {
+          await videoRepository.updateStatus(videoId, {
+            characterRegistry: updatedCharRegistry,
+            locationRegistry: updatedLocRegistry
+          })
+        }
       }
       await reportProgress(job, videoId, 'pre_sync', 100, 'step.assets_locked')
 
@@ -1161,6 +1166,36 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         console.info(`[VideoWorker] Video thumbnail updated for ${videoId} (Scene 0 reprompt)`)
       }
 
+      // 🔄 SAGA SYNC: If the LAST scene was reprompted, we MUST update the visual bridge
+      const lastIndex = scenesToSave.length - 1
+      if (options.repromptSceneIndex === lastIndex && scenesToSave[lastIndex]) {
+        const finalScene = scenesToSave[lastIndex]
+        const finalImageUrl = finalScene.thumbnailUrl || finalScene.imageUrl
+        const seriesId = (videoRecord as any).seriesId
+
+        if (finalImageUrl) {
+          console.info(`[VideoWorker] 🔄 Syncing Visual Bridge after final scene reprompt for video ${videoId}`)
+          const finalBridge = {
+            lastEpisodeFinalImage: finalImageUrl,
+            lastEpisodeFinalScene: {
+              summary: finalScene.summary,
+              imagePrompt: finalScene.imagePrompt,
+              locationId: finalScene.locationId,
+              persistentDecorTokens: finalScene.persistentDecorTokens,
+              emotionalTokens: finalScene.emotionalTokens,
+              interactions: finalScene.interactions,
+              charactersId: finalScene.charactersId || finalScene.charactersInScene || []
+            }
+          }
+          // Update Video payload
+          Object.assign(updatePayload, finalBridge)
+          // Update Series Bible if applicable
+          if (seriesId) {
+            await seriesRepository.updateFinalBridge(seriesId, finalBridge)
+          }
+        }
+      }
+
       await videoRepository.updateStatus(videoId, updatePayload)
       checkpoint = checkpointService.markPhaseCompleted(checkpoint, CHECKPOINT_PHASES.COMPLETED)
       const serialized = checkpointStorage.save(checkpoint)
@@ -1226,11 +1261,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         scenes: pkg.script?.scenes as any,
         completedAt: new Date()
       })
-
       // EVOLVE SAGA CONTEXT
       const seriesId = job.data.options.seriesId
       if (seriesId) {
-        await evolveSagaContext(seriesId, videoId, pkg.script)
+        await promoteVisualSagaContext(seriesId, videoId, pkg.script)
+        // [V67] FINAL BIBLE SYNC: Increment episode counter ONLY after total success
+        await seriesRepository.incrementEpisodeNumber(seriesId)
       } else {
         await evolveStandaloneContext(videoId, pkg.script)
       }

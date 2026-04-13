@@ -1,6 +1,6 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from '../database/db'
-import { series, videos } from '../database/schema'
+import { series, videos, type NarrativeThread } from '../database/schema'
 
 export class SeriesRepository {
   async create(data: {
@@ -54,7 +54,20 @@ export class SeriesRepository {
   }
 
   async findByUserId(userId: string) {
-    return await db.select().from(series).where(eq(series.userId, userId))
+    const results = await db
+      .select({
+        series,
+        episodesCount: sql<number>`(SELECT count(*) FROM ${videos} WHERE ${videos.seriesId} = ${series.id} AND ${videos.status} = 'completed')`,
+        maxEpisode: sql<number>`(SELECT MAX(${videos.episodeNumber}) FROM ${videos} WHERE ${videos.seriesId} = ${series.id} AND ${videos.status} = 'completed')`
+      })
+      .from(series)
+      .where(eq(series.userId, userId))
+      .orderBy(desc(series.updatedAt))
+
+    return results.map((r) => ({
+      ...r.series,
+      lastEpisodeNumber: r.maxEpisode || 0 // Override with true narrative progress
+    }))
   }
 
   async update(id: string, data: any) {
@@ -86,22 +99,34 @@ export class SeriesRepository {
     const s = await this.findById(id)
     if (!s) return null
 
+    // Hardening: Fetch the LATEST successful video to get the most accurate state snapshot
+    // This allows "time-travel" (deleting a video rewinds the saga context automatically)
+    const [lastVideo] = await db
+      .select()
+      .from(videos)
+      .where(and(eq(videos.seriesId, id), eq(videos.status, 'completed')))
+      .orderBy(desc(videos.episodeNumber))
+      .limit(1)
+
     return {
       seriesId: s.id,
-      globalContext: s.globalContext || '',
-      previousEpisodesContext: s.previousEpisodesContext || '',
+      title: s.title,
+      description: s.description || '',
+      globalContext: lastVideo?.globalContext || s.globalContext || s.description || '',
+      previousEpisodesContext: lastVideo?.previousEpisodesContext || s.previousEpisodesContext || '',
       characterRegistry: (s.characterRegistry as Record<string, any>) || {},
       locationRegistry: (s.locationRegistry as Record<string, any>) || {},
       assetRegistry: (s.assetRegistry as Record<string, any>) || {},
 
       totalEpisodes: s.totalEpisodes ? Number(s.totalEpisodes) : undefined,
-      lastEpisodeNumber: s.lastEpisodeNumber ? Number(s.lastEpisodeNumber) : 0,
+      lastEpisodeNumber: lastVideo?.episodeNumber || 0,
+      episodeNumber: (lastVideo?.episodeNumber || 0) + 1,
       lastCliffhanger: s.lastCliffhanger ?? undefined,
-      unresolvedThreads: (s.unresolvedThreads as string[]) || [],
+      unresolvedThreads: (s.unresolvedThreads as NarrativeThread[]) || [],
 
-      // PROJECT SEQUEL: Episode Bridging context
-      lastEpisodeFinalImage: s.lastEpisodeFinalImage ?? undefined,
-      lastEpisodeFinalScene: s.lastEpisodeFinalScene || undefined,
+      // PROJECT SEQUEL: Episode Bridging context (Video-as-Source-of-Truth)
+      lastEpisodeFinalImage: (lastVideo as any)?.lastEpisodeFinalImage || s.lastEpisodeFinalImage || undefined,
+      lastEpisodeFinalScene: (lastVideo as any)?.lastEpisodeFinalScene || s.lastEpisodeFinalScene || undefined,
 
       status: s.status ?? undefined,
       language: s.language ?? undefined,
@@ -126,6 +151,8 @@ export class SeriesRepository {
       colorPalette: s.colorPalette ?? undefined,
       symbolicMotifs: (s.symbolicMotifs as string[]) || [],
       cameraStyle: s.cameraStyle ?? undefined,
+      threads: (s.threads as any[]) || [],
+      roadmap: s.roadmap ?? undefined,
 
       // V21 Recency Bias
       lastEpisodeSummary: this.getLastEpisodeSummary(s.previousEpisodesContext || '')
@@ -139,7 +166,7 @@ export class SeriesRepository {
     return lastPart ? lastPart.trim() : undefined
   }
 
-  async updateNarrativeContext(id: string, data: { lastCliffhanger?: any; unresolvedThreads?: string[] }) {
+  async updateNarrativeContext(id: string, data: { lastCliffhanger?: any; unresolvedThreads?: NarrativeThread[] }) {
     const [updated] = await db
       .update(series)
       .set({
@@ -168,7 +195,7 @@ export class SeriesRepository {
     const [lastVideo] = await db
       .select()
       .from(videos)
-      .where(eq(videos.seriesId, id))
+      .where(and(eq(videos.seriesId, id), eq(videos.status, 'completed')))
       .orderBy(desc(videos.episodeNumber))
       .limit(1)
 

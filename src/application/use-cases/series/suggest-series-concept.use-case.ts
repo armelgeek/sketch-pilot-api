@@ -42,16 +42,16 @@ export class SuggestSeriesConceptUseCase {
       const llmService = await LLMServiceFactory.create(llmConfig)
 
       const systemPrompt = `Vous êtes un expert en narration transmédia et en création de sagas virales. 
-Votre but est de suggérer un concept de saga original, immersif et percutant.
+Votre but est de suggérer un CONCEPT DE SAGA original, immersif et percutant qui servira de "Prompt" pour générer une série entière.
 Répondez UNIQUEMENT en JSON avec les champs : title, videoGenre, description.`
 
-      const userPrompt = `Générez une idée de saga unique pour une série de vidéos courtes (Shorts/Reels).
-Le concept doit être accrocheur dès les premières secondes.
+      const userPrompt = `Générez un CONCEPT DE SAGA unique pour une série de vidéos courtes (Shorts/Reels).
+Le concept doit être extrêmement intrigant et servir de base narrative solide.
 L'idée peut être dans n'importe quel genre (Horreur, Science-Fiction, Histoire, Fantasy, Psychologique).
 
 Format JSON :
 {
-  "title": "Titre percutant",
+  "title": "Un concept ou une accroche percutante qui servira de prompt",
   "videoGenre": "Genre précis",
   "description": "Une description de 2-3 phrases qui pose le concept et l'intrigue majeure."
 }`

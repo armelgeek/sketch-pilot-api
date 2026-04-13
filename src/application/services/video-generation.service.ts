@@ -199,9 +199,11 @@ export class VideoGenerationService {
     const { topic, options = {}, videoId } = input
     const engine = await this.buildEngine(options, videoId)
     if (!engine) throw new Error('Failed to initialize script generation engine')
-    return await engine.generateStructuredScript(topic, options, async (p, m) => {
+    const data = await engine.generateStructuredScript(topic, options, async (p, m) => {
       if (input.onProgress) await input.onProgress(p, m)
     })
+    console.log('[...........DATA............]', data)
+    return data
   }
 
   /**

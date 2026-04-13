@@ -160,7 +160,8 @@ export class VideoAssembler {
     const scenesDir = path.join(projectDir, 'scenes')
     const hasGlobalAudio = !!args.globalAudioPath || !!globalOptions.globalAudioPath
     let globalAudioPath = args.globalAudioPath || globalOptions.globalAudioPath
-    console.log(`[VideoAssembler] Assembling video in ${animationMode} mode...`)
+    const targetResolution = this.getResolution(globalOptions.aspectRatio || '16:9', globalOptions.resolution || '720p')
+    console.log(`[VideoAssembler] Assembling video in ${animationMode} mode (${targetResolution})...`)
 
     // --- Silence Fallback: If audio requested but missing, generate a silent track ---
     if (hasGlobalAudio && !globalAudioPath) {
@@ -267,7 +268,8 @@ export class VideoAssembler {
       },
       onProgress,
       75,
-      90
+      90,
+      targetResolution
     )
 
     if (globalOptions.branding) {
@@ -279,7 +281,8 @@ export class VideoAssembler {
         brandedVideoPath,
         onProgress,
         90,
-        95
+        95,
+        targetResolution
       )
     }
 
@@ -480,7 +483,8 @@ export class VideoAssembler {
     options?: VideoGenerationOptions & { globalAssPath?: string },
     onProgress?: (progress: number, message: string) => Promise<void>,
     startRange: number = 0,
-    endRange: number = 100
+    endRange: number = 100,
+    targetResolution?: string
   ): Promise<string> {
     console.log(
       `[VideoAssembler] Applying professional visual polish (Vignette, Noise${options?.globalAssPath ? ', Subtitles' : ''})...`
@@ -510,15 +514,19 @@ export class VideoAssembler {
 
       const cmd = ffmpeg(videoPath)
         .complexFilter(filters)
-        .outputOptions([
-          '-map',
-          finalLabel,
-          '-map 0:a?',
-          '-c:v libx264',
-          `-preset ${preset}`,
-          `-crf ${crf}`,
-          '-shortest'
-        ])
+        .outputOptions(
+          [
+            '-map',
+            finalLabel,
+            '-map 0:a?',
+            '-c:v libx264',
+            `-preset ${preset}`,
+            `-crf ${crf}`,
+            targetResolution ? `-s ${targetResolution}` : '',
+            '-pix_fmt yuv420p',
+            '-shortest'
+          ].filter(Boolean)
+        )
 
       if (onProgress) {
         const duration = await this.getClipDuration(videoPath).catch(() => 0)
@@ -545,7 +553,8 @@ export class VideoAssembler {
     outputPath: string,
     onProgress?: (progress: number, message: string) => Promise<void>,
     startRange: number = 0,
-    endRange: number = 100
+    endRange: number = 100,
+    targetResolution?: string
   ): Promise<string> {
     console.log(`[VideoAssembler] Applying branding overlays...`)
     return new Promise(async (resolve, reject) => {
@@ -585,7 +594,16 @@ export class VideoAssembler {
 
       cmd
         .complexFilter(filter)
-        .outputOptions([`-map ${outLabel}`, '-map 0:a?', '-c:v libx264', '-c:a copy'])
+        .outputOptions(
+          [
+            `-map ${outLabel}`,
+            '-map 0:a?',
+            '-c:v libx264',
+            '-c:a copy',
+            targetResolution ? `-s ${targetResolution}` : '',
+            '-pix_fmt yuv420p'
+          ].filter(Boolean)
+        )
         .save(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', (err) => {
@@ -873,8 +891,12 @@ export class VideoAssembler {
             break
           default: {
             zBaseExpr = `1.0+(${DZ}*${SS})`
-            const driftX = `(${PAN_X_HALF}*0.25)`
-            const driftY = `(${PAN_Y_HALF}*0.25)`
+            // Randomize drift direction
+            const dirX = Math.random() > 0.5 ? 1 : -1
+            const dirY = Math.random() > 0.5 ? 1 : -1
+            const driftX = `(${PAN_X_HALF}*0.25*${dirX})`
+            const driftY = `(${PAN_Y_HALF}*0.25*${dirY})`
+
             const half = (duration / 2).toFixed(2)
             const bx = `if(lt(t,${half}), ${CX}, ${CX}+(${driftX}))`
             const by = `if(lt(t,${half}), ${CY}, ${CY}+(${driftY}))`
@@ -2006,7 +2028,7 @@ export class VideoAssembler {
     const manifestPath = path.join(sceneDir, 'manifest.json')
 
     let sceneImageFilename = 'scene.webp'
-    let aspectRatio = '16:9'
+    let aspectRatio = globalOptions.aspectRatio || '16:9'
     let cameraAction: any
     let wordTimings: any[] = []
     let manifestData: any = {}

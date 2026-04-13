@@ -708,17 +708,23 @@ ${mandatoryRules.join('\n')}
       circleopen, circleclose, pixelize, radial, smooth-left, smooth-right, smooth-up, smooth-down,
       squeezev, squeezeh, zoomin, zoomout, diagtl, diagtr, diagbl, diagbr
 
+      SHOT TYPES :
+      CLOSEUP, MEDIUM, WIDE, ESTABLISHING, POV, OVERSHOULDER
+      (Attention : N'utilisez PAS d'underscore. Utilisez 'CLOSEUP' et non 'CLOSE_UP')
+
       CAMERA ACTIONS :
-      none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing, snap-zoom
+      none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing, snap-zoom, dutch-tilt
+      (Attention : 'dutch-tilt' est une CAMERA ACTION, pas un SHOT TYPE)
 
       - 'dutch-tilt' : Désorientation, folie, malaise, ou situation qui "déraille" (angle incliné).
       - 'pan-left/right/up/down' : Suivi de mouvement ou exploration lente de l'espace.
       - 'static' : À utiliser UNIQUEMENT pour un effet de "souffle coupé" ou une sidération totale. Sinon, préférez 'breathing'.
 
-      DYNAMISME :
+      DYNAMISME & VARIÉTÉ :
       - N'hésitez pas à CHAÎNER les mouvements (ex: un pan, puis un zoom-in).
       - Adaptez l'intensité ('low', 'medium', 'high') à la charge émotionnelle.
-      - Variez les angles : ne répétez pas le même mouvement sur deux scènes consécutives.
+      - VARIÉTÉ OBLIGATOIRE : Changez de type de mouvement à chaque scène. Ne répétez JAMAIS le même cameraAction (ex: pan-right) sur deux scènes consécutives.
+      - Si la scène précédente était un 'pan-right', la suivante DOIT être un 'zoom-in', 'pan-left', 'pan-up' ou 'none'.
     `)
 
     return sections.filter((s) => s.trim().length > 0).join('\n\n---\n\n')
@@ -848,9 +854,9 @@ ${mandatoryRules.join('\n')}
             const nameRegex = new RegExp(`\\b${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\b`, 'gi')
             result = result.replace(nameRegex, '').trim()
           }
-          // Prepend Reference anchor
+          // Prepend Reference anchor with explicit instructions for continuity
           if (paragraph.toLowerCase().includes(name.toLowerCase()) || paragraph.length < 50) {
-            result = `Reference (${name}), ${result}`
+            result = `[IDENTITY LOCK: ${name}] (Appearance: AS REFERENCE). Maintain physical identity and clothing from reference. ${result}`
           }
         } else if (visualAnchor && !result.includes(visualAnchor.slice(0, 30))) {
           // Fallback to text anchor if no reference images

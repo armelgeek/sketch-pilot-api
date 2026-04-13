@@ -36,6 +36,8 @@ export interface GenerateScriptOptions {
   episodeSummary?: string
   videoType?: string
   videoGenre?: string
+  audioProvider?: string
+  kokoroVoicePreset?: string
 }
 
 export class ScriptGenerationService {
@@ -72,7 +74,6 @@ export class ScriptGenerationService {
     if (options.seriesId) {
       seriesContext = await this.seriesRepository.getSeriesContext(options.seriesId)
     }
-
     // 2. Build options using the schema for validation and transformation
     const targetDuration = options.duration ?? 60
     const genOptions = videoGenerationOptionsSchema.parse({
@@ -84,14 +85,19 @@ export class ScriptGenerationService {
       backgroundMusic: options.backgroundMusic,
       customSpec: spec,
       episodeSummary: options.episodeSummary,
-      seriesId: options.seriesId
+      seriesId: options.seriesId,
+      audioProvider: options.audioProvider as any,
+      kokoroVoicePreset: options.kokoroVoicePreset as any
     })
 
     // 3. Initialize generator and run (using the SAME spec for both script and image)
-    const promptManager = VideoGeneratorFactory.create({
-      scriptSpec: spec as any,
-      seriesContext: seriesContext as any
-    })
+    const promptManager = VideoGeneratorFactory.create(
+      {
+        scriptSpec: spec as any,
+        seriesContext: seriesContext as any
+      },
+      genOptions
+    )
     const generator = new VideoScriptGenerator(llmService, promptManager)
     const script = await generator.generateCompleteScript(topic, genOptions as VideoGenerationOptions)
 

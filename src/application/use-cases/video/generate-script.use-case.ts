@@ -1,8 +1,12 @@
+import { and, eq, notInArray } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
+import { db } from '@/infrastructure/database/db'
+import { videos } from '@/infrastructure/database/schema'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
+
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import type { GenerateScriptOptions } from '@/application/services/script-generation.service'
 import type { CompleteVideoScript } from '@sketch-pilot/types/video-script.types'
@@ -56,6 +60,7 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
       // 1.5. If type is 'series' but no seriesId, try to find the last active series
       if (options.type === 'series' && !options.seriesId) {
         let lastSeries = await seriesRepository.findLastByUserId(userId)
+        console.log('last serie')
 
         // If still no series, create a default one on the fly
         if (!lastSeries) {
@@ -79,6 +84,24 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
         }
       }
 
+      // 🛡️ NARRATIVE GUARD: Block generation if an episode is already in progress for this series
+      if (options.seriesId) {
+        const incompleteVideos = await db
+          .select()
+          .from(videos)
+          .where(
+            and(eq(videos.seriesId, options.seriesId), notInArray(videos.status, ['completed', 'failed', 'cancelled']))
+          )
+          .limit(1)
+
+        if (incompleteVideos.length > 0) {
+          return {
+            success: false,
+            error: `Un épisode (${incompleteVideos[0].episodeNumber}) est déjà en cours de génération pour cette saga. Veuillez attendre sa fin.`
+          }
+        }
+      }
+
       // 1.6. If Series, fetch context for preference inheritance and episode numbering
       let finalEpisodeNumber = options.episodeNumber
       if (options.seriesId) {
@@ -91,14 +114,14 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
           options.videoType = options.videoType || seriesContext.videoType || 'series'
           options.videoGenre = options.videoGenre || seriesContext.videoGenre
 
+          // Legacy check for visualStyleModelId/characterModelId
+          if (!options.characterModelId) options.characterModelId = seriesContext.visualStyleModelId
+          if (!options.audioProvider) options.audioProvider = seriesContext.audioProvider as any
+          if (!options.kokoroVoicePreset) options.kokoroVoicePreset = seriesContext.kokoroVoicePreset as any
+          if (!options.aspectRatio) options.aspectRatio = seriesContext.aspectRatio as any
+
           if (!finalEpisodeNumber) {
             finalEpisodeNumber = seriesContext.lastEpisodeNumber + 1
-          }
-
-          // Fetch the summary for this specific episode from planned episodes
-          const planned = seriesContext.plannedEpisodes.find((e: any) => e.number === finalEpisodeNumber)
-          if (planned) {
-            options.episodeSummary = `${planned.title}: ${planned.hook}`
           }
         }
       }
@@ -107,14 +130,23 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
       const videoId = crypto.randomUUID()
       const jobId = crypto.randomUUID()
 
+      // Generate a preliminary title from the topic if no clean title is provided
+      const preliminaryTitle =
+        (options as any).title ||
+        topic
+          .split(/[.!?\n]/)[0]
+          .trim()
+          .slice(0, 70)
+
       await videoRepository.create({
         id: videoId,
         userId,
         topic,
+        title: preliminaryTitle,
         status: 'queued',
         progress: 0,
         options: { ...options, scriptOnly: true, episodeNumber: finalEpisodeNumber },
-        language: options.language || 'en',
+        language: options.language || 'fr',
         characterModelId: options.characterModelId,
         seriesId: options.seriesId,
         episodeNumber: finalEpisodeNumber

@@ -21,11 +21,19 @@ export const videos = pgTable('videos', {
   captionsUrl: text('captions_url'),
   duration: integer('duration'), // in seconds
   // Metadata
-  language: text('language').default('en'),
+  language: text('language').default('fr'),
   characterModelId: text('character_model_id'),
   seriesId: text('series_id'), // Will be linked in code, no hard FK to avoid migration circularity if needed, but referencing series.id is better
   episodeNumber: integer('episode_number'),
   creditsUsed: integer('credits_used').notNull().default(1),
+
+  // Snapshot of context used for this generation
+  previousEpisodesContext: text('previous_episodes_context'),
+  globalContext: text('global_context'),
+  lastCliffhanger: jsonb('last_cliffhanger').$type<any>(),
+  continuityAnalysis: jsonb('continuity_analysis').$type<any>(),
+  lastEpisodeFinalImage: text('last_episode_final_image'),
+  lastEpisodeFinalScene: jsonb('last_episode_final_scene').$type<any>(),
 
   // Persistent registries for visual consistency (intra-video and regeneration)
   characterRegistry: jsonb('character_registry').$type<Record<string, any>>().default({}),

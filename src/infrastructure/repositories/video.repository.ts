@@ -29,6 +29,12 @@ export class VideoRepository {
     characterRegistry?: Record<string, any>
     locationRegistry?: Record<string, any>
     assetRegistry?: Record<string, any>
+    previousEpisodesContext?: string
+    globalContext?: string
+    lastCliffhanger?: any
+    continuityAnalysis?: any
+    lastEpisodeFinalImage?: string
+    lastEpisodeFinalScene?: any
   }) {
     const [video] = await db
       .insert(videos)
@@ -50,6 +56,12 @@ export class VideoRepository {
         characterRegistry: data.characterRegistry || {},
         locationRegistry: data.locationRegistry || {},
         assetRegistry: data.assetRegistry || {},
+        previousEpisodesContext: data.previousEpisodesContext,
+        globalContext: data.globalContext,
+        lastCliffhanger: data.lastCliffhanger,
+        continuityAnalysis: data.continuityAnalysis,
+        lastEpisodeFinalImage: data.lastEpisodeFinalImage,
+        lastEpisodeFinalScene: data.lastEpisodeFinalScene,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -101,6 +113,12 @@ export class VideoRepository {
       characterRegistry?: Record<string, any>
       locationRegistry?: Record<string, any>
       assetRegistry?: Record<string, any>
+      previousEpisodesContext?: string
+      globalContext?: string
+      lastCliffhanger?: any
+      continuityAnalysis?: any
+      lastEpisodeFinalImage?: string
+      lastEpisodeFinalScene?: any
     }
   ) {
     const updateData: any = { ...data }

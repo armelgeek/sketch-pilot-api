@@ -17,7 +17,54 @@ export interface TypedCliffhanger {
   audienceQuestion: string
 }
 
-// ─── SeriesContext ────────────────────────────────────────────────────────────
+export interface NarrativeThread {
+  id?: string // T1, T2, etc.
+  title: string
+  status: 'open' | 'partial' | 'resolved' | 'new'
+  description: string
+  lastUpdatedEpisode?: number
+  mustResolveBy?: number // Global episode index
+  resolutionSceneId?: string
+}
+
+export interface ResolvedStake {
+  id?: string
+  title: string
+  resolution: string
+  episodeNumber: number
+  resolutionSceneId?: string
+  mustResolveBy?: number // Global episode index
+}
+
+// ─── SeriesContext & Metadata ──────────────────────────────────────────────────
+
+export interface SeriesMetadata {
+  episodeSummary: string
+  cliffhanger: TypedCliffhanger
+  characterContinuity: Record<string, { description: string; isNew: boolean }>
+  nextEpisodeTease: string
+  unresolvedThreads: NarrativeThread[]
+  assetEvolution?: Record<string, string>
+  visualEvolution?: Record<string, string>
+  newCharacters?: Record<string, string>
+  newLocations?: Record<string, string>
+  continuityAnalysis?: {
+    soudureBrute?: string // Ex: "Saut temporel/spatial inexpliqué (Ruelle -> Immeuble)"
+    logicGap?: string // Ex: "Décision abrupte sans délibération"
+    threatVagueness?: string // Ex: "Menace trop floue (qui sont les ombres ?)"
+    pacingIssue?: string // Ex: "Combat escamoté ou fini trop vite"
+    assetFantome?: string // Ex: "Objet introduit sans setup"
+    filsMuets?: string[] // Ex: ["Culpabilité de Maya", "@Alexandre"]
+    defects?: string[]
+  }
+  loreUpdates?: string[] // Nouvelles révélations ou faits établis à ajouter à la Bible
+}
+
+export interface EvolutionState {
+  state: string
+  referenceSceneId?: string
+  referenceEpisode?: number
+}
 
 export interface SeriesContext {
   seriesId: string
@@ -30,16 +77,33 @@ export interface SeriesContext {
       description: string
       backstory?: string
       personalGoal?: string
+      motivation?: string
+      abilities?: string[]
+      knownFacts?: string[]
+      fate?: string
+      isNew?: boolean
+      deathEpisode?: number
+      status?: 'alive' | 'dead' | 'missing' | 'injured' | 'captured' | 'corrupted' | 'unknown'
       modelId?: string
       portraitPrompt?: string
       thumbnailUrl?: string
+      referenceSceneId?: string
+      referenceEpisode?: number
+      firstMentionedSceneId?: string
+      firstMentionedEpisode?: number
+      deathSceneId?: string
     }
   >
   locationRegistry: Record<
     string,
     {
       description: string
+      atmosphere?: string
       thumbnailUrl?: string
+      referenceSceneId?: string
+      referenceEpisode?: number
+      firstMentionedSceneId?: string
+      firstMentionedEpisode?: number
     }
   >
   assetRegistry: Record<
@@ -48,42 +112,45 @@ export interface SeriesContext {
       description: string
       thumbnailUrl?: string
       type?: 'creature' | 'monster' | 'artifact' | 'object' | 'other'
+      referenceSceneId?: string
+      referenceEpisode?: number
+      firstMentionedSceneId?: string
+      firstMentionedEpisode?: number
     }
   >
-  /**
-   * Typed cliffhanger from the previous episode.
-   */
-  lastCliffhanger?: TypedCliffhanger | string // string kept for backward compat
-  /**
-   * Unresolved threads.
-   */
-  unresolvedThreads?: string[]
-  /**
-   * The specific pitch/hook for this episode from the global saga plan.
-   */
+  lastCliffhanger?: TypedCliffhanger | string
+  unresolvedThreads?: NarrativeThread[]
   currentEpisodePitch?: string
   totalEpisodes?: number
   isFinalEpisode?: boolean
+  isFirstEpisode?: boolean
   plannedEpisodes?: { number: number; title: string; hook: string }[]
   videoGenre?: string
   visualStyleModelId?: string
-  /**
-   * Project Sequel: Evolution data
-   */
-  visualEvolution?: Record<string, string>
+  visualEvolution?: Record<string, string | EvolutionState>
   weatherState?: string
   timeOfDay?: string
   relationshipMap?: Record<string, Record<string, string>>
-  assetEvolution?: Record<string, string>
+  assetEvolution?: Record<string, string | EvolutionState>
+  characterEvolution?: Record<string, string | EvolutionState>
+  nextEpisodeTease?: string
   colorPalette?: string
   symbolicMotifs?: string[]
   cameraStyle?: string
   lastEpisodeSummary?: string
-  /**
-   * Project Sequel: Bridge data from the previous episode.
-   */
   lastEpisodeFinalImage?: string
   lastEpisodeFinalScene?: any
+  resolvedStakes?: ResolvedStake[]
+  genreConstraints?: {
+    allowedTech?: string[]
+    forbiddenElements?: string[]
+    toneKeywords?: string[]
+  }
+  seedingHints?: string[]
+  continuityDebts?: string[]
+  forcedCorrection?: string
+  threads?: any[]
+  roadmap?: any
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -101,7 +168,8 @@ function cliffhangerBridgeInstruction(
 ): string {
   if (episodeNumber <= 1 || (!ch && !lastScene)) return ''
 
-  let prompt = '\n\n⚠️ PONT NARRATIF OBLIGATOIRE :'
+  let prompt =
+    "\n\n🆘 TRANSITION VS CAMERA ACTION (STRICT) : \n- TRANSITION : Changement de scène. 'shake', 'static', 'breathing' ne sont PAS des transitions.\n- CAMERA ACTION : Mouvement DANS la scène. 'shake' est une CAMERA ACTION.\nSi vous voulez une secousse, utilisez 'cameraAction': 'shake' et 'transition': 'none'.\n\n⚠️ PONT NARRATIF OBLIGATOIRE :"
 
   if (lastScene) {
     prompt += `\nL'épisode précédent s'est arrêté EXACTEMENT sur cette scène : "${lastScene.summary || lastScene.imagePrompt}"`
@@ -110,9 +178,17 @@ function cliffhangerBridgeInstruction(
     if (lastScene.persistentDecorTokens?.length > 0) {
       prompt += `\nAmbiance & Lumière à maintenir : ${lastScene.persistentDecorTokens.join(', ')}`
     }
-    prompt += `\nVOUS DEVEZ COMMENCER CET ÉPISODE IMMÉDIATEMENT APRÈS CET INSTANT.`
-    prompt += `\n⚠️ INTERDICTION ABSOLUE : ne commencez pas par un saut temporel, un résumé, ou une transition vers un nouveau lieu (ex: "Dans les archives...", "Plus tard...").`
-    prompt += `\nLA PREMIÈRE PHRASE [S1] doit être la suite immédiate de l'action ou de l'émotion de la fin de l'épisode précédent.`
+
+    prompt += `\n🆘 ANTI-SAUT TEMPOREL (CRITICAL) : Interdiction absolue de commencer par 'Mais alors qu'ils discutaient', 'Quelques heures plus tard', ou toute ellipse. Vous reprenez au MÊME ENDROIT, à la MÊME SECONDE.`
+    prompt += `\n- HÉRITAGE TECHNIQUE [S1] (CLONAGE) : La Scène 1 DOIT être l'héritière technique de l'épisode précédent :`
+    prompt += `\n    * locationId : "${lastScene.locationId}" (Utilisez cet ID EXACT)`
+    prompt += `\n    * charactersId : [${(lastScene.charactersId || []).join(', ')}]`
+    prompt += `\n    * persistentDecorTokens : [${(lastScene.persistentDecorTokens || []).join(', ')}]`
+    prompt += `\n    * shotType : "${lastScene.shotType || 'WIDE'}"`
+    prompt += `\n- ECHO DU DERNIER SOUFFLE : L'épisode précédent s'est achevé sur : "${lastScene.narration}".`
+    prompt += `\n  ⚠️ LA PREMIÈRE PHRASE DE SCÈNE 1 DOIT RÉPONDRE DIRECTEMENT À CES MOTS (Action immediate ou Ressenti sensoriel).`
+    prompt += `\n- RÉACTION VISCÉRALE : Lars (ou le perso actuel) doit être dans le MÊME état émotionnel (Peur, Choc, Détermination).`
+    prompt += `\n⚠️ IMAGE : La Scène 1 réutilisera PHYSIQUEMENT l'image finale. Votre description d'image DOIT être identique à la finale précédente.`
   }
 
   if (ch) {
@@ -139,10 +215,13 @@ function cliffhangerBridgeInstruction(
  * Validate that unresolved threads are questions, not statements.
  * Returns a warning list (non-blocking).
  */
-function validateThreadsAsQuestions(threads: string[]): string[] {
+function validateThreadsAsQuestions(threads: NarrativeThread[]): string[] {
   return threads
-    .filter((t) => !t.trim().endsWith('?'))
-    .map((t) => `[SeriesVideoGenerator] Thread non formulé comme question : "${t.slice(0, 60)}..."`)
+    .filter((t) => !t.title.trim().endsWith('?') && !t.description.trim().endsWith('?'))
+    .map(
+      (t) =>
+        `[SeriesVideoGenerator] Thread title ou description non formulé comme question : "${t.title.slice(0, 30)}..."`
+    )
 }
 
 // ─── SeriesVideoGenerator ─────────────────────────────────────────────────────
@@ -156,11 +235,12 @@ function validateThreadsAsQuestions(threads: string[]): string[] {
  */
 export class SeriesVideoGenerator extends VideoGenerator {
   private seriesContext: SeriesContext
+  private narrativeInstructions: string[] = []
 
   constructor(config: VideoGeneratorConfig, seriesContext: SeriesContext) {
     super(config)
     this.seriesContext = seriesContext
-
+    console.log('[CONTEXTUAL_SERIE_CONTEXT_CONTEXT]', seriesContext)
     // Automatic final episode detection
     const instructions = [
       `Génère l'Épisode nº${this.seriesContext.episodeNumber}${this.seriesContext.totalEpisodes ? ` sur ${this.seriesContext.totalEpisodes}` : ''} de la saga : "${this.seriesContext.videoGenre || 'Horreur Historique'}".`
@@ -180,11 +260,41 @@ export class SeriesVideoGenerator extends VideoGenerator {
       this.seriesContext.isFinalEpisode = true
     }
 
-    // Warn if threads are not formulated as questions
-    if (this.seriesContext.unresolvedThreads?.length) {
-      const warnings = validateThreadsAsQuestions(this.seriesContext.unresolvedThreads)
-      warnings.forEach((w) => console.warn(w))
+    // Narrative Pacing Sentinel (Project Sequel - V42)
+    const currentEp = this.seriesContext.episodeNumber
+    const totalEp = this.seriesContext.totalEpisodes || 10
+    const progress = currentEp / totalEp
+    const isSequel = currentEp > totalEp
+
+    let phaseInstruction = ''
+    if (isSequel) {
+      phaseInstruction = `🌀 MODE SÉQUELLE / NOUVEAU CYCLE : Vous avez dépassé la fin prévue. RELANCEZ l'intrigue avec un nouvel Arc. Introduisez une menace résurgente, un saut dans le temps ou un changement de paradigme. Le monde a changé, montrez-le.`
+    } else if (progress <= 0.25) {
+      phaseInstruction = `🔹 PHASE 1 (SETUP) : Établissez le monde et les enjeux. INTERDICTION de résoudre l'intrigue principale. Introduisez au moins 2 nouveaux mystères ou personnages intrigants.`
+    } else if (progress <= 0.75) {
+      phaseInstruction = `🔹 PHASE 2 (ESCALADE) : La situation DOIT s'aggraver. Enchaînez les complications. Évitez toute victoire définitive. Si une solution semble proche, introduisez un obstacle imprévu ou une trahison.`
+    } else if (progress < 1) {
+      phaseInstruction = `🔹 PHASE 3 (CLIMAX) : On approche de la fin. Les fils narratifs commencent à se croiser. La tension est à son maximum. Le cliffhanger DOIT être de type 'péril' ou 'révélation' majeure.`
+    } else {
+      phaseInstruction = `🏆 PHASE FINALE (RÉSOLUTION) : Concluez les intrigues majeures de ce cycle. Focus sur l'impact émotionnel. 🚨 GRAINE DE SUITE : Laissez un infime indice "post-générique" suggérant qu'une menace plus grande sommeille encore.`
     }
+    instructions.push(phaseInstruction)
+
+    // Anti-Looping / Mandatory Hooks
+    const threadCount = this.seriesContext.unresolvedThreads?.length || 0
+    if (threadCount < 2 && !this.seriesContext.isFinalEpisode) {
+      instructions.push(
+        `🚨 ALERTE NARRATIVE : Trop peu de mystères actifs. Vous DEVEZ introduire un NOUVEAU fil narratif (@unresolvedThreads) ou une découverte énigmatique dans cet épisode.`
+      )
+    }
+
+    if (currentEp > 3 && threadCount > 0 && !this.seriesContext.isFinalEpisode) {
+      instructions.push(
+        `🧩 COMPLEXITÉ : Un des secrets existants doit s'épaissir. Ce qu'on croyait savoir est remis en question par un nouvel élément de lore.`
+      )
+    }
+
+    this.narrativeInstructions = instructions
   }
 
   public getType(): string {
@@ -222,10 +332,12 @@ export class SeriesVideoGenerator extends VideoGenerator {
     "newCharacters": { "Nom": "Description détaillée" },
     "newLocations": { "Nom": "Description détaillée" },
     "newAssets": { "Demon": "Description visuelle de l'entité" },
+    "characterEvolution": { "@Sarah": "Décédée" },
     "nextEpisodeTease": "Une question précise avec un nom propre et un enjeu concret — jamais une vague promesse d'action.",
     "unresolvedThreads": [
-      "Question active non résolue 1 — toujours formulée avec un '?' "
-    ]
+      { "title": "Question active ?", "status": "open | partial | resolved", "description": "Détails de ce qu'on sait..." }
+    ],
+    "loreUpdates": ["Élément important de lore ou de chronologie à fixer dans la Bible."]
   }`.trim()
 
     return `
@@ -237,6 +349,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
     {
       "id": "scene-1",
       "sceneNumber": 1,
+      "shotType": "WIDE",
       "summary": "Résumé visuel",
       "narration": "Narration verbatim...",
       "locationId": "identifiant-lieu-unique",
@@ -254,6 +367,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
         "focusTarget": "@Sarah"
       },
       "visualEvolution": { "@Sarah": "Cicatrice au front" },
+      "characterEvolution": { "@Sarah": "Blessé au bras" },
       "weatherState": "Pluie diluvienne",
       "timeOfDay": "Aube",
       "relationshipMap": { "@Sarah": { "@Alexandre": "Alliance", "@Marek": "Méfiance" } },
@@ -323,7 +437,91 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
     )
 
     const threadsInstruction = this.seriesContext.unresolvedThreads?.length
-      ? `\n\nINTRIGUES SECONDAIRES EN COURS (à tisser subtilement, sans forcer) :\n${this.seriesContext.unresolvedThreads.map((t) => `- ${t}`).join('\n')}\nCes questions doivent rester ouvertes — apportez des fragments de réponse, pas la résolution.`
+      ? `\n\nINTRIGUES SECONDAIRES EN COURS (à tisser subtilement, sans forcer) :\n${this.seriesContext.unresolvedThreads
+          .map((t) => {
+            if (typeof t === 'string') return `- [OPEN] ${t}`
+            return `- [${(t.status || 'OPEN').toUpperCase()}] ${t.title || 'Inconnu'}: ${t.description || 'Pas de description'}`
+          })
+          .join('\n')}\nCes questions doivent rester ouvertes — apportez des fragments de réponse, pas la résolution.`
+      : ''
+
+    const characterRegistry = this.seriesContext.characterRegistry || {}
+    const authorizedCharacters = Object.keys(characterRegistry).join(', ')
+
+    // 🚨 MISSION OBLIGATOIRE (Payoff Enforcement)
+    const currentEp = this.seriesContext.episodeNumber
+    const missions: string[] = []
+
+    // Check unresolved threads for aging
+    if (this.seriesContext.unresolvedThreads) {
+      for (const thread of this.seriesContext.unresolvedThreads) {
+        const age = currentEp - (thread.lastUpdatedEpisode || 1)
+        if (age >= 3 || (thread.mustResolveBy && currentEp >= thread.mustResolveBy)) {
+          missions.push(
+            `PAYOFF OBLIGATOIRE : ${thread.title} (Fil ouvert depuis l'épisode ${thread.lastUpdatedEpisode || 1}). Vous DEVEZ apporter une réponse claire et définitive ici.`
+          )
+        }
+      }
+    }
+
+    // Check resolved stakes for loop breaker (Repeated cliffhangers)
+    const cliffhangerCounts: Record<string, number> = {}
+    if (this.seriesContext.resolvedStakes) {
+      for (const stake of this.seriesContext.resolvedStakes) {
+        const desc = stake.title.toLowerCase()
+        if (desc.includes('englouti') || desc.includes('absorbé')) {
+          cliffhangerCounts.englouti = (cliffhangerCounts.englouti || 0) + 1
+        }
+        if (stake.mustResolveBy && currentEp >= stake.mustResolveBy) {
+          missions.push(
+            `SOUDURE OBLIGATOIRE : ${stake.title} (Cliffhanger de l'épisode ${stake.episodeNumber}). Vous DEVEZ expliquer comment cela finit dès la scène 1 ou 2.`
+          )
+        }
+      }
+    }
+
+    if (cliffhangerCounts.englouti >= 2) {
+      missions.push(
+        `ALERTE BOUCLE : Vance a déjà été englouti ${cliffhangerCounts.englouti} fois. INTERDICTION FORMELLE de réutiliser ce cliffhanger. Vous DEVEZ le sortir de là définitivement dans cet épisode.`
+      )
+    }
+
+    const missionBlock = missions.length
+      ? `🚨 MISSIONS OBLIGATOIRES (PRIORITÉ ABSOLUE) :\n${missions.map((m) => `- ${m}`).join('\n')}\n\n`
+      : ''
+
+    // 🚨 MISSION CORRECTIVE (Self-Diagnostic Hardening)
+    const correctionBlock = this.seriesContext.forcedCorrection
+      ? `\n\n🚨 MISSION CORRECTIVE (RÉPARER LA CONTINUITÉ) :\n${this.seriesContext.forcedCorrection}\nVous DEVEZ corriger ces défauts dès le début de cet épisode.\n`
+      : ''
+
+    // 🏗️ RÈGLES DE RIGUEUR NARRATIVE (V39.2)
+    const strictNarrativeRules = `
+⚠️ RÈGLES DE RIGUEUR NARRATIVE :
+1. TRANSITION SPATIALE : Si vous changez de lieu (ex: de ruelle à toit), vous DEVEZ décrire le trajet ou l'arrivée. Interdiction de "téléporter" les personnages.
+2. DÉFINITION DES MENACES : Les ennemis ne peuvent pas être juste des "silhouettes". Précisez leur nature (Humains masqués, entités spectrales, drones, etc.).
+3. INTÉGRITÉ DES CONFLITS : Ne jamais escamoter un combat entamé. Si les armes sont sorties, narrez au moins 2 tours d'action avant toute découverte.
+4. POIDS DES DÉCISIONS : Un choix radical (ex: sauter dans un vortex) nécessite un court moment de délibération émotionnelle ou de dialogue de justification.`
+
+    const deadCharacters = Object.entries(characterRegistry)
+      .filter(([_, d]) => d.status === 'dead')
+      .map(([name, d]) => `- ${name} : mort à l'épisode ${d.deathEpisode}. Toute apparition est INTERDITE.`)
+      .join('\n')
+
+    const resolvedStakes = this.seriesContext.resolvedStakes || []
+    const closedStakesInstruction = resolvedStakes.length
+      ? `\n\nENJEUX DÉJÀ TRANCHÉS (ANTI-LOOPING) : Ces dilemmes sont FERMÉS et ne peuvent être réouverts :\n${resolvedStakes
+          .map((s) => `- "${s.title}" → ${s.resolution} (Épisode ${s.episodeNumber})`)
+          .join('\n')}`
+      : ''
+
+    const forbiddenElements = this.seriesContext.genreConstraints?.forbiddenElements || []
+    const forbiddenInstruction = forbiddenElements.length
+      ? `\n\nÉLÉMENTS STRICTEMENT INTERDITS DANS CET UNIVERS :\n${forbiddenElements.join(', ')}`
+      : ''
+
+    const seedingInstruction = this.seriesContext.seedingHints?.length
+      ? `\n\n🚨 PRÉPARATION DES TWISTS FUTURS (SEEDING) :\n${this.seriesContext.seedingHints.join('\n')}\nSemez des indices subtils pour préparer ces événements sans les révéler totalement.`
       : ''
 
     return {
@@ -339,20 +537,43 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
       }
       Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber}.
 
+      🚨 DIRECTIVE NARRATIVE PRIORITAIRE (PHASE ACTUELLE) :
+      ${this.narrativeInstructions.join('\n')}
+
       CONTEXTE GLOBAL (BIBLE) :
       ${this.seriesContext.globalContext || 'Pas de bible spécifiée.'}
+
+      REGISTRE DES PERSONNAGES (Canon) :
+      ${
+        Object.entries(characterRegistry)
+          .map(
+            ([name, data]) =>
+              `• ${name}: ${data.description} (Motivation: ${data.motivation || 'N/A'}, But: ${data.personalGoal || 'N/A'}, Statut: ${data.status || 'alive'})`
+          )
+          .join('\n') || 'Aucun personnage récurrent défini.'
+      }
 
       REGISTRE DES LIEUX (Canon) :
       ${
         Object.entries(this.seriesContext.locationRegistry || {})
-          .map(([name, data]) => `• ${name}: ${data.description}`)
+          .map(([name, data]) => {
+            const normalized = SeriesVideoGenerator.normalizeId(name)
+            const evol = (this.seriesContext.visualEvolution as any)?.[normalized]
+            const stateText = evol ? ` [ÉTAT ACTUEL : ${typeof evol === 'string' ? evol : evol.state}]` : ''
+            return `• ${name}: ${data.description}${stateText}`
+          })
           .join('\n') || 'Aucun lieu récurrent défini.'
       }
 
       REGISTRE DES ENTITÉS & MONSTRES (Canon) :
       ${
         Object.entries(this.seriesContext.assetRegistry || {})
-          .map(([name, data]) => `• ${name} [${data.type || 'entité'}]: ${data.description}`)
+          .map(([name, data]) => {
+            const normalized = SeriesVideoGenerator.normalizeId(name)
+            const evol = (this.seriesContext.assetEvolution as any)?.[normalized]
+            const stateText = evol ? ` [ÉTAT ACTUEL : ${typeof evol === 'string' ? evol : evol.state}]` : ''
+            return `• ${name} [${data.type || 'entité'}]: ${data.description}${stateText}`
+          })
           .join('\n') || 'Aucune entité récurrente définie.'
       }
 
@@ -366,21 +587,68 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
           : 'N/A'
       }
 
-      DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}
+      DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}${seedingInstruction}${closedStakesInstruction}${deadCharacters ? `\n\nPERSONNAGES MORTS (ANTI-RÉSURRECTION) :\n${deadCharacters}` : ''}${forbiddenInstruction}
+
+      🏗️ RÈGLES DE RIGUEUR NARRATIVE ET CAUSALITÉ :
+      1. PERSISTANCE DU MONDE : Si un objet ou lieu est marqué comme 'DÉTRUIT' ou 'ENDOMMAGÉ' dans les registres, cela DOIT être maintenu visuellement et narrativement. Interdiction de "réparer" sans une action explicite.
+      2. LOGIQUE DES CONSÉQUENCES : Chaque action majeure (explosion, incendie, vol) doit avoir des répercussions durables sur l'environnement.
+      3. CAUSALITÉ VISUELLE : Si un personnage a perdu son chapeau à la scène 4, il ne doit pas l'avoir à la scène 5.
+      4. COHÉRENCE ÉMOTIONNELLE : Les personnages DOIVENT réagir avec une intensité proportionnelle aux enjeux (Peur viscérale si mort imminente, Joie éclatante si retrouvailles).
 
       RÈGLES D'OR DE NARRATION :
-      • MOMENTUM & DÉPLACEMENT (CRITIQUE) : Cet épisode NE DOIT PAS être une répétition ou une simple extension de la scène finale précédente. Dès la Scène 2 ou 3, l'action DOIT forcer un déplacement physique (changement de lieu) ou une rupture de situation majeure. Interdiction de rester dans la "stagnation contemplative".
-      • ÉVOLUTION IRRÉVERSIBLE : Chaque épisode doit changer la situation des personnages de façon permanente. Rien ne doit pouvoir revenir "comme avant" à la fin de l'épisode.
-      • CINÉMA "SHOW DON'T TELL" (ANTI-OMNISCIENT) : Ne commentez jamais l'avenir ou les pensées cachées via le narrateur (ex: Interdiction de dire "Il ignorait encore que...", "Le destin l'attendait..."). Restez sur l'action présente, brute et médiate.
-      • THREAD HANDSHAKE (REPRISE D'INTRIGUE) : Vous DEVEZ explicitement poursuivre au moins une intrigue ou un mystère ouvert à l'épisode précédent. Ne lancez pas une "nouvelle aventure" déconnectée.
-      • HÉRITAGE ÉMOTIONNEL : Reprenez les personnages exactement dans l'état émotionnel où ils étaient. S'ils étaient en plein conflit, la tension doit être palpable dès la première seconde.
+      • INTERDICTION ABSOLUE : Ne créez aucun personnage absent du characterRegistry. Si la narration nécessite un allié, utilisez un personnage existant ou laissez le rôle anonyme.
+      • LISTES AUTORISÉES (ID FIXES) : 
+        - PERSONNAGES : ${authorizedCharacters}
+        - LIEUX : ${Object.keys(this.seriesContext.locationRegistry || {}).join(', ') || 'Aucun lieu défini (Déclarer via newLocations)'}
+      • SOUDURE DE CONTINUITÉ DIRECTE (ARC N → ARC N+1) [CRITIQUE] : La Scène 1 du premier épisode d'un Arc DOIT commencer par justifier la survie ou la suite immédiate du cliffhanger de l'Arc précédent. INTERDICTION de sauter le 'Comment avons-nous survécu ?' (ex: "Le flash de la Brèche nous avait projeté au sol, mais les ombres semblaient avoir reculé...").
+      • PERSISTANCE DES MENACES ACTIVES : Si des ennemis (ex: silhouettes) étaient présents à la fin de l'épisode précédent, ils DOIVENT être mentionnés, combattus ou leur fuite justifiée.
+      • HÉRITAGE DE L'ÉTAT PHYSIQUE : Les personnages conservent les séquelles immédiates (essoufflement, blessures, entraves) de la scène finale précédente.
+      • TRANSFERT D'IMPULSION (PONT N → N+1) : La Scène 1 de l'épisode N+1 DOIT commencer par une phrase qui justifie l'action à partir du cliffhanger. INTERDICTION de sauter le 'Pourquoi' du déplacement.
+      • SOUDURE DES OUTILS (ASSET PERSISTENCE) : Si un personnage utilisait un outil (ex: ordi/data) à l'épisode N et un autre (ex: inscriptions) à l'épisode N+1, créez un lien logique (ex: "Les inscriptions confirmaient ses calculs").
+      • PERSISTANCE DES ANOMALIES : Si un concept fort (ex: distorsions temporelles) est introduit, il DOIT être maintenu ou intensifié tant qu'il n'est pas résolu.
+      • PAYOFF DU CLIFFHANGER : Tout élément spécifique (ex: une silhouette, un cri) du cliffhanger précédent DOIT être adressé nominativement dans les scènes 1 ou 2.
+      • IDENTITÉS CANON (OBLIGATOIRE) : Utilisez EXCLUSIVEMENT les personnages du registre (ex: @Elias). Il est STRICTEMENT INTERDIT d'inventer de nouveaux héros ou de renommer les existants par des noms génériques (ex: @Kael).
+      • GARDE-FOU D'IDENTITÉ (PASS 2) : Si un héros a été renommé par erreur dans la narration, restaurez son identité d'origine du registre lors de la structuration.
+      • SYNERGIE DES ENJEUX (MANDATORY) : Interdiction de créer un enjeu "nouveau" pour résoudre la série. Utilisez EXCLUSIVEMENT les 'unresolvedStakes' déjà listés.
+      • RÉUNION TOUS-AZIMUTS (MÉMOIRE) : En cas de scène de victoire/paix, TOUS les personnages marqués 'ALIVE' dans le registre (y compris la famille libérée précédemment) DOIVENT être présents visuellement ou mentionnés nominativement.
+      • LOGIQUE DES VESTIGES : Si l'antagoniste principal est mort, nommez explicitement les geôliers restants (ex: "Les mercenaires abandonnés par le @Baron") pour éviter le flou.
+      • PRÉSENCE ACTIVE NOMINATIVE : Chaque personnage du 'characterRegistry' (Vivant) DOIT accomplir une action ou ligne de dialogue NOMMÉE.
+      • RÉSOLUTION DES ENJEUX À L'ÉCRAN : Tout enjeu dans 'unresolvedStakes' DOIT être montré lors de sa résolution.
+      • PAYOFF RELATIONNEL : Les relations (Romance/Rivalité) DOIVENT trouver une conclusion explicite (serment, adieu).
+      • BANNIR LE VAGUE (FINALE) : Décrivez l'état final précis de CHAQUE héros.
+      • LEGACY AUDIT (OBLIGATOIRE) : Récapitulez les 3 plus anciens fils narratifs actifs.
+      • LORE GUARD (STABILITÉ TERMINOLOGIQUE) : Inviolabilité des termes d'origine (ex: 'Les Plaines').
+      • HÉRITAGE ÉMOTIONNEL & SENSORIALITÉ : Reprenez les personnages exactement dans l'état émotionnel où ils étaient. S'ils étaient en plein conflit, la tension doit être palpable dès la première seconde.
+      • ÉMOTION CARACTÉRISÉE : Interdiction du neutre lors de moments critiques. Utilisez des verbes d'action expressifs ("Hurle de joie", "S'effondre de terreur").
+      • RÈGLE DE LA RÉACTION VISCÉRALE (PONT SÉMANTIQUE) : La première phrase de l'épisode N+1 ne peut pas être un constat ("Ils étaient coincés"). Elle doit être une réaction physique ou sensorielle immédiate ("Le souffle d'Énéas se bloqua alors que l'ombre avançait...").
+      • SOUDURE INVISIBLE (FLUIDITÉ TOTALE) : Entre l'épisode N et N+1, il ne doit y avoir AUCUN saut de ton. L'épisode N+1 est la suite organique du dernier souffle de l'épisode N.
       • FAUSSE RÉSOLUTION (OBLIGATOIRE) : Entre la scène 3 et 5, inclure un moment où le personnage croit avoir résolu le problème principal — avant une aggravation inattendue. C'est le coeur du ressort addictif.
       • CURIOSITÉ EN ESCALIER : Ouvrez de nouvelles questions à chaque fois que vous fermez une ancienne. Le ratio doit être 1 réponse pour 2 nouvelles questions.
-      • LIEUX : Réutilisez les lieux du registre pour créer un sentiment de familiarité. Décrivez-les avec constance.
+      • LIEUX : Réutilisez les lieux du registre pour créer un sentiment de familiarité. Décrivez-les avec constance en incluant leur ÉTAT ACTUEL (ex: "La chapelle dévastée").
       • PERSONNAGES : Respectez scrupuleusement les traits de personnalité et les descriptions physiques du registre.
-      • PONT NARRATIF (CRITIQUE) : Plongez directement dans l'action (In Media Res). INTERDICTION de commencer par un récapitulatif ("Previously on..."), un flash-forward, une introduction par un narrateur distant, ou un saut d'ambiance brusque. La première phrase doit être la suite sémantique et visuelle directe du cliffhanger. S'il y a un changement de lieu (ex: vers un monastère), il doit intervenir APRÈS une transition justifiée au cours de l'épisode, jamais en scène 1.
+      • PROTOCOLE VISUAL DNA (CRITICAL) : Lorsque vous décrivez une scène, donnez la priorité au cadrage, à l'action et à l'expression émotionnelle. NE RÉ-DÉCRIVEZ PAS minutieusement les traits du visage s'ils sont déjà dans le registre. Utilisez des ancres comme "Expression de [Emotion]" pour laisser le modèle de référence faire son travail.
+      • ANTI-RÉSURRECTION (ABSOLU) : Si un personnage est 'DEAD', il le reste.
+      • RÈGLE DU COÛT DE LA VICTOIRE : La défaite d'un grand antagoniste laisse une cicatrice permanente.
+      • SEEDING ÉMOTIONNEL : Préparation des twists par un HINT au moins 2 épisodes avant.
+      • ANTI-LOOPING : Interdiction de répéter un dilemme. Une fois tranché, il est acquis.
+      • FAITS IRRÉVERSIBLES : Chaque épisode ajoute un fait permanent au registre.
+      • CAUSALITÉ MONDIALE : Tout élément détruit reste détruit.
+      • GENRE GUARD (STRICT) : Respectez scrupuleusement les 'genreConstraints'. L'univers est immuable.
+      • KNOWLEDGE MEMORY : Les personnages ne réagissent pas à une info connue comme nouvelle.
+      • EXPOSITION MONDIALE (OBLIGATOIRE) : Le premier épisode de chaque Arc DOIT s'ouvrir sur une description visuelle riche de l'environnement global. Tout objet central (ex: relique) introduit doit être décrit précisément.
+      • RÉVÉLATIONS (SHOW DON'T TELL) : Toute découverte sur un objet ou un mystère doit être PROUVÉE par une action ou un effet visuel, pas seulement affirmée par un personnage.
+      • ÉQUILIBRE D'ACTION (MAPPING NOMINATIF) : Chaque personnage majeur du registre DOIT effectuer au moins une action décisive ou une ligne de dialogue qui fait progresser l'intrigue. Pas de personnages 'spectateurs' ou passifs.
+      • STRICTEST CHARACTER ANCHOR : Il est strictement interdit de mentionner, d'évoquer ou de faire apparaître tout personnage absent du characterRegistry (@characterRegistry).
+      • ASSET PERSISTENCE & TRANSITION : Si un objet est marqué comme 'perdu' ou 'cherché' dans le registre, il ne peut PAS apparaître subitement dans la main d'un personnage.
+      • SOUDURE DE SURVIE (ANTI-MIRACLE) : Si le cliffhanger précédent plaçait un personnage en péril mortel, la Scène 1 DOIT expliquer rationnellement la survie.
+      • ANTI-LOOPING CLIFFHANGER : INTERDICTION de répéter un cliffhanger déjà utilisé.
+      • RÈGLE DES SECRETS (PÉREMPTION) : Tout mystère majeur DOIT avoir un payoff partiel après 2 épisodes et un payoff TOTAL après 4 épisodes.
+      • PONT NARRATIF (CRITIQUE) : Plongez directement dans l'action (In Media Res). La première phrase doit être la suite sémantique et visuelle directe du cliffhanger.
+      • FOUNDATIONAL HOOKS : Tout élément dramatique introduit à l'Épisode 1 est SACRÉ.
+      • RECURSIVE LORE : Les mystères sur les personnages doivent progresser par RÉVÉLATIONS SUCCESSIVES.
+      • SYMBOLIC LANDMARKS : Les lieux marqués symboliquement ne doivent pas disparaître.
       `,
-        user: `DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga en vous basant sur le cliffhanger précédent.'}\nCible : ${target} mots.`,
+        user: `${missionBlock}DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga en vous basant sur le cliffhanger précédent.'}\nCible : ${target} mots.`,
         targetWords: target
       }
     }
@@ -390,145 +658,141 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
 
   protected buildStructuringSystemPrompt(options: VideoGenerationOptions): string {
     const spec = this.getEffectiveSpec(options)
+    const lastScene = this.seriesContext.lastEpisodeFinalScene
+    const ch = this.seriesContext.lastCliffhanger
 
-    const bridgeInstruction = cliffhangerBridgeInstruction(
-      this.seriesContext.lastCliffhanger,
-      this.seriesContext.episodeNumber,
-      this.seriesContext.lastEpisodeFinalScene
-    )
+    let prompt = `
+🚨 DIRECTIVE NARRATIVE PRIORITAIRE :
+${this.narrativeInstructions.join('\n')}
 
-    const cliffhangerContext = this.seriesContext.lastCliffhanger
-      ? typeof this.seriesContext.lastCliffhanger === 'string'
-        ? `Dernier Cliffhanger (À RÉSOUDRE OU ÉVOLUER): ${this.seriesContext.lastCliffhanger}`
-        : `Dernier Cliffhanger [${this.seriesContext.lastCliffhanger.type.toUpperCase()}]: ${this.seriesContext.lastCliffhanger.description}`
+`
+    prompt += '\n\n🆘 TRANSITION VS CAMERA ACTION (STRICT) : '
+    const cliffhangerContext = ch
+      ? typeof ch === 'string'
+        ? `Dernier Cliffhanger (À RÉSOUDRE OU ÉVOLUER): ${ch}`
+        : `Dernier Cliffhanger [${(ch as TypedCliffhanger).type.toUpperCase()}]: ${(ch as TypedCliffhanger).description}`
       : 'Aucun cliffhanger précédent.'
+
+    const lastTease = this.seriesContext.nextEpisodeTease || 'Aucun teasing spécifique.'
+    const lastQuestion =
+      typeof this.seriesContext.lastCliffhanger === 'object'
+        ? this.seriesContext.lastCliffhanger.audienceQuestion
+        : 'Aucune question spécifique.'
 
     const seriesSpec: VideoTypeSpecification = {
       ...spec,
-      // PRIORITÉ SAGA : Utiliser la Spec comme guide de style, mais avec priorité à la continuité
       goals: spec.goals,
-      task: `${spec.task}\n\nIMPORTANT: Vous DEVEZ inclure l'objet "seriesMetadata" pour permettre la continuité narrative. Sans cet objet, la série s'arrêtera.`,
-      context: `[CONTINUITÉ SAGA] 
-Épisode N°: ${this.seriesContext.episodeNumber}${this.seriesContext.totalEpisodes ? ` sur ${this.seriesContext.totalEpisodes}` : ''}
-ID Saga: ${this.seriesContext.seriesId}
-Bible (Contexte global): ${this.seriesContext.globalContext || 'Pas de bible.'}
-Historique récent: ${this.seriesContext.previousEpisodesContext || 'Nouveau départ.'}
-BIAIS DE RÉCENCE (DERNIER RÉSUMÉ) : ${this.seriesContext.lastEpisodeSummary || 'N/A'}
+      task: `${spec.task}
+      
+🚨 ATTENTION CRITIQUE : 
+1. Vous DEVEZ impérativement inclure l'objet "seriesMetadata" à la fin de votre réponse JSON. Sans ce bloc, la série sera corrompue.
+2. EXPULSION NARRATIVE (STRICT) : Si un personnage est enlevé (kidnappé), tué, ou s'enfuit de la scène, il DOIT être IMMÉDIATEMENT retiré de la liste 'charactersInScene' (et donc 'charactersId') pour toutes les scènes suivantes où il n'est plus présent physically. Ne laissez PAS de 'fantômes' visuels.
+3. DISTINCTION VISUEL VS NARRATION : Si la narration parle d'une personne (@Maya) mais qu'elle n'est pas physiquement présente dans la scène, vous ne devez PAS l'ajouter dans 'charactersId'. Sa mention dans 'fullNarration' suffit. 'charactersId' est réservé STRICTEMENT à la présence physique visible.
+4. ÉVOLUTION NARRATIVE (@characterEvolution) : Si un personnage change de statut (meurt, devient un traître, est blessé) même s'il n'est pas présent visuellement, vous devez l'enregistrer dans 'characterEvolution' pour assurer la continuité.
+Schéma attendu :
+{
+  "seriesMetadata": {
+    "episodeSummary": "Promesse narrative de suite.",
+    "cliffhanger": { "type": "revelation | peril | choice | betrayal", "description": "...", "audienceQuestion": "..." },
+    "characterContinuity": { "@Nom": { "description": "...", "isNew": false } },
+    "locationContinuity": { "LieuID": { "description": "...", "isNew": false } },
+    "nextEpisodeTease": "Question CONCRÈTE avec NOM PROPRE (Ex: 'Maya survivra-t-elle au Baron ?'). INTERDICTION de phrases vagues.",
+    "unresolvedThreads": [
+      { 
+        "id": "T1",
+        "title": "Question?", 
+        "status": "open | partial | resolved", 
+        "description": "Expliquez l'évolution ou la résolution finale ici." 
+      }
+    ],
+    "assetEvolution": { "@Objet": "Nouvel état" },
+    "visualEvolution": { "@Nom": "État visuel" },
+    "characterEvolution": { "@Nom": "Statut narratif (ex: Mort, Traître, Allié)" },
+    "newCharacters": { "@Nom": "Description physique détaillée" },
+    "newLocations": { "LieuID": "Description visuelle (Ambiance, Lumière, Matériaux)" },
+    "continuityAnalysis": {
+      "soudureBrute": "Notez tout saut temporel ou spatial illogique (ex: Lars qui se téléporte du puits à la rivière alors que l'épisode précédent finissait au puits).",
+      "logicGap": "Identifiez les décisions trop abruptes ou illogiques.",
+      "threatVagueness": "Signalez si les ennemis/menaces sont trop vagues (Manque de définition).",
+      "pacingIssue": "Signalez les scènes d'action 'télescopées' ou résolues trop vite.",
+      "promesseNonTenue": "Si l'attente de l'épisode précédent n'a pas été traitée.",
+      "filsMuets": ["Enjeux oubliés."],
+      "defects": ["Autres incohérences."]
+    },
+    "loreUpdates": ["Points de chronologie, de géographie ou de lore à graver dans la bible."]
+  },
+  "titles": ["Titre accrocheur de l'épisode correspondant à l'intrigue"],
+  "fullNarration": "...",
+  "scenes": [
+    {
+      "id": "scene-1",
+      "summary": "...",
+      "narration": "...",
+      "locationId": "...",
+      "charactersInScene": ["@Nom"],
+      "emotionalTokens": { "@Nom": ["Emotion"] },
+      "relationshipMap": { "@A": { "@B": "Relation" } },
+      "spatialAnchor": "Description physique du lieu précis",
+      "visualEvolution": { "@Objet": "Nouvel état" },
+      "imagePrompt": "...",
+      "cameraAction": [{ "type": "...", "intensity": "..." }],
+      "preset": "...",
+      "transition": "...",
+      "persistentDecorTokens": ["..."]
+    }
+  ]
+}`,
+      context: `[STRUCTURATION SAGA N°${this.seriesContext.episodeNumber}] 
 ${cliffhangerContext}
-
-REGISTRE DES PERSONNAGES (CASTING ACTIF):
-${Object.entries(this.seriesContext.characterRegistry || {})
-  .map(([name, data]) => `• ${name}: ${data.description}${data.modelId ? ` (ID MODÈLE: ${data.modelId})` : ''}`)
-  .join('\n')}
-
-REGISTRE DES ENTITÉS & MONSTRES (STORY ASSETS):
-${Object.entries(this.seriesContext.assetRegistry || {})
-  .map(([name, data]) => `• ${name} [${data.type || 'entité'}]: ${data.description}`)
-  .join('\n')}
-
-DIRECTIVES DE CONTINUITÉ (PRÉCÉDENCE ABSOLUE): ${bridgeInstruction}`,
+ATTENTE PRÉCÉDENTE (PROMESSA) : "${lastTease}"
+QUESTION DU PUBLIC À RÉSOUDRE : "${lastQuestion}"
+FILS NARRATIFS ACTIFS (AUDIT OBLIGATOIRE PAR ID - T1, T2, etc.) : ${
+        this.seriesContext.unresolvedThreads?.length
+          ? this.seriesContext.unresolvedThreads
+              .map((t, i) => {
+                const id = t.id || `T${i + 1}`
+                return `[${id}] (${t.status.toUpperCase()}) ${t.title}: ${t.description}`
+              })
+              .join(' ; ')
+          : 'Aucun.'
+      }
+DETTES DE CONTINUITÉ À VÉRIFIER : ${this.seriesContext.continuityDebts?.length ? this.seriesContext.continuityDebts.join(' ; ') : 'Aucune.'}
+PONT VISUEL OBLIGATOIRE : ${
+        this.seriesContext.lastEpisodeFinalScene
+          ? `L'épisode précédent s'est terminé sur : "${this.seriesContext.lastEpisodeFinalScene.summary}". 
+       DÉTAILS TECHNIQUES POUR LA SCÈNE 1 (In Media Res) :
+       - Image de référence : ${this.seriesContext.lastEpisodeFinalImage || 'Non disponible'}
+       - Prompt visuel précédent : "${this.seriesContext.lastEpisodeFinalScene.imagePrompt}"
+       - Jetons de Décor : ${this.seriesContext.lastEpisodeFinalScene.persistentDecorTokens?.join(', ') || 'Standard'}
+       - Emplacement précis : ${this.seriesContext.lastEpisodeFinalScene.locationId}
+       - État émotionnel : ${JSON.stringify(this.seriesContext.lastEpisodeFinalScene.emotionalTokens || {})}
+       - Interactions en cours : "${this.seriesContext.lastEpisodeFinalScene.interactions || 'Aucune'}"
+       - Personnages présents : ${this.seriesContext.lastEpisodeFinalScene.charactersId?.join(', ') || 'Inconnu'}
+       La première scène de ce NOUVEL ÉPISODE doit être la suite immédiate et indissociable de cet état.`
+          : 'Aucun (Premier épisode).'
+      }
+REGISTRE DES PERSONNAGES : ${
+        Object.entries(this.seriesContext.characterRegistry || {})
+          .map(([name, data]) => `${name}: ${data.description}`)
+          .join(' | ') || 'Aucun.'
+      }
+REGISTRE DES ASSETS PROPRES : ${
+        Object.entries(this.seriesContext.assetRegistry || {})
+          .map(([name, data]) => `${name}: ${data.description}`)
+          .join(' | ') || 'Aucun.'
+      }
+LORE BIBLE : ${this.seriesContext.globalContext || 'Vide.'}`,
       instructions: [
         ...(spec.instructions || []),
-
-        // SMART SPEC DISTILLATION (ACT-BASED FOCUS)
-        ...(this.seriesContext.episodeNumber === 1
-          ? [
-              "RÔLE NARRATIF (ACTE 1 - EXPOSITION) : Établissez les bases. Suivez scrupuleusement les instructions d'introduction (Hook/Intro) du Spec.",
-              "EXPOSITION MONDIALE (OBLIGATOIRE) : Le premier épisode DOIT s'ouvrir (Scène 1 ou 2) par une description visuelle riche de l'ENVIRONNEMENT GLOBAL (ville, univers, paysage) avant de se focaliser sur les personnages. Utilisez un 'Establishing Shot' pour ancrer la géographie de l'histoire."
-            ]
-          : this.seriesContext.isFinalEpisode
-            ? [
-                'RÔLE NARRATIF (ACTE FINAL - RÉSOLUTION) : Précédence absolue à la conclusion. Résolvez toutes les intrigues ouvertes.'
-              ]
-            : [
-                `RÔLE NARRATIF (ACTE 2 - ESCALADE - ÉPISODE ${this.seriesContext.episodeNumber}) : Focus sur l'intensification. Le 'Hook' et l' 'Intro' du Spec doivent être distillés comme des éléments d'escalade, pas comme un nouveau départ.`
-              ]),
-
-        // CINEMATIC WELD RULE (CRITIQUE)
-        'RÈGLE DE SOUDURE (5s) : Les 5 premières secondes de cet épisode DOIVENT être consacrées exclusivement à la résolution visuelle et sémantique directe du cliffhanger précédent. Aucun nouvel élément de décor ou thème du Spec (ex: archives, nouveau lieu) ne peut être introduit avant la seconde 6.',
-
-        // NARRATIVE ALIGNMENT & CONFLICT RESOLUTION
-        "PRIORITÉ DE CONTINUITÉ (PRÉCÉDENCE) : Si un Objectif ('Goal') ou une Instruction du 'Spec' semble contredire la situation actuelle (ex: 'Ouvrir sur une archive' alors que vous êtes en forêt), la CONTINUITÉ gagne pour l'ouverture. Intégrez l'élément du Spec plus tard dans l'épisode.",
-        "ADAPTATION DES PRESETS : Le preset 'hook' d'une suite (Épisode 2+) doit être traité comme 'Reprise d'Action' tout en conservant la charte esthétique du Spec.",
-
-        // Narrative coherence
-        "COHÉRENCE TOTALE : L'épisode DOIT s'inscrire dans la continuité directe du cliffhanger précédent.",
-        "ÉVOLUTION IRRÉVERSIBLE : Faites progresser l'intrigue de manière permanente. Rien ne doit pouvoir revenir 'comme avant' après cet épisode.",
-        // Addictive tension mechanics
-        "FAUSSE RÉSOLUTION (OBLIGATOIRE) : Entre la scène 3 et 5, insérer une scène (preset: 'false_resolution') où le personnage croit avoir résolu le problème principal — suivie d'une aggravation inattendue. C'est la mécanique centrale du binge-watching.",
-        "CURIOSITÉ EN ESCALIER : Pour chaque question fermée, ouvrez 2 nouvelles questions. Les 'unresolvedThreads' doivent augmenter d'au moins 1 entrée nette par épisode.",
-        "UNRESOLVEDTHREADS — FORMAT OBLIGATOIRE : Chaque fil doit être formulé comme une question active avec un nom propre et un enjeu concret. Exemple valide : 'Pourquoi Marcus a-t-il brûlé les dossiers avant l'arrivée de la police ?' Exemple invalide : 'Marcus a brûlé des dossiers.'",
-        // Cliffhanger
-        this.seriesContext.isFinalEpisode
-          ? "RÉSOLUTION FINALE (OBLIGATOIRE): Concluez TOUTES les intrigues. INTERDICTION de finir sur un cliffhanger. Répondez à chaque unresolvedThread. L'histoire doit être terminée et fermée."
-          : "CLIFFHANGER TYPÉ (OBLIGATOIRE) : Finissez sur une tension insoutenable. Choisissez un type parmi : revelation / peril / choice / betrayal. Formulez 'audienceQuestion' comme une vraie question que le public emportera en tête.",
-        // next episode tease
-        "TEASING PROCHAIN ÉPISODE : Doit contenir un nom propre, une action concrète, et un enjeu. Pas de vague promesse. Exemple valide : 'Saura-t-on pourquoi Elena a effacé les caméras avant le meurtre ?' Exemple invalide : 'Les révélations vont s'enchaîner...'",
-        // Identity Locking
-        "AUCUNE REDONDANCE PHYSIQUE (CRITIQUE) : Ne décrivez JAMAIS l'âge, les vêtements habituels ou les traits physiques des personnages du registre dans les descriptions de scènes ou les imagePrompts. Utilisez simplement leur nom (ex: 'Alexandre tape sur son clavier'). L'IA connaît déjà leur apparence via le registre.",
-        // Episodic summary as a promise
-        "RÉSUMÉ DE L'ÉPISODE : Formulez-le comme une promesse narrative orientée vers la suite, pas comme un compte-rendu factuel. Il sera injecté dans le contexte des prochains épisodes.",
-        // Casting & locations
-        "PERSONNAGES: Utilisez les identifiants du registre pour remplir 'charactersId'.",
-        'STABILITÉ SPATIALE (CRITIQUE) : Maintenez une continuité de placement. Si un personnage est à gauche dans une scène, il doit y rester sauf mouvement explicite. Ne faites pas disparaître le protagoniste au profit de figurants.',
-        "ASSETS & OBJETS : Utilisez 'newAssets' pour toute entité non-humaine (démon, relique, artefact) et maintenez sa description visuelle constante.",
-        "LIEUX: Utilisez l'identifiant 'locationId' pour chaque scène.",
-
-        // NARRATIVE & ATMOSPHERIC HARDENING (V9)
-        'SOUDAGE ÉMOTIONNEL (CRITIQUE) : Si \'continueFromPrevious\' est vrai, les \'emotionalTokens\' de chaque personnage de la scène i DOIVENT être reportés ou évoluer logiquement à la scène i+1. Utilisez le format objet { "@Nom": ["Emotion"] }.',
-        "CROWD LOGIC : Respectez la densité de population suggérée par le type de lieu. Un 'Marché' ou une 'Ville' doit mentionner une foule ou une activité humaine dans l'imagePrompt, sauf si la bible spécifie un lieu désert.",
-        "THREAD MONITORING : Pour chaque épisode, vous DEVEZ tenter de faire progresser au moins un des 'unresolvedThreads' existants. Ne les laissez pas stagner.",
-
-        // RÉGIE VIRTUELLE & PERSPECTIVE (V11)
-        "COMPOSITION STRUCTURÉE : Pour CHAQUE scène, remplissez l'objet 'composition'. Utilisez 'shotType' (CLOSEUP, MEDIUM, WIDE, ESTABLISHING, POV, OVERSHOULDER) de manière logique.",
-        "CINEMATIC DEPTH (DIRTY FRAME) : Utilisez 'foregroundAnchor' pour suggérer un objet flou au premier plan (ex: 'branche', 'pilier', 'épaule') afin de créer de la profondeur. C'est l'IA qui choisit l'objet le plus logique selon le lieu.",
-        "LIGHTING & ATMOSPHERE : Utilisez 'lightingMood' pour fixer l'ambiance lumineuse (ex: 'clair-obscur', 'soleil couchant', 'néon froid').",
-        "VERROUILLAGE RELATIONNEL : Utilisez 'interactions' pour définir la tension entre personnages. S'ils se méfient, ils ne doivent pas être l'un à côté de l'autre.",
-        "GARDE-FOU VOYAGE LOGIQUE : Si vous changez de lieu pour un endroit lointain, incluerez une scène de transition 'Chemin' ou mentionner le trajet dans la narration.",
-
-        // EXCELLENCE NARRATIVE & IMPACT (V12)
-        "ATTACHEMENT PERSONNAGE : Incluez systématiquement un moment de vulnérabilité, de doute ou de peur intime. Si un personnage est 'invincible', il devient ennuyeux. Il doit être vulnérable pour être attachant.",
-        "IMPACT & RYTHME : Utilisez le 'Show, Don't Tell'. Ne dites pas 'Il a peur', décrivez 'Ses mains tremblent alors qu'il serre la garde de son épée'. Utilisez des phrases courtes et percutantes pour l'action.",
-        "ENJEUX PERSONNELS : Chaque événement du 'Spec' doit être lié à un enjeu émotionnel pour les personnages présents. La terreur ne vient pas du monstre, mais de ce que le personnage risque de perdre.",
-        "MÉCANIQUE DE REBONDISSEMENT (TWISTS) : À mi-épisode (Scène 4-6), un événement imprévu doit invalider l'objectif initial ou révéler une vérité cachée (Pivot de Milieu). Utilisez la règle du 'Oui, MAIS' : une petite victoire doit toujours entraîner une complication plus grave.",
-        "NARRATION ORALE : La narration doit être écrite pour être lue. Évitez les listes factuelles. Utilisez des silences (caractère unique '|') pour marquer les pauses dramatiques entre les phrases importantes.",
-
-        // ÉVOLUTION VISUELLE & TEMPORELLE (V13)
-        "ÉVOLUTION VISUELLE PERSONNAGE : Utilisez l'objet 'visualEvolution' pour marquer les changements physiques de l'épisode (ex: '@Marek': 'Bandeau sur l'œil droit', '@Sarah': 'Robe déchirée'). Ces changements seront hérités par l'épisode suivant.",
-        "COHÉRENCE MÉTÉO & TEMPORELLE : Utilisez 'weatherState' (ex: 'Pluie battante') et 'timeOfDay' (ex: 'Plein jour', 'Minuit'). L'épisode suivant DOIT hériter de la météo et de l'heure de la scène finale, sauf ellipse narrative justifiée.",
-
-        // SOCIAL & ASSET HARDENING (V14)
-        "SOUDAGE SOCIAL (RELATIONS) : Utilisez 'relationshipMap' pour définir l'état des liens (ex: '@Alexandre': {'@Sarah': 'Amoureux', '@Marek': 'Rival'}). Ces tensions DOIVENT influencer le placement des personnages (ex: ne pas être côte à côte si rivaux).",
-        "ÉTAT DES OBJETS CLÉS : Utilisez 'assetEvolution' pour traquer l'état physique des objets uniques (ex: 'Grimoire': 'Brûlé', 'Épée': 'Brisée'). Un objet endommagé le reste jusqu'à sa réparation explicite.",
-
-        // INTÉGRATION NARRATIVE (HISTOIRE & DIALOGUES)
-        "ÉCHO NARRATIF DU CONTEXTE (CRITIQUE) : Le script (narration et dialogues) DOIT refléter l'état actuel du monde. Si 'weatherState' est un orage, la narration doit mentionner le tonnerre ou la pluie. Si un objet est 'Brisé', les personnages doivent en parler ou s'adapter à sa perte.",
-        "RÉSONANCE SOCIALE : Les dialogues DOIVENT changer selon la 'relationshipMap'. Deux rivaux ne se disent pas 'merci', ils se provoquent. Une menace ne doit être mentionnée que si elle est liée à l'enjeu personnel du personnage.",
-        "MATÉRIALITÉ VISUELLE : Ne vous contentez pas d'imagePrompts. Intégrez l'évolution visuelle (@visualEvolution) dans la narration orale. Exemple : 'Regarde cette cicatrice... tu porteras ma marque à jamais.'",
-        "PULSE DU TWIST : Le script doit construire la tension vers le rebondissemnt de milieu d'épisode. Chaque phrase doit peser.",
-
-        // AUTEUR STYLE & SYMBOLISM (V15)
-        "DIRECTION ARTISTIQUE (COULEURS) : Utilisez 'colorPalette' pour maintenir l'identité visuelle (ex: 'Sépia poussiéreux'). Chaque cadrage doit respecter cette colo.",
-        "SYMBOLISME RÉCURRENT : Intégrez discrètement les 'symbolicMotifs' (ex: des horloges partout) dans les décors pour créer un sentiment de destinée.",
-        "LANGAGE CAMÉRA GLOBAL : Respectez le 'cameraStyle' (ex: 'Caméra épaule nerveuse') dans toutes le 'cameraAction' générées.",
-
-        // NARRATIVE DEPTH & MASTER PLAN (V16)
-        `CONSCIENCE DU MASTER PLAN (ROADMAP) : Voici le plan complet de la saga : ${JSON.stringify(
-          this.seriesContext.plannedEpisodes || []
-        )}. Utilisez-le pour faire du FORESHADOWING (indices sur les épisodes futurs) et assurer que l'épisode actuel prépare logiquement la suite.`,
-        "PROFONDEUR DES PERSONNAGES (BACKSTORIES) : Chaque personnage a un 'backstory' et un 'personalGoal' dans le registre. Les dialogues DOIVENT refléter ce passé. Un personnage ne doit pas seulement réagir, il doit agir selon son but personnel caché.",
-        `ARC NARRATIF GLOBAL : Ne traitez pas l'épisode de manière isolée. Il fait partie d'un arc de ${this.seriesContext.totalEpisodes || 10} épisodes. Maintenez la tension.`,
-
-        // SPATIAL INTEGRITY & COMPOSITION HARDENING (V18)
-        "INTÉGRITÉ SPATIALE : Si la narration indique que les personnages sont isolés, dispersés, ou dans des lieux différents, MOINS DE GROUPEMENT. Utilisez le mode 'layout': 'MONTAGE' ou 'SPLIT'.",
-        "RÈGLE ANTI-HALLUCINATION : Ne placez JAMAIS plusieurs personnages côte à côte si le texte dit 'chacun de son côté' ou 'dispersés'. C'est une erreur narrative grave.",
-        "COMPOSITION MULTI-PANEL : Pour le layout 'MONTAGE', décrivez explicitement un polyptyque (ex: 'Un montage de 3 panneaux verticaux montrant Alexandre, Sarah et Marek séparément').",
-
-        // CONTINUITY WELD (V19)
-        "SOUDURE VISUELLE SCÈNE 1 : La première scène [Scene 1] de cet épisode DOIT utiliser le même 'locationId' et la même ambiance que la fin du précédent. Pas de saut géographique immédiat.",
-
-        // NARRATIVE ESCAPE (V22)
-        "ÉVASION NARRATIVE : Dès la Scène 2 ou 3, forcez une TRANSITION ou un ÉVÉNEMENT qui déplace les personnages ou change radicalement la situation. Ne restez pas bloqué dans la scène de reprise toute la durée de l'épisode."
+        'RÈGLE DE SOUDURE : Les premières secondes DOIVENT résoudre le cliffhanger précédent.',
+        "SONDAGE ÉMOTIONNEL : Chaque scène DOIT obligatoirement avoir des 'emotionalTokens' pour les personnages présents (min. 2 jetons par perso) ET une description d'expression faciale intense dans 'imagePrompt'.",
+        "DENTISTÉ CINÉMATOGRAPHIQUE : Décrivez avec précision la position des personnages et objets dans 'spatialAnchor'.",
+        "STABILITÉ VISUELLE : Utilisez 'visualEvolution' et 'assetEvolution' pour traquer les changements permanents (ex: 'destroyed', 'scarred').",
+        "PROTOCOLE VISUAL DNA (IMPORTANT) : Dans 'imagePrompt', NE RÉ-DÉCRIVEZ PAS les visages des personnages du registre. Limitez-vous à leur EXPRESSION (peur, colère, rire) et à leur ACTION pour garantir la stabilité via les portraits de référence.",
+        'LOGIQUE CAUSALE : Vérifiez que chaque objet et lieu est dans son état correct (persistance de la destruction/évolution).',
+        "TEASING PRÉCIS : Le 'nextEpisodeTease' doit bannir le vague. Soyez spécifique.",
+        "LORE GUARD : Si vous introduisez une date (ex: 1487) ou un nom de région (ex: Lorraine), vous DEVEZ l'ajouter dans 'loreUpdates' pour qu'il devienne canon.",
+        "EPISODE TITLE : Le premier titre dans la liste 'titles' DOIT être un titre accrocheur, dramatique et spécifique à l'intrigue de CET épisode (ex: 'Le Secret de la Crypte', 'L'Ombre du Passé'). Évitez les titres génériques comme 'Épisode 2'."
       ]
     }
 
@@ -549,7 +813,6 @@ DIRECTIVES DE CONTINUITÉ (PRÉCÉDENCE ABSOLUE): ${bridgeInstruction}`,
     const targetWordCount = Math.round(duration * wps * safetyFactor)
     const range = computeSceneCountRange(duration)
 
-    // STRUCTURAL PARTITIONING: If sequel, merge Hook/Intro into a Sequel Reprise
     let effectiveSpec = spec
     const rawStructure = (spec.structure || []) as any[]
     if (this.seriesContext.episodeNumber > 1 && rawStructure.length > 2) {
@@ -588,7 +851,46 @@ DIRECTIVES DE CONTINUITÉ (PRÉCÉDENCE ABSOLUE): ${bridgeInstruction}`,
       this.seriesContext.isFinalEpisode
         ? '⚠️ ÉPISODE FINAL : Ne laissez aucune question sans réponse. Résolution totale de chaque unresolvedThread.'
         : '⚠️ RAPPEL ADDICTIF : Vérifiez que la fausse résolution est présente (scènes 3-5), que le cliffhanger est typé, et que les unresolvedThreads sont des questions actives.'
-    }\nTÂCHE : Découpe en scènes JSON valides. SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise.`
+    }\nTÂCHE : Découpe en scènes JSON valides. SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise.
+      
+🚨 ATTENTION : Vous DEVEZ impérativement inclure le bloc "seriesMetadata" à la fin de votre réponse JSON.
+Schéma attendu :
+{
+  "seriesMetadata": {
+    "episodeSummary": "...",
+    "cliffhanger": { "type": "...", "description": "...", "audienceQuestion": "..." },
+    "characterContinuity": { "@Nom": { "description": "...", "isNew": false } },
+    "nextEpisodeTease": "Question spécifique.",
+    "unresolvedThreads": [{ "title": "Question?", "status": "open", "description": "..." }],
+    "assetEvolution": { "@Objet": "Nouvel état" },
+    "visualEvolution": { "@Nom": "État visuel" },
+    "newCharacters": { "@Nom": "Description" },
+    "newLocations": { "Lieu": "Description" },
+    "continuityAnalysis": {
+       "soudureBrute": "Notez ici tout saut spatial/temporel non expliqué.",
+       "assetFantome": "Notez ici tout élément apparu sans setup.",
+       "filsMuets": ["Enjeux oubliés."],
+       "defects": ["Autres défauts."]
+    },
+     "loreUpdates": ["..."]
+  },
+  "titles": [...],
+  "fullNarration": "...",
+  "scenes": [
+    {
+      "id": "...",
+      "charactersInScene": ["@Perso1", "@Perso2"],
+      "emotionalTokens": { "@Perso1": ["Inquiet", "Sérieux"] },
+      "relationshipMap": { "@Perso1": { "@Perso2": "Défiance" } },
+      "spatialAnchor": "À gauche du feu, près de la fenêtre",
+      "visualEvolution": { "@Perso1": "Vêtements déchirés" },
+      "characterEvolution": { "@Perso1": "Traumatisé" },
+      "narration": "...",
+      "imagePrompt": "..."
+    }
+  ]
+}
+`
   }
 
   // ─── Pass 2: Build prompts ──────────────────────────────────────────────────
@@ -633,10 +935,67 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
     return { script, driftFixed: false, driftWords: 0 }
   }
 
+  public async resolveCharacterImages(): Promise<any[]> {
+    const characterRegistry = this.seriesContext.characterRegistry || {}
+    const characterImages = Object.entries(characterRegistry)
+      .map(([name, c]) =>
+        (c as any).thumbnailUrl ? { name: SeriesVideoGenerator.normalizeId(name), data: (c as any).thumbnailUrl } : null
+      )
+      .filter(Boolean)
+
+    const locationRegistry = this.seriesContext.locationRegistry || {}
+    const locationImages = Object.entries(locationRegistry)
+      .map(([name, l]) =>
+        (l as any).thumbnailUrl
+          ? { name: `LOCATION:${SeriesVideoGenerator.normalizeId(name)}`, data: (l as any).thumbnailUrl }
+          : null
+      )
+      .filter(Boolean)
+
+    const assetRegistry = this.seriesContext.assetRegistry || {}
+    const assetImages = Object.entries(assetRegistry)
+      .map(([name, a]) =>
+        (a as any).thumbnailUrl ? { name: SeriesVideoGenerator.normalizeId(name), data: (a as any).thumbnailUrl } : null
+      )
+      .filter(Boolean)
+
+    const all = [...characterImages, ...locationImages, ...assetImages]
+    console.log(`[SeriesVideoGenerator] Resolved ${all.length} total registry images (including locations).`)
+    return all
+  }
+
   public async buildScriptGenerationPrompts(
     topic: string,
     options: VideoGenerationOptions
   ): Promise<{ systemPrompt: string; userPrompt: string }> {
+    const instructions = []
+    if (this.seriesContext.roadmap) {
+      const rm = this.seriesContext.roadmap
+      instructions.push(
+        `--- NARRATIVE ROADMAP ---`,
+        `Phase actuelle : ${rm.currentPhase || 'Intro'}`,
+        `Objectifs : ${rm.objectives?.join(', ') || 'Inconnus'}`,
+        rm.irreversibleFacts?.length
+          ? `FAITS IRRÉVERSIBLES : ${rm.irreversibleFacts.join('; ')} (INTERDICTION DE CONTRADIRE)`
+          : '',
+        rm.pendingChoices?.length ? `PROGRES DU CHOIX : ${rm.pendingChoices.join(', ')}` : '',
+        rm.watchpoints?.length ? `POINTS DE VIGILANCE : ${rm.watchpoints.join(', ')}` : ''
+      )
+    }
+
+    if (this.seriesContext.unresolvedThreads?.length) {
+      instructions.push(
+        `--- FILS NARRATIFS ACTIFS ---`,
+        ...this.seriesContext.unresolvedThreads.map((t) => `- [${t.status.toUpperCase()}] ${t.title}: ${t.description}`)
+      )
+    }
+
+    instructions.push(`---`)
+
+    this.config.systemPrompt = `
+${this.config.systemPrompt}
+${instructions.join('\n')}
+`
     return {
       systemPrompt: this.buildStructuringSystemPrompt(options),
       userPrompt: this.buildStructuringUserPrompt('', topic, options)
@@ -652,13 +1011,34 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
     memory?: any,
     hasLocationReference?: boolean
   ): Promise<import('../../types/video-script.types').ImagePrompt> {
-    const isFirstScene = scene.sceneNumber === 1 || scene.id === (this.seriesContext as any).firstSceneId
+    const isFirstScene = scene.sceneNumber === 1 || scene.id === 'scene-1' || scene.id === '1'
     const sequelBridgeUrl = isFirstScene ? this.seriesContext.lastEpisodeFinalImage : undefined
 
-    let paragraph = (scene.imagePrompt || scene.summary || '').trim()
+    // ─── 1. Primary Subject (Narration/Action) ─────────────────────────────────
+    const subject = (scene.imagePrompt || scene.summary || '').trim()
 
-    // ─── ROLLING CONTINUITY (Project Sequel) ───
-    // This handles both INTER-episode (Sequel Bridge) and INTRA-episode (Scene-to-Scene) continuity.
+    // ─── 2. Spatial & Environmental Context ────────────────────────────────────
+    let spatialContext = ''
+    if (scene.spatialAnchor) {
+      spatialContext += `[ANCRE SPATIALE: ${scene.spatialAnchor}] `
+    }
+
+    if (scene.locationId) {
+      const locationRegistry = this.seriesContext.locationRegistry || {}
+      const loc = SeriesVideoGenerator.findInRegistry(locationRegistry, scene.locationId)
+      if (loc) {
+        const referenceMark = hasLocationReference ? 'REFERENCE VISUELLE ACTIVE (ANKER)' : 'RÉFÉRENCE TEXTUELLE'
+        const locDesc = (loc as any).description || (loc as any).atmosphere || ''
+        spatialContext += `LIEU : ${SeriesVideoGenerator.normalizeId(scene.locationId)} (${referenceMark}). ${locDesc}. `
+
+        if ((loc as any).thumbnailUrl && !spatialContext.includes('COMPOSITION IDENTIQUE')) {
+          spatialContext += `Maintenez la cohérence absolue avec le décor établi de ${scene.locationId} (Style, Lumière, Matériaux). `
+        }
+      }
+    }
+
+    // ─── 3. Narrative Continuity & Sequel Logic ───────────────────────────────
+    let continuityContext = ''
     const previousScene = isFirstScene ? this.seriesContext.lastEpisodeFinalScene : (memory as any)?.previousScene
 
     if (previousScene) {
@@ -666,19 +1046,21 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       const isInternalSequence = !isFirstScene && scene.continueFromPrevious
 
       if (isSequelBridge || isInternalSequence) {
-        paragraph = `CONTINUATION DE LA SCÈNE PRÉCÉDENTE : ${previousScene.summary || previousScene.imagePrompt}. ${paragraph}`
+        continuityContext += `CONTINUATION DIRECTE DE LA SCÈNE PRÉCÉDENTE : ${previousScene.summary || previousScene.imagePrompt}. `
 
-        // Lighting persistence for internal sequences
         if (previousScene.persistentDecorTokens && previousScene.persistentDecorTokens.length > 0) {
           const label = isSequelBridge ? 'épisode précédent' : 'scène précédente'
-          paragraph = `Lumière et Ambiance de la ${label}: ${previousScene.persistentDecorTokens.join(', ')}. ${paragraph}`
+          continuityContext += `Lumière et Ambiance héritées de la ${label}: ${previousScene.persistentDecorTokens.join(', ')}. `
         }
 
-        // Compositional Locking
-        const refLabel = isSequelBridge ? 'Sequel Bridge' : `Scene ${previousScene.id}`
-        paragraph = `Reference (${refLabel}), COMPOSITION IDENTIQUE : Maintenez le placement spatial exact des personnages et des éléments du décor. ${paragraph}`
+        const refLabel = isSequelBridge ? 'Sequel Bridge (ZÉRO DRIFT)' : `Scene ${previousScene.id}`
+        const fidelityInstruction = isSequelBridge
+          ? "⚠️ FIDÉLITÉ ABSOLUE : Cette scène est la reprise directe de l'épisode précédent. Utilisez l'image de référence comme point de départ IMMUABLE."
+          : 'Maintenez le placement spatial exact des personnages et des éléments du décor.'
 
-        // Silent Presence (Cast & Assets)
+        continuityContext += `Reference (${refLabel}). ${fidelityInstruction} COMPOSITION IDENTIQUE. `
+
+        // Track background presences (characters/assets not actively in narration but still there)
         const previousCast = previousScene.charactersId || previousScene.charactersInScene || []
         const currentCast = scene.charactersId || scene.charactersInScene || []
         const silentPresence = previousCast.filter((id: string) => !currentCast.includes(id))
@@ -692,34 +1074,50 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
 
         if (silentPresence.length > 0 || silentAssets.length > 0) {
           const presence = [...silentPresence, ...silentAssets]
-          paragraph = `[Background presence - Maintenir positions et présences originales] ${presence.join(', ')}. ${paragraph}`
+          continuityContext += `[Background presence - Personnages et objets en arrière-plan] ${presence.join(', ')}. `
         }
       }
     }
 
+    // ─── 4. Series Bible & High-Level Stakes ────────────────────────────────────
+    let loreContext = ''
+    if (this.seriesContext.globalContext) {
+      loreContext += `Universe Bible (Continuity): ${this.seriesContext.globalContext.slice(0, 1000)}. `
+    }
+
+    if ((this.seriesContext as any).loreUpdates?.length) {
+      loreContext += `Lore Rules: ${(this.seriesContext as any).loreUpdates.join('; ')}. `
+    }
+
+    if ((this.seriesContext as any).roadmap?.narrativeHints?.length) {
+      loreContext += `Narrative Stakes: ${(this.seriesContext as any).roadmap.narrativeHints.join('; ')}. `
+    }
+
+    // ─── 5. Initial Assembly ───────────────────────────────────────────────────
+    let paragraph = `${spatialContext}${continuityContext}${loreContext}ACTION : ${subject}`
+
+    // ─── 6. Identity Locking (Characters & Assets) ──────────────────────────────
     const characterMatches = scene.charactersId || scene.charactersInScene || []
     const characterRegistry = this.seriesContext.characterRegistry || {}
     for (const name of characterMatches) {
-      const char = characterRegistry[name]
+      const char = SeriesVideoGenerator.findInRegistry(characterRegistry as any, name)
       if (char) {
-        // Visual Evolution: If 'isNew' is true, bypass the strict reference anchor to allow new traits (e.g. scar, new outfit)
         const isEvolving = (char as any).isNew === true
-
-        // Character identity anchor: provides name and base appearance for naming in the prompt.
         paragraph = this.applyIdentityLocking(paragraph, !!hasReferenceImages && !isEvolving, {
           character: { [name]: char }
         })
 
-        const effectiveModelId = char.modelId || this.seriesContext.visualStyleModelId
+        const effectiveModelId = (char as any).modelId || this.seriesContext.visualStyleModelId
         if (effectiveModelId && !paragraph.includes(effectiveModelId)) {
-          paragraph += `, reference style ${effectiveModelId}`
+          paragraph += `, style reference ${effectiveModelId}`
         }
       }
     }
 
-    // Story Assets (Entities like the Demon, or Artifacts)
-    for (const [name, asset] of Object.entries(this.seriesContext.assetRegistry || {})) {
+    const assetRegistry = this.seriesContext.assetRegistry || {}
+    for (const name of Object.keys(assetRegistry)) {
       if (paragraph.toLowerCase().includes(name.toLowerCase())) {
+        const asset = SeriesVideoGenerator.findInRegistry(assetRegistry as any, name)
         const isEvolving = (asset as any).isNew === true
         paragraph = this.applyIdentityLocking(paragraph, !!hasReferenceImages && !isEvolving, {
           asset: { [name]: asset }
@@ -727,104 +1125,78 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       }
     }
 
-    if (scene.locationId) {
-      const locationRegistry = this.seriesContext.locationRegistry || {}
-      const loc = locationRegistry[scene.locationId]
-      if (loc && loc.description && !paragraph.includes(loc.description.slice(0, 30))) {
-        paragraph = `Location ${scene.locationId}: ${loc.description}. ${paragraph}`
-      }
-      // Explicitly anchor to location reference if available
-      if (hasLocationReference && loc?.thumbnailUrl) {
-        paragraph = `Reference (Location), ${paragraph}`
-      }
-    }
-
-    if (scene.persistentDecorTokens && scene.persistentDecorTokens.length > 0) {
-      paragraph = `PERSISTENT SCENE ELEMENTS: ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
-    }
-
-    // SEQUEL LIGHTING WELD: Force previous atmosphere into the opening scene
-    const isFirstSceneOfSequel =
-      (scene.id === '1' || (scene as any).sceneNumber === 1) && this.seriesContext.episodeNumber > 1
-    const lastScene = this.seriesContext.lastEpisodeFinalScene
-    if (isFirstSceneOfSequel && lastScene?.persistentDecorTokens && lastScene.persistentDecorTokens.length > 0) {
-      paragraph = `Ambiance & Lumière de l'épisode précédent (À MAINTENIR): ${lastScene.persistentDecorTokens.join(', ')}. ${paragraph}`
-    }
-
-    if (isFirstSceneOfSequel && lastScene?.emotionalTokens && Object.keys(lastScene.emotionalTokens).length > 0) {
-      const pastEmotions = Object.entries(lastScene.emotionalTokens)
-        .map(([charId, tokens]) => `${charId} était ${(tokens as string[]).join(', ')}`)
-        .join(', ')
-      paragraph = `État émotionnel initial (REPRISE) : ${pastEmotions}. ${paragraph}`
-    }
-
-    if (isFirstSceneOfSequel && lastScene?.interactions && Object.keys(lastScene.interactions).length > 0) {
-      const pastInteractions = Object.entries(lastScene.interactions)
-        .map(([pair, tension]) => `${pair} : ${tension}`)
-        .join(', ')
-      paragraph = `Dynamique sociale héritée (REPRISE) : ${pastInteractions}. ${paragraph}`
-    }
-
-    if (this.seriesContext.globalContext) {
-      paragraph = `Universe Context (${this.seriesContext.globalContext.slice(0, 200)}): ${paragraph}`
-    }
-
-    // ─── RÉGIE VIRTUELLE (Virtual Director) ───
+    // ─── 7. Composition & Camera ────────────────────────────────────────────────
     const comp = scene.composition || { shotType: 'MEDIUM' }
     const shotMap: Record<string, string> = {
       CLOSEUP: 'CLOSE-UP SHOT: Focus on face and expression.',
       MEDIUM: 'MEDIUM SHOT: Character from waist up, showing some environment.',
       WIDE: 'WIDE SHOT: Full body and environment, character in context.',
       ESTABLISHING: 'ESTABLISHING SHOT: Extreme wide view to set the location.',
+      PANORAMIC: 'PANORAMIC VIEW: Ultra-wide cinematic view to capture the full scope of scenery.',
       POV: 'POV SHOT: Seen through the eyes of the character.',
       OVERSHOULDER: 'OVER-THE-SHOULDER SHOT: Looking at subject over another character shoulder.'
     }
     let shotDirective = shotMap[comp.shotType] || shotMap.MEDIUM
 
-    // Add foreground element (Dirty Frame) organically
     if (comp.foregroundAnchor) {
-      shotDirective = `${shotDirective} Seen through ${comp.foregroundAnchor} in the blurry foreground (DIRTY FRAME) for depth.`
+      shotDirective = `${shotDirective} Foreground element: ${comp.foregroundAnchor} (blurry dirty frame).`
     }
-
-    // Add Lighting
     if (comp.lightingMood) {
-      shotDirective = `${shotDirective} Lighting: ${comp.lightingMood}.`
+      shotDirective = `${shotDirective} Lighting/Mood: ${comp.lightingMood}.`
     }
-
-    // Add Focus Target
     if (comp.focusTarget) {
-      shotDirective = `${shotDirective} Focus on ${comp.focusTarget}.`
+      shotDirective = `${shotDirective} Precise focus on ${comp.focusTarget}.`
     }
 
     paragraph = `${shotDirective} ${paragraph}`
 
-    // ─── ATMOSPHERIC & TEMPORAL CONTEXT (V13) ───
+    // ─── 8. Atmosphere & State Evolution ────────────────────────────────────────
     if (this.seriesContext.timeOfDay || this.seriesContext.weatherState) {
       const time = this.seriesContext.timeOfDay || ''
       const weather = this.seriesContext.weatherState || ''
       paragraph = `Atmosphère : ${time}${time && weather ? ', ' : ''}${weather}. ${paragraph}`
     }
 
-    // ─── VISUAL & ASSET EVOLUTION (V13 & V14) ───
-    const evolution = {
-      ...(this.seriesContext.visualEvolution || {}),
-      ...(scene.visualEvolution || {})
-    }
-    const assetState = {
-      ...(this.seriesContext.assetEvolution || {}),
-      ...(scene.assetEvolution || {})
-    }
-    if (Object.keys(evolution).length > 0 || Object.keys(assetState).length > 0) {
-      const evolutionStr = Object.entries(evolution)
-        .map(([char, state]) => `${char} (${state})`)
-        .join(', ')
-      const assetStr = Object.entries(assetState)
-        .map(([obj, state]) => `${obj} (${state})`)
-        .join(', ')
-      paragraph = `État Physique & Objets : ${[evolutionStr, assetStr].filter(Boolean).join('; ')}. ${paragraph}`
+    if (scene.persistentDecorTokens && scene.persistentDecorTokens.length > 0) {
+      paragraph = `PERSISTENT ELEMENTS: ${scene.persistentDecorTokens.join(', ')}. ${paragraph}`
     }
 
-    // ─── SOCIAL CONTEXT & RELATIONSHIPS (V14) ───
+    const evolution = SeriesVideoGenerator.mergeEvolution(
+      this.seriesContext.visualEvolution || {},
+      scene.visualEvolution || {}
+    )
+    const assetState = SeriesVideoGenerator.mergeEvolution(
+      this.seriesContext.assetEvolution || {},
+      scene.assetEvolution || {}
+    )
+
+    const relevantEvolutions: string[] = []
+
+    // 1. Characters in scene
+    for (const name of characterMatches) {
+      const evolutionData = SeriesVideoGenerator.findInRegistry(evolution as any, name)
+      if (evolutionData) {
+        const stateStr = typeof evolutionData === 'string' ? evolutionData : (evolutionData as any).state
+        relevantEvolutions.push(`${name} (${stateStr})`)
+      }
+    }
+
+    // 2. Assets (fuzzy check in prompt)
+    for (const [assetName, evolutionData] of Object.entries(assetState)) {
+      const stateStr = typeof evolutionData === 'string' ? evolutionData : (evolutionData as any).state
+      if (
+        paragraph.toLowerCase().includes(assetName.toLowerCase()) ||
+        paragraph.toLowerCase().includes(SeriesVideoGenerator.normalizeId(assetName))
+      ) {
+        relevantEvolutions.push(`${assetName} (${stateStr})`)
+      }
+    }
+
+    if (relevantEvolutions.length > 0) {
+      paragraph = `État Physique Evolution : ${relevantEvolutions.join('; ')}. ${paragraph}`
+    }
+
+    // ─── 9. Social Context & Emotions ──────────────────────────────────────────
     const relationships = this.seriesContext.relationshipMap || {}
     if (Object.keys(relationships).length > 0) {
       const relStr = Object.entries(relationships)
@@ -834,10 +1206,24 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
             .join(', ')
         )
         .join('. ')
-      paragraph = `Contexte Social : ${relStr}. ${paragraph}`
+      paragraph = `Interaction Sociale : ${relStr}. ${paragraph}`
     }
 
-    // ─── AUTEUR STYLE & SYMBOLISM (V15) ───
+    if (scene.emotionalTokens && Object.keys(scene.emotionalTokens).length > 0) {
+      const emotions = Object.entries(scene.emotionalTokens)
+        .map(([charId, tokens]) => `${charId} est ${(tokens as string[]).join(', ')}`)
+        .join(', ')
+      paragraph = `Expressions faciales : ${emotions}. ${paragraph}`
+    }
+
+    if (scene.interactions && Object.keys(scene.interactions).length > 0) {
+      const interactions = Object.entries(scene.interactions)
+        .map(([pair, tension]) => `Dynamique de groupe ${pair} : ${tension}`)
+        .join(', ')
+      paragraph = `Ambience relationnelle : ${interactions}. ${paragraph}`
+    }
+
+    // ─── 10. Art Direction & Guards ──────────────────────────────────────────────
     const palette = this.seriesContext.colorPalette
     const motifs = [...(this.seriesContext.symbolicMotifs || []), ...(scene.symbolicMotifs || [])]
     const camStyle = this.seriesContext.cameraStyle
@@ -850,30 +1236,12 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
       paragraph = `Direction Artistique : ${styleStr}${paragraph}`
     }
 
-    // ─── SPATIAL INTEGRITY (V18) ───
     const layout = scene.composition?.layout || 'SINGLE'
     if (layout === 'MONTAGE' || layout === 'SPLIT' || layout === 'DIAGONAL') {
-      const typeLabel = layout === 'MONTAGE' ? 'polyptych / montage of multiple panels' : 'split-screen composition'
-      paragraph = `COMPOSITION: A cinematic ${typeLabel} separating the characters into their respective panels. ${paragraph}`
+      const typeLabel = layout === 'MONTAGE' ? 'polyptych / multi-panels' : 'split-screen'
+      paragraph = `COMPOSITION : ${typeLabel} separating characters. ${paragraph}`
     }
 
-    // ─── UNIVERSE CONTEXT & WORLD EXPOSITION ───
-    if (scene.emotionalTokens && Object.keys(scene.emotionalTokens).length > 0) {
-      const emotions = Object.entries(scene.emotionalTokens)
-        .map(([charId, tokens]) => `${charId} est ${(tokens as string[]).join(', ')}`)
-        .join(', ')
-      paragraph = `Expressions & État émotionnel : ${emotions}. ${paragraph}`
-    }
-
-    // ─── RELATIONSHIP MAPPING ───
-    if (scene.interactions && Object.keys(scene.interactions).length > 0) {
-      const interactions = Object.entries(scene.interactions)
-        .map(([pair, tension]) => `Dynamique ${pair} : ${tension}`)
-        .join(', ')
-      paragraph = `Atmosphère sociale : ${interactions}. ${paragraph}`
-    }
-
-    // ─── HALLUCINATION GUARDS (Anti-Artifacts) ───
     const guards =
       'PAS DE MAIN QUI DESSINE, PAS DE STYLO, PAS DE CRAYON, PAS DE BORDURE BLANCHE, PAS DE TEXTE, PAS DE FILIGRANE. STYLE CINÉMATIQUE UNIQUEMENT.'
     paragraph = `${paragraph}. ${guards}`
@@ -884,7 +1252,8 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
     return {
       sceneId: scene.id,
       prompt: finalPrompt,
-      referenceImage: sequelBridgeUrl
+      referenceImage: sequelBridgeUrl,
+      reuseReferenceImage: !!sequelBridgeUrl
     }
   }
 
@@ -935,88 +1304,588 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
 
   // ─── Static context updater ─────────────────────────────────────────────────
 
-  /**
-   * Evolves the SeriesContext for the next episode.
-   * Handles both typed and legacy string cliffhangers.
-   * Validates that unresolvedThreads are questions before storing them.
-   */
   public static updateContext(currentContext: SeriesContext, scriptResult: any): SeriesContext {
     const metadata = scriptResult.seriesMetadata || {}
+    const scenes = scriptResult.scenes || []
+    const currentEp = currentContext.episodeNumber
 
     const updatedRegistry = { ...(currentContext.characterRegistry || {}) }
     const updatedLocationRegistry = { ...(currentContext.locationRegistry || {}) }
     const updatedAssetRegistry = { ...(currentContext.assetRegistry || {}) }
 
-    // Discover new characters from metadata
+    if (metadata.characterContinuity) {
+      for (const [name, info] of Object.entries(metadata.characterContinuity)) {
+        const charInfo = info as any
+        if (!updatedRegistry[name]) {
+          updatedRegistry[name] = { description: charInfo.description || '' }
+        } else if (charInfo.description && charInfo.isNew) {
+          updatedRegistry[name].description = charInfo.description
+        }
+      }
+    }
+
     if (metadata.newCharacters) {
       for (const [name, desc] of Object.entries(metadata.newCharacters)) {
         if (!updatedRegistry[name]) {
-          updatedRegistry[name] = { description: desc as string }
-        }
-      }
-    }
-
-    // Discover new locations from metadata
-    if (metadata.newLocations) {
-      for (const [name, desc] of Object.entries(metadata.newLocations)) {
-        if (!updatedLocationRegistry[name]) {
-          updatedLocationRegistry[name] = { description: desc as string }
-        }
-      }
-    }
-
-    // Discover new assets/entities (e.g. demons, objects)
-    if (metadata.newAssets) {
-      for (const [name, desc] of Object.entries(metadata.newAssets)) {
-        if (!updatedAssetRegistry[name]) {
-          console.info(`[SeriesGenerator] ✨ New story asset discovered: ${name}`)
-          updatedAssetRegistry[name] = { description: desc as string, type: 'other' }
-        }
-      }
-    }
-
-    // Process character continuity (Visual Evolution & Narrative Depth)
-    if (metadata.characterContinuity) {
-      for (const [name, data] of Object.entries(metadata.characterContinuity)) {
-        if (updatedRegistry[name]) {
-          const charData = data as any
-          if (charData.description) updatedRegistry[name].description = charData.description
-          if (charData.backstory) updatedRegistry[name].backstory = charData.backstory
-          if (charData.personalGoal) updatedRegistry[name].personalGoal = charData.personalGoal
-
-          if (charData.isNew) {
-            console.info(`[SeriesGenerator] 🔄 Visual evolution for ${name}. Clearing stale portrait.`)
-            updatedRegistry[name].thumbnailUrl = undefined
+          updatedRegistry[name] = {
+            description: desc as string,
+            firstMentionedEpisode: currentEp
           }
         }
       }
     }
 
-    // Resolve cliffhanger: prefer typed object from metadata.cliffhanger
+    if (metadata.locationContinuity) {
+      for (const [id, info] of Object.entries(metadata.locationContinuity)) {
+        const locInfo = info as any
+        if (!updatedLocationRegistry[id]) {
+          updatedLocationRegistry[id] = {
+            description: locInfo.description || '',
+            atmosphere: locInfo.atmosphere || ''
+          }
+        } else {
+          if (locInfo.description) updatedLocationRegistry[id].description = locInfo.description
+          if (locInfo.atmosphere) updatedLocationRegistry[id].atmosphere = locInfo.atmosphere
+
+          if (locInfo.isNew) {
+            console.info(`[SeriesGenerator] 🔄 Environmental evolution for ${id}. Clearing stale thumbnail.`)
+            updatedLocationRegistry[id].thumbnailUrl = undefined
+          }
+        }
+      }
+    }
+
+    if (metadata.newLocations) {
+      for (const [name, desc] of Object.entries(metadata.newLocations)) {
+        if (!updatedLocationRegistry[name]) {
+          updatedLocationRegistry[name] = {
+            description: desc as string,
+            firstMentionedEpisode: currentEp
+          }
+        }
+      }
+    }
+
+    if (metadata.newAssets) {
+      for (const [name, desc] of Object.entries(metadata.newAssets)) {
+        if (!updatedAssetRegistry[name]) {
+          console.info(`[SeriesGenerator] ✨ New story asset discovered: ${name}`)
+          updatedAssetRegistry[name] = {
+            description: desc as string,
+            type: 'other',
+            firstMentionedEpisode: currentEp
+          }
+        }
+      }
+    }
+
+    // --- Thread & Roadmap Updates (Project Sequel - V42) ---
+    const threadRegistry = (currentContext as any).threads || (currentContext as any).unresolvedThreads || []
+    const resolvedStakes = [...((currentContext as any).resolvedStakes || [])]
+
+    let updatedRoadmap = (currentContext as any).roadmap || {}
+    if (metadata.roadmapUpdate) {
+      updatedRoadmap = metadata.roadmapUpdate
+      // Carry forward unresolved elements if not overwritten
+      const currentRoadmap = (currentContext as any).roadmap
+      if (currentRoadmap) {
+        if (currentRoadmap.irreversibleFacts) {
+          const newFacts = metadata.roadmapUpdate.irreversibleFacts || []
+          updatedRoadmap.irreversibleFacts = Array.from(new Set([...currentRoadmap.irreversibleFacts, ...newFacts]))
+        }
+        if (currentRoadmap.watchpoints && !metadata.roadmapUpdate.watchpoints) {
+          updatedRoadmap.watchpoints = currentRoadmap.watchpoints
+        }
+        if (currentRoadmap.pendingChoices && !metadata.roadmapUpdate.pendingChoices) {
+          updatedRoadmap.pendingChoices = currentRoadmap.pendingChoices
+        }
+      }
+    }
+
+    if (metadata.characterContinuity) {
+      for (const [name, data] of Object.entries(metadata.characterContinuity)) {
+        const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, name)
+        if (existing) {
+          const charData = data as any
+          if (charData.description) existing.description = charData.description
+          if (charData.backstory) existing.backstory = charData.backstory
+          if (charData.personalGoal) existing.personalGoal = charData.personalGoal
+          if (charData.motivation) existing.motivation = charData.motivation
+          if (charData.abilities) existing.abilities = charData.abilities
+          if (charData.knownFacts) existing.knownFacts = charData.knownFacts
+          if (charData.fate) existing.fate = charData.fate
+          if (charData.status) existing.status = charData.status
+          if (charData.deathEpisode) existing.deathEpisode = charData.deathEpisode
+
+          if (charData.isNew) {
+            console.info(`[SeriesGenerator] 🔄 Visual evolution for ${name}. Clearing stale portrait.`)
+            existing.thumbnailUrl = undefined
+          }
+        }
+      }
+    }
+
+    if (metadata.newCharacters) {
+      for (const [name, desc] of Object.entries(metadata.newCharacters)) {
+        const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, name)
+        if (!existing) {
+          // Normalize Handle if not already one
+          const handle = name.startsWith('@') ? name : `@${name.replaceAll(/\s+/g, '')}`
+          const key = handle.replace(/^@/, '')
+          if (!updatedRegistry[key]) {
+            console.info(`[SeriesGenerator] ✨ New character registered: ${handle} (Key: ${key})`)
+            updatedRegistry[key] = { description: desc as string, isNew: true }
+          }
+        }
+      }
+    }
+
+    if (metadata.newLocations) {
+      for (const [name, desc] of Object.entries(metadata.newLocations)) {
+        if (!updatedLocationRegistry[name]) {
+          console.info(`[SeriesGenerator] 📍 New location registered: ${name}`)
+          updatedLocationRegistry[name] = { description: desc as string }
+        }
+      }
+    }
+
     const nextCliffhanger: TypedCliffhanger | string | undefined =
       metadata.cliffhanger && typeof metadata.cliffhanger === 'object'
         ? (metadata.cliffhanger as TypedCliffhanger)
         : metadata.cliffhanger || currentContext.lastCliffhanger
 
-    // Validate and warn on non-question threads
-    const rawThreads: string[] = metadata.unresolvedThreads || currentContext.unresolvedThreads || []
-    const warnings = validateThreadsAsQuestions(rawThreads)
+    // --- Smart Thread Merging (Anti-Loss Hardening V42) ---
+    const aiThreads: NarrativeThread[] = metadata.unresolvedThreads || []
+    const threadUpdates: any[] = metadata.threadUpdates || []
+
+    // Convert to Maps for easier merging
+    const threadById = new Map<string, NarrativeThread>()
+    const threadByTitle = new Map<string, NarrativeThread>()
+
+    threadRegistry.forEach((t: NarrativeThread) => {
+      if (t.id) threadById.set(t.id, t)
+      threadByTitle.set(t.title.toLowerCase().trim().replace(/\?$/, ''), t)
+    })
+
+    // Process explicitly marked updates first
+    threadUpdates.forEach((update: any) => {
+      let existing = update.id ? threadById.get(update.id) : undefined
+      const titleKey = update.title?.toLowerCase().trim().replace(/\?$/, '')
+      if (!existing && titleKey) existing = threadByTitle.get(titleKey)
+
+      if (update.status === 'resolved') {
+        resolvedStakes.push({
+          id: update.id || existing?.id,
+          title: update.title || existing?.title || 'Unknown Thread',
+          resolution: update.description,
+          episodeNumber: currentEp,
+          resolutionSceneId: update.resolutionSceneId,
+          mustResolveBy: existing?.mustResolveBy
+        })
+        if (existing?.id) threadById.delete(existing.id)
+      } else {
+        const id = existing?.id || update.id || `T${threadById.size + 1}`
+        const merged = { ...(existing || {}), ...update, id, lastUpdatedEpisode: currentEp }
+        threadById.set(id, merged)
+      }
+    })
+
+    // Process regular unresolved threads (from LLM mapping)
+    aiThreads.forEach((t) => {
+      let existing = t.id ? threadById.get(t.id) : undefined
+      const titleKey = t.title.toLowerCase().trim().replace(/\?$/, '')
+      if (!existing) existing = threadByTitle.get(titleKey)
+
+      const id = existing?.id || t.id || `T${threadById.size + 1}`
+      const mergedThread = {
+        ...(existing || {}),
+        ...t,
+        id,
+        lastUpdatedEpisode: currentEp
+      }
+
+      if (t.status === 'resolved') {
+        resolvedStakes.push({
+          id,
+          title: mergedThread.title,
+          resolution: mergedThread.description,
+          episodeNumber: currentEp,
+          resolutionSceneId: (t as any).resolutionSceneId,
+          mustResolveBy: mergedThread.mustResolveBy
+        })
+        threadById.delete(id)
+      } else {
+        threadById.set(id, mergedThread)
+      }
+    })
+
+    const finalThreads: NarrativeThread[] = []
+    Array.from(threadById.values()).forEach((thread) => {
+      if (thread.title && !thread.title.trim().endsWith('?')) {
+        thread.title = `${thread.title.trim()} ?`
+      }
+      finalThreads.push(thread)
+    })
+
+    const warnings = validateThreadsAsQuestions(finalThreads)
     warnings.forEach((w) => console.warn(w))
 
-    // episodeSummary: stored as-is (should be a promise, not a report)
     const episodeSummary = metadata.episodeSummary || 'Pas de résumé.'
-    const episodeHistory = `Episode ${currentContext.episodeNumber}: ${episodeSummary}`
+    const episodeHistory = `--- Episode ${currentContext.episodeNumber} ---\n${episodeSummary}\n`
+
+    const nextEp = currentContext.episodeNumber + 1
+    const seedingHints: string[] = []
+    if (currentContext.plannedEpisodes) {
+      const upcomingTwists = currentContext.plannedEpisodes.filter(
+        (ep) =>
+          ep.number === currentEp + 2 &&
+          (ep.hook.toLowerCase().includes('romance') ||
+            ep.hook.toLowerCase().includes('relation') ||
+            ep.hook.toLowerCase().includes('trahison') ||
+            ep.hook.toLowerCase().includes('secret'))
+      )
+
+      for (const twist of upcomingTwists) {
+        seedingHints.push(`PRÉPAREZ CE TWIST DANS CET ÉPISODE (HINT) : ${twist.hook}`)
+      }
+    }
+
+    const updatedResolvedStakes = [...(currentContext.resolvedStakes || [])]
+    if (metadata.cliffhanger) {
+      updatedResolvedStakes.push({
+        title: typeof metadata.cliffhanger === 'string' ? metadata.cliffhanger : metadata.cliffhanger.description,
+        resolution: 'En attente',
+        episodeNumber: currentContext.episodeNumber,
+        mustResolveBy: currentContext.episodeNumber + 1
+      })
+    }
+    // --- Evolution & Relationship Aggregation (Project Sequel - V42) ---
+    const epNum = currentContext.episodeNumber
+    const updatedVisualEvolution = SeriesVideoGenerator.mergeEvolution(
+      currentContext.visualEvolution || {},
+      (metadata.visualEvolution as any) || {},
+      epNum
+    )
+    const updatedAssetEvolution = SeriesVideoGenerator.mergeEvolution(
+      currentContext.assetEvolution || {},
+      (metadata.assetEvolution as any) || {},
+      epNum
+    )
+    const updatedCharacterEvolution = SeriesVideoGenerator.mergeEvolution(
+      currentContext.characterEvolution || {},
+      (metadata.characterEvolution as any) || {},
+      epNum
+    )
+
+    const updatedRelationshipMap = { ...(currentContext.relationshipMap || {}), ...(metadata.relationshipMap || {}) }
+    let lastWeather = currentContext.weatherState
+    let lastTime = currentContext.timeOfDay
+
+    for (const scene of scenes) {
+      // 1. Visual Evolution
+      if (scene.visualEvolution) {
+        for (const [name, state] of Object.entries(scene.visualEvolution)) {
+          updatedVisualEvolution[SeriesVideoGenerator.normalizeId(name)] = {
+            state: state as string,
+            referenceSceneId: scene.id,
+            referenceEpisode: epNum
+          }
+        }
+      }
+
+      // 2. Asset Evolution
+      if (scene.assetEvolution) {
+        for (const [name, state] of Object.entries(scene.assetEvolution)) {
+          updatedAssetEvolution[SeriesVideoGenerator.normalizeId(name)] = {
+            state: state as string,
+            referenceSceneId: scene.id,
+            referenceEpisode: epNum
+          }
+        }
+      }
+
+      // 3. Character Evolution
+      if (scene.characterEvolution) {
+        for (const [name, state] of Object.entries(scene.characterEvolution)) {
+          updatedCharacterEvolution[SeriesVideoGenerator.normalizeId(name)] = {
+            state: state as string,
+            referenceSceneId: scene.id,
+            referenceEpisode: epNum
+          }
+        }
+      }
+
+      // 4. Relationship Evolution
+      if (scene.relationshipMap) {
+        for (const [char, targets] of Object.entries(scene.relationshipMap)) {
+          updatedRelationshipMap[char] = {
+            ...(updatedRelationshipMap[char] || {}),
+            ...(targets as any)
+          }
+        }
+      }
+    }
+
+    // Capture final weather/time from the last scene
+    const lastScene = scenes.at(-1)
+    if (lastScene?.weatherState && lastScene.weatherState !== 'None') lastWeather = lastScene.weatherState
+    if (lastScene?.timeOfDay) lastTime = lastScene.timeOfDay
+
+    // ─── Continuity Analysis & Debts (V39 Hardening) ───
+    const continuityDebts = [...(currentContext.continuityDebts || [])]
+    if (metadata.continuityAnalysis) {
+      const analysis = metadata.continuityAnalysis
+      if (analysis.defects) continuityDebts.push(...analysis.defects)
+      if (analysis.soudureBrute) continuityDebts.push(`Soudure Brute: ${analysis.soudureBrute}`)
+      if (analysis.assetFantome) continuityDebts.push(`Asset Fantôme: ${analysis.assetFantome}`)
+      if (analysis.logicGap) continuityDebts.push(`Faille Logique: ${analysis.logicGap}`)
+      if (analysis.threatVagueness) continuityDebts.push(`Menace Floue: ${analysis.threatVagueness}`)
+      if (analysis.pacingIssue) continuityDebts.push(`Problème Rythme: ${analysis.pacingIssue}`)
+      if (analysis.promesseNonTenue) continuityDebts.push(`Promesse Non Tenue: ${analysis.promesseNonTenue}`)
+      if (analysis.filsMuets) {
+        analysis.filsMuets.forEach((f: string) => continuityDebts.push(`Fil oublié: ${f}`))
+      }
+    }
+
+    // Promotion to Forced Correction for the NEXT episode
+    const forcedCorrection =
+      continuityDebts.length > 0 ? `🚨 MISSION DE SOUDURE CORRECTIVE : ${continuityDebts.join(' ; ')}` : undefined
+
+    const scenesForBridge = scriptResult.scenes || []
+    const finalScene = scenesForBridge.at(-1)
+    const finalImage = finalScene?.imageUrl
+
+    // --- Lore Bible Expansion ---
+    let updatedGlobalContext = currentContext.globalContext || ''
+    if (metadata.loreUpdates && Array.isArray(metadata.loreUpdates) && metadata.loreUpdates.length > 0) {
+      const loreAddition = metadata.loreUpdates.join('\n')
+      updatedGlobalContext =
+        `${updatedGlobalContext}\n\n[LORE UPDATE EPISODE ${currentContext.episodeNumber}]\n${loreAddition}`.trim()
+    }
+
+    // --- Automatic Reference Promotion & Origin Tracking (Project Sequel - V42) ---
+    for (const scene of scenes || []) {
+      const fullText = `${scene.summary || ''} ${scene.narration || ''} ${scene.imagePrompt || ''}`.toLowerCase()
+
+      // 1. Locations
+      if (scene.locationId) {
+        const loc = updatedLocationRegistry[scene.locationId]
+        if (loc) {
+          if (!(loc as any).originSceneId) {
+            ;(loc as any).originSceneId = scene.id
+            ;(loc as any).originEpisode = currentEp
+          }
+          if (scene.imageUrl && (!loc.thumbnailUrl || scene.isEstablishingShot)) {
+            console.info(
+              `[SeriesGenerator] 📍 Promoting scene ${scene.id} as reference image for location: ${scene.locationId}`
+            )
+            loc.thumbnailUrl = scene.imageUrl
+            loc.referenceSceneId = scene.id
+            loc.referenceEpisode = currentEp
+          }
+        }
+      }
+
+      // 2. Characters
+      // Handle Registry Origin (Narrative)
+      for (const [name, char] of Object.entries(updatedRegistry)) {
+        const charAny = char as any
+        if (!charAny.originSceneId) {
+          const charPattern = name.toLowerCase()
+          const charsInScene = scene.charactersId || []
+          if (
+            fullText.includes(charPattern) ||
+            charsInScene.some((id: string) => id.toLowerCase().replace('@', '') === charPattern)
+          ) {
+            charAny.originSceneId = scene.id
+            charAny.originEpisode = currentEp
+          }
+        }
+      }
+
+      const charIds = scene.charactersId || scene.charactersInScene || []
+      for (const charId of charIds) {
+        const name = charId.replace(/^@/, '')
+        const char = updatedRegistry[name]
+
+        // Handle Automatic Status Promotion (Lifecycle)
+        const charEvol = updatedCharacterEvolution[SeriesVideoGenerator.normalizeId(name)]
+        if (charEvol) {
+          const state = (charEvol as any).state?.toLowerCase() || ''
+          const isDead =
+            state.includes('mort') ||
+            state.includes('décédé') ||
+            state.includes('dead') ||
+            state.includes('tué') ||
+            state.includes('killed')
+          const isMissing =
+            state.includes('disparu') ||
+            state.includes('missing') ||
+            state.includes('enlevé') ||
+            state.includes('kidnapped')
+          const isInjured = state.includes('blessé') || state.includes('injured') || state.includes('wounded')
+          const isCaptured = state.includes('capturé') || state.includes('prisonnier') || state.includes('captured')
+          const isCorrupted =
+            state.includes('corrompu') ||
+            state.includes('corrupted') ||
+            state.includes('traître') ||
+            state.includes('betrayer')
+          const isResurrected =
+            state.includes('ressuscité') || state.includes('resurrected') || state.includes('revenu à la vie')
+
+          if (isDead && char.status !== 'dead') {
+            console.info(
+              `[SeriesGenerator] 💀 Character ${name} confirmed DEAD in scene ${scene.id}. Updating Registry.`
+            )
+            char.status = 'dead'
+            char.deathEpisode = currentEp
+            char.deathSceneId = scene.id
+          } else if (isResurrected && char.status === 'dead') {
+            console.info(`[SeriesGenerator] ✨ Character ${name} RESURRECTED in scene ${scene.id}!`)
+            char.status = 'alive'
+            char.deathEpisode = undefined
+            char.deathSceneId = undefined
+          } else if (isMissing && char.status !== 'missing') {
+            console.info(`[SeriesGenerator] 🔍 Character ${name} marked as MISSING in scene ${scene.id}.`)
+            char.status = 'missing'
+          } else if (isInjured && char.status !== 'injured') {
+            console.info(`[SeriesGenerator] 🩹 Character ${name} marked as INJURED in scene ${scene.id}.`)
+            char.status = 'injured'
+          } else if (isCaptured && char.status !== 'captured') {
+            console.info(`[SeriesGenerator] ⛓️ Character ${name} marked as CAPTURED in scene ${scene.id}.`)
+            char.status = 'captured'
+          } else if (isCorrupted && char.status !== 'corrupted') {
+            console.info(`[SeriesGenerator] 🌑 Character ${name} is now CORRUPTED in scene ${scene.id}.`)
+            char.status = 'corrupted'
+          }
+        }
+
+        if (char && scene.imageUrl && (!char.thumbnailUrl || char.isNew)) {
+          console.info(`[SeriesGenerator] 🎭 Promoting scene ${scene.id} as reference image for character: ${name}`)
+          char.thumbnailUrl = scene.imageUrl
+          char.referenceSceneId = scene.id
+          char.referenceEpisode = currentEp
+        }
+      }
+
+      // 3. Assets
+      const assets = scriptResult.seriesMetadata?.assetRegistry || {}
+      for (const assetName of Object.keys(assets)) {
+        const asset = updatedAssetRegistry[assetName]
+        if (asset) {
+          if (!(asset as any).originSceneId && fullText.includes(assetName.toLowerCase())) {
+            ;(asset as any).originSceneId = scene.id
+            ;(asset as any).originEpisode = currentEp
+          }
+          if (
+            scene.imageUrl &&
+            scene.imagePrompt?.toLowerCase().includes(assetName.toLowerCase()) &&
+            !asset.thumbnailUrl
+          ) {
+            console.info(`[SeriesGenerator] ✨ Promoting scene ${scene.id} as reference image for asset: ${assetName}`)
+            asset.thumbnailUrl = scene.imageUrl
+            asset.referenceSceneId = scene.id
+            asset.referenceEpisode = currentEp
+          }
+        }
+      }
+    }
 
     return {
       ...currentContext,
       characterRegistry: updatedRegistry,
       locationRegistry: updatedLocationRegistry,
       assetRegistry: updatedAssetRegistry,
-      lastCliffhanger: nextCliffhanger,
-      unresolvedThreads: rawThreads,
+      unresolvedThreads: finalThreads,
+      resolvedStakes,
       previousEpisodesContext: `${currentContext.previousEpisodesContext || ''}\n${episodeHistory}`.trim(),
-      episodeNumber: currentContext.episodeNumber + 1,
-      visualStyleModelId: currentContext.visualStyleModelId
+      globalContext: updatedGlobalContext,
+      episodeNumber: nextEp,
+      lastCliffhanger: nextCliffhanger,
+      visualStyleModelId: currentContext.visualStyleModelId,
+      seedingHints: seedingHints.length ? seedingHints : undefined,
+      weatherState: lastWeather,
+      timeOfDay: lastTime,
+      visualEvolution: updatedVisualEvolution,
+      assetEvolution: updatedAssetEvolution,
+      characterEvolution: updatedCharacterEvolution,
+      relationshipMap: updatedRelationshipMap,
+      nextEpisodeTease: metadata.nextEpisodeTease,
+      continuityDebts,
+      forcedCorrection,
+      threads: threadRegistry,
+      roadmap: updatedRoadmap
     }
+  }
+
+  // ─── Registry Helpers ───────────────────────────────────────────────────────
+
+  private static normalizeId(id: string): string {
+    return id
+      .toLowerCase()
+      .trim()
+      .replace(/^@/, '')
+      .replaceAll(/[\s\-_]+/g, ' ')
+  }
+
+  public static findInRegistry<T>(registry: Record<string, T>, targetId: string): T | undefined {
+    if (!targetId) return undefined
+
+    // 1. Precise direct match
+    if (registry[targetId]) return registry[targetId]
+
+    // 2. Normalize and check for handle matches
+    const normalizedTarget = SeriesVideoGenerator.normalizeId(targetId)
+
+    // Handle is usually the first name or a slugified version
+    const targetSlug = normalizedTarget.replaceAll(/\s+/g, '')
+
+    for (const [key, value] of Object.entries(registry)) {
+      const normalizedKey = SeriesVideoGenerator.normalizeId(key)
+      const keySlug = normalizedKey.replaceAll(/\s+/g, '')
+
+      // Full Match (Case/Handle insensitive)
+      if (normalizedKey === normalizedTarget) return value
+
+      // Slug Match (e.g., "VictorLeclerc" === "VictorLeclerc")
+      if (keySlug === targetSlug) return value
+
+      // Partial Match: Handle in Full Name (e.g., "@Victor" in "Victor Leclerc")
+      if (normalizedKey.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedKey)) {
+        return value
+      }
+
+      // Check fullName field if exists (T is likely character object)
+      const valAny = value as any
+      if (valAny.fullName) {
+        const normalizedFullName = SeriesVideoGenerator.normalizeId(valAny.fullName)
+        if (normalizedFullName === normalizedTarget || normalizedFullName.startsWith(normalizedTarget)) {
+          return value
+        }
+      }
+    }
+
+    return undefined
+  }
+
+  private static mergeEvolution(
+    base: Record<string, string | EvolutionState>,
+    updates: Record<string, string | EvolutionState>,
+    episodeNumber?: number
+  ): Record<string, EvolutionState> {
+    const merged: Record<string, EvolutionState> = {}
+
+    // Initialize with base
+    for (const [key, val] of Object.entries(base || {})) {
+      merged[SeriesVideoGenerator.normalizeId(key)] = typeof val === 'string' ? { state: val } : val
+    }
+
+    // Apply updates
+    for (const [key, val] of Object.entries(updates)) {
+      merged[SeriesVideoGenerator.normalizeId(key)] =
+        typeof val === 'string' ? { state: val, referenceEpisode: episodeNumber } : val
+    }
+
+    return merged
   }
 }
