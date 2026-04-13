@@ -148,7 +148,8 @@ async function uploadSceneImages(videoId: string, scenes: any[], outputPath: str
       }
     }
   }
-  console.info(`[VideoWorker] uploadSceneImages completed. Uploaded ${uploadCount} files for video ${videoId}`)
+  console.info(`[VideoWorker] Cleanup of temporary files completed.`)
+  console.info(`[VideoWorker] Uploaded ${uploadCount} files for video ${videoId}`)
   return scenes
 }
 
@@ -313,14 +314,14 @@ async function handleSceneGenerated(
       const video = await videoRepository.findById(videoId)
       if (video) {
         let registryChanged = false
-        const updatedRegistry = { ...(video.characterRegistry || {}) }
-        const updatedLocationRegistry = { ...(video.locationRegistry || {}) }
-        const updatedAssetRegistry = { ...(video.assetRegistry || {}) }
+        const updatedRegistry = { ...(video.characterRegistry || {}) } as any
+        const updatedLocationRegistry = { ...(video.locationRegistry || {}) } as any
+        const updatedAssetRegistry = { ...(video.assetRegistry || {}) } as any
 
         const chars = scene.charactersId || scene.charactersInScene || []
         if (chars.length > 0 && updatedScene.thumbnailUrl) {
           for (const charName of chars) {
-            const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, charName)
+            const existing = SeriesVideoGenerator.findInRegistry<any>(updatedRegistry, charName) as any
             if (existing && !existing.thumbnailUrl) {
               existing.thumbnailUrl = updatedScene.thumbnailUrl
               registryChanged = true
@@ -397,7 +398,7 @@ async function syncNarrativeSagaContext(seriesId: string, videoId: string, scrip
       unresolvedThreads: updatedContext.unresolvedThreads
     })
 
-    console.log('[................UPDATE................]', updatedContext)
+    console.info('[................UPDATE................]', updatedContext)
     // 2. Update Series record with narrative evolutions (Registry/State only)
     await seriesRepository.update(seriesId, {
       characterRegistry: updatedContext.characterRegistry,
@@ -713,7 +714,7 @@ async function deductCredits(userId: string, videoId: string, cost?: number, pla
  */
 async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
-  console.log(`[ACTIVE VIDEO JOB]`, options)
+  console.info(`[ACTIVE VIDEO JOB]`, options)
   const lockKey = `active-video-job:${videoId}`
   const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId).catch(() => null)
   // Defer if another job is already processing this videoId
@@ -917,7 +918,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         onProgress: async (p, m) => await reportProgress(job, videoId, 'script_generation', p, m)
       })
 
-      console.log('[...........SCRIPT............]', script)
+      console.info('[...........SCRIPT............]', script)
 
       // Phase 2: PRE-SYNC (Project Sequel) - Lock in surging characters/locations before they are drawn
       await reportProgress(job, videoId, 'pre_sync', 0, 'step.analyzing_assets')

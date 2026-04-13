@@ -60,7 +60,6 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
       // 1.5. If type is 'series' but no seriesId, try to find the last active series
       if (options.type === 'series' && !options.seriesId) {
         let lastSeries = await seriesRepository.findLastByUserId(userId)
-        console.log('last serie')
 
         // If still no series, create a default one on the fly
         if (!lastSeries) {

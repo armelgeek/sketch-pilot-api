@@ -202,7 +202,7 @@ export class VideoGenerationService {
     const data = await engine.generateStructuredScript(topic, options, async (p, m) => {
       if (input.onProgress) await input.onProgress(p, m)
     })
-    console.log('[...........DATA............]', data)
+    console.info('[...........DATA............]', data)
     return data
   }
 
@@ -224,7 +224,7 @@ export class VideoGenerationService {
       if (videoId) {
         const isCancelled = await redisClient.get(`cancel-video-${videoId}`)
         if (isCancelled) {
-          console.warn(`[VideoGenerationService] Aborting rendering for video ${videoId}`)
+          console.info(`[VideoGenerationService] Aborting rendering for video ${videoId}`)
           throw new Error('Generation cancelled by user')
         }
       }

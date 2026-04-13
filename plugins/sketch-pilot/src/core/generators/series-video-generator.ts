@@ -641,6 +641,7 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
       • STRICTEST CHARACTER ANCHOR : Il est strictement interdit de mentionner, d'évoquer ou de faire apparaître tout personnage absent du characterRegistry (@characterRegistry).
       • ASSET PERSISTENCE & TRANSITION : Si un objet est marqué comme 'perdu' ou 'cherché' dans le registre, il ne peut PAS apparaître subitement dans la main d'un personnage.
       • SOUDURE DE SURVIE (ANTI-MIRACLE) : Si le cliffhanger précédent plaçait un personnage en péril mortel, la Scène 1 DOIT expliquer rationnellement la survie.
+      • RÈGLE : OUVERTURE ATMOSPHÉRIQUE (ÉPISODE 1) [CRITIQUE] : S'il s'agit du premier épisode de la saga, la Scène 1 DOIT s'ouvrir sur une action immédiate ou une sensation sensorielle forte (bruit assourdissant, froid mordant, odeur particulière, choc visuel). INTERDICTION de commencer par un constat descriptif passif ou un résumé de situation (ex: "Victor arrive sur l'île"). Montrez l'effort, la sensation ou le danger dès le premier mot.
       • ANTI-LOOPING CLIFFHANGER : INTERDICTION de répéter un cliffhanger déjà utilisé.
       • RÈGLE DES SECRETS (PÉREMPTION) : Tout mystère majeur DOIT avoir un payoff partiel après 2 épisodes et un payoff TOTAL après 4 épisodes.
       • PONT NARRATIF (CRITIQUE) : Plongez directement dans l'action (In Media Res). La première phrase doit être la suite sémantique et visuelle directe du cliffhanger.

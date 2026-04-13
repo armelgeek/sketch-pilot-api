@@ -84,7 +84,7 @@ async function resumeMarathonSaga() {
   for (let arc = 6; arc <= totalArcs; arc++) {
     for (let ep = 1; ep <= epsPerArc; ep++) {
       const globalEp = (arc - 1) * epsPerArc + ep
-      console.log(`🎬 RESUMING MARATHON: ARC ${arc} EPISODE ${ep} (Global ${globalEp}/${totalArcs * epsPerArc})...`)
+      console.info(`🎬 RESUMING MARATHON: ARC ${arc} EPISODE ${ep} (Global ${globalEp}/${totalArcs * epsPerArc})...`)
 
       context.episodeNumber = globalEp
       context.isFirstEpisode = globalEp === 1
@@ -143,7 +143,7 @@ async function resumeMarathonSaga() {
       }
       const scriptJson = d2.choices[0].message.content
 
-      console.log(`✅ Arc ${arc} Ep ${ep} done.`)
+      console.info(`✅ Arc ${arc} Ep ${ep} done.`)
 
       const dir = path.join(process.cwd(), 'storage', 'narrations', seriesId)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -159,7 +159,7 @@ async function resumeMarathonSaga() {
     }
   }
 
-  console.log(`\n🎊 MARATHON RESUMPTION COMPLETE: storage/narrations/${seriesId}`)
+  console.info(`\n🎊 MARATHON RESUMPTION COMPLETE: storage/narrations/${seriesId}`)
 }
 
 resumeMarathonSaga()

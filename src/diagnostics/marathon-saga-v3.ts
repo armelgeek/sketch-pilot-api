@@ -40,7 +40,7 @@ async function runMarathonSagaV3() {
   let startEp = 1
 
   if (fs.existsSync(checkpointPath)) {
-    console.log('🔄 RESUMING FROM CHECKPOINT...')
+    console.info('🔄 RESUMING FROM CHECKPOINT...')
     const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'))
     context = checkpoint.context
     startArc = checkpoint.nextArc
@@ -104,7 +104,7 @@ async function runMarathonSagaV3() {
   for (let arc = startArc; arc <= totalArcs; arc++) {
     for (let ep = arc === startArc ? startEp : 1; ep <= epsPerArc; ep++) {
       const globalEp = (arc - 1) * epsPerArc + ep
-      console.log(`🎬 ARC ${arc} EPISODE ${ep} (Global ${globalEp}/20)...`)
+      console.info(`🎬 ARC ${arc} EPISODE ${ep} (Global ${globalEp}/20)...`)
 
       context.episodeNumber = globalEp
       context.isFirstEpisode = globalEp === 1
@@ -158,7 +158,7 @@ async function runMarathonSagaV3() {
         // Force a retry or handle error
       }
 
-      console.log(`✅ Episode ${globalEp} done.`)
+      console.info(`✅ Episode ${globalEp} done.`)
       fs.writeFileSync(path.join(dir, `arc_${arc}_ep_${ep}_MARATHON.txt`), narration, 'utf8')
       fs.writeFileSync(path.join(dir, `arc_${arc}_ep_${ep}_METADATA.json`), scriptJson, 'utf8')
 
@@ -176,7 +176,7 @@ async function runMarathonSagaV3() {
     }
   }
 
-  console.log(`\n🎊 MARATHON V3 COMPLETE: storage/narrations/${seriesId}`)
+  console.info(`\n🎊 MARATHON V3 COMPLETE: storage/narrations/${seriesId}`)
 }
 
 runMarathonSagaV3()

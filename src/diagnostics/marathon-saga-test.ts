@@ -62,7 +62,7 @@ async function runMarathonSaga() {
   }
 
   while (currentArc <= totalArcs) {
-    console.log(`🎬 GENERATING MARATHON ARC ${currentArc}/${totalArcs}...`)
+    console.info(`🎬 GENERATING MARATHON ARC ${currentArc}/${totalArcs}...`)
 
     context.episodeNumber = currentArc
     context.isFirstEpisode = currentArc === 1
@@ -126,7 +126,7 @@ async function runMarathonSaga() {
     const d2 = (await resp2.json()) as any
     const scriptJson = d2.choices[0].message.content
 
-    console.log(`✅ Arc ${currentArc} done.`)
+    console.info(`✅ Arc ${currentArc} done.`)
 
     const dir = path.join(process.cwd(), 'storage', 'narrations', seriesId)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -138,7 +138,7 @@ async function runMarathonSaga() {
     currentArc++
   }
 
-  console.log(`\n🎊 MARATHON COMPLETE: storage/narrations/${seriesId}`)
+  console.info(`\n🎊 MARATHON COMPLETE: storage/narrations/${seriesId}`)
 }
 
 runMarathonSaga()

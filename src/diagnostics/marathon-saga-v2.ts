@@ -77,7 +77,7 @@ async function runMarathonSagaV2() {
   for (let arc = 1; arc <= totalArcs; arc++) {
     for (let ep = 1; ep <= epsPerArc; ep++) {
       const globalEp = (arc - 1) * epsPerArc + ep
-      console.log(`🎬 GENERATING ARC ${arc} EPISODE ${ep} (Global ${globalEp}/${totalArcs * epsPerArc})...`)
+      console.info(`🎬 GENERATING ARC ${arc} EPISODE ${ep} (Global ${globalEp}/${totalArcs * epsPerArc})...`)
 
       context.episodeNumber = globalEp
       context.isFirstEpisode = globalEp === 1
@@ -128,7 +128,7 @@ async function runMarathonSagaV2() {
       const d2 = (await resp2.json()) as any
       const scriptJson = d2.choices[0].message.content
 
-      console.log(`✅ Arc ${arc} Ep ${ep} done.`)
+      console.info(`✅ Arc ${arc} Ep ${ep} done.`)
 
       const dir = path.join(process.cwd(), 'storage', 'narrations', seriesId)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -144,7 +144,7 @@ async function runMarathonSagaV2() {
     }
   }
 
-  console.log(`\n🎊 MARATHON V2 COMPLETE: storage/narrations/${seriesId}`)
+  console.info(`\n🎊 MARATHON V2 COMPLETE: storage/narrations/${seriesId}`)
 }
 
 runMarathonSagaV2()

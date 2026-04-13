@@ -219,7 +219,9 @@ RÈGLES NARRATIVES ROADMAP :
 - Générez EXACTEMENT ${epCount} épisodes dans "suggestedEpisodes" en commençant à l'épisode ${startEpisode}
 - Générez EXACTEMENT ${epCount} titres dans "suggestedTitles"
 - ${params.seriesId ? 'RÉUTILISEZ les personnages de la liste "PERSONNAGES ÉTABLIS" ci-dessus dans le registre. N\'en inventez de nouveaux que si nécessaire.' : '3 à 5 personnages dans "characterRegistry"'}
-- Le "hook" doit être une description précise du tournant narratif de l'épisode.
+- Le "hook" doit être une description précise, INTRIGANTE et ATMOSPHÉRIQUE du tournant narratif de l'épisode.
+- 🚨 INTERDICTION FORMELLE : Les hooks ne doivent PAS être des résumés secs (ex: "Le héros arrive"). 
+- 🎬 STYLE : Favorisez le "In Media Res", les dilemmes moraux ou les découvertes sensorielles (ex: "L'odeur de soufre sature l'air alors que Victor découvre...").
 `
 
     const response = await llmService.generateContent(userPrompt, systemPrompt, 'application/json')
