@@ -38,6 +38,7 @@ export class GeminiImageService implements ImageService {
       smartUpscale?: boolean
       format?: 'png' | 'webp'
       characterSheets?: any[]
+      onStatus?: (status: string, message?: string) => void
     } = {}
   ): Promise<string> {
     const referenceImages = options.referenceImages || []
@@ -205,6 +206,15 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
 
         if (isRetryable && attempt < GeminiImageService.NO_IMAGE_MAX_RETRIES) {
           const delay = GeminiImageService.NO_IMAGE_BASE_DELAY_MS * 2 ** attempt
+          const statusMsg =
+            errMsg.includes('TIMEOUT') || errMsg.includes('timeout')
+              ? 'step.network_timeout_retry'
+              : 'step.network_error_retry'
+
+          if (options.onStatus) {
+            options.onStatus(statusMsg, `(Attempt ${attempt + 1}) ${errMsg}`)
+          }
+
           console.warn(
             `[GeminiImage] ⚠ Network error (attempt ${attempt}). Retry in ${(delay / 1000).toFixed(1)}s... ${errMsg}`
           )

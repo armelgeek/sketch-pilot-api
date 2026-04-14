@@ -9,6 +9,7 @@ import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/vid
 import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -73,7 +74,14 @@ async function reportProgress(
   delete accumulatedMetadata.videoId
   delete accumulatedMetadata.message
 
-  const status = { step, progress, status: 'processing', videoId, message, ...accumulatedMetadata }
+  const status = {
+    step,
+    progress: progress === -1 ? previousStatus.progress || 0 : progress,
+    status: 'processing',
+    videoId,
+    message,
+    ...accumulatedMetadata
+  }
 
   if (job.id) {
     jobProgressMap.set(job.id, status)
@@ -413,7 +421,9 @@ async function syncNarrativeSagaContext(seriesId: string, videoId: string, scrip
       unresolvedThreads: updatedContext.unresolvedThreads,
       threads: updatedContext.threads,
       roadmap: updatedContext.roadmap,
-      globalContext: updatedContext.globalContext
+      globalContext: updatedContext.globalContext,
+      previousEpisodesContext: updatedContext.previousEpisodesContext,
+      lastEpisodeNumber: String(updatedContext.episodeNumber)
     })
 
     // 2.5. Update Video Title based on intrigue (V43)
@@ -456,6 +466,61 @@ async function promoteVisualSagaContext(seriesId: string, videoId: string, scrip
     const updatedRegistry = { ...currentContext.characterRegistry }
     const updatedLocationRegistry = { ...currentContext.locationRegistry }
     const updatedAssetRegistry = { ...(currentContext.assetRegistry || {}) }
+
+    // 🔄 SAGA BIBLE MERGE: Capture new entities discovered by the LLM
+    const metadata = script.seriesMetadata || {}
+
+    // 1. Merge New Characters
+    if (metadata.newCharacters) {
+      for (const [rawName, desc] of Object.entries(metadata.newCharacters)) {
+        // Strip @ for DB storage consistency
+        const name = rawName.replace(/^@/, '')
+        const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, name)
+        if (!existing) {
+          console.info(`[VideoWorker] 🆕 Registering new character discovered in saga: ${name}`)
+          updatedRegistry[name] = {
+            description: desc as string,
+            isNew: true,
+            discoveredInEpisode: currentContext.episodeNumber
+          }
+        }
+      }
+    }
+
+    // 2. Merge New Locations
+    if (metadata.newLocations) {
+      for (const [rawId, desc] of Object.entries(metadata.newLocations)) {
+        const id = rawId.replace(/^@/, '')
+        if (!updatedLocationRegistry[id]) {
+          console.info(`[VideoWorker] 🆕 Registering new location discovered in saga: ${id}`)
+          updatedLocationRegistry[id] = {
+            description: desc as string,
+            isNew: true,
+            discoveredInEpisode: currentContext.episodeNumber
+          }
+        }
+      }
+    }
+
+    // 3. Update Continuity (Descriptions evolution)
+    if (metadata.characterContinuity) {
+      for (const [rawName, data] of Object.entries(metadata.characterContinuity)) {
+        const name = rawName.replace(/^@/, '')
+        const registryItem = SeriesVideoGenerator.findInRegistry(updatedRegistry, name)
+        if (registryItem && (data as any).description) {
+          registryItem.description = (data as any).description
+        }
+      }
+    }
+
+    if (metadata.locationContinuity) {
+      for (const [rawId, data] of Object.entries(metadata.locationContinuity)) {
+        const id = rawId.replace(/^@/, '')
+        if (updatedLocationRegistry[id] && (data as any).description) {
+          updatedLocationRegistry[id].description = (data as any).description
+        }
+      }
+    }
 
     const scenes = script.scenes || []
     for (const scene of scenes) {
@@ -714,6 +779,7 @@ async function deductCredits(userId: string, videoId: string, cost?: number, pla
  */
 async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
+  let masterAssetsCost = 0
   console.info(`[ACTIVE VIDEO JOB]`, options)
   const lockKey = `active-video-job:${videoId}`
   const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId).catch(() => null)
@@ -779,7 +845,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       sceneCount: options.sceneCount || storedOptions.sceneCount || 6,
       language: options.language || storedOptions.language || 'en',
       llmProvider: options.llmProvider || storedOptions.llmProvider || 'gemini',
-      imageProvider: options.imageProvider || storedOptions.imageProvider || 'gemini',
+      imageProvider: 'gemini',
+      //imageProvider: options.imageProvider || storedOptions.imageProvider || 'gemini',
       audioProvider: options.voiceProvider || storedOptions.audioProvider || 'elevenlabs',
       qualityMode: options.qualityMode || storedOptions.qualityMode || 'standard',
       kokoroVoicePreset: options.kokoroVoicePreset || storedOptions.kokoroVoicePreset || options.voiceId,
@@ -956,6 +1023,95 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           })
         }
       }
+
+      // 🔄 [PHASE 2.1] GENERATE MISSING MASTER ASSETS (Visual DNA Locking)
+      await reportProgress(job, videoId, 'asset_generation', 0, 'step.analyzing_assets')
+
+      let visualStyleGuide = ''
+      if (seriesId) {
+        const series = await seriesRepository.getSeriesContext(seriesId)
+        visualStyleGuide = series?.visualStyleGuide || ''
+      }
+
+      const finalRegistries = {
+        characters: videoRecord.characterRegistry || {},
+        locations: videoRecord.locationRegistry || {}
+      }
+
+      // 🏛️ Master Locations Generation
+      let newLocCount = 0
+      for (const [name, data] of Object.entries(finalRegistries.locations as Record<string, any>)) {
+        if (!data.thumbnailUrl && data.description) {
+          if (newLocCount >= 3) {
+            console.warn(`[VideoWorker] 🏛️ Budget cap reached (3). Skipping master generation for location: ${name}.`)
+            continue
+          }
+          newLocCount++
+          masterAssetsCost += (CREDIT_COSTS as any).SAGA_LOCATION_GENERATION || 5
+          await reportProgress(job, videoId, 'master_loc', -1, `step.generating_master_location:${name}`)
+          try {
+            const tempUrl = await videoGenerationService.generateLocationImage({
+              name,
+              description: data.description,
+              videoId,
+              options: videoRecord.options || {},
+              visualStyleGuide
+            })
+            const buffer = await fsPromises.readFile(tempUrl)
+            const minioPath = `series/${seriesId || 'standalone'}/locations/${SeriesVideoGenerator.normalizeId(name)}/master.webp`
+            const permanentUrl = await uploadBuffer(minioPath, buffer, 'image/webp')
+            data.thumbnailUrl = permanentUrl
+            data.isNew = false // Locked
+            console.info(`[VideoWorker] 🏛️ Master Location generated: ${name} -> ${permanentUrl}`)
+          } catch (error: any) {
+            console.error(`[VideoWorker] 🏛️ Failed to generate Master Location for ${name}:`, error.message)
+          }
+        }
+      }
+
+      // 🎭 Master Characters Generation
+      let newCharCount = 0
+      for (const [name, data] of Object.entries(finalRegistries.characters as Record<string, any>)) {
+        if (!data.thumbnailUrl && data.description) {
+          if (newCharCount >= 3) {
+            console.warn(`[VideoWorker] 🎭 Budget cap reached (3). Skipping master generation for character: ${name}.`)
+            continue
+          }
+          newCharCount++
+          masterAssetsCost += CREDIT_COSTS.CHARACTER_GENERATION || 5
+          await reportProgress(job, videoId, 'master_char', -1, `step.generating_master_character:${name}`)
+          try {
+            const tempUrl = await videoGenerationService.generateCharacterImage({
+              prompt: data.description,
+              baseModelId: videoRecord.options?.characterModelId || 'gemini-1.5-flash',
+              videoId,
+              visualStyleGuide
+            })
+            const buffer = await fsPromises.readFile(tempUrl)
+            const minioPath = `series/${seriesId || 'standalone'}/characters/${SeriesVideoGenerator.normalizeId(name)}/portrait.webp`
+            const permanentUrl = await uploadBuffer(minioPath, buffer, 'image/webp')
+            data.thumbnailUrl = permanentUrl
+            data.isNew = false // Locked
+            console.info(`[VideoWorker] 🎭 Master Character generated: ${name} -> ${permanentUrl}`)
+          } catch (error: any) {
+            console.error(`[VideoWorker] 🎭 Failed to generate Master Character for ${name}:`, error.message)
+          }
+        }
+      }
+
+      // Sync back to Bible and Video Record
+      if (seriesId) {
+        await seriesRepository.update(seriesId, {
+          characterRegistry: finalRegistries.characters,
+          locationRegistry: finalRegistries.locations
+        })
+      }
+      await videoRepository.updateStatus(videoId, {
+        characterRegistry: finalRegistries.characters,
+        locationRegistry: finalRegistries.locations,
+        options: { ...((videoRecord.options as any) || {}), masterAssetsCost }
+      })
+
       await reportProgress(job, videoId, 'pre_sync', 100, 'step.assets_locked')
 
       // REFRESH videoRecord to get the hydrated registries (surged during preSync)
@@ -983,8 +1139,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           title: script.titles?.[0] || videoRecord.title
         })
         await reportProgress(job, videoId, 'script_generation', 100, 'step.script_ready')
-        // DEDUCT CREDITS (Only script cost)
-        await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
+        // DEDUCT CREDITS (Script cost + master assets)
+        const totalFinalCost = (job.data.cost || 0) + masterAssetsCost
+        await deductCredits(userId, videoId, totalFinalCost, job.data.planLimit, job.id)
         return
       }
 
@@ -1211,8 +1368,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
       console.info(`[VideoWorker] Reprompt completed for video ${videoId}`)
 
-      // DEDUCT CREDITS ON SUCCESS
-      await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
+      // DEDUCT CREDITS ON SUCCESS (Standard cost + master assets)
+      const currentMasterCost = (videoRecord.options as any)?.masterAssetsCost || masterAssetsCost || 0
+      const totalFinalCost = (job.data.cost || 0) + currentMasterCost
+      await deductCredits(userId, videoId, totalFinalCost, job.data.planLimit, job.id)
       return
     }
 
@@ -1288,7 +1447,9 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       })
 
       // 8. FINAL SUCCESS: DEDUCT CREDITS (User's request: only on success)
-      await deductCredits(userId, videoId, job.data.cost, job.data.planLimit, job.id)
+      const currentMasterCost = (videoRecord.options as any)?.masterAssetsCost || masterAssetsCost || 0
+      const totalFinalCost = (job.data.cost || 0) + currentMasterCost
+      await deductCredits(userId, videoId, totalFinalCost, job.data.planLimit, job.id)
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Job failed'

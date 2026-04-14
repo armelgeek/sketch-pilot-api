@@ -277,8 +277,9 @@ export class VideoGenerationService {
     baseModelId: string
     outputDir?: string
     videoId?: string
+    visualStyleGuide?: string
   }): Promise<string> {
-    const { prompt, baseModelId, outputDir, videoId } = input
+    const { prompt, baseModelId, outputDir, videoId, visualStyleGuide } = input
     const engine = await this.buildEngine({ characterModelId: baseModelId }, videoId)
     if (!engine) throw new Error('Failed to initialize character generation engine')
 
@@ -292,8 +293,44 @@ export class VideoGenerationService {
     // Create a minimal scene for the engine to generate the image
     const scene: any = {
       id: 'char-gen',
-      imagePrompt: `Character modification request: ${prompt}. Apply these modifications to the character over the reference image. Ignore strict character consistency if it conflicts with these modifications.`,
+      imagePrompt: `Character modification request: ${prompt}. Apply these modifications to the character over the reference image. Ignore strict character consistency if it conflicts with these modifications.${visualStyleGuide ? ` Visual Style Guide: ${visualStyleGuide}` : ''}`,
       locationId: 'studio'
+    }
+
+    const imageUrl = await engine.generateImage(scene, [], filename, true)
+    return imageUrl
+  }
+
+  /**
+   * Generate a single location image (Master Location).
+   */
+  async generateLocationImage(input: {
+    name: string
+    description: string
+    options?: Partial<VideoGenerationOptions>
+    outputDir?: string
+    videoId?: string
+    visualStyleGuide?: string
+  }): Promise<string> {
+    const { name, description, options = {}, outputDir, videoId, visualStyleGuide } = input
+    const engine = await this.buildEngine(options, videoId)
+    if (!engine) throw new Error('Failed to initialize location generation engine')
+
+    const tempDir = outputDir || path.join(process.cwd(), 'uploads', 'temp', `loc-${Date.now()}`)
+    if (!(await fs.stat(tempDir).catch(() => null))) {
+      await fs.mkdir(tempDir, { recursive: true })
+    }
+
+    const filename = path.join(tempDir, 'location.webp')
+
+    // Create a minimal scene for the engine to generate the location image
+    // Using isEstablishingShot: true to force a wide view of the environment
+    const scene: any = {
+      id: 'loc-gen',
+      summary: `Establishing shot for ${name}: ${description}`,
+      imagePrompt: `Cinematic wide establishing shot of ${name}. Atmosphere: ${description}. Detailed environment, consistent lighting, high fidelity.${visualStyleGuide ? ` Visual Style Guide: ${visualStyleGuide}` : ''}`,
+      locationId: name,
+      isEstablishingShot: true
     }
 
     const imageUrl = await engine.generateImage(scene, [], filename, true)

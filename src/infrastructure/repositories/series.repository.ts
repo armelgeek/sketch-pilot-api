@@ -136,6 +136,7 @@ export class SeriesRepository {
       videoGenre: s.videoGenre ?? undefined,
       promptId: s.promptId ?? undefined,
       visualStyleModelId: s.visualStyleModelId ?? undefined,
+      visualStyleGuide: s.visualStyleGuide ?? undefined,
       audioProvider: s.audioProvider ?? undefined,
       kokoroVoicePreset: s.kokoroVoicePreset ?? undefined,
       plannedEpisodes: (s.plannedEpisodes as { number: number; title: string; hook: string }[]) || [],

@@ -177,7 +177,8 @@ export class NanoBananaEngine {
     scene: EnrichedScene,
     baseImages: (string | { name?: string; data: string })[],
     filename: string,
-    bypassCache: boolean = false
+    bypassCache: boolean = false,
+    onStatus?: (status: string, message?: string) => void
   ): Promise<string> {
     // 1. Resolve Bridge URL (Project Sequel) - STRICT SCENE 1 ANCHOR
     const isFirstScene = scene.sceneNumber === 1
@@ -250,7 +251,8 @@ export class NanoBananaEngine {
         const imageUrl = await imageService.generateImage(fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
-          systemInstruction
+          systemInstruction,
+          onStatus
         })
         if (!bypassCache)
           this.sceneCache.set(fullPrompt, imageUrl, {
@@ -267,6 +269,7 @@ export class NanoBananaEngine {
     }
 
     if (this.currentImageProvider !== 'gemini' && this.isNetworkError(lastError)) {
+      console.info(`[NanoBanana] 🔄 Multi-provider fallback: Attempting Gemini after network error...`)
       try {
         const gemini = await ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
         return await gemini.generateImage(fullPrompt, filename, {
@@ -274,12 +277,9 @@ export class NanoBananaEngine {
           referenceImages: allBaseImages,
           systemInstruction
         })
-      } catch {
-        const [w, h] = this.currentOptions?.aspectRatio === '9:16' ? [720, 1280] : [1280, 720]
-        await sharp({ create: { width: w, height: h, channels: 3, background: { r: 255, g: 255, b: 255 } } })
-          .webp()
-          .toFile(filename)
-        return filename
+      } catch (geminiError: any) {
+        console.error(`[NanoBanana] ❌ Critical failure: Gemini fallback also failed: ${geminiError.message}`)
+        throw geminiError
       }
     }
     throw lastError
@@ -342,7 +342,8 @@ export class NanoBananaEngine {
     lastScenePath?: string,
     isReprompt: boolean = false,
     script?: CompleteVideoScript,
-    memory?: SceneMemory
+    memory?: SceneMemory,
+    onProgress?: (p: number, m: string, meta?: any) => void
   ): Promise<void> {
     const options = this.currentOptions
     const resolutionPreset = options.resolution || '720p'
@@ -380,7 +381,7 @@ export class NanoBananaEngine {
     if (scene.locationId) {
       if (this.projectLocationCache.has(scene.locationId)) {
         const locationB64 = this.projectLocationCache.get(scene.locationId)!
-        effectiveRefs.push({ name: 'LOCATION', data: locationB64 })
+        effectiveRefs.push({ name: `LOCATION:${scene.locationId}`, data: locationB64 })
       } else {
         // Robust registry lookup (Service-first model)
         const sc = (this.promptManager as any).seriesContext
@@ -392,7 +393,7 @@ export class NanoBananaEngine {
 
         if (sagaLocation && sagaLocation.thumbnailUrl) {
           console.log(`[NanoBanana] 🌍 Saga location hit for: ${scene.locationId}`)
-          effectiveRefs.push({ name: 'LOCATION', data: sagaLocation.thumbnailUrl })
+          effectiveRefs.push({ name: `LOCATION:${scene.locationId}`, data: sagaLocation.thumbnailUrl })
         }
       }
     }
@@ -414,13 +415,17 @@ export class NanoBananaEngine {
 
       for (let attempt = 1; attempt <= MAX_IMAGE_RETRIES; attempt++) {
         try {
-          await this.generateImage(scene, effectiveRefs, tempBg, isReprompt)
+          await this.generateImage(scene, effectiveRefs, tempBg, isReprompt, (s, m) => {
+            if (onProgress) onProgress(-1, s, { message: m })
+          })
           await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(imagePath)
           lastImageError = null
           break
         } catch (error: any) {
           lastImageError = error
           if (attempt < MAX_IMAGE_RETRIES) {
+            const statusMsg = this.isNetworkError(error) ? 'step.network_retry' : 'step.composition_retry'
+            if (onProgress) onProgress(-1, statusMsg, { attempt, max: MAX_IMAGE_RETRIES, error: error.message })
             console.warn(
               `[NanoBanana] Image attempt ${attempt}/${MAX_IMAGE_RETRIES} failed: ${error.message}. Retrying in ${attempt * 3}s...`
             )
@@ -963,7 +968,17 @@ export class NanoBananaEngine {
             previousScene: prevScene
           } as any
 
-          await this.composeScene(scene, baseImages, sceneDir, prevB64, prevScenePath, isTarget, script, sceneMemory)
+          await this.composeScene(
+            scene,
+            baseImages,
+            sceneDir,
+            prevB64,
+            prevScenePath,
+            isTarget,
+            script,
+            sceneMemory,
+            onProgress
+          )
 
           completed++
           const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)

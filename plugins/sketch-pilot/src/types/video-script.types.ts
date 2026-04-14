@@ -936,7 +936,7 @@ export const videoGenerationOptionsSchema = z
     proEncoding: proEncodingConfigSchema.optional().describe('Advanced encoding parameters'),
     assCaptions: assCaptionConfigSchema.optional().describe('ASS caption configuration for video subtitles'),
     transcription: transcriptionConfigSchema.optional().describe('Transcription service configuration'),
-    imageProvider: z.enum(['gemini', 'grok', 'demo']).default('demo').describe('Provider for image generation'),
+    imageProvider: z.enum(['gemini', 'grok', 'demo']).default('gemini').describe('Provider for image generation'),
     type: z.string().optional().describe('Generator type (e.g., "quotes", "series")'),
     isQuotes: z.boolean().optional().describe('Shorthand for quotes generator mode'),
     seriesId: z.string().optional().describe('ID of the series for episodic continuity'),

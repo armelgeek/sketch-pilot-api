@@ -20,6 +20,8 @@ export interface ImageService {
       format?: 'png' | 'webp'
       /** Deterministic seed for reproducible generation (ensures consistency) */
       characterSheets?: any[]
+      /** Callback for status updates during retries/delays */
+      onStatus?: (status: string, message?: string) => void
     }
   ) => Promise<string>
 }

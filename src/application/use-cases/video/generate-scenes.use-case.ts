@@ -10,6 +10,7 @@ type GenerateScenesParams = {
   videoId: string
   userId: string
   planId?: string
+  force?: boolean
 }
 
 type GenerateScenesResponse = {
@@ -25,7 +26,7 @@ const creditsRepository = new CreditsRepository()
 const promptService = new PromptService(new PromptRepository())
 
 export class GenerateScenesUseCase extends IUseCase<GenerateScenesParams, GenerateScenesResponse> {
-  async execute({ videoId, userId }: GenerateScenesParams): Promise<GenerateScenesResponse> {
+  async execute({ videoId, userId, force }: GenerateScenesParams): Promise<GenerateScenesResponse> {
     try {
       // 1. Check if video exists and belongs to user
       const video = await videoRepository.findByIdAndUserId(videoId, userId)
@@ -41,7 +42,31 @@ export class GenerateScenesUseCase extends IUseCase<GenerateScenesParams, Genera
       const videoOptions = (video.options as any) || {}
       const spec = await promptService.resolveSpec(videoOptions.videoType)
 
-      // 3. Calculate & Check Credits (Images only)
+      // 3. Force Regeneration Logic: Clear existing images from scenes
+      if (force) {
+        console.info(
+          `[GenerateScenes] Forced regeneration requested for video ${videoId}. Clearing existing scene images...`
+        )
+        const script = video.script as any
+        if (script.scenes) {
+          for (const scene of script.scenes) {
+            delete scene.imageUrl
+            delete scene.thumbnailUrl
+          }
+        }
+        // Also reset localProjectId to ensure a fresh session and folder if possible,
+        // or just rely on NanoBanana's internal overwrite logic.
+        // We'll keep localProjectId for now to avoid breaking path lookups,
+        // but removing image URLs in scenes is enough to trigger regeneration in NanoBanana.
+        await videoRepository.updateStatus(videoId, {
+          script,
+          scenes: script.scenes,
+          thumbnailUrl: undefined, // Reset main thumbnail too
+          status: 'draft' // Reset status to allow re-queueing
+        })
+      }
+
+      // 4. Calculate & Check Credits (Images only)
       const numScenes = (video.script as any)?.scenes?.length || 0
       const imageCostPerScene =
         videoOptions.imageProvider === 'gemini' ? CREDIT_COSTS.IMAGE_CREATOR : CREDIT_COSTS.IMAGE_FREE
@@ -87,6 +112,9 @@ export class GenerateScenesUseCase extends IUseCase<GenerateScenesParams, Genera
         planLimit: planLimit === -1 ? 0 : planLimit,
         options: {
           ...videoOptions,
+          characterModelId: video.characterModelId,
+          seriesId: video.seriesId,
+          episodeNumber: video.episodeNumber,
           scriptOnly: false,
           generateOnlyScenes: true,
           skipAudio: true,

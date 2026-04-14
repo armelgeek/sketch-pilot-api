@@ -61,9 +61,15 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
 
       if (planned) {
         displayTitle = planned.title
-        topic = `MISSION NARRATIVE : Suivez scrupuleusement le plan prévu pour cet épisode. 
-TITRE PRÉVU : ${planned.title}
-PITCH / INTRIGUE : ${planned.hook}`
+        const isFirst = nextEpisodeNumber === 1
+        const intensityInstr = isFirst
+          ? "🚨 OUVERTURE SAGA : Ne commencez pas par un résumé. Plongez dans l'action avec une intensité sensorielle maximale (froid, bruit, odeur, tension)."
+          : '🚨 REPRISE : Maintenez le momentum du cliffhanger précédent.'
+
+        topic = `MISSION NARRATIVE : Suivez scrupuleusement le plan prévu pour cet épisode. ${intensityInstr}
+          TITRE PRÉVU : ${planned.title}
+          PITCH / INTRIGUE : ${planned.hook}
+          STYLE : Noir Cinématique, Focus sensoriel, Show Don't Tell.`
       } else {
         topic = `Épisode ${nextEpisodeNumber}`
       }

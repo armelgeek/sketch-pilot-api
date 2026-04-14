@@ -11,6 +11,7 @@ type GenerateCharacterParams = {
   userId: string
   baseModelId: string
   prompt: string
+  visualStyleGuide?: string
 }
 
 type GenerateCharacterResponse = {
@@ -25,7 +26,12 @@ const creditsRepository = new CreditsRepository()
 const videoGenerationService = new VideoGenerationService()
 
 export class GenerateCharacterImageUseCase extends IUseCase<GenerateCharacterParams, GenerateCharacterResponse> {
-  async execute({ userId, baseModelId, prompt }: GenerateCharacterParams): Promise<GenerateCharacterResponse> {
+  async execute({
+    userId,
+    baseModelId,
+    prompt,
+    visualStyleGuide
+  }: GenerateCharacterParams): Promise<GenerateCharacterResponse> {
     try {
       const totalCost = CREDIT_COSTS.CHARACTER_GENERATION
 
@@ -45,8 +51,11 @@ export class GenerateCharacterImageUseCase extends IUseCase<GenerateCharacterPar
 
       // Prepare for generation (check balance only, don't deduct yet)
       const outputDir = path.join(cwd(), 'uploads', 'temp', `char-${userId}-${Date.now()}`)
+      // Enrich prompt with style guide if available
+      const finalPrompt = visualStyleGuide ? `${prompt}\n\nStyle Guide: ${visualStyleGuide}` : prompt
+
       const localPath = await videoGenerationService.generateCharacterImage({
-        prompt,
+        prompt: finalPrompt,
         baseModelId,
         outputDir
       })

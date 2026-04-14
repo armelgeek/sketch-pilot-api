@@ -50,6 +50,7 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     type: options.type,
     isQuotes: options.isQuotes,
     seriesId: options.seriesId,
+    characterModelId: options.characterModelId,
     episodeNumber: options.episodeNumber || customSpec?.seriesMetadata?.episodeNumber,
     lastCliffhanger: customSpec?.seriesMetadata?.lastCliffhanger || (options as any).lastCliffhanger,
     unresolvedThreads: customSpec?.seriesMetadata?.unresolvedThreads || (options as any).unresolvedThreads

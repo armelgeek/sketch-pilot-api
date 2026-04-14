@@ -575,7 +575,8 @@ export class CharacterModelController implements Routes {
               'application/json': {
                 schema: z.object({
                   baseModelId: z.string(),
-                  prompt: z.string()
+                  prompt: z.string(),
+                  visualStyleGuide: z.string().optional()
                 })
               }
             }
@@ -605,7 +606,8 @@ export class CharacterModelController implements Routes {
         const result = await useCase.execute({
           userId: user.id,
           baseModelId: body.baseModelId,
-          prompt: body.prompt
+          prompt: body.prompt,
+          visualStyleGuide: body.visualStyleGuide
         })
         return c.json(result)
       }

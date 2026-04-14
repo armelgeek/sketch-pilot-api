@@ -4,7 +4,10 @@ import { DeleteSeriesUseCase } from '../../application/use-cases/series/delete-s
 import { GenerateNextEpisodeUseCase } from '../../application/use-cases/series/generate-next-episode.use-case'
 import { PrepareSeriesUseCase } from '../../application/use-cases/series/prepare-series.use-case'
 import { PromoteRegistryItemUseCase } from '../../application/use-cases/series/promote-registry-item.use-case'
+import { RegenerateSeriesAssetImageUseCase } from '../../application/use-cases/series/regenerate-series-asset-image.use-case'
 import { RegenerateSeriesCharacterImageUseCase } from '../../application/use-cases/series/regenerate-series-character-image.use-case'
+import { RegenerateSeriesLocationImageUseCase } from '../../application/use-cases/series/regenerate-series-location-image.use-case'
+import { RegenerateSeriesVisualsUseCase } from '../../application/use-cases/series/regenerate-series-visuals.use-case'
 import { SuggestSeriesConceptUseCase } from '../../application/use-cases/series/suggest-series-concept.use-case'
 import { SeriesRepository } from '../repositories/series.repository'
 import { VideoRepository } from '../repositories/video.repository'
@@ -16,6 +19,9 @@ export class SeriesController implements Routes {
   private prepareSeriesUseCase: PrepareSeriesUseCase
   private suggestSeriesConceptUseCase: SuggestSeriesConceptUseCase
   private regenerateSeriesCharacterImageUseCase: RegenerateSeriesCharacterImageUseCase
+  private regenerateSeriesLocationImageUseCase: RegenerateSeriesLocationImageUseCase
+  private regenerateSeriesAssetImageUseCase: RegenerateSeriesAssetImageUseCase
+  private regenerateSeriesVisualsUseCase: RegenerateSeriesVisualsUseCase
   private generateNextEpisodeUseCase: GenerateNextEpisodeUseCase
   private promoteRegistryItemUseCase: PromoteRegistryItemUseCase
   private deleteSeriesUseCase: DeleteSeriesUseCase
@@ -26,6 +32,9 @@ export class SeriesController implements Routes {
     this.prepareSeriesUseCase = new PrepareSeriesUseCase()
     this.suggestSeriesConceptUseCase = new SuggestSeriesConceptUseCase()
     this.regenerateSeriesCharacterImageUseCase = new RegenerateSeriesCharacterImageUseCase()
+    this.regenerateSeriesLocationImageUseCase = new RegenerateSeriesLocationImageUseCase()
+    this.regenerateSeriesAssetImageUseCase = new RegenerateSeriesAssetImageUseCase()
+    this.regenerateSeriesVisualsUseCase = new RegenerateSeriesVisualsUseCase()
     this.generateNextEpisodeUseCase = new GenerateNextEpisodeUseCase()
     this.promoteRegistryItemUseCase = new PromoteRegistryItemUseCase()
     this.deleteSeriesUseCase = new DeleteSeriesUseCase()
@@ -49,7 +58,8 @@ export class SeriesController implements Routes {
                   description: z.string().optional(),
                   language: z.string().optional(),
                   promptId: z.string().optional(),
-                  skipPortraits: z.boolean().optional()
+                  skipPortraits: z.boolean().optional(),
+                  aspectRatio: z.string().optional()
                 })
               }
             }
@@ -130,7 +140,8 @@ export class SeriesController implements Routes {
           videoGenre,
           totalEpisodes,
           skipPortraits,
-          roadmapOnly
+          roadmapOnly,
+          aspectRatio: c.req.query('aspectRatio')
         })
 
         for await (const event of generator) {
@@ -335,7 +346,9 @@ export class SeriesController implements Routes {
                   audioProvider: z.string().optional(),
                   kokoroVoicePreset: z.string().optional(),
                   plannedEpisodes: z.array(z.any()).optional(),
-                  status: z.enum(['active', 'archived', 'draft']).optional()
+                  status: z.enum(['active', 'archived', 'draft']).optional(),
+                  locationRegistry: z.record(z.any()).optional(),
+                  assetRegistry: z.record(z.any()).optional()
                 })
               }
             }
@@ -475,6 +488,88 @@ export class SeriesController implements Routes {
         return c.json(result)
       }
     )
+    // POST /v1/series/{id}/locations/{locationName}/regenerate-image
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/series/{id}/locations/{locationName}/regenerate-image',
+        tags: ['Series'],
+        summary: 'Regenerate image for a specific series location',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string(), locationName: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Regenerated location image',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), thumbnailUrl: z.string().optional() })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id, locationName } = c.req.valid('param')
+
+        const result = await this.regenerateSeriesLocationImageUseCase.execute({
+          userId: user.id,
+          seriesId: id,
+          locationName: decodeURIComponent(locationName)
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to regenerate image' }, 400)
+        }
+
+        return c.json(result)
+      }
+    )
+    // POST /v1/series/{id}/assets/{assetName}/regenerate-image
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/series/{id}/assets/{assetName}/regenerate-image',
+        tags: ['Series'],
+        summary: 'Regenerate image for a specific series asset',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string(), assetName: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Regenerated asset image',
+            content: {
+              'application/json': {
+                schema: z.object({ success: z.boolean(), thumbnailUrl: z.string().optional() })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+        const { id, assetName } = c.req.valid('param')
+
+        const result = await this.regenerateSeriesAssetImageUseCase.execute({
+          userId: user.id,
+          seriesId: id,
+          assetName: decodeURIComponent(assetName)
+        })
+
+        if (!result.success) {
+          return c.json({ error: result.error || 'Failed to regenerate image' }, 400)
+        }
+
+        return c.json(result)
+      }
+    )
 
     // POST /v1/series/{id}/generate-next
     this.controller.openapi(
@@ -512,6 +607,42 @@ export class SeriesController implements Routes {
         }
 
         return c.json({ success: true, jobId: result.jobId, videoId: result.videoId }, 202)
+      }
+    )
+
+    // POST /v1/series/{id}/regenerate-visuals
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/series/{id}/regenerate-visuals',
+        tags: ['Series'],
+        summary: 'Regenerate all master visual assets (characters, locations, assets) for a saga',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() })
+        },
+        responses: {
+          200: {
+            description: 'Regeneration successful',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  characterRegistry: z.record(z.any()),
+                  locationRegistry: z.record(z.any()),
+                  assetRegistry: z.record(z.any())
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const user = c.get('user')
+        if (!user) return c.json({ error: 'Unauthorized' }, 401)
+        const { id } = c.req.valid('param')
+        const result = await this.regenerateSeriesVisualsUseCase.execute({ userId: user.id, seriesId: id })
+        return c.json(result)
       }
     )
 

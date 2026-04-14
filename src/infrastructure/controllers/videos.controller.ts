@@ -2383,7 +2383,16 @@ export class VideosController implements Routes {
         request: {
           params: z.object({
             id: z.string().openapi({ example: 'vid-123' })
-          })
+          }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  force: z.boolean().optional()
+                })
+              }
+            }
+          }
         },
         responses: {
           202: {
@@ -2416,9 +2425,11 @@ export class VideosController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const { id } = c.req.valid('param')
+        const { force } = (await c.req.json().catch(() => ({}))) || {}
         const { result } = await generateScenesUseCase.run({
           videoId: id,
-          userId: user.id
+          userId: user.id,
+          force
         })
 
         if (!result.success) {
