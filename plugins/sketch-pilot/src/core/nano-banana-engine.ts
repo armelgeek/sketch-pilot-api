@@ -277,7 +277,7 @@ export class NanoBananaEngine {
     )
 
     // 3. Inject Visual DNA & Internal Context
-    if (visualDNA || internalContext) {
+    if (visualDNA || internalContext || masterStyleUrl) {
       const isPortrait = scene.id === 'char-gen' || scene.locationId === 'studio'
       const dnaHeader = isPortrait
         ? 'SERIES ARTISTIC AESTHETIC DNA (STYLE LOCK):'
@@ -285,6 +285,10 @@ export class NanoBananaEngine {
 
       if (visualDNA) systemInstruction = `${dnaHeader}\n${visualDNA}\n\n${systemInstruction}`
       if (internalContext) systemInstruction = `${internalContext}\n\n${systemInstruction}`
+
+      if (masterStyleUrl && !isPortrait) {
+        systemInstruction = `MASTER STYLE PRIORITY: Use the "Master Style" reference image ONLY for artistic rendering (linework, colors, textures), lighting, and general atmospheric vibe. ⚠️ IMPORTANT: If a character is visible in the "Master Style" but NOT mentioned in the text prompt or @VisualState, DO NOT include them. Follow the TEXT PROMPT strictly for character identity and count.\n\n${systemInstruction}`
+      }
 
       if (isPortrait) {
         systemInstruction = `CHARACTER IDENTITY PRIORITY: Maintain the exact features of the character provided in reference images. The DNA below should ONLY be used for artistic style (lighting, linework, color palette, rendering style).\n\n${systemInstruction}`
@@ -307,7 +311,7 @@ export class NanoBananaEngine {
     let lastError: any
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        /**const imageService = await this.getImageService()
+        const imageService = await this.getImageService()
         const imageUrl = await imageService.generateImage(fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
@@ -317,8 +321,7 @@ export class NanoBananaEngine {
           quality: (this.currentOptions?.qualityMode as any) || 'medium',
           format: 'webp'
         })
-        return imageUrl**/
-        return ''
+        return imageUrl
       } catch (error: any) {
         lastError = error
         if (this.isNetworkError(error) && attempt < maxRetries) continue
@@ -597,6 +600,15 @@ export class NanoBananaEngine {
       if (scene.locationId) {
         const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
         const anchorEngine = this.locationAnchors.get(locId)
+        const context = (this.promptManager as any).seriesContext
+
+        // [V48] Master Style Promotion: If this is the FIRST scene and no thumbnail exists,
+        // promote it as the absolute aesthetic truth for the entire series/episode.
+        if (context && !context.thumbnailUrl) {
+          console.info(`[NanoBanana] 🎨 MASTER STYLE PROMOTION: Setting global series DNA from first scene result.`)
+          context.thumbnailUrl = b64
+        }
+
         if (anchorEngine) {
           // If no base anchor exists yet, this is our absolute reference for this location
           if (!anchorEngine.getState().baseAnchor) {
@@ -1086,8 +1098,8 @@ export class NanoBananaEngine {
         await onProgress(22, 'step.step_2_images')
       }
       const sceneImagePromises = new Map<number, Promise<string | undefined>>()
+      const context = (this.promptManager as any).seriesContext
       let completed = 0
-      const lastLocId = ''
 
       for (let i = 0; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
@@ -1097,69 +1109,108 @@ export class NanoBananaEngine {
         const sceneDir = path.join(scenesDir, scene.id)
         const sceneImg = path.join(sceneDir, 'scene.webp')
 
+        const locId = SeriesVideoGenerator.normalizeId(scene.locationId || 'default')
+
         if (fs.existsSync(sceneImg) && !isTarget) {
-          const cacheTask = this.generationQueue.add(async () => {
-            try {
-              // IMPORTANTE: S'assurer que l'imageUrl est présente pour la persistance
-              scene.imageUrl = sceneImg
-              console.log(`[NanoBanana] 💾 Cache hit for scene ${i + 1} (${scene.id})`)
+          const cacheTask = this.generationQueue.add(
+            async () => {
+              try {
+                // IMPORTANTE: S'assurer que l'imageUrl est présente pour la persistance
+                scene.imageUrl = sceneImg
+                console.log(`[NanoBanana] 💾 Cache hit for scene ${i + 1} (${scene.id})`)
 
-              const b64 = fs.readFileSync(sceneImg).toString('base64')
-              completed++
+                const b64 = fs.readFileSync(sceneImg).toString('base64')
 
-              const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)
-              if (onProgress) {
-                await onProgress(globalPr, `step.step_2_scene:${i + 1}`)
+                // [V48] Master Style Promotion from Cache
+                if (i === 0 && context && !context.thumbnailUrl) {
+                  console.info(`[NanoBanana] 🎨 MASTER STYLE PROMOTION (Cache): Setting global series DNA from S1.`)
+                  context.thumbnailUrl = b64
+                }
+
+                completed++
+                const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)
+                if (onProgress) {
+                  await onProgress(globalPr, `step.step_2_scene:${i + 1}`)
+                }
+
+                if (onSceneGenerated) {
+                  console.log(`[NanoBanana] 📣 Triggering onSceneGenerated for cached scene ${scene.id}...`)
+                  await onSceneGenerated(scene, script, i + 1, globalPr)
+                }
+
+                return b64
+              } catch (error: any) {
+                console.warn(`[NanoBanana] ⚠ Error reading cached asset for scene ${i + 1}: ${error.message}`)
+                return undefined
               }
-
-              if (onSceneGenerated) {
-                console.log(`[NanoBanana] 📣 Triggering onSceneGenerated for cached scene ${scene.id}...`)
-                await onSceneGenerated(scene, script, i + 1, globalPr)
-              }
-
-              return b64
-            } catch (error: any) {
-              console.warn(`[NanoBanana] ⚠ Error reading cached asset for scene ${i + 1}: ${error.message}`)
-              return undefined
-            }
-          })
+            },
+            `Cache ${scene.id}`,
+            undefined, // No provider rate limit for cache
+            locId // Sequential per location
+          )
           sceneImagePromises.set(i, cacheTask)
+
+          // [V48] S1 Lock: Sequential establishment from cache
+          if (i === 0 && context && !context.thumbnailUrl) {
+            await cacheTask
+          }
           continue
         }
 
-        const task = this.generationQueue.add(async () => {
-          if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
-          const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
+        const task = this.generationQueue.add(
+          async () => {
+            // [V48] Visual Continuity Logic
+            if (
+              i > 0 && // 1. All scenes must wait for S1 if it establishes global Master Style DNA
+              context &&
+              !context.thumbnailUrl
+            ) {
+              const s1Task = sceneImagePromises.get(0)
+              if (s1Task) await s1Task
+            }
 
-          const prevScenePath = i > 0 ? path.join(scenesDir, script.scenes[i - 1].id, 'scene.webp') : undefined
-          const prevScene = i > 0 ? script.scenes[i - 1] : undefined
+            if (!fs.existsSync(sceneDir)) fs.mkdirSync(sceneDir, { recursive: true })
+            const prevB64 = scene.continueFromPrevious && i > 0 ? await sceneImagePromises.get(i - 1) : undefined
 
-          const sceneMemory = {
-            ...(memory || {}),
-            previousScene: prevScene
-          } as any
+            const prevScenePath = i > 0 ? path.join(scenesDir, script.scenes[i - 1].id, 'scene.webp') : undefined
+            const prevScene = i > 0 ? script.scenes[i - 1] : undefined
 
-          await this.composeScene(
-            scene,
-            baseImages,
-            sceneDir,
-            prevB64,
-            prevScenePath,
-            isTarget,
-            script,
-            sceneMemory,
-            onProgress
-          )
+            const sceneMemory = {
+              ...(memory || {}),
+              previousScene: prevScene
+            } as any
 
-          completed++
-          const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)
-          if (onProgress) {
-            await onProgress(globalPr, `step.step_2_scene:${i + 1}`)
-          }
-          if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, globalPr)
-          return fs.existsSync(sceneImg) ? fs.readFileSync(sceneImg).toString('base64') : undefined
-        })
+            await this.composeScene(
+              scene,
+              baseImages,
+              sceneDir,
+              prevB64,
+              prevScenePath,
+              isTarget,
+              script,
+              sceneMemory,
+              onProgress
+            )
+
+            completed++
+            const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)
+            if (onProgress) {
+              await onProgress(globalPr, `step.step_2_scene:${i + 1}`)
+            }
+            if (onSceneGenerated) await onSceneGenerated(scene, script, i + 1, globalPr)
+            return fs.existsSync(sceneImg) ? fs.readFileSync(sceneImg).toString('base64') : undefined
+          },
+          `Scene ${i + 1}`,
+          'image', // Standard image provider limit
+          locId // STRICT sequentiality per location for AnchorEngine
+        )
         sceneImagePromises.set(i, task)
+
+        // [V48] S1 Lock: Sequential establishment of the master style
+        if (i === 0 && context && !context.thumbnailUrl) {
+          console.info(`[NanoBanana] 📸 Establishing Master Style DNA from Scene 1...`)
+          await task
+        }
       }
       await this.generationQueue.onIdle()
     }

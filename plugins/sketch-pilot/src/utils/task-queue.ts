@@ -8,11 +8,13 @@ export class TaskQueue {
   private queue: Array<{
     task: () => Promise<any>
     providerId?: string
+    resourceId?: string
     resolve: (val: any) => void
     reject: (err: any) => void
     taskName: string
   }> = []
   private activeCount = 0
+  private activeResources: Set<string> = new Set()
   private readonly maxConcurrency: number
   private readonly maxRetries: number
   private readonly initialDelayMs: number
@@ -75,12 +77,22 @@ export class TaskQueue {
 
   /**
    * Adds a task to the queue and returns a promise that resolves when the task (or its retries) completes.
+   * @param taskFn The async function to execute
+   * @param taskName A descriptive name for logging
+   * @param providerId Optional provider ID for rate limiting across multiple tasks (e.g. 'gemini', 'openai')
+   * @param resourceId Optional resource ID for mutual exclusion. Only one task per resourceId can run at a time.
    */
-  async add<T>(taskFn: () => Promise<T>, taskName: string = 'Unnamed Task', providerId?: string): Promise<T> {
+  async add<T>(
+    taskFn: () => Promise<T>,
+    taskName: string = 'Unnamed Task',
+    providerId?: string,
+    resourceId?: string
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
       this.queue.push({
         task: taskFn,
         providerId,
+        resourceId,
         resolve,
         reject,
         taskName
@@ -90,23 +102,32 @@ export class TaskQueue {
   }
 
   private async executeTask(item: (typeof TaskQueue.prototype.queue)[0]) {
-    const { task, providerId, resolve, reject, taskName } = item
+    const { task, providerId, resourceId, resolve, reject, taskName } = item
     const limiter = providerId ? this.getLimiter(providerId) : null
 
     const executeWithRetry = async (attempt: number = 0) => {
       try {
         if (limiter && !limiter.canAccept()) {
-          // This shouldn't happen if processNext works correctly,
-          // but safety first. Re-queue.
+          // Provider busy? Re-queue
           this.queue.unshift(item)
           return
+        }
+
+        // Lock resource if specified
+        if (resourceId) {
+          if (this.activeResources.has(resourceId)) {
+            // Resource busy? Re-queue
+            this.queue.unshift(item)
+            return
+          }
+          this.activeResources.add(resourceId)
         }
 
         if (limiter) limiter.startJob()
         this.activeCount++
 
         console.log(
-          `[Queue] Starting ${taskName}${providerId ? ` [${providerId}]` : ''} (Attempt ${attempt + 1}/${this.maxRetries + 1})`
+          `[Queue] Starting ${taskName}${providerId ? ` [${providerId}]` : ''}${resourceId ? ` (Resource: ${resourceId})` : ''} (Attempt ${attempt + 1}/${this.maxRetries + 1})`
         )
         const result = await task()
 
@@ -125,23 +146,24 @@ export class TaskQueue {
         const shouldRetry = attempt < this.maxRetries
 
         if (shouldRetry) {
-          // Exponential backoff with jitter: (2^attempt * initial) + random(0, 1s)
+          // Exponential backoff with jitter
           const jitter = Math.random() * 1000
           const delay = this.initialDelayMs * 2 ** attempt + jitter
           const errMsg = (error instanceof Error ? error.message : 'Unknown error').slice(0, 300)
 
           console.warn(
-            `[Queue] ${errorType} Task ${taskName} failed: ${errMsg}. Retrying in ${(delay / 1000).toFixed(1)}s... (attempt ${attempt + 1}/${this.maxRetries})`
+            `[Queue] ${errorType} Task ${taskName} failed: ${errMsg}. Retrying in ${(delay / 1000).toFixed(1)}s...`
           )
 
           setTimeout(() => executeWithRetry(attempt + 1), delay)
         } else {
-          console.error(
-            `[Queue] ${errorType} Task ${taskName} failed definitively after ${this.maxRetries + 1} attempts.`
-          )
+          console.error(`[Queue] ${errorType} Task ${taskName} failed definitively.`)
           reject(error)
         }
       } finally {
+        if (resourceId) {
+          this.activeResources.delete(resourceId)
+        }
         this.activeCount--
         this.processNext()
       }
@@ -167,19 +189,22 @@ export class TaskQueue {
       return
     }
 
-    // Find the first task whose provider is ready
+    // Find first task whose provider AND resource are ready
     let taskIndex = -1
     for (let i = 0; i < this.queue.length; i++) {
       const item = this.queue[i]
-      if (!item.providerId) {
-        taskIndex = i
-        break
+
+      if (item.resourceId && this.activeResources.has(item.resourceId)) {
+        continue
       }
-      const limiter = this.getLimiter(item.providerId)
-      if (limiter.canAccept()) {
-        taskIndex = i
-        break
+
+      if (item.providerId) {
+        const limiter = this.getLimiter(item.providerId)
+        if (!limiter.canAccept()) continue
       }
+
+      taskIndex = i
+      break
     }
 
     if (taskIndex !== -1) {
@@ -206,7 +231,7 @@ export class TaskQueue {
   }
 
   /**
-   * Get snapshot of current queue state
+   * Snapshot of queue state
    */
   getStats() {
     const providerStats: Record<string, any> = {}
@@ -217,6 +242,7 @@ export class TaskQueue {
     return {
       queuedTasks: this.queue.length,
       activeCount: this.activeCount,
+      activeResources: Array.from(this.activeResources),
       providers: providerStats
     }
   }

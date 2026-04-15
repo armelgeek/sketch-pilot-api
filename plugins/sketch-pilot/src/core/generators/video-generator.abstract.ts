@@ -809,12 +809,11 @@ ${mandatoryRules.join('\n')}
 
     if (hasReferenceImages) {
       parts.push(
-        'CRITICAL: THE REFERENCE IMAGES SUPERSEDE ALL TEXT DESCRIPTIONS for visual style and identity.',
-        'STRICT FIDELITY: DO NOT ALTER facial features, hair color, or clothing from the references. Follow them exactly.',
-        'MASTER STYLE: The image labeled "Master Style" is the absolute truth for the artistic aesthetic, line-art quality, and color palette of the series. Replicate its textures and vibe perfectly.',
+        'STRICT VISUAL STYLE: Maintain 100% of the artistic style, color palette, and textures from the provided REFERENCE IMAGES.',
+        'MASTER STYLE: The image labeled "Master Style" is the absolute truth for aesthetic/rendering style. Replicate its textures and vibe perfectly.',
+        'IDENTITY PRIORITY: Follow the TEXT PROMPT for the number and names of characters. Use Reference Images ONLY to maintain the features of characters mentioned in the prompt. If a character is in a reference image but NOT in the text prompt, DO NOT include them.',
         params.characterDescription ? `Subject Identity: ${params.characterDescription}.` : '',
-        params.locationDescription ? `Location/Environment: ${params.locationDescription}.` : '',
-        'Style: Follow the exact visual style, colors, and textures of the provided REFERENCE IMAGES.'
+        params.locationDescription ? `Location/Environment: ${params.locationDescription}.` : ''
       )
     } else {
       if (params.styleAnchor) parts.push(params.styleAnchor)
