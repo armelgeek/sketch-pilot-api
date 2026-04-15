@@ -821,7 +821,8 @@ LORE BIBLE : ${this.seriesContext.globalContext || 'Vide.'}`,
         "PROTOCOLE D'ACCUMULATION VISUELLE (OBLIGATOIRE) : Chaque 'imagePrompt' de la scène 'N' doit commencer par '@VisualState: [Position de N-1, OBJETS TENUS]'. L'image doit être une évolution directe de la scène précédente (positions des membres, objets tenus, orientation) pour assurer une continuité parfaite.",
         "INVENTAIRE ACTIF & PERSISTANCE : Si un personnage tient un objet (ex: torche, livre, épée) en scène N, il DOIT obligatoirement le tenir en scène N+1, N+2, etc., sauf si une action explicite décrit qu'il le pose ou le perd. Ne faites JAMAIS disparaître un objet entre deux plans.",
         "ANALYSE DE CONTINUITÉ (VISION) : Dans 'continuityAnalysis.lastVisualBridge', décrivez les 3 éléments visuels clés que vous avez identifiés dans l'image de référence pour prouver votre analyse visuelle.",
-        "STABILITÉ GÉOGRAPHIQUE (LIEUX POSSIBLES) : Vous DEVEZ réutiliser les lieux du 'REGISTRE DES LIEUX'. Chaque scène DOIT avoir un 'locationId' valide. Si la narration ne mentionne pas un changement de lieu EXPLICITE, vous DEVEZ copier le 'locationId' de la scène précédente. Interdiction totale d'inventer des lieux génériques."
+        "STABILITÉ GÉOGRAPHIQUE (LIEUX POSSIBLES) : Vous DEVEZ réutiliser les lieux du 'REGISTRE DES LIEUX'. Chaque scène DOIT avoir un 'locationId' valide. Si la narration ne mentionne pas un changement de lieu EXPLICITE, vous DEVEZ copier le 'locationId' de la scène précédente. Interdiction totale d'inventer des lieux génériques.",
+        "ENREGISTREMENT DES NOUVEAUX LIEUX (NEW_LOCATIONS) [CRITIQUE] : Si vous introduisez un lieu ABSENT du 'REGISTRE DES LIEUX', vous DEVEZ obligatoirement l'ajouter dans 'seriesMetadata.newLocations' avec une description visuelle détaillée (Architecture, Ambiance, Lumière). Un lieu ne peut pas exister dans 'scenes' sans être soit dans le registre, soit dans 'newLocations'."
       ]
     }
 
@@ -915,6 +916,7 @@ Schéma attendu :
   "scenes": [
     {
       "id": "...",
+      "locationId": "@LieuID",
       "charactersInScene": ["@Perso1", "@Perso2"],
       "emotionalTokens": { "@Perso1": ["Inquiet", "Sérieux"] },
       "relationshipMap": { "@Perso1": { "@Perso2": "Défiance" } },
@@ -926,6 +928,8 @@ Schéma attendu :
     }
   ]
 }
+
+⚠️ RAPPEL REGISTRE : Privilégiez les lieux existants du REGISTRE DES LIEUX. Si vous créez @LieuID-Nouveau, décrivez-le impérativement dans seriesMetadata.newLocations.
 `
   }
 

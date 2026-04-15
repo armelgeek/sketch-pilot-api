@@ -371,6 +371,14 @@ export const enrichedSceneSchema = z.object({
     .describe(
       'Unique identifier for the location of this scene (e.g. "train-station", "office"). ' +
         'Scenes sharing the same locationId reuse the same visual background for consistency.'
+    )
+    .or(z.object({ id: z.string() }).transform((v) => v.id))
+    .or(
+      z.any().transform((val, ctx) => {
+        // Fallback to snake_case if camelCase is missing
+        if (typeof val === 'string') return val
+        return undefined
+      })
     ),
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
   charactersInScene: z

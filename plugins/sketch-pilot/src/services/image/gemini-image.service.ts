@@ -233,4 +233,27 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
 
     return ''
   }
+
+  async analyzeImage(imagePath: string, prompt: string): Promise<string> {
+    if (!fs.existsSync(imagePath)) return ''
+
+    try {
+      const imageData = fs.readFileSync(imagePath).toString('base64')
+
+      const result = await this.client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }, { inlineData: { mimeType: 'image/webp', data: imageData } }]
+          }
+        ]
+      })
+
+      return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+    } catch (error) {
+      console.error(`[GeminiImageService] Vision analysis failed:`, error)
+      return ''
+    }
+  }
 }

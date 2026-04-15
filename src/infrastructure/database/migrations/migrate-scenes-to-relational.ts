@@ -42,7 +42,7 @@ async function migrateScenes() {
             summary: scene.summary,
             justification: scene.justification,
             narration: scene.narration || '',
-            locationId: scene.locationId,
+            locationId: scene.locationId || scene.location_id || (scene as any).location,
             imagePrompt: scene.imagePrompt,
             imageUrl: scene.imageUrl,
             thumbnailUrl: scene.thumbnailUrl,

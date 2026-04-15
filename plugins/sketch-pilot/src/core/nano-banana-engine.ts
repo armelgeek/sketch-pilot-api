@@ -202,8 +202,8 @@ export class NanoBananaEngine {
             .replaceAll(/[\s\-_]+/g, '')}`
     )
 
-    console.info('[GENERATE IMAGE REFERENCE CHARACTERS]', rawActiveCharacters)
-    console.log('[BASE IMAGE TO FILTER]', JSON.stringify(baseImages))
+    //console.info('[GENERATE IMAGE REFERENCE CHARACTERS]', rawActiveCharacters)
+    //console.log('[BASE IMAGE TO FILTER]', JSON.stringify(baseImages))
     // Filter registry images: only keep those whose name matches an active character
     // or if they are "LOCATION" anchors, or if they are the special "BASE_ANCHOR"
     const filteredBaseImages = baseImages.filter((img) => {
@@ -218,12 +218,12 @@ export class NanoBananaEngine {
       }
       return true // Keep generic images (unlikely to be character models if no name)
     })
-    console.log('[FILTERED BASE IMAGES]', filteredBaseImages)
+    //console.log('[FILTERED BASE IMAGES]', filteredBaseImages)
 
     const characterImages = refs || []
     const allBaseImages = await this.downloadAndEncodeImages([...filteredBaseImages, ...characterImages])
 
-    console.log('[FILTERED BASE IMAGES]', allBaseImages)
+    //console.log('[FILTERED BASE IMAGES]', allBaseImages)
     // 2. Inject Bridge into references if it exists
     const sequelBridgeUrl = (this.promptManager as any).seriesContext?.lastEpisodeFinalImage
     if (sequelBridgeUrl) {
@@ -307,7 +307,7 @@ export class NanoBananaEngine {
     let lastError: any
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const imageService = await this.getImageService()
+        /**const imageService = await this.getImageService()
         const imageUrl = await imageService.generateImage(fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
@@ -317,7 +317,8 @@ export class NanoBananaEngine {
           quality: (this.currentOptions?.qualityMode as any) || 'medium',
           format: 'webp'
         })
-        return imageUrl
+        return imageUrl**/
+        return ''
       } catch (error: any) {
         lastError = error
         if (this.isNetworkError(error) && attempt < maxRetries) continue
@@ -435,7 +436,7 @@ export class NanoBananaEngine {
       scene.locationId && scene.locationId !== 'default'
         ? SeriesVideoGenerator.normalizeId(scene.locationId)
         : 'default'
-
+    console.log('[LOCATION ID]', locationId)
     if (!this.locationAnchors.has(locationId)) {
       this.locationAnchors.set(locationId, new AnchorEngine({ reanchorThreshold: 4, maxChainLength: 8 }))
     }
@@ -573,11 +574,23 @@ export class NanoBananaEngine {
     if (fs.existsSync(imagePath)) {
       const b64 = fs.readFileSync(imagePath).toString('base64')
 
-      const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
-      if (scene.locationId && !this.projectLocationCache.has(locId)) {
-        // We store the B64 in the cache for consistency with other parts of the engine
-        // that might use it as a reference image data URI.
-        this.projectLocationCache.set(locId, b64)
+      if (scene.locationId) {
+        const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
+        // [V47] Triple-Lock Promotion: Cache + Registry + Anchor
+        const registry = (this.promptManager as any).seriesContext?.locationRegistry
+
+        if (!this.projectLocationCache.has(locId)) {
+          console.info(`[NanoBanana] 🚀 CACHE PROMOTION: ${locId}`)
+          this.projectLocationCache.set(locId, b64)
+        }
+
+        if (registry) {
+          const loc = registry[locId] || registry[scene.locationId]
+          if (loc && !loc.thumbnailUrl) {
+            console.info(`[NanoBanana] 👑 REGISTRY PROMOTION: ${locId}`)
+            loc.thumbnailUrl = b64 // Seed with B64 for immediate visual sync
+          }
+        }
       }
 
       // 3. Register the result in the engine to advance the progressive chain
@@ -1074,7 +1087,7 @@ export class NanoBananaEngine {
       }
       const sceneImagePromises = new Map<number, Promise<string | undefined>>()
       let completed = 0
-      let lastLocId = ''
+      const lastLocId = ''
 
       for (let i = 0; i < script.scenes.length; i++) {
         const scene = script.scenes[i]
@@ -1137,18 +1150,6 @@ export class NanoBananaEngine {
             sceneMemory,
             onProgress
           )
-
-          // [V47] Real-time Location Promotion: Update registry immediately for next scenes
-          const registry = (this.promptManager as any).seriesContext?.locationRegistry
-          if (registry && scene.locationId && scene.thumbnailUrl) {
-            const normalizedId = SeriesVideoGenerator.normalizeId(scene.locationId)
-            const loc = registry[normalizedId] || registry[scene.locationId]
-            if (loc && (!loc.thumbnailUrl || normalizedId !== lastLocId)) {
-              console.info(`[NanoBanana] 🚀 REAL-TIME PROMOTION: ${normalizedId}`)
-              loc.thumbnailUrl = scene.thumbnailUrl
-            }
-          }
-          lastLocId = scene.locationId ? SeriesVideoGenerator.normalizeId(scene.locationId) : ''
 
           completed++
           const globalPr = 22 + Math.round((completed / script.scenes.length) * 63)

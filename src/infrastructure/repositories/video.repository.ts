@@ -71,6 +71,18 @@ export class VideoRepository {
 
   async findById(id: string) {
     const video = await db.query.videos?.findFirst?.({ where: (t: any, { eq: eqFn }: any) => eqFn(t.id, id) })
+    if (!video) return null
+
+    // Fetch related scenes from the relational table (Relational Refactor V70)
+    const scenes = await db.query.videoScenes?.findMany?.({
+      where: (t: any, { eq: eqFn }: any) => eqFn(t.videoId, id),
+      orderBy: (t: any, { asc }: any) => [asc(t.sceneNumber)]
+    })
+
+    if (scenes && scenes.length > 0) {
+      video.scenes = scenes
+    }
+
     return this.processVideoForFrontend(video)
   }
 
@@ -79,11 +91,27 @@ export class VideoRepository {
       .select()
       .from(videos)
       .where(and(eq(videos.id, id), eq(videos.userId, userId)))
+    if (!video) return null
+
+    const scenes = await db.query.videoScenes?.findMany?.({
+      where: (t: any, { eq: eqFn }: any) => eqFn(t.videoId, id),
+      orderBy: (t: any, { asc }: any) => [asc(t.sceneNumber)]
+    })
+    if (scenes) video.scenes = scenes
+
     return this.processVideoForFrontend(video) || null
   }
 
   async findByJobId(jobId: string) {
     const [video] = await db.select().from(videos).where(eq(videos.jobId, jobId))
+    if (!video) return null
+
+    const scenes = await db.query.videoScenes?.findMany?.({
+      where: (t: any, { eq: eqFn }: any) => eqFn(t.videoId, video.id),
+      orderBy: (t: any, { asc }: any) => [asc(t.sceneNumber)]
+    })
+    if (scenes) video.scenes = scenes
+
     return this.processVideoForFrontend(video) || null
   }
 
@@ -155,7 +183,7 @@ export class VideoRepository {
         summary: scene.summary,
         justification: scene.justification,
         narration: scene.narration,
-        locationId: scene.locationId,
+        locationId: scene.locationId || scene.location_id || (scene as any).location,
         imagePrompt: scene.imagePrompt,
         imageUrl: scene.imageUrl,
         thumbnailUrl: scene.thumbnailUrl,
@@ -196,7 +224,7 @@ export class VideoRepository {
       summary: scene.summary,
       justification: scene.justification,
       narration: scene.narration,
-      locationId: scene.locationId,
+      locationId: scene.locationId || scene.location_id || (scene as any).location,
       imagePrompt: scene.imagePrompt,
       imageUrl: scene.imageUrl,
       thumbnailUrl: scene.thumbnailUrl,

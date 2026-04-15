@@ -26,6 +26,7 @@ export interface ImageService {
       onStatus?: (status: string, message?: string) => void
     }
   ) => Promise<string>
+  analyzeImage?: (imagePath: string, prompt: string) => Promise<string>
 }
 
 export type ImageProvider = 'gemini' | 'grok' | 'demo'
