@@ -12,18 +12,18 @@ async function debug() {
     return
   }
 
-  console.log('--- VIDEO INFO ---')
-  console.log(`Title: ${video.title}`)
-  console.log(`Status: ${video.status}`)
-  console.log(`Location Registry: ${JSON.stringify(video.locationRegistry, null, 2)}`)
+  console.info('--- VIDEO INFO ---')
+  console.info(`Title: ${video.title}`)
+  console.info(`Status: ${video.status}`)
+  console.info(`Location Registry: ${JSON.stringify(video.locationRegistry, null, 2)}`)
 
   const scenes = await videoRepo.listScenes(videoId)
-  console.log('\n--- SCENES INFO ---')
+  console.info('\n--- SCENES INFO ---')
   scenes.forEach((s: any) => {
-    console.log(`Scene ${s.sceneNumber} (${s.id}):`)
-    console.log(`  LocationId: ${s.locationId}`)
-    console.log(`  ImagePrompt: ${s.imagePrompt}`)
-    console.log(`  ImageUrl: ${s.imageUrl}`)
+    console.info(`Scene ${s.sceneNumber} (${s.id}):`)
+    console.info(`  LocationId: ${s.locationId}`)
+    console.info(`  ImagePrompt: ${s.imagePrompt}`)
+    console.info(`  ImageUrl: ${s.imageUrl}`)
   })
 }
 

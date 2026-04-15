@@ -10,18 +10,18 @@ import {
 } from '../schema/series.schema'
 
 async function migrate() {
-  console.log('🚀 Starting Phase 2 narrative migration...')
+  console.info('🚀 Starting Phase 2 narrative migration...')
 
   const allSeries = await db.select().from(series)
-  console.log(`Found ${allSeries.length} series to process.`)
+  console.info(`Found ${allSeries.length} series to process.`)
 
   for (const s of allSeries) {
-    console.log(`Processing series: ${s.id} (${s.title})`)
+    console.info(`Processing series: ${s.id} (${s.title})`)
 
     // 1. Threads
     const threads = (s.unresolvedThreads as any[]) || []
     for (const t of threads) {
-      console.log(`  - Thread: ${t.title}`)
+      console.info(`  - Thread: ${t.title}`)
       await db
         .insert(seriesThreads)
         .values({
@@ -42,7 +42,7 @@ async function migrate() {
     const relMap = (s.relationshipMap as Record<string, Record<string, string>>) || {}
     for (const [charA, targets] of Object.entries(relMap)) {
       for (const [charB, type] of Object.entries(targets)) {
-        console.log(`  - Relationship: ${charA} -> ${charB} (${type})`)
+        console.info(`  - Relationship: ${charA} -> ${charB} (${type})`)
         await db
           .insert(seriesRelationships)
           .values({
@@ -61,7 +61,7 @@ async function migrate() {
     // 3. Evolutions (Visual & Asset)
     const visualEv = (s.visualEvolution as Record<string, string>) || {}
     for (const [name, value] of Object.entries(visualEv)) {
-      console.log(`  - Visual Evolution: ${name} -> ${value}`)
+      console.info(`  - Visual Evolution: ${name} -> ${value}`)
       await db
         .insert(seriesEvolutions)
         .values({
@@ -79,7 +79,7 @@ async function migrate() {
 
     const assetEv = (s.assetEvolution as Record<string, string>) || {}
     for (const [name, value] of Object.entries(assetEv)) {
-      console.log(`  - Asset Evolution: ${name} -> ${value}`)
+      console.info(`  - Asset Evolution: ${name} -> ${value}`)
       await db
         .insert(seriesEvolutions)
         .values({
@@ -98,7 +98,7 @@ async function migrate() {
     // 4. Planned Episodes
     const planned = (s.plannedEpisodes as any[]) || []
     for (const p of planned) {
-      console.log(`  - Planned Episode ${p.number}: ${p.title}`)
+      console.info(`  - Planned Episode ${p.number}: ${p.title}`)
       await db
         .insert(seriesPlannedEpisodes)
         .values({
@@ -115,7 +115,7 @@ async function migrate() {
     }
   }
 
-  console.log('✅ Phase 2 migration completed successfully.')
+  console.info('✅ Phase 2 migration completed successfully.')
 }
 
 migrate().catch((error) => {

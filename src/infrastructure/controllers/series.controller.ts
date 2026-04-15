@@ -119,6 +119,7 @@ export class SeriesController implements Routes {
       const totalEpisodes = totalEpisodesStr ? Number.parseInt(totalEpisodesStr, 10) : undefined
       const skipPortraits = c.req.query('skipPortraits') === 'true'
       const roadmapOnly = c.req.query('roadmapOnly') === 'true'
+      const characterModelId = c.req.query('characterModelId')
 
       if (!title) return c.json({ error: 'Title is required' }, 400)
 
@@ -133,7 +134,8 @@ export class SeriesController implements Routes {
           videoGenre,
           totalEpisodes,
           skipPortraits,
-          roadmapOnly
+          roadmapOnly,
+          characterModelId
         })
 
         for await (const event of generator) {

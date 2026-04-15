@@ -42,6 +42,7 @@ export const series = pgTable('series', {
   thumbnailUrl: text('thumbnail_url'),
   audioProvider: text('audio_provider'),
   kokoroVoicePreset: text('kokoro_voice_preset'),
+  characterModelId: text('character_model_id'),
 
   // Last generated episode number
   lastEpisodeNumber: text('last_episode_number').default('0'),

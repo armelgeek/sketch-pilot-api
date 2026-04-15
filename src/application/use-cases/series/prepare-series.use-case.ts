@@ -1,13 +1,18 @@
+import crypto from 'node:crypto'
+import * as fs from 'node:fs'
 import process from 'node:process'
 import { LLMServiceFactory, type LLMServiceConfig } from '@sketch-pilot/services/llm'
 import { PromptService } from '@/application/services/prompt.service'
+import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { IUseCase } from '@/domain/types'
-import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 
+import { uploadBuffer } from '@/infrastructure/config/storage.config'
+import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
+import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import { SeriesVideoGenerator } from '../../../../plugins/sketch-pilot/src/core/generators/series-video-generator'
 
 /* ---------------- TYPES ---------------- */
@@ -59,6 +64,7 @@ type PrepareSeriesParams = {
   roadmapOnly?: boolean
   skipPortraits?: boolean
   aspectRatio?: string
+  characterModelId?: string
 }
 
 /* ---------------- UTILS ---------------- */
@@ -79,7 +85,9 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
   private readonly promptService = new PromptService(new PromptRepository())
   private readonly creditsRepository = new CreditsRepository()
   private readonly seriesRepository = new SeriesRepository()
+  private readonly videoRepository = new VideoRepository()
   private readonly characterModelRepository = new CharacterModelRepository()
+  private readonly videoGenerationService = new VideoGenerationService()
 
   /* ---------------- HELPERS ---------------- */
 
@@ -324,6 +332,7 @@ RÈGLES NARRATIVES ROADMAP :
         totalEpisodes: String(parsed.totalEpisodes || params.totalEpisodes || 5),
         thumbnailUrl: Object.values(characterRegistry || {})[0]?.thumbnailUrl,
         aspectRatio: params.aspectRatio || '9:16',
+        characterModelId: params.characterModelId,
         status: 'draft' as const
       }
 
@@ -381,19 +390,76 @@ RÈGLES NARRATIVES ROADMAP :
         data: { status: params.skipPortraits ? 'finalizing' : 'generating_characters', progress: 60 }
       }
 
-      // 🔄 NON-DESTRUCTIVE SYNC: Fetch existing context if extension
+      // 🔄 SAGA BIBLE MERGE: Fetch existing context if extension
       let existingChars = {}
       let existingLocs = {}
+      let seriesReferenceImage: string | undefined = undefined
+
       if (params.seriesId) {
         const current = await this.seriesRepository.findById(params.seriesId)
         if (current) {
           existingChars = (current.characterRegistry as Record<string, any>) || {}
           existingLocs = (current.locationRegistry as Record<string, any>) || {}
+          seriesReferenceImage = current.thumbnailUrl || undefined
         }
       }
 
       const characterRegistry = this.mergeRegistries(existingChars, parsed.characterRegistry || {})
       const locationRegistry = this.mergeRegistries(existingLocs, parsed.locationRegistry || {})
+
+      // --- [V50] AUTOMATED CHARACTER PORTRAITS ---
+      if (!params.skipPortraits && !params.roadmapOnly) {
+        const charactersToGenerate = Object.entries(characterRegistry).filter(
+          ([, data]: [string, any]) => !data.thumbnailUrl
+        )
+
+        if (charactersToGenerate.length > 0) {
+          console.info(`[PrepareSeries] 🎭 Generating ${charactersToGenerate.length} character portraits...`)
+          const standardModels = await this.characterModelRepository.findAllStandard()
+          const baseModelId = params.characterModelId || standardModels[0]?.id || 'default-model'
+
+          let completedChars = 0
+          for (const [name, data] of charactersToGenerate) {
+            const charData = data as any
+            try {
+              yield {
+                type: 'progress',
+                data: {
+                  status: 'generating_characters',
+                  progress: 60 + Math.round((completedChars / charactersToGenerate.length) * 20),
+                  message: `Génération du portrait de ${name}...`
+                }
+              }
+
+              // Build a strong descriptive prompt for the portrait
+              const portraitPrompt = charData.description || name
+              const imagePath = await this.videoGenerationService.generateCharacterImage({
+                prompt: portraitPrompt,
+                baseModelId,
+                // Inject series global thumbnail for style consistency if it exists
+                referenceImages: seriesReferenceImage ? [{ name: 'series-style', data: seriesReferenceImage }] : []
+              })
+
+              if (imagePath && fs.existsSync(imagePath)) {
+                // Upload to MinIO
+                const buffer = fs.readFileSync(imagePath)
+                const safeName = name.replaceAll(/\s+/g, '-').replaceAll(/[^\w-]/g, '')
+                const storagePath = `series/previews/characters/${safeName}-${Date.now()}.webp`
+                const url = await uploadBuffer(storagePath, buffer, 'image/webp')
+
+                charData.thumbnailUrl = url
+                console.info(`[PrepareSeries] ✓ Portrait generated for ${name}: ${url}`)
+
+                // Cleanup
+                fs.unlinkSync(imagePath)
+              }
+            } catch (error) {
+              console.error(`[PrepareSeries] ❌ Failed to generate portrait for ${name}:`, error)
+            }
+            completedChars++
+          }
+        }
+      }
 
       // Persist Draft
       const seriesData = {
@@ -407,6 +473,7 @@ RÈGLES NARRATIVES ROADMAP :
         videoGenre: parsed.videoGenre || params.videoGenre,
         totalEpisodes: String(parsed.totalEpisodes),
         aspectRatio: params.aspectRatio || '9:16',
+        characterModelId: params.characterModelId,
         status: 'draft' as const
       }
 

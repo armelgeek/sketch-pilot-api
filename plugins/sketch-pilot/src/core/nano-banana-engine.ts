@@ -573,10 +573,11 @@ export class NanoBananaEngine {
     if (fs.existsSync(imagePath)) {
       const b64 = fs.readFileSync(imagePath).toString('base64')
 
-      if (scene.locationId && !this.projectLocationCache.has(scene.locationId)) {
+      const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
+      if (scene.locationId && !this.projectLocationCache.has(locId)) {
         // We store the B64 in the cache for consistency with other parts of the engine
         // that might use it as a reference image data URI.
-        this.projectLocationCache.set(scene.locationId, b64)
+        this.projectLocationCache.set(locId, b64)
       }
 
       // 3. Register the result in the engine to advance the progressive chain

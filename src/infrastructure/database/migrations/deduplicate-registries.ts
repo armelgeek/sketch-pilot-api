@@ -5,14 +5,14 @@ import { db } from '../db'
 import { seriesAssets, seriesCharacters, seriesLocations } from '../schema'
 
 async function migrate() {
-  console.log('🚀 Starting Registry Deduplication & Normalization...')
+  console.info('🚀 Starting Registry Deduplication & Normalization...')
 
   // 1. Add display_name columns if they don't exist (Drizzle-safe raw SQL)
   try {
     await db.execute(sql`ALTER TABLE series_characters ADD COLUMN IF NOT EXISTS display_name TEXT`)
     await db.execute(sql`ALTER TABLE series_locations ADD COLUMN IF NOT EXISTS display_name TEXT`)
     await db.execute(sql`ALTER TABLE series_assets ADD COLUMN IF NOT EXISTS display_name TEXT`)
-    console.log('✅ Display name columns ensured.')
+    console.info('✅ Display name columns ensured.')
   } catch (error) {
     console.error('⚠️ Error adding columns (might already exist):', error)
   }
@@ -24,7 +24,7 @@ async function migrate() {
   ]
 
   for (const { name: tableName, table } of tables) {
-    console.log(`\n📦 Processing ${tableName}...`)
+    console.info(`\n📦 Processing ${tableName}...`)
 
     // Fetch all entries
     const allEntries = await db.select().from(table as any)
@@ -47,7 +47,7 @@ async function migrate() {
 
       for (const [normKey, group] of Object.entries(normalizedGroups)) {
         if (group.length > 1 || group[0].name !== normKey) {
-          console.log(`   🔄 Normalizing/Merging group for ${normKey} in series ${seriesId} (${group.length} items)`)
+          console.info(`   🔄 Normalizing/Merging group for ${normKey} in series ${seriesId} (${group.length} items)`)
 
           // Pick the winner: Prefer one with thumbnailUrl, then prefer one that already had @
           const winner = group.sort((a, b) => {
@@ -74,7 +74,7 @@ async function migrate() {
           // Delete others
           const toDelete = group.filter((e) => e.id !== winner.id)
           for (const d of toDelete) {
-            console.log(`      ❌ Deleting duplicate: ${d.name} (${d.id})`)
+            console.info(`      ❌ Deleting duplicate: ${d.name} (${d.id})`)
             await db.delete(table as any).where(eq((table as any).id, d.id))
           }
         } else if (!group[0].displayName) {
@@ -87,7 +87,7 @@ async function migrate() {
     }
   }
 
-  console.log('\n✨ Deduplication complete!')
+  console.info('\n✨ Deduplication complete!')
   process.exit(0)
 }
 

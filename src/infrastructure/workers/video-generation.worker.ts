@@ -9,6 +9,7 @@ import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/vid
 import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
+import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -28,6 +29,7 @@ const videoGenerationService = new VideoGenerationService()
 const videoRepository = new VideoRepository()
 const creditsRepository = new CreditsRepository()
 const seriesRepository = new SeriesRepository()
+const characterModelRepository = new CharacterModelRepository()
 
 const VIDEO_QUEUE_NAME = 'video-generation'
 const DEFAULT_VIDEO_DURATION = 60 // 1 minute default if not specified
@@ -496,16 +498,50 @@ async function promoteVisualSagaContext(seriesId: string, videoId: string, scrip
 
     // 1. Merge New Characters
     if (metadata.newCharacters) {
-      for (const [rawName, desc] of Object.entries(metadata.newCharacters)) {
-        // Strip @ for DB storage consistency
-        const name = rawName.replace(/^@/, '')
-        const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, name)
-        if (!existing) {
-          console.info(`[VideoWorker] 🆕 Registering new character discovered in saga: ${name}`)
-          updatedRegistry[name] = {
-            description: desc as string,
-            isNew: true,
-            discoveredInEpisode: currentContext.episodeNumber
+      const newCharsEntries = Object.entries(metadata.newCharacters)
+      if (newCharsEntries.length > 0) {
+        console.info(`[VideoWorker] 🆕 Discovering ${newCharsEntries.length} new characters in script metadata...`)
+        const standardModels = await characterModelRepository.findAllStandard()
+        const baseModelId = (currentContext as any).characterModelId || standardModels[0]?.id || 'default-model'
+
+        for (const [rawName, desc] of newCharsEntries) {
+          // Strip @ for DB storage consistency
+          const name = rawName.replace(/^@/, '')
+          const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, name)
+          if (!existing) {
+            console.info(`[VideoWorker] 🆕 Registering and generating portrait for: ${name}`)
+
+            let thumbnailUrl: string | undefined = undefined
+
+            try {
+              // Automatically generate a portrait for the newly discovered character
+              const imagePath = await videoGenerationService.generateCharacterImage({
+                prompt: desc as string,
+                baseModelId,
+                videoId
+              })
+
+              if (imagePath && fs.existsSync(imagePath)) {
+                const buffer = await fsPromises.readFile(imagePath)
+                const safeName = name.replaceAll(/\s+/g, '-').replaceAll(/[^\w-]/g, '')
+                const storagePath = `series/${seriesId}/characters/${safeName}-${Date.now()}.webp`
+                thumbnailUrl = await uploadBuffer(storagePath, buffer, 'image/webp')
+
+                console.info(
+                  `[VideoWorker] ✓ Automatic portrait generated for discovered character ${name}: ${thumbnailUrl}`
+                )
+                fs.unlinkSync(imagePath)
+              }
+            } catch (error) {
+              console.error(`[VideoWorker] ❌ Failed to generate automatic portrait for ${name}:`, error)
+            }
+
+            updatedRegistry[name] = {
+              description: desc as string,
+              isNew: true,
+              thumbnailUrl,
+              discoveredInEpisode: currentContext.episodeNumber
+            }
           }
         }
       }
@@ -733,7 +769,7 @@ async function evolveStandaloneContext(videoId: string, script: any) {
     }
 
     // 2. Promote visual portraits from scenes
-    console.log('[....................SCENES...............]', script)
+    console.info('[....................SCENES...............]', script)
     if (script.scenes) {
       for (const scene of script.scenes) {
         const chars = scene.charactersInScene || []

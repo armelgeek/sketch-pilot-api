@@ -4,18 +4,18 @@ import { db } from '../db/index'
 import { series, seriesAssets, seriesCharacters, seriesLocations } from '../schema/series.schema'
 
 async function migrate() {
-  console.log('🚀 Starting registry migration...')
+  console.info('🚀 Starting registry migration...')
 
   const allSeries = await db.select().from(series)
-  console.log(`Found ${allSeries.length} series to process.`)
+  console.info(`Found ${allSeries.length} series to process.`)
 
   for (const s of allSeries) {
-    console.log(`Processing series: ${s.id} (${s.title})`)
+    console.info(`Processing series: ${s.id} (${s.title})`)
 
     // 1. Characters
     const charRegistry = (s.characterRegistry as Record<string, any>) || {}
     for (const [name, data] of Object.entries(charRegistry)) {
-      console.log(`  - Character: ${name}`)
+      console.info(`  - Character: ${name}`)
       await db
         .insert(seriesCharacters)
         .values({
@@ -41,7 +41,7 @@ async function migrate() {
     // 2. Locations
     const locRegistry = (s.locationRegistry as Record<string, any>) || {}
     for (const [name, data] of Object.entries(locRegistry)) {
-      console.log(`  - Location: ${name}`)
+      console.info(`  - Location: ${name}`)
       await db
         .insert(seriesLocations)
         .values({
@@ -62,7 +62,7 @@ async function migrate() {
     // 3. Assets
     const assetRegistry = (s.assetRegistry as Record<string, any>) || {}
     for (const [name, data] of Object.entries(assetRegistry)) {
-      console.log(`  - Asset: ${name}`)
+      console.info(`  - Asset: ${name}`)
       await db
         .insert(seriesAssets)
         .values({
@@ -80,7 +80,7 @@ async function migrate() {
     }
   }
 
-  console.log('✅ Migration completed successfully.')
+  console.info('✅ Migration completed successfully.')
 }
 
 migrate().catch((error) => {
