@@ -19,7 +19,7 @@ export class GrokImageService implements ImageService {
 
   async generateImage(
     prompt: string,
-    filename: string,
+    filename?: string,
     options: {
       aspectRatio?: string
       removeBackground?: boolean
@@ -31,7 +31,7 @@ export class GrokImageService implements ImageService {
       format?: 'png' | 'webp'
       characterSheets?: any[]
     } = {}
-  ): Promise<string> {
+  ): Promise<string | Buffer> {
     console.log(`[GrokImage] Generating image: ${prompt.slice(0, 30)}...`)
 
     if (!this.apiKey) {
@@ -49,7 +49,7 @@ export class GrokImageService implements ImageService {
         response_format: 'b64_json'
       })
 
-      return new Promise((resolve, reject) => {
+      return new Promise<string | Buffer>((resolve, reject) => {
         const req = https.request(
           {
             hostname: 'api.x.ai',
@@ -93,9 +93,14 @@ export class GrokImageService implements ImageService {
                   })
                   .toBuffer()
 
-                fs.writeFileSync(filename, finalBuffer)
-                console.log(`[GrokImage] Saved image to ${filename}`)
-                resolve(filename)
+                if (filename) {
+                  fs.writeFileSync(filename, finalBuffer)
+                  console.log(`[GrokImage] Saved image to ${filename}`)
+                  resolve(filename)
+                } else {
+                  console.log(`[GrokImage] Returning Buffer directly`)
+                  resolve(finalBuffer)
+                }
               } catch (error) {
                 reject(error)
               }

@@ -27,7 +27,7 @@ export class GeminiImageService implements ImageService {
 
   async generateImage(
     prompt: string,
-    filename: string,
+    filename?: string,
     options: {
       aspectRatio?: string
       removeBackground?: boolean
@@ -41,7 +41,7 @@ export class GeminiImageService implements ImageService {
       characterSheets?: any[]
       onStatus?: (status: string, message?: string) => void
     } = {}
-  ): Promise<string> {
+  ): Promise<string | Buffer> {
     const referenceImages = options.referenceImages || []
     console.log(
       `[GeminiImageService] Generating with ${referenceImages.length} reference images. Labels: ${referenceImages
@@ -157,28 +157,35 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
             if (part.inlineData?.data) {
               const buffer = Buffer.from(part.inlineData.data, 'base64')
 
-              // Ensure directory exists
-              const dir = path.dirname(filename)
-              if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true })
+              if (filename) {
+                // Ensure directory exists
+                const dir = path.dirname(filename)
+                if (!fs.existsSync(dir)) {
+                  fs.mkdirSync(dir, { recursive: true })
+                }
+
+                // Gemini retourne du JPEG natif.
+                if (fileFormat === 'png') {
+                  await sharp(buffer).png({ compressionLevel: 0 }).toFile(filename)
+                } else if (fileFormat === 'webp') {
+                  await sharp(buffer).webp({ lossless: true, effort: 4 }).toFile(filename)
+                } else {
+                  fs.writeFileSync(filename, buffer)
+                }
+
+                console.log(
+                  `[GeminiImage] ✅ Saved ${fileFormat} → ${filename}${attempt > 0 ? ` (after ${attempt} retries)` : ''}`
+                )
+                return filename
               }
 
-              // Gemini retourne du JPEG natif.
-              // Si PNG demandé : ré-encoder via sharp (PNG lossless, compressionLevel 0 = vitesse max).
-              // Si webp demandé : lossless via sharp.
-              // Sinon : écriture directe du buffer brut.
+              // Return buffer directly if no filename provided
               if (fileFormat === 'png') {
-                await sharp(buffer).png({ compressionLevel: 0 }).toFile(filename)
+                return await sharp(buffer).png({ compressionLevel: 0 }).toBuffer()
               } else if (fileFormat === 'webp') {
-                await sharp(buffer).webp({ lossless: true, effort: 4 }).toFile(filename)
-              } else {
-                fs.writeFileSync(filename, buffer)
+                return await sharp(buffer).webp({ lossless: true, effort: 4 }).toBuffer()
               }
-
-              console.log(
-                `[GeminiImage] ✅ Saved ${fileFormat} → ${filename}${attempt > 0 ? ` (after ${attempt} retries)` : ''}`
-              )
-              return filename
+              return buffer
             }
           }
         }

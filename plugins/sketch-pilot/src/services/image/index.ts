@@ -5,7 +5,7 @@
 export interface ImageService {
   generateImage: (
     prompt: string,
-    filename: string,
+    filename?: string,
     options?: {
       aspectRatio?: string
       removeBackground?: boolean
@@ -25,7 +25,7 @@ export interface ImageService {
       /** Callback for status updates during retries/delays */
       onStatus?: (status: string, message?: string) => void
     }
-  ) => Promise<string>
+  ) => Promise<string | Buffer>
   analyzeImage?: (imagePath: string, prompt: string) => Promise<string>
 }
 

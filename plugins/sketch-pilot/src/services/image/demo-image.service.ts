@@ -13,12 +13,12 @@ export class DemoImageService implements ImageService {
 
   async generateImage(
     prompt: string,
-    filename: string,
+    filename?: string,
     options: {
       aspectRatio?: string
       format?: 'png' | 'webp'
     } = {}
-  ): Promise<string> {
+  ): Promise<string | Buffer> {
     const aspectRatio = options.aspectRatio || '16:9'
     const format = options.format || 'png'
 
@@ -52,9 +52,14 @@ export class DemoImageService implements ImageService {
 
       const buffer = format === 'webp' ? await image.webp().toBuffer() : await image.png().toBuffer()
 
-      fs.writeFileSync(filename, buffer)
-      console.log(`[DemoImage] ✅ Mock image saved to ${filename}`)
-      return filename
+      if (filename) {
+        fs.writeFileSync(filename, buffer)
+        console.log(`[DemoImage] ✅ Mock image saved to ${filename}`)
+        return filename
+      } else {
+        console.log(`[DemoImage] Returning Buffer directly`)
+        return buffer
+      }
     } catch (error) {
       console.error(`[DemoImage] Error generating mock image:`, error)
       throw error

@@ -182,17 +182,16 @@ export class NanoBananaEngine {
     refs?: { name: string; data: string }[],
     tempPath?: string,
     isReprompt: boolean = false,
-    onStatus?: (status: string, message?: string) => void,
+    onProgress?: (p: number, m: string) => Promise<void>,
     visualDNA?: string,
     seed?: number
-  ): Promise<string> {
-    const filename = tempPath || path.join(this.outputDir, scene.id, `prompt_${scene.id}.webp`)
+  ): Promise<string | Buffer> {
+    const filename = tempPath // could be undefined
     const bypassCache = isReprompt
 
     // 1. Resolve effective reference images
     const baseImages = await this.promptManager.resolveCharacterImages()
     const rawActiveCharacters = scene.charactersInScene || []
-    // Normalize IDs to match registry handles (@slug)
     const activeCharacters = rawActiveCharacters.map((id) =>
       id.startsWith('@')
         ? id.toLowerCase()
@@ -202,70 +201,39 @@ export class NanoBananaEngine {
             .replaceAll(/[\s\-_]+/g, '')}`
     )
 
-    //console.info('[GENERATE IMAGE REFERENCE CHARACTERS]', rawActiveCharacters)
-    //console.log('[BASE IMAGE TO FILTER]', JSON.stringify(baseImages))
-    // Filter registry images: only keep those whose name matches an active character
-    // or if they are "LOCATION" anchors, or if they are the special "BASE_ANCHOR"
     const filteredBaseImages = baseImages.filter((img) => {
       if (typeof img === 'object' && img.name) {
-        // Character images from registry are named '@id'
         if (activeCharacters.includes(img.name.toLowerCase())) return true
-        // Keep if it's a location anchor or base anchor (handled separately usually but good to be safe)
         if (img.name.startsWith('LOCATION') || img.name.startsWith('base-')) return true
-        // If it has no specific name mapping but is in the list, we might want to keep it
-        // but for characters we must be strict.
         return false
       }
-      return true // Keep generic images (unlikely to be character models if no name)
+      return true
     })
-    //console.log('[FILTERED BASE IMAGES]', filteredBaseImages)
 
     const characterImages = refs || []
     const allBaseImages = await this.downloadAndEncodeImages([...filteredBaseImages, ...characterImages])
 
-    //console.log('[FILTERED BASE IMAGES]', allBaseImages)
-    // 2. Inject Bridge into references if it exists
     const sequelBridgeUrl = (this.promptManager as any).seriesContext?.lastEpisodeFinalImage
     if (sequelBridgeUrl) {
-      console.info(`[NanoBanana] 🎬 PROJECT SEQUEL: Bridging with last episode final frame...`)
-      const encodedBridge = await this.downloadAndEncodeImages([
-        {
-          name: 'Sequel Bridge',
-          data: sequelBridgeUrl
-        }
-      ])
+      const encodedBridge = await this.downloadAndEncodeImages([{ name: 'Sequel Bridge', data: sequelBridgeUrl }])
       allBaseImages.push(...encodedBridge)
     }
 
     const hasReferenceImages = allBaseImages.length > 0
-
-    // [V47] Master Style Injection: Always use the series thumbnail as the aesthetic truth
     const masterStyleUrl = (this.promptManager as any).seriesContext?.thumbnailUrl
     if (masterStyleUrl && hasReferenceImages) {
-      console.info(`[NanoBanana] 🎨 MASTER STYLE: Injecting global series aesthetic...`)
-      const encodedMaster = await this.downloadAndEncodeImages([
-        {
-          name: 'Master Style',
-          data: masterStyleUrl
-        }
-      ])
-      allBaseImages.unshift(...encodedMaster) // Put at the beginning for primary attention
+      const encodedMaster = await this.downloadAndEncodeImages([{ name: 'Master Style', data: masterStyleUrl }])
+      allBaseImages.unshift(...encodedMaster)
     }
 
-    // 2. Extract & Strip Internal Tags (@VisualState, @LocationState)
-    let internalContext = ''
+    // 2. Extract & Strip Internal Tags
     const visualStateRegex = /@VisualState:\s*\[([^\]]+)\]/i
     const match = visualStateRegex.exec(scene.imagePrompt || '')
-    if (match) {
-      internalContext = `SCENE COMPOSITION / VISUAL STATE: ${match[1]}`
-      console.info(`[NanoBanana] 👁️  Internal Visual State: ${match[1]}`)
-    }
-
-    // Strip internal tags from the prompt to avoid polluting the token limit
+    const internalContext = match ? `SCENE COMPOSITION / VISUAL STATE: ${match[1]}` : ''
     const cleanPrompt = (scene.imagePrompt || '').replaceAll(/@VisualState:\s*\[[^\]]+\]/gi, '').trim()
     const tempScene = { ...scene, imagePrompt: cleanPrompt }
 
-    const { prompt: fullPrompt, reuseReferenceImage } = await this.promptManager.buildImagePrompt(
+    const { prompt: fullPrompt } = await this.promptManager.buildImagePrompt(
       tempScene,
       hasReferenceImages,
       this.currentOptions?.aspectRatio || '16:9',
@@ -276,7 +244,6 @@ export class NanoBananaEngine {
       hasReferenceImages || !!sequelBridgeUrl
     )
 
-    // 3. Inject Visual DNA & Internal Context
     if (visualDNA || internalContext) {
       const isPortrait = scene.id === 'char-gen' || scene.locationId === 'studio'
       const dnaHeader = isPortrait
@@ -287,11 +254,12 @@ export class NanoBananaEngine {
       if (internalContext) systemInstruction = `${internalContext}\n\n${systemInstruction}`
 
       if (isPortrait) {
-        systemInstruction = `CHARACTER IDENTITY PRIORITY: Maintain the exact features of the character provided in reference images. The DNA below should ONLY be used for artistic style (lighting, linework, color palette, rendering style).\n\n${systemInstruction}`
+        systemInstruction = `CHARACTER IDENTITY PRIORITY: Maintain the exact features of the character provided in reference images. The DNA below should ONLY be used for artistic style.\n\n${systemInstruction}`
       }
     }
 
-    if (!bypassCache) {
+    // --- CACHE CHECK ---
+    if (!bypassCache && filename) {
       const cached = this.sceneCache.get(fullPrompt, {
         sceneId: scene.id,
         imageStyle: this.currentOptions?.imageStyle,
@@ -303,41 +271,38 @@ export class NanoBananaEngine {
       }
     }
 
-    const maxRetries = 5
+    return await this.performImageGeneration(fullPrompt, filename, onProgress, allBaseImages, systemInstruction, seed)
+  }
+
+  private async performImageGeneration(
+    fullPrompt: string,
+    filename?: string,
+    onProgress?: (p: number, m: string) => Promise<void>,
+    allBaseImages: (string | { name?: string; data: string })[] = [],
+    systemInstruction?: string,
+    seed?: number
+  ): Promise<string | Buffer> {
+    const maxRetries = 3
     let lastError: any
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        /**const imageService = await this.getImageService()
-        const imageUrl = await imageService.generateImage(fullPrompt, filename, {
+        const imageService = await this.getImageService()
+        const result = await imageService.generateImage(fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
-          onStatus,
-          systemInstruction, // Inject style DNA here
+          onStatus: async (s, m) => {
+            if (onProgress) await onProgress(0, m || s)
+          },
+          systemInstruction,
           seed,
           quality: (this.currentOptions?.qualityMode as any) || 'medium',
           format: 'webp'
         })
-        return imageUrl**/
-        return ''
+        return result
       } catch (error: any) {
         lastError = error
         if (this.isNetworkError(error) && attempt < maxRetries) continue
         break
-      }
-    }
-
-    if (this.currentImageProvider !== 'gemini' && this.isNetworkError(lastError)) {
-      console.info(`[NanoBanana] 🔄 Multi-provider fallback: Attempting Gemini after network error...`)
-      try {
-        const gemini = await ImageServiceFactory.create({ provider: 'gemini', apiKey: this.apiKey } as any)
-        return await gemini.generateImage(fullPrompt, filename, {
-          aspectRatio: this.currentOptions?.aspectRatio || '16:9',
-          referenceImages: allBaseImages,
-          systemInstruction
-        })
-      } catch (geminiError: any) {
-        console.error(`[NanoBanana] ❌ Critical failure: Gemini fallback also failed: ${geminiError.message}`)
-        throw geminiError
       }
     }
     throw lastError
@@ -370,7 +335,7 @@ export class NanoBananaEngine {
         referenceImages: encodedRefs,
         systemInstruction
       })
-      results.push(url)
+      results.push(url as string)
     }
     return results
   }
@@ -423,15 +388,13 @@ export class NanoBananaEngine {
     } else if (aspectRatio === '1:1') {
       ;[width, height] = [makeEven(baseHeight), makeEven(baseHeight)]
     } else {
-      ;[width, height] = [makeEven(baseHeight * (16 / 9)), makeEven(baseHeight)]
+      ;[width, height] = [makeEven(baseHeight * (16 / 9)), baseHeight]
     }
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true })
     const imagePath = path.join(outputDir, 'scene.webp')
-    const tempBg = path.join(outputDir, 'temp_bg.webp')
 
     const effectiveRefs = [...referenceImages]
 
-    // --- VISUAL COHERENCE SYSTEM (AnchorEngine) ---
     const locationId =
       scene.locationId && scene.locationId !== 'default'
         ? SeriesVideoGenerator.normalizeId(scene.locationId)
@@ -442,26 +405,11 @@ export class NanoBananaEngine {
     }
     const anchorEngine = this.locationAnchors.get(locationId)!
 
-    /**
-     * [V46 Experiment] Dynamic Location Reference:
-     * We no longer pre-warm the AnchorEngine from the projectLocationCache (Registry).
-     * This forces the FIRST scene of EACH location in the current script to become
-     * the new Base Anchor, ensuring the current generation flow defines the look.
-     */
-    /*
-    if (this.projectLocationCache.has(locationId) && !anchorEngine.getState().baseAnchor) {
-      const baseImageData = this.projectLocationCache.get(locationId)!
-      anchorEngine.registerBaseAnchor(baseImageData, `base-${locationId}`)
-    }
-    */
-
-    // 2. Add anchors from the engine to generation references
     const engineAnchors = anchorEngine.getNextAnchors()
     for (const anchor of engineAnchors) {
       effectiveRefs.push({ name: anchor.name, data: anchor.url })
     }
 
-    // --- VISUAL DNA & STYLE CONTINUITY ---
     const context = (this.promptManager as any).seriesContext
     const dnaParts: string[] = []
 
@@ -480,13 +428,11 @@ export class NanoBananaEngine {
       console.info(`[NanoBanana] 🧬 DNA: ${dnaInstruction}`)
     }
 
-    // Legacy Continuity Support (Previous Frame Chaining)
     if (scene.continueFromPrevious && lastSceneB64) {
       console.info(`[NanoBanana] 🔗 CONTINUITY: Adding previous scene as reference anchor.`)
       effectiveRefs.push({ name: 'PREVIOUS_SCENE_FRAME', data: lastSceneB64 })
     }
 
-    // --- OPTIMIZATION: Physical Reuse or Polyptych existing asset ---
     if (fs.existsSync(imagePath) && !isReprompt) {
       console.log(`[NanoBanana] 💎 Using existing image asset for scene ${scene.id}`)
       scene.imageUrl = imagePath
@@ -494,8 +440,6 @@ export class NanoBananaEngine {
       const MAX_IMAGE_RETRIES = 3
       let lastImageError: any
 
-      // REPROMPT CONTINUITY: If we are reprompting, use the existing image as a strong reference
-      // to maintain props, layout, and character posture while applying NEW text instructions.
       if (isReprompt && fs.existsSync(imagePath)) {
         const currentImageB64 = fs.readFileSync(imagePath).toString('base64')
         effectiveRefs.push({ name: 'ORIGINAL_SCENE', data: currentImageB64 })
@@ -513,6 +457,15 @@ export class NanoBananaEngine {
       const baseSeed = options.initialSeed ?? Math.floor(Math.random() * 1000000)
       const sceneSeed = baseSeed + scene.sceneNumber
 
+      const { prompt: fullPrompt } = await this.promptManager.buildImagePrompt(
+        scene,
+        effectiveRefs.length > 0,
+        aspectRatio,
+        undefined
+      )
+      let systemInstruction = await this.promptManager.buildImageSystemInstruction(effectiveRefs.length > 0)
+      if (dnaInstruction) systemInstruction = `${dnaInstruction}\n\n${systemInstruction}`
+
       for (let v = 0; v < variantCount; v++) {
         const variantSuffix = shouldGenerateVariants ? `_v${v + 1}` : ''
         const currentTarget = shouldGenerateVariants ? path.join(variantsDir, `variant-${v + 1}.webp`) : imagePath
@@ -520,21 +473,22 @@ export class NanoBananaEngine {
 
         for (let attempt = 1; attempt <= MAX_IMAGE_RETRIES; attempt++) {
           try {
-            await this.generateImage(
-              scene,
-              effectiveRefs as { name: string; data: string }[],
-              tempBg,
-              isReprompt,
-              (s, m) => {
-                const statusMsg = shouldGenerateVariants ? `${s} (Variant ${v + 1})` : s
-                if (onProgress) onProgress(-1, statusMsg, { message: m })
+            const rawBuffer = (await this.performImageGeneration(
+              fullPrompt,
+              undefined,
+              async (p, m) => {
+                const statusMsg = shouldGenerateVariants ? `${m} (Variant ${v + 1})` : m
+                if (onProgress) await onProgress(-1, statusMsg, { message: m })
               },
-              dnaInstruction,
+              effectiveRefs as { name: string; data: string }[],
+              systemInstruction,
               currentSeed
-            )
-            await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(currentTarget)
+            )) as Buffer
 
-            // Auto-promote the first variant as the main scene image for default preview
+            if (rawBuffer && rawBuffer.length > 0) {
+              await sharp(rawBuffer).resize(width, height, { fit: 'cover' }).webp().toFile(currentTarget)
+            }
+
             if (shouldGenerateVariants && v === 0) {
               fs.copyFileSync(currentTarget, imagePath)
             }
@@ -555,14 +509,11 @@ export class NanoBananaEngine {
                 `[NanoBanana] Image generation failed after ${MAX_IMAGE_RETRIES} attempts: ${error.message}`
               )
             }
-          } finally {
-            if (fs.existsSync(tempBg)) fs.unlinkSync(tempBg)
           }
         }
-        if (lastImageError) break // Abort variants if one fails critically
+        if (lastImageError) break
       }
 
-      // Only write blank placeholder if all retries exhausted
       if (lastImageError && !fs.existsSync(imagePath)) {
         await sharp({ create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } } })
           .webp()
@@ -570,13 +521,11 @@ export class NanoBananaEngine {
       }
     }
 
-    // Store in location cache and update AnchorEngine chain
     if (fs.existsSync(imagePath)) {
       const b64 = fs.readFileSync(imagePath).toString('base64')
 
-      if (scene.locationId) {
-        const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
-        // [V47] Triple-Lock Promotion: Cache + Registry + Anchor
+      const locId = scene.locationId ? SeriesVideoGenerator.normalizeId(scene.locationId) : undefined
+      if (locId) {
         const registry = (this.promptManager as any).seriesContext?.locationRegistry
 
         if (!this.projectLocationCache.has(locId)) {
@@ -584,8 +533,8 @@ export class NanoBananaEngine {
           this.projectLocationCache.set(locId, b64)
         }
 
-        if (registry) {
-          const loc = registry[locId] || registry[scene.locationId]
+        if (registry && locId) {
+          const loc = registry[locId] || (scene.locationId ? registry[scene.locationId] : undefined)
           if (loc && !loc.thumbnailUrl) {
             console.info(`[NanoBanana] 👑 REGISTRY PROMOTION: ${locId}`)
             loc.thumbnailUrl = b64 // Seed with B64 for immediate visual sync
