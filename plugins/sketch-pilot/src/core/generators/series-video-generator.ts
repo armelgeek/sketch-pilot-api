@@ -126,8 +126,7 @@ export interface SeriesContext {
   isFirstEpisode?: boolean
   plannedEpisodes?: { number: number; title: string; hook: string }[]
   videoGenre?: string
-  visualStyleModelId?: string
-  visualStyleGuide?: string
+  aspectRatio?: string
   visualEvolution?: Record<string, string | EvolutionState>
   weatherState?: string
   timeOfDay?: string
@@ -183,7 +182,7 @@ function cliffhangerBridgeInstruction(
     prompt += `\n🆘 ANTI-SAUT TEMPOREL (CRITICAL) : Interdiction absolue de commencer par 'Mais alors qu'ils discutaient', 'Quelques heures plus tard', ou toute ellipse. Vous reprenez au MÊME ENDROIT, à la MÊME SECONDE.`
     prompt += `\n- HÉRITAGE TECHNIQUE [S1] (CLONAGE) : La Scène 1 DOIT être l'héritière technique de l'épisode précédent :`
     prompt += `\n    * locationId : "${lastScene.locationId}" (Utilisez cet ID EXACT)`
-    prompt += `\n    * charactersId : [${(lastScene.charactersId || []).join(', ')}]`
+    prompt += `\n    * charactersInScene : [${(lastScene.charactersInScene || []).join(', ')}]`
     prompt += `\n    * persistentDecorTokens : [${(lastScene.persistentDecorTokens || []).join(', ')}]`
     prompt += `\n    * shotType : "${lastScene.shotType || 'WIDE'}"`
     prompt += `\n- ECHO DU DERNIER SOUFFLE : L'épisode précédent s'est achevé sur : "${lastScene.narration}".`
@@ -235,13 +234,13 @@ function validateThreadsAsQuestions(threads: NarrativeThread[]): string[] {
  * false resolution beats, and addictive narrative structure.
  */
 export class SeriesVideoGenerator extends VideoGenerator {
-  private seriesContext: SeriesContext
+  public seriesContext: SeriesContext
   private narrativeInstructions: string[] = []
 
   constructor(config: VideoGeneratorConfig, seriesContext: SeriesContext) {
     super(config)
     this.seriesContext = seriesContext
-    console.log('[CONTEXTUAL_SERIE_CONTEXT_CONTEXT]', seriesContext)
+    //console.log('[CONTEXTUAL_SERIE_CONTEXT_CONTEXT]', seriesContext)
     // Automatic final episode detection
     const instructions = [
       `Génère l'Épisode nº${this.seriesContext.episodeNumber}${this.seriesContext.totalEpisodes ? ` sur ${this.seriesContext.totalEpisodes}` : ''} de la saga : "${this.seriesContext.videoGenre || 'Horreur Historique'}".`
@@ -356,7 +355,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
       "locationId": "identifiant-lieu-unique",
       "persistentDecorTokens": ["lampe de bureau rouge", "plante verte", "lumière de fin de journée"],
       "imagePrompt": "Description visuelle",
-      "charactersId": ["@Sarah"],
+      "charactersInScene": ["@Sarah"],
       "isEstablishingShot": true,
       "spatialAnchor": "Sur la colline surplombant le village",
       "emotionalTokens": { "@Sarah": ["Terrifié", "Essoufflé"] },
@@ -544,8 +543,8 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
       CONTEXTE GLOBAL (BIBLE) :
       ${this.seriesContext.globalContext || 'Pas de bible spécifiée.'}
 
-      🎨 GUIDE DE STYLE VISUEL OBLIGATOIRE :
-      ${(this.seriesContext as any).visualStyleGuide || 'Non spécifié. Maintenez une cohérence visuelle réaliste.'}
+      ÉPISODES PRÉCÉDENTS :
+      ${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
 
       REGISTRE DES PERSONNAGES (Canon) :
       ${
@@ -558,7 +557,7 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
             if (data.fate) attributes.push(`Destin : ${data.fate}`)
 
             const attrText = attributes.length ? ` | ${attributes.join(' | ')}` : ''
-            return `• ${name}: ${data.description} (Motivation: ${data.motivation || 'N/A'}, But: ${data.personalGoal || 'N/A'}, Statut: ${data.status || 'alive'})${attrText}`
+            return `• ${name}: (Motivation: ${data.motivation || 'N/A'}, But: ${data.personalGoal || 'N/A'}, Statut: ${data.status || 'alive'})${attrText}`
           })
           .join('\n') || 'Aucun personnage récurrent défini.'
       }
@@ -587,6 +586,10 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
           .join('\n') || 'Aucune entité récurrente définie.'
       }
 
+      🎨 GUIDE DE STYLE VISUEL (DNA DE LA SAGA) :
+      Style organique basé sur les références fournies.
+      ⚠️ RÈGLE D'OR VISUELLE : La narration de cet épisode DOIT rester 100% cohérente avec les références visuelles passées.
+
       ÉPISODES PRÉCÉDENTS :
       ${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
 
@@ -598,21 +601,22 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
       }
 
       DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}${seedingInstruction}${closedStakesInstruction}${deadCharacters ? `\n\nPERSONNAGES MORTS (ANTI-RÉSURRECTION) :\n${deadCharacters}` : ''}${forbiddenInstruction}
-
       🏗️ RÈGLES DE RIGUEUR NARRATIVE ET CAUSALITÉ :
       1. PERSISTANCE DU MONDE : Si un objet ou lieu est marqué comme 'DÉTRUIT' ou 'ENDOMMAGÉ' dans les registres, cela DOIT être maintenu visuellement et narrativement. Interdiction de "réparer" sans une action explicite.
       2. LOGIQUE DES CONSÉQUENCES : Chaque action majeure (explosion, incendie, vol) doit avoir des répercussions durables sur l'environnement.
       3. CAUSALITÉ VISUELLE : Si un personnage a perdu son chapeau à la scène 4, il ne doit pas l'avoir à la scène 5.
       4. COHÉRENCE ÉMOTIONNELLE : Les personnages DOIVENT réagir avec une intensité proportionnelle aux enjeux (Peur viscérale si mort imminente, Joie éclatante si retrouvailles).
+      5. AUDIT DE NÉCESSITÉ : Avant de créer une nouvelle scène, demandez-vous : "Est-ce indispensable ?" Si l'action peut continuer dans le même plan ou le même angle, ne divisez pas. La fragmentation excessive nuit à la performance visuelle.
 
       RÈGLES D'OR DE NARRATION :
       • INTERDICTION ABSOLUE : Ne créez aucun personnage absent du characterRegistry. Si la narration nécessite un allié, utilisez un personnage existant ou laissez le rôle anonyme.
       • ÉCONOMIE DE MOYENS (BUDGET PRODUCTION) : Un nouvel asset maître (personnage ou lieu) a un coût de production élevé (crédits). Vous DEVEZ limiter l'introduction de nouveaux éléments.
         - MAXIMUM : 1 nouveau lieu et 1 nouveau personnage par épisode.
       • RÉUTILISATION PRIORITAIRE : Privilégiez EXCLUSIVEMENT les lieux et personnages déjà présents dans le registre. Ne créez un nouvel élément que si l'intrigue l'exige ABOLUMENT.
-      • LISTES AUTORISÉES (ID FIXES) : 
+      • LISTES AUTORISÉES (ID FIXES - PRIORITÉ ABSOLUE) : 
         - PERSONNAGES : ${authorizedCharacters}
-        - LIEUX : ${Object.keys(this.seriesContext.locationRegistry || {}).join(', ') || 'Aucun lieu défini (Déclarer via newLocations)'}
+        - LIEUX (BUDGET ZÉRO) : ${Object.keys(this.seriesContext.locationRegistry || {}).join(', ') || 'Aucun lieu défini'}
+      • RÈGLE D'OR DES LIEUX : Si l'action peut se dérouler dans un lieu existant (ex: @Archives), INTERDICTION d'en créer un nouveau. La fragmentation géographique est un échec narratif et budgétaire.
       • SOUDURE DE CONTINUITÉ DIRECTE (ARC N → ARC N+1) [CRITIQUE] : La Scène 1 du premier épisode d'un Arc DOIT commencer par justifier la survie ou la suite immédiate du cliffhanger de l'Arc précédent. INTERDICTION de sauter le 'Comment avons-nous survécu ?' (ex: "Le flash de la Brèche nous avait projeté au sol, mais les ombres semblaient avoir reculé...").
       • PERSISTANCE DES MENACES ACTIVES : Si des ennemis (ex: silhouettes) étaient présents à la fin de l'épisode précédent, ils DOIVENT être mentionnés, combattus ou leur fuite justifiée.
       • HÉRITAGE DE L'ÉTAT PHYSIQUE : Les personnages conservent les séquelles immédiates (essoufflement, blessures, entraves) de la scène finale précédente.
@@ -667,16 +671,11 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
 
   protected buildStructuringSystemPrompt(options: VideoGenerationOptions): string {
     const spec = this.getEffectiveSpec(options)
-    const lastScene = this.seriesContext.lastEpisodeFinalScene
     const ch = this.seriesContext.lastCliffhanger
 
     let prompt = `
 🚨 DIRECTIVE NARRATIVE PRIORITAIRE :
 ${this.narrativeInstructions.join('\n')}
-
-🎨 GUIDE DE STYLE VISUEL OBLIGATOIRE :
-${(this.seriesContext as any).visualStyleGuide || 'Non spécifié.'}
-
 `
     prompt += '\n\n🆘 TRANSITION VS CAMERA ACTION (STRICT) : '
     const cliffhangerContext = ch
@@ -698,9 +697,11 @@ ${(this.seriesContext as any).visualStyleGuide || 'Non spécifié.'}
       
 🚨 ATTENTION CRITIQUE : 
 1. Vous DEVEZ impérativement inclure l'objet "seriesMetadata" à la fin de votre réponse JSON. Sans ce bloc, la série sera corrompue.
-2. EXPULSION NARRATIVE (STRICT) : Si un personnage est enlevé (kidnappé), tué, ou s'enfuit de la scène, il DOIT être IMMÉDIATEMENT retiré de la liste 'charactersInScene' (et donc 'charactersId') pour toutes les scènes suivantes où il n'est plus présent physically. Ne laissez PAS de 'fantômes' visuels.
-3. DISTINCTION VISUEL VS NARRATION : Si la narration parle d'une personne (@Maya) mais qu'elle n'est pas physiquement présente dans la scène, vous ne devez PAS l'ajouter dans 'charactersId'. Sa mention dans 'fullNarration' suffit. 'charactersId' est réservé STRICTEMENT à la présence physique visible.
+2. EXPULSION NARRATIVE (STRICT) : Si un personnage est enlevé (kidnappé), tué, ou s'enfuit de la scène, il DOIT être IMMÉDIATEMENT retiré de la liste 'charactersInScene' pour toutes les scènes suivantes où il n'est plus présent physically. Ne laissez PAS de 'fantômes' visuels.
+3. DISTINCTION VISUEL VS NARRATION : Si la narration parle d'une personne (@Maya) mais qu'elle n'est pas physiquement présente dans la scène, vous ne devez PAS l'ajouter dans 'charactersInScene'. Sa mention dans 'fullNarration' suffit. 'charactersInScene' est réservé STRICTEMENT à la présence physique visible.
 4. ÉVOLUTION NARRATIVE (@characterEvolution) : Si un personnage change de statut (meurt, devient un traître, est blessé) même s'il n'est pas présent visuellement, vous devez l'enregistrer dans 'characterEvolution' pour assurer la continuité.
+5. POSITIONNEMENT ET ÉQUILIBRE (FIX) : Pour assurer une continuité parfaite du décor, vous DEVEZ décrire la POSITION relative des personnages dans 'spatialAnchor' (ex: "@Maya est au centre, @Elias à sa droite"). Si la scène continue de la précédente ('continueFromPrevious': true), maintenez les positions initiales pour éviter les sauts visuels.
+6. IDENTITÉ DES PERSONNAGES (STRICT) : Utilisez UNIQUEMENT le PRÉNOM pour les handles @. EXCLUEZ les préfixes (Frère, Dr, Sœur, Maître, etc.), les noms de famille et les suffixes de profession. (Exemple Correct : @Aloysius, @Jean; INCORRECT : @BrotherAloysius, @DrWatson).
 Schéma attendu :
 {
   "seriesMetadata": {
@@ -734,13 +735,14 @@ Schéma attendu :
   "scenes": [
     {
       "id": "scene-1",
+      "justification": "Expliquez pourquoi ce changement de scène est nécessaire (Ex: Changement d'angle, Nouvelle interaction, Déplacement).",
       "summary": "...",
       "narration": "...",
       "locationId": "...",
       "charactersInScene": ["@Nom"],
       "emotionalTokens": { "@Nom": ["Emotion"] },
       "relationshipMap": { "@A": { "@B": "Relation" } },
-      "spatialAnchor": "Description physique du lieu précis",
+      "spatialAnchor": "Description physique du lieu ET POSITION relative (ex: @Maya au centre devant la porte)",
       "visualEvolution": { "@Objet": "Nouvel état" },
       "imagePrompt": "...",
       "cameraAction": [{ "type": "...", "intensity": "..." }],
@@ -775,13 +777,24 @@ PONT VISUEL OBLIGATOIRE : ${
        - Emplacement précis : ${this.seriesContext.lastEpisodeFinalScene.locationId}
        - État émotionnel : ${JSON.stringify(this.seriesContext.lastEpisodeFinalScene.emotionalTokens || {})}
        - Interactions en cours : "${this.seriesContext.lastEpisodeFinalScene.interactions || 'Aucune'}"
-       - Personnages présents : ${this.seriesContext.lastEpisodeFinalScene.charactersId?.join(', ') || 'Inconnu'}
+       - Personnages présents : ${this.seriesContext.lastEpisodeFinalScene.charactersInScene?.join(', ') || 'Inconnu'}
        La première scène de ce NOUVEL ÉPISODE doit être la suite immédiate et indissociable de cet état.`
           : 'Aucun (Premier épisode).'
       }
 REGISTRE DES PERSONNAGES : ${
         Object.entries(this.seriesContext.characterRegistry || {})
-          .map(([name, data]) => `${name}: ${data.description}`)
+          .map(([name, data]) => {
+            const handle = SeriesVideoGenerator.normalizeId(name)
+            return `${name} (${handle}): ${data.description}`
+          })
+          .join(' | ') || 'Aucun.'
+      }
+REGISTRE DES LIEUX : ${
+        Object.entries(this.seriesContext.locationRegistry || {})
+          .map(([name, data]) => {
+            const normalized = SeriesVideoGenerator.normalizeId(name)
+            return `${normalized}: ${data.description}`
+          })
           .join(' | ') || 'Aucun.'
       }
 REGISTRE DES ASSETS PROPRES : ${
@@ -795,13 +808,20 @@ LORE BIBLE : ${this.seriesContext.globalContext || 'Vide.'}`,
         'RÈGLE DE SOUDURE : Les premières secondes DOIVENT résoudre le cliffhanger précédent.',
         "SONDAGE ÉMOTIONNEL : Chaque scène DOIT obligatoirement avoir des 'emotionalTokens' pour les personnages présents (min. 2 jetons par perso) ET une description d'expression faciale intense dans 'imagePrompt'.",
         "DENTISTÉ CINÉMATOGRAPHIQUE : Décrivez avec précision la position des personnages et objets dans 'spatialAnchor'.",
-        "STABILITÉ VISUELLE : Utilisez 'visualEvolution' et 'assetEvolution' pour traquer les changements permanents (ex: 'destroyed', 'scarred').",
-        "PROTOCOLE VISUAL DNA (IMPORTANT) : Dans 'imagePrompt', NE RÉ-DÉCRIVEZ PAS les visages des personnages du registre. Limitez-vous à leur EXPRESSION (peur, colère, rire) et à leur ACTION pour garantir la stabilité via les portraits de référence.",
-        'LOGIQUE CAUSALE : Vérifiez que chaque objet et lieu est dans son état correct (persistance de la destruction/évolution).',
+        "STABILITÉ VISUELLE : Utilisez 'visualEvolution' and 'assetEvolution' pour traquer les changements permanents (ex: 'destroyed', 'scarred').",
+        "PROTOCOLE IDENTITÉ (RÉFÉRENCE UNIQUE) : Dans 'imagePrompt', INTERDICTION TOTALE de décrire la physionomie des personnages (cheveux, vêtements, yeux, peau, taille). Limitez-vous EXCLUSIVEMENT à leur EXPRESSION ÉMOTIONNELLE (Inquiet, Déterminé, Souriant) et à leur ACTION (Courant, Lisant).",
+        "CONCISION MAXIMALE : Les 'imagePrompt' doivent être extrêmement courts. Pas de phrases longues. Utilisez une syntaxe télégraphique focalisée sur l'ambiance et l'action (ex: 'Rafael est effrayé. Sarah le soutient. Grotte sombre. Éclairage à la lampe torche.').",
+        'LOGIQUE CAUSALE (ASSETS) : Vérifiez que chaque objet (tenu ou au sol) est dans son état correct. Un objet tenu en main NE PEUT PAS disparaître au plan suivant sans justification.',
         "TEASING PRÉCIS : Le 'nextEpisodeTease' doit bannir le vague. Soyez spécifique.",
-        "LORE GUARD : Si vous introduisez une date (ex: 1487) ou un nom de région (ex: Lorraine), vous DEVEZ l'ajouter dans 'loreUpdates' pour qu'il devienne canon.",
+        "MANDAT DE JUSTIFICATION : Vous DEVEZ remplir le champ 'justification' pour CHAQUE scène. Justifiez tout changement de lieu, de tenue ou la DISPARITION d'un objet précédemment tenu.",
+        "LORE GUARD (CANONISATION) : Tout fait nouveau (date, lieu dit, règle du monde) introduit dans l'épisode DOIT être consigné dans 'loreUpdates' pour devenir canon. Les personnages ne peuvent pas contredire le Lore existant.",
+        "FIL CONDUCTEUR (MÉMOIRE ACTIVE) : Chaque épisode DOIT impérativement faire progresser l'un des 'unresolvedThreads' (passage à 'partial' ou 'resolved'). Interdiction de créer des épisodes 'de remplissage' sans évolution des enjeux.",
         "EPISODE TITLE : Le premier titre dans la liste 'titles' DOIT être un titre accrocheur, dramatique et spécifique à l'intrigue de CET épisode (ex: 'Le Secret de la Crypte', 'L'Ombre du Passé'). Évitez les titres génériques comme 'Épisode 2'.",
-        "PROTOCOLE D'ACCUMULATION VISUELLE (OBLIGATOIRE) : Chaque 'imagePrompt' de la scène 'N' doit commencer par '@VisualState: [Position de N-1]'. L'image doit être une évolution directe de la scène précédente (positions des membres, objets tenus, orientation) pour assurer une continuité parfaite. Si Scène 1, héritez de 'PONT VISUEL OBLIGATOIRE'."
+        "GEMINI VISION (ACTIVATE): Une image de référence (dernière frame de l'épisode précédent) vous est fournie en entrée multi-modale. Vous DEVEZ l'analyser pour assurer que la Scène 1 est visuellement raccord (détails du décor, vêtements, éclairage).",
+        "PROTOCOLE D'ACCUMULATION VISUELLE (OBLIGATOIRE) : Chaque 'imagePrompt' de la scène 'N' doit commencer par '@VisualState: [Position de N-1, OBJETS TENUS]'. L'image doit être une évolution directe de la scène précédente (positions des membres, objets tenus, orientation) pour assurer une continuité parfaite.",
+        "INVENTAIRE ACTIF & PERSISTANCE : Si un personnage tient un objet (ex: torche, livre, épée) en scène N, il DOIT obligatoirement le tenir en scène N+1, N+2, etc., sauf si une action explicite décrit qu'il le pose ou le perd. Ne faites JAMAIS disparaître un objet entre deux plans.",
+        "ANALYSE DE CONTINUITÉ (VISION) : Dans 'continuityAnalysis.lastVisualBridge', décrivez les 3 éléments visuels clés que vous avez identifiés dans l'image de référence pour prouver votre analyse visuelle.",
+        "STABILITÉ GÉOGRAPHIQUE (LIEUX POSSIBLES) : Vous DEVEZ réutiliser les lieux du 'REGISTRE DES LIEUX'. Chaque scène DOIT avoir un 'locationId' valide. Si la narration ne mentionne pas un changement de lieu EXPLICITE, vous DEVEZ copier le 'locationId' de la scène précédente. Interdiction totale d'inventer des lieux génériques."
       ]
     }
 
@@ -1029,6 +1049,8 @@ ${instructions.join('\n')}
   ): Promise<import('../../types/video-script.types').ImagePrompt> {
     const isFirstScene = scene.sceneNumber === 1 || scene.id === 'scene-1' || scene.id === '1'
     const sequelBridgeUrl = isFirstScene ? this.seriesContext.lastEpisodeFinalImage : undefined
+    let locationMasterUrl: string | undefined
+    let referenceImageUrl = sequelBridgeUrl
 
     // ─── 1. Primary Subject (Narration/Action) ─────────────────────────────────
     const subject = (scene.imagePrompt || scene.summary || '').trim()
@@ -1036,32 +1058,60 @@ ${instructions.join('\n')}
     // ─── 2. Spatial & Environmental Context ────────────────────────────────────
     let spatialContext = ''
     if (scene.spatialAnchor) {
-      spatialContext += `[ANCRE SPATIALE: ${scene.spatialAnchor}] `
+      spatialContext += `[ANCRE SPATIALE & POSITION: ${scene.spatialAnchor}] `
     }
 
-    if (scene.locationId) {
+    const previousScene = isFirstScene ? this.seriesContext.lastEpisodeFinalScene : (memory as any)?.previousScene
+
+    // Fallback logic for missing locationId (Enforce user requirement: reuse previous if missing)
+    let effectiveLocationId = scene.locationId
+    if (!effectiveLocationId && previousScene?.locationId) {
+      effectiveLocationId = previousScene.locationId
+    }
+
+    if (effectiveLocationId) {
       const locationRegistry = this.seriesContext.locationRegistry || {}
-      const loc = SeriesVideoGenerator.findInRegistry(locationRegistry, scene.locationId)
+      const loc = SeriesVideoGenerator.findInRegistry(locationRegistry, effectiveLocationId)
+      locationMasterUrl = (loc as any)?.thumbnailUrl
+
       if (loc) {
         const referenceMark = hasLocationReference ? 'REFERENCE VISUELLE ACTIVE (ANKER)' : 'RÉFÉRENCE TEXTUELLE'
         const locDesc = (loc as any).description || (loc as any).atmosphere || ''
-        spatialContext += `LIEU : ${SeriesVideoGenerator.normalizeId(scene.locationId)} (${referenceMark}). ${locDesc}. `
 
-        if ((loc as any).thumbnailUrl && !spatialContext.includes('COMPOSITION IDENTIQUE')) {
-          spatialContext += `Maintenez la cohérence absolue avec le décor établi de ${scene.locationId} (Style, Lumière, Matériaux). `
+        if (locationMasterUrl) {
+          spatialContext += `[LOCATION LOCK: ${SeriesVideoGenerator.normalizeId(effectiveLocationId)}] (Reference: AS MASTER). `
+        }
+
+        // CRITICAL: User requested to stop describing the environment in every prompt to avoid drift.
+        // We only describe it IF we don't have a master image yet (first appearance).
+        const showFullDesc = !locationMasterUrl && !isFirstScene
+
+        spatialContext += `LIEU : ${SeriesVideoGenerator.normalizeId(effectiveLocationId)} (${referenceMark}). `
+
+        if (showFullDesc) {
+          spatialContext += `${locDesc.trim()}. `
+        }
+
+        if (locationMasterUrl && !spatialContext.includes('COMPOSITION IDENTIQUE')) {
+          spatialContext += `🚨 COHÉRENCE DÉCOR : Utilisez l'image de référence pour reproduire EXACTEMENT le décor de ${effectiveLocationId}. `
         }
       }
     }
 
     // ─── 3. Narrative Continuity & Sequel Logic ───────────────────────────────
     let continuityContext = ''
-    const previousScene = isFirstScene ? this.seriesContext.lastEpisodeFinalScene : (memory as any)?.previousScene
+    // Reuse previousScene declared above
 
     if (previousScene) {
       const isSequelBridge = isFirstScene && this.seriesContext.episodeNumber > 1
       const isInternalSequence = !isFirstScene && scene.continueFromPrevious
 
       if (isSequelBridge || isInternalSequence) {
+        // Use previous scene image as primary reference for internal sequences
+        if (isInternalSequence && previousScene.imageUrl) {
+          referenceImageUrl = previousScene.imageUrl
+        }
+
         continuityContext += `CONTINUATION DIRECTE DE LA SCÈNE PRÉCÉDENTE : ${previousScene.summary || previousScene.imagePrompt}. `
 
         if (previousScene.persistentDecorTokens && previousScene.persistentDecorTokens.length > 0) {
@@ -1072,26 +1122,12 @@ ${instructions.join('\n')}
         const refLabel = isSequelBridge ? 'Sequel Bridge (ZÉRO DRIFT)' : `Scene ${previousScene.id}`
         const fidelityInstruction = isSequelBridge
           ? "⚠️ FIDÉLITÉ ABSOLUE : Cette scène est la reprise directe de l'épisode précédent. Utilisez l'image de référence comme point de départ IMMUABLE."
-          : 'Maintenez le placement spatial exact des personnages et des éléments du décor.'
+          : "⚠️ ZÉRO DRIFT : Les meubles, l'éclairage et la POSITION RELATIVE des personnages DOIVENT rester IDENTIQUES à ceux de la scène précédente pour préserver la continuité du plan."
 
         continuityContext += `Reference (${refLabel}). ${fidelityInstruction} COMPOSITION IDENTIQUE. `
 
-        // Track background presences (characters/assets not actively in narration but still there)
-        const previousCast = previousScene.charactersId || previousScene.charactersInScene || []
-        const currentCast = scene.charactersId || scene.charactersInScene || []
-        const silentPresence = previousCast.filter((id: string) => !currentCast.includes(id))
-
-        const registryAssets = Object.keys(this.seriesContext.assetRegistry || {})
-        const prevText = (previousScene.summary || previousScene.imagePrompt || '').toLowerCase()
-        const currText = (scene.summary || scene.imagePrompt || '').toLowerCase()
-        const silentAssets = registryAssets.filter(
-          (name) => prevText.includes(name.toLowerCase()) && !currText.includes(name.toLowerCase())
-        )
-
-        if (silentPresence.length > 0 || silentAssets.length > 0) {
-          const presence = [...silentPresence, ...silentAssets]
-          continuityContext += `[Background presence - Personnages et objets en arrière-plan] ${presence.join(', ')}. `
-        }
+        // [HARDENING V42] Removed Background presence pollution.
+        // We only render what is explicitly in the current scene's cast.
       }
     }
 
@@ -1112,25 +1148,32 @@ ${instructions.join('\n')}
     // ─── 5. Initial Assembly ───────────────────────────────────────────────────
     let paragraph = `${spatialContext}${continuityContext}${loreContext}ACTION : ${subject}`
 
-    if ((this.seriesContext as any).visualStyleGuide) {
-      paragraph += `. Visual Style: ${(this.seriesContext as any).visualStyleGuide}`
+    // ─── 6. Prompt Sanitization & Identity Locking (Characters & Assets) ────────
+    // Using charactersInScene to ensure we don't miss anyone due to schema defaults
+    const activeCharacters = new Set((scene.charactersInScene || []).map((id) => SeriesVideoGenerator.normalizeId(id)))
+    const characterRegistry = this.seriesContext.characterRegistry || {}
+
+    // [HARDENING V43] Strip inactive character names from the prompt to prevent trait pollution
+    const allKnownCharacterIds = Object.keys(characterRegistry)
+    const activeIds = new Set(Array.from(activeCharacters).map((id) => id.toLowerCase()))
+    const characterMatches = Array.from(activeCharacters)
+
+    for (const charId of allKnownCharacterIds) {
+      const normalizedId = SeriesVideoGenerator.normalizeId(charId)
+      if (!activeIds.has(normalizedId.toLowerCase())) {
+        // Character is NOT in this scene. Purge their name/handle.
+        const handleRegex = new RegExp(`\\b${normalizedId.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\b`, 'gi')
+        const rawNameRegex = new RegExp(`\\b${charId.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\b`, 'gi')
+        paragraph = paragraph.replace(handleRegex, '').replace(rawNameRegex, '').trim()
+      }
     }
 
-    // ─── 6. Identity Locking (Characters & Assets) ──────────────────────────────
-    const characterMatches = scene.charactersId || scene.charactersInScene || []
-    const characterRegistry = this.seriesContext.characterRegistry || {}
     for (const name of characterMatches) {
       const char = SeriesVideoGenerator.findInRegistry(characterRegistry as any, name)
       if (char) {
-        const isEvolving = (char as any).isNew === true
-        paragraph = this.applyIdentityLocking(paragraph, !!hasReferenceImages && !isEvolving, {
+        paragraph = this.applyIdentityLocking(paragraph, false, {
           character: { [name]: char }
         })
-
-        const effectiveModelId = (char as any).modelId || this.seriesContext.visualStyleModelId
-        if (effectiveModelId && !paragraph.includes(effectiveModelId)) {
-          paragraph += `, style reference ${effectiveModelId}`
-        }
       }
     }
 
@@ -1138,8 +1181,7 @@ ${instructions.join('\n')}
     for (const name of Object.keys(assetRegistry)) {
       if (paragraph.toLowerCase().includes(name.toLowerCase())) {
         const asset = SeriesVideoGenerator.findInRegistry(assetRegistry as any, name)
-        const isEvolving = (asset as any).isNew === true
-        paragraph = this.applyIdentityLocking(paragraph, !!hasReferenceImages && !isEvolving, {
+        paragraph = this.applyIdentityLocking(paragraph, !!hasReferenceImages, {
           asset: { [name]: asset }
         })
       }
@@ -1192,23 +1234,30 @@ ${instructions.join('\n')}
 
     const relevantEvolutions: string[] = []
 
+    const getEvolutionString = (data: any): string => {
+      if (typeof data === 'string') return data
+      if (typeof data?.state === 'string') return data.state
+      if (typeof data?.state === 'object') return JSON.stringify(data.state)
+      return ''
+    }
+
     // 1. Characters in scene
     for (const name of characterMatches) {
       const evolutionData = SeriesVideoGenerator.findInRegistry(evolution as any, name)
       if (evolutionData) {
-        const stateStr = typeof evolutionData === 'string' ? evolutionData : (evolutionData as any).state
-        relevantEvolutions.push(`${name} (${stateStr})`)
+        const stateStr = getEvolutionString(evolutionData)
+        if (stateStr) relevantEvolutions.push(`${name} (${stateStr})`)
       }
     }
 
     // 2. Assets (fuzzy check in prompt)
     for (const [assetName, evolutionData] of Object.entries(assetState)) {
-      const stateStr = typeof evolutionData === 'string' ? evolutionData : (evolutionData as any).state
       if (
         paragraph.toLowerCase().includes(assetName.toLowerCase()) ||
         paragraph.toLowerCase().includes(SeriesVideoGenerator.normalizeId(assetName))
       ) {
-        relevantEvolutions.push(`${assetName} (${stateStr})`)
+        const stateStr = getEvolutionString(evolutionData)
+        if (stateStr) relevantEvolutions.push(`${assetName} (${stateStr})`)
       }
     }
 
@@ -1262,9 +1311,45 @@ ${instructions.join('\n')}
       paragraph = `COMPOSITION : ${typeLabel} separating characters. ${paragraph}`
     }
 
-    const guards =
-      'PAS DE MAIN QUI DESSINE, PAS DE STYLO, PAS DE CRAYON, PAS DE BORDURE BLANCHE, PAS DE TEXTE, PAS DE FILIGRANE. STYLE CINÉMATIQUE UNIQUEMENT.'
-    paragraph = `${paragraph}. ${guards}`
+    // ─── 11. Final Assembly & Anchoring ──────────────────────────────────────────
+    const allReferenceImages: (string | { name?: string; data: string })[] = []
+    const characterSheets: any[] = []
+
+    // 1. Add background/continuity reference as primary
+    if (referenceImageUrl) {
+      allReferenceImages.push(referenceImageUrl)
+    }
+
+    // 2. Add character visual anchors (thumbnails) and metadata (sheets)
+    for (const name of characterMatches) {
+      const char = SeriesVideoGenerator.findInRegistry(characterRegistry as any, name) as any
+      if (char) {
+        if (char.thumbnailUrl) {
+          allReferenceImages.push({ name, data: char.thumbnailUrl })
+        }
+        characterSheets.push({
+          name: name.replace(/^@/, ''),
+          appearance: { description: char.description || '' }, // ALWAYS provide description
+          role: char.role || ''
+        })
+      }
+    }
+
+    // 3. Add asset anchors
+    for (const name of Object.keys(assetRegistry)) {
+      if (paragraph.toLowerCase().includes(name.toLowerCase())) {
+        const asset = SeriesVideoGenerator.findInRegistry(assetRegistry as any, name) as any
+        if (asset && asset.thumbnailUrl) {
+          allReferenceImages.push({ name, data: asset.thumbnailUrl })
+        }
+      }
+    }
+
+    // 4. Add Location Master as a background anchor (V44 Hardening)
+    // We always add it if no previous scene image is available, to GROUND the AI.
+    if (!referenceImageUrl && locationMasterUrl) {
+      allReferenceImages.push({ name: 'Location Reference', data: locationMasterUrl })
+    }
 
     const spec = this.getEffectiveSpec({} as any)
     const finalPrompt = this.getEnrichedImagePrompt(paragraph, spec)
@@ -1272,7 +1357,9 @@ ${instructions.join('\n')}
     return {
       sceneId: scene.id,
       prompt: finalPrompt,
-      referenceImage: sequelBridgeUrl,
+      referenceImage: referenceImageUrl,
+      referenceImages: allReferenceImages,
+      characterSheets,
       reuseReferenceImage: !!sequelBridgeUrl
     }
   }
@@ -1293,29 +1380,56 @@ ${instructions.join('\n')}
   public async buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string> {
     const spec = this.getEffectiveSpec({} as any)
     const characterDescription = this.buildCharacterDescription(spec, hasReferenceImages)
+    const locationDescription = this.buildLocationDescription(hasReferenceImages)
 
     return this.buildImageGenerationInstructions(hasReferenceImages, {
-      characterDescription
+      characterDescription,
+      locationDescription
     })
   }
 
-  protected buildCharacterDescription(spec: VideoTypeSpecification, hasReferenceImages: boolean = false): string {
-    const globalModelId = this.seriesContext.visualStyleModelId
-
-    const charSection = Object.entries(this.seriesContext.characterRegistry)
+  protected buildLocationDescription(hasReferenceImages: boolean = false): string {
+    const locSection = Object.entries(this.seriesContext.locationRegistry || {})
       .map(([name, data]) => {
-        const modelId = data.modelId || globalModelId
-        return `Recurring Character "${name}"${!hasReferenceImages ? ` (${data.description})` : ''}${modelId ? ` (MODEL: ${modelId})` : ''}`
+        const normalized = SeriesVideoGenerator.normalizeId(name)
+        return `Location "${normalized}"${!hasReferenceImages ? ` (${data.description})` : ''}`
       })
       .join(', ')
 
+    const header = [`Universe/Genre: ${this.seriesContext.globalContext?.slice(0, 200) || 'Series Continuity'}.`].join(
+      '\n'
+    )
+
     if (hasReferenceImages) {
-      return charSection ? `Recalling characters from references: ${charSection}` : 'Character from reference.'
+      return [
+        header,
+        locSection ? `Recalling locations from master references: ${locSection}` : 'Location from reference.'
+      ].join('\n')
+    }
+
+    return [header, locSection || 'Established series environments.'].join('\n')
+  }
+
+  protected buildCharacterDescription(spec: VideoTypeSpecification, hasReferenceImages: boolean = false): string {
+    const charSection = Object.entries(this.seriesContext.characterRegistry)
+      .map(([name, data]) => {
+        return `Recurring Character "${name}"${!hasReferenceImages ? ` (${data.description})` : ''}`
+      })
+      .join(', ')
+
+    const header = [`Universe/Genre: ${this.seriesContext.globalContext?.slice(0, 200) || 'Series Continuity'}.`].join(
+      '\n'
+    )
+
+    if (hasReferenceImages) {
+      return [
+        header,
+        charSection ? `Recalling characters from references: ${charSection}` : 'Character from reference.'
+      ].join('\n')
     }
 
     return [
       `Universe/Genre: ${this.seriesContext.globalContext?.slice(0, 200) || 'Series Continuity'}.`,
-      `Visual Style Guide: ${(this.seriesContext as any).visualStyleGuide || 'Consistency'}.`,
       spec.characterDescription || '',
       `Style episodic series consistency. ${charSection ? `Recalling characters: ${charSection}` : ''}`
     ]
@@ -1689,7 +1803,7 @@ ${instructions.join('\n')}
         const charAny = char as any
         if (!charAny.originSceneId) {
           const charPattern = name.toLowerCase()
-          const charsInScene = scene.charactersId || []
+          const charsInScene = scene.charactersInScene || []
           if (
             fullText.includes(charPattern) ||
             charsInScene.some((id: string) => id.toLowerCase().replace('@', '') === charPattern)
@@ -1700,7 +1814,7 @@ ${instructions.join('\n')}
         }
       }
 
-      const charIds = scene.charactersId || scene.charactersInScene || []
+      const charIds = scene.charactersInScene || []
       for (const charId of charIds) {
         const name = charId.replace(/^@/, '')
         const char = updatedRegistry[name]
@@ -1799,8 +1913,6 @@ ${instructions.join('\n')}
       globalContext: updatedGlobalContext,
       episodeNumber: nextEp,
       lastCliffhanger: nextCliffhanger,
-      visualStyleModelId: currentContext.visualStyleModelId,
-      seedingHints: seedingHints.length ? seedingHints : undefined,
       weatherState: lastWeather,
       timeOfDay: lastTime,
       visualEvolution: updatedVisualEvolution,
@@ -1818,18 +1930,28 @@ ${instructions.join('\n')}
   // ─── Registry Helpers ───────────────────────────────────────────────────────
 
   public static normalizeId(id: string): string {
-    return id
+    if (!id) return ''
+
+    // Lower and clean basic symbols to create a stable slug
+    const clean = id
       .toLowerCase()
       .trim()
       .replace(/^@/, '')
       .replaceAll(/[\s\-_]+/g, ' ')
+
+    return `@${clean.replaceAll(' ', '')}`
   }
 
   public static findInRegistry<T>(registry: Record<string, T>, targetId: string): T | undefined {
+    const key = SeriesVideoGenerator.findKeyInRegistry(registry, targetId)
+    return key ? registry[key] : undefined
+  }
+
+  public static findKeyInRegistry<T>(registry: Record<string, T>, targetId: string): string | undefined {
     if (!targetId) return undefined
 
     // 1. Precise direct match
-    if (registry[targetId]) return registry[targetId]
+    if (registry[targetId]) return targetId
 
     // 2. Normalize and check for handle matches
     const normalizedTarget = SeriesVideoGenerator.normalizeId(targetId)
@@ -1842,22 +1964,38 @@ ${instructions.join('\n')}
       const keySlug = normalizedKey.replaceAll(/\s+/g, '')
 
       // Full Match (Case/Handle insensitive)
-      if (normalizedKey === normalizedTarget) return value
+      if (normalizedKey === normalizedTarget) return key
 
       // Slug Match (e.g., "VictorLeclerc" === "VictorLeclerc")
-      if (keySlug === targetSlug) return value
+      if (keySlug === targetSlug) return key
 
-      // Partial Match: Handle in Full Name (e.g., "@Victor" in "Victor Leclerc")
-      if (normalizedKey.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedKey)) {
-        return value
+      // Word match logic (e.g. "Frère Aloysius" matches "@brotheraloysius" if we have a translation layer
+      // OR if the AI just used the English name) -> Relaxing the match to catch common AI naming variations
+      const keyWords = key
+        .toLowerCase()
+        .replaceAll(/[^\w\s]/g, '')
+        .split(/\s+/)
+      const targetWords = targetId
+        .toLowerCase()
+        .replace(/^@/, '')
+        .replaceAll(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+
+      // Check if target words have overlap with key words (e.g. "Aloysius" matches "@aloysius" or "@frerealoysius")
+      const hasOverlap =
+        targetWords.some((tw) => keyWords.some((kw) => tw.includes(kw) || kw.includes(tw))) ||
+        keyWords.some((kw) => targetWords.some((tw) => kw.includes(tw) || tw.includes(kw)))
+
+      if (hasOverlap) {
+        return key
       }
 
       // Check fullName field if exists (T is likely character object)
       const valAny = value as any
       if (valAny.fullName) {
         const normalizedFullName = SeriesVideoGenerator.normalizeId(valAny.fullName)
-        if (normalizedFullName === normalizedTarget || normalizedFullName.startsWith(normalizedTarget)) {
-          return value
+        if (normalizedFullName === normalizedTarget) {
+          return key
         }
       }
     }

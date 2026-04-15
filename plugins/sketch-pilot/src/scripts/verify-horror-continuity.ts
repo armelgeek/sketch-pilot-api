@@ -1,7 +1,6 @@
 import * as dotenv from 'dotenv'
 import { SeriesVideoGenerator } from '../core/generators/series-video-generator.js'
 import type { VideoGeneratorConfig } from '../types/video-generator.types.js'
-import type { VideoGenerationOptions } from '../types/video-script.types.js'
 
 dotenv.config()
 
@@ -49,7 +48,7 @@ async function verifyContinuity() {
     apiKey: 'mock-key' // No real call needed for prompt inspection
   }
 
-  const options: VideoGenerationOptions = {
+  const options: any = {
     duration: 30,
     aspectRatio: '16:9',
     language: 'french'
@@ -122,8 +121,79 @@ async function verifyContinuity() {
       console.log('❌ Visual rules MISSING from Image Prompt!')
     }
 
-    if (imagePromptObj.prompt.includes('ANCRE SPATIALE')) {
-      console.log('✅ Spatial Anchor present.')
+    // --- NEW: Test Image Prompt Enrichment (Scene 2 - Continuation) ---
+    console.log(`\n[IMAGE PROMPT ENRICHMENT TEST (Scene 2 - Continuation)]:`)
+    const mockScene2 = {
+      id: 'scene-2',
+      sceneNumber: 2,
+      summary: 'Le vieil homme se lève et marche vers la fenêtre',
+      imagePrompt: 'Le vieil homme se lève dans la bibliothèque',
+      spatialAnchor: 'Bibliothèque des Archives Oubliées',
+      locationId: 'archives',
+      continueFromPrevious: true,
+      imageUrl: 'http://mock-image/scene-1.jpg'
+    }
+
+    const imagePromptObj2 = await gen.buildImagePrompt(mockScene2 as any, false, '16:9', {
+      previousScene: { ...mockScene, imageUrl: 'http://mock-image/scene-1.jpg' }
+    })
+    console.log(`Final Prompt 2: "${imagePromptObj2.prompt}"`)
+    console.log(`Reference Image 2: "${imagePromptObj2.referenceImage}"`)
+
+    // --- NEW: Test Location Fallback (Missing locationId in scene 2) ---
+    console.log(`\n[LOCATION FALLBACK TEST (Scene 3 - missing locationId)]:`)
+    const mockScene3 = {
+      id: 'scene-3',
+      sceneNumber: 3,
+      summary: 'Action sans lieu spécifié',
+      imagePrompt: 'Le personnage agis',
+      // No locationId here
+      continueFromPrevious: true
+    }
+    const imagePromptObj3 = await gen.buildImagePrompt(mockScene3 as any, false, '16:9', {
+      previousScene: mockScene2
+    })
+    console.log(`Final Prompt 3: "${imagePromptObj3.prompt}"`)
+    if (imagePromptObj3.prompt.includes('LIEU : @archives')) {
+      console.log('✅ Location successfully inherited from previous scene.')
+    } else {
+      console.log('❌ Location inheritance FAILED!')
+    }
+
+    if (imagePromptObj2.prompt.includes('ZÉRO DRIFT')) {
+      console.log('✅ ZÉRO DRIFT instruction correctly injected.')
+    } else {
+      console.log('❌ ZÉRO DRIFT instruction MISSING!')
+    }
+
+    if (imagePromptObj2.referenceImage === 'http://mock-image/scene-1.jpg') {
+      console.log('✅ Previous frame correctly used as visual anchor.')
+    } else {
+      console.log('❌ Incorrect visual anchor!')
+    }
+
+    // --- NEW: Test Location Lock ---
+    console.log(`\n[LOCATION LOCK TEST]:`)
+    if (
+      imagePromptObj.prompt.includes('LOCATION LOCK: @archives') &&
+      imagePromptObj.prompt.includes('COHÉRENCE DÉCOR')
+    ) {
+      console.log('✅ LOCATION LOCK and COHÉRENCE DÉCOR correctly injected.')
+    } else {
+      console.log('❌ LOCATION LOCK MISSING!')
+    }
+
+    // --- NEW: Test System Instruction Enrichment ---
+    console.log(`\n[SYSTEM INSTRUCTION TEST]:`)
+    const systemInstr = await gen.buildImageSystemInstruction(true)
+    if (
+      systemInstr.includes('Location "@archives"') &&
+      systemInstr.includes('Recalling locations from master references')
+    ) {
+      console.log('✅ System Instruction correctly enriched with locations.')
+    } else {
+      console.log('❌ System Instruction MISSING location data!')
+      console.log(`Instruction: "${systemInstr}"`)
     }
   }
 

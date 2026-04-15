@@ -112,10 +112,10 @@ export class VideosController implements Routes {
 
   private initGlobalQueueListener() {
     if (this.isGlobalQueueListenerInitialized) return
-    this.isGlobalQueueListenerInitialized = true
 
     try {
       const queueEvents = getVideoQueueEvents()
+      this.isGlobalQueueListenerInitialized = true
 
       queueEvents.on('progress', async ({ jobId, data }) => {
         let parsedData: any = data
@@ -264,6 +264,31 @@ export class VideosController implements Routes {
 
   constructor() {
     this.controller = new OpenAPIHono()
+    // Ensure listeners are initialized as early as possible on server boot
+    this.initGlobalQueueListener()
+    this.startPruningTask()
+    this.cleanupStaleConnections()
+  }
+
+  /**
+   * Clears state for active SSE connections from Redis.
+   * Crucial for server restarts after crashes where 10min TTL would block users (429).
+   */
+  private cleanupStaleConnections() {
+    try {
+      // We don't have a reliable "keys" pattern in ioredis without scanning,
+      // but we can try to find all sse:connections:* keys.
+      // Since this is ONLY on startup, a SCAN is safe.
+      const stream = redisClient.scanStream({ match: 'sse:connections:*' })
+      stream.on('data', (keys) => {
+        if (keys.length > 0) {
+          console.info(`[SSE Startup] Cleaning up ${keys.length} stale connection keys from Redis.`)
+          redisClient.del(...keys)
+        }
+      })
+    } catch (error) {
+      console.warn('[SSE Startup] Failed to cleanup stale connection keys:', error)
+    }
   }
 
   public initRoutes() {
@@ -589,8 +614,6 @@ export class VideosController implements Routes {
       // Stream events
       const stream = new ReadableStream({
         start: (controller) => {
-          this.initGlobalQueueListener()
-          this.startPruningTask()
           const encoder = new TextEncoder()
           let closed = false
 

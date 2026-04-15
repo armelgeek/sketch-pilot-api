@@ -18,7 +18,9 @@ export interface ImageService {
       smartUpscale?: boolean
       /** Output format: 'png' (default) or 'webp' (30% smaller, faster) */
       format?: 'png' | 'webp'
-      /** Deterministic seed for reproducible generation (ensures consistency) */
+      /** deterministic seed for reproducible generation (ensures consistency) */
+      seed?: number
+      /** character sheets for identity maintenance */
       characterSheets?: any[]
       /** Callback for status updates during retries/delays */
       onStatus?: (status: string, message?: string) => void

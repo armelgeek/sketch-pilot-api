@@ -37,6 +37,7 @@ export class GeminiImageService implements ImageService {
       quality?: 'ultra-low' | 'low' | 'medium' | 'high'
       smartUpscale?: boolean
       format?: 'png' | 'webp'
+      seed?: number
       characterSheets?: any[]
       onStatus?: (status: string, message?: string) => void
     } = {}
@@ -133,7 +134,10 @@ SAFETY INSTRUCTION: If the scene contains horror, violence, or sensitive histori
           contents,
           config: {
             responseModalities: ['IMAGE'],
-            imageConfig: { aspectRatio: geminiAspectRatio },
+            imageConfig: {
+              aspectRatio: geminiAspectRatio,
+              seed: options.seed
+            },
             safetySettings: [
               { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },

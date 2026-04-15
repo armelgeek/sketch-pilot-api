@@ -113,8 +113,6 @@ export class GenerateScriptUseCase extends IUseCase<GenerateScriptParams, Genera
           options.videoType = options.videoType || seriesContext.videoType || 'series'
           options.videoGenre = options.videoGenre || seriesContext.videoGenre
 
-          // Legacy check for visualStyleModelId/characterModelId
-          if (!options.characterModelId) options.characterModelId = seriesContext.visualStyleModelId
           if (!options.audioProvider) options.audioProvider = seriesContext.audioProvider as any
           if (!options.kokoroVoicePreset) options.kokoroVoicePreset = seriesContext.kokoroVoicePreset as any
           if (!options.aspectRatio) options.aspectRatio = seriesContext.aspectRatio as any

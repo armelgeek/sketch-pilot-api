@@ -112,7 +112,6 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
 
               totalEpisodes: seriesContext.totalEpisodes ? Number(seriesContext.totalEpisodes) : undefined,
               episodeNumber: options.episodeNumber || Number(seriesContext.lastEpisodeNumber || 0) + 1,
-              visualStyleModelId: seriesContext.visualStyleModelId,
               videoGenre: seriesContext.videoGenre
             }
           }
@@ -120,7 +119,6 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
           // INHERIT PREFERENCES
           if (!options.audioProvider) options.audioProvider = seriesContext.audioProvider as any
           if (!options.kokoroVoicePreset) options.kokoroVoicePreset = seriesContext.kokoroVoicePreset as any
-          if (!options.characterModelId) options.characterModelId = seriesContext.visualStyleModelId
           if (!options.language) options.language = seriesContext.language
           if (!options.aspectRatio) options.aspectRatio = seriesContext.aspectRatio as any
           if (!options.duration && seriesContext.duration) {

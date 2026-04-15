@@ -17,6 +17,7 @@ type RegenerateSeriesAssetImageParams = {
 
 type RegenerateSeriesAssetImageResponse = {
   success: boolean
+  imageUrl?: string
   thumbnailUrl?: string
   error?: string
   insufficientCredits?: boolean
@@ -73,10 +74,7 @@ export class RegenerateSeriesAssetImageUseCase extends IUseCase<
       const filename = path.join(os.tmpdir(), `asset-gen-${Date.now()}-${Math.random().toString(36).slice(7)}.png`)
 
       // Refined asset prompt
-      let basePrompt = `Cinematic master shot of: ${description}. Sharp focus, high detail.`
-      if (series.visualStyleGuide) {
-        basePrompt += `\n\nStyle Guide: ${series.visualStyleGuide}`
-      }
+      let basePrompt = asset.description || asset.name
       if (series.videoGenre) {
         basePrompt += `, Style: ${series.videoGenre}`
       }
@@ -86,13 +84,6 @@ export class RegenerateSeriesAssetImageUseCase extends IUseCase<
       if (series.thumbnailUrl) {
         // @ts-ignore
         referenceImages.push({ name: 'series-dna', data: series.thumbnailUrl })
-      }
-      if (series.visualStyleModelId) {
-        const styleModel = await this.characterModelRepository.findById(series.visualStyleModelId)
-        const styleImageUrl = styleModel?.images?.[0] || styleModel?.thumbnailUrl
-        if (styleImageUrl) {
-          referenceImages.push({ name: 'global-style', data: styleImageUrl })
-        }
       }
 
       const generatedPath = await imageService.generateImage(basePrompt, filename, {
@@ -130,6 +121,7 @@ export class RegenerateSeriesAssetImageUseCase extends IUseCase<
 
       return {
         success: true,
+        imageUrl: newThumbnailUrl,
         thumbnailUrl: newThumbnailUrl
       }
     } catch (error) {

@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { users } from './schema'
 
 export interface NarrativeThread {
@@ -39,9 +39,6 @@ export const series = pgTable('series', {
   videoType: text('video_type').default('series'),
   videoGenre: text('video_genre').default('Horreur Historique'),
   promptId: text('prompt_id'),
-  // Global visual style reference model for all character image generations
-  visualStyleModelId: text('visual_style_model_id'),
-  visualStyleGuide: text('visual_style_guide'),
   thumbnailUrl: text('thumbnail_url'),
   audioProvider: text('audio_provider'),
   kokoroVoicePreset: text('kokoro_voice_preset'),
@@ -74,7 +71,112 @@ export const series = pgTable('series', {
   cameraStyle: text('camera_style'),
   threads: jsonb('threads').$type<any[]>().default([]),
   roadmap: jsonb('roadmap').$type<any>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
 
+export const seriesCharacters = pgTable('series_characters', {
+  id: text('id').primaryKey(), // Using UUID or similar string ID
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), // normalized handle e.g. @elias
+  displayName: text('display_name'), // e.g. Elias
+  description: text('description'),
+  motivation: text('motivation'),
+  backstory: text('backstory'),
+  thumbnailUrl: text('thumbnail_url'),
+  isNew: text('is_new').default('true'), // boolean as text 'true'/'false' or just use jsonb for flex
+  fate: text('fate').default('ALIVE'),
+  abilities: jsonb('abilities').$type<string[]>().default([]),
+  knownFacts: jsonb('known_facts').$type<string[]>().default([]),
+  firstMentionedEpisode: integer('first_mentioned_episode'),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const seriesLocations = pgTable('series_locations', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), // normalized handle
+  displayName: text('display_name'),
+  description: text('description'),
+  atmosphere: text('atmosphere'),
+  thumbnailUrl: text('thumbnail_url'),
+  firstMentionedEpisode: integer('first_mentioned_episode'),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const seriesAssets = pgTable('series_assets', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), // normalized handle
+  displayName: text('display_name'),
+  description: text('description'),
+  type: text('type').default('object'), // creature | monster | artifact | object | other
+  thumbnailUrl: text('thumbnail_url'),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const seriesThreads = pgTable('series_threads', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  status: text('status').default('open'), // open | partial | resolved | new
+  description: text('description').notNull(),
+  lastUpdatedEpisode: integer('last_updated_episode'),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const seriesRelationships = pgTable('series_relationships', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  characterA: text('character_a').notNull(),
+  characterB: text('character_b').notNull(),
+  relationshipType: text('relationship_type').notNull(),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const seriesEvolutions = pgTable('series_evolutions', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  entityType: text('entity_type').notNull(), // character | asset | location
+  entityName: text('entity_name').notNull(),
+  evolutionKey: text('evolution_key').notNull(),
+  evolutionValue: text('evolution_value').notNull(),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const seriesPlannedEpisodes = pgTable('series_planned_episodes', {
+  id: text('id').primaryKey(),
+  seriesId: text('series_id')
+    .notNull()
+    .references(() => series.id, { onDelete: 'cascade' }),
+  episodeNumber: integer('episode_number').notNull(),
+  title: text('title').notNull(),
+  hook: text('hook').notNull(),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

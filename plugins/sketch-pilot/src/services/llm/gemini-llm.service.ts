@@ -67,12 +67,30 @@ export class GeminiLLMService implements LLMService {
     this.modelId = config.modelId || 'gemini-2.5-flash'
   }
 
-  async generateContent(prompt: string, systemInstruction?: string, responseMimeType?: string): Promise<string> {
+  async generateContent(
+    prompt: string,
+    systemInstruction?: string,
+    responseMimeType?: string,
+    images?: { data: string; mimeType: string }[]
+  ): Promise<string> {
     return withRetry(
       async () => {
+        const parts: any[] = [{ text: prompt }]
+
+        if (images && images.length > 0) {
+          for (const img of images) {
+            parts.push({
+              inlineData: {
+                data: img.data,
+                mimeType: img.mimeType
+              }
+            })
+          }
+        }
+
         const result = await this.client.models.generateContent({
           model: this.modelId,
-          contents: [{ text: prompt }],
+          contents: [{ role: 'user', parts }],
           config: {
             systemInstruction,
             responseMimeType: (responseMimeType as any) || 'text/plain',

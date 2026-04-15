@@ -1,8 +1,6 @@
 import process from 'node:process'
 import { LLMServiceFactory, type LLMServiceConfig } from '@sketch-pilot/services/llm'
-import pLimit from 'p-limit'
 import { PromptService } from '@/application/services/prompt.service'
-import { GenerateCharacterImageUseCase } from '@/application/use-cases/character-model/generate-character-image.use-case'
 import { IUseCase } from '@/domain/types'
 import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 
@@ -11,13 +9,11 @@ import { CreditsRepository } from '@/infrastructure/repositories/credits.reposit
 import { PromptRepository } from '@/infrastructure/repositories/prompt.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { SeriesVideoGenerator } from '../../../../plugins/sketch-pilot/src/core/generators/series-video-generator'
-import { GenerateLocationImageUseCase } from './generate-location-image.use-case'
 
 /* ---------------- TYPES ---------------- */
 
 type SeriesBible = {
   globalContext: string
-  visualStyleGuide: string
   characterRegistry: Record<
     string,
     {
@@ -60,9 +56,8 @@ type PrepareSeriesParams = {
   description?: string
   language?: string
   promptId?: string
-  visualStyleModelId?: string
-  skipPortraits?: boolean
   roadmapOnly?: boolean
+  skipPortraits?: boolean
   aspectRatio?: string
 }
 
@@ -83,8 +78,6 @@ function safeJsonParse(text: string): SeriesBible {
 export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
   private readonly promptService = new PromptService(new PromptRepository())
   private readonly creditsRepository = new CreditsRepository()
-  private readonly generateCharacterImageUseCase = new GenerateCharacterImageUseCase()
-  private readonly generateLocationImageUseCase = new GenerateLocationImageUseCase()
   private readonly seriesRepository = new SeriesRepository()
   private readonly characterModelRepository = new CharacterModelRepository()
 
@@ -159,19 +152,9 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
       specContext = `\n--- 📘 SPÉCIFICATION NARRATIVE SUR MESURE (${spec.name}) ---\n${sections.join('\n\n')}\n`
     }
 
-    // 1.7. Resolve Visual Style Model Context
-    let styleContext = ''
-    if (params.visualStyleModelId) {
-      const styleModel = await this.characterModelRepository.findById(params.visualStyleModelId)
-      if (styleModel) {
-        styleContext = `
-        --- 🎨 DIRECTIVES DE STYLE VISUEL (${styleModel.name}) ---
-        DESCRIPTION DU STYLE : ${styleModel.description || 'Style visuel cohérent.'}
-        DIRECTIVES GÉNÉRALES : Vous DEVEZ décrire les personnages et les lieux en respectant STRICTEMENT ce style visuel. 
-        Si le style est par exemple "Stickman", décrivez les personnages comme des bonshommes allumettes.
-        `
-      }
-    }
+    // 1.7. Visual Style Models removed for pure image-anchoring experiment.
+
+    // 1.8. Explicit Style Guides removed.
 
     // 2. Resolve Saga Context (if extension)
     let extensionContext = ''
@@ -230,8 +213,6 @@ PERSONNAGES :
 
 LANGUE : ${params.language || 'fr'}
 ${params.roadmapOnly ? 'MISSION SPECIFIQUE : RÉGÉNÉRER UNIQUEMENT LE PLANNING DES ÉPISODES (suggestedTitles et suggestedEpisodes). Gardez le même univers.' : ''}
-${specContext}
-${styleContext}
 `
 
     const epCount = params.totalEpisodes || 5
@@ -242,13 +223,13 @@ CONCEPT : "${params.title}"
 GENRE : "${genre}"
 NOMBRE D'ÉPISODES À GÉNÉRER : ${epCount}
 DESCRIPTION : ${params.description || 'À extrapoler'}
+${specContext}
 ${extensionContext}
 
 FORMAT JSON :
 
 {
   "globalContext": "string (Description globale de l'univers)",
-  "visualStyleGuide": "string (Directives visuelles pour l'IA)",
 
   "characterRegistry": {
     "@Handle": {
@@ -315,59 +296,6 @@ RÈGLES NARRATIVES ROADMAP :
 
       const parsed = await this.generateSeriesLLM(params)
 
-      /* 🔥 PARALLEL IMAGE GEN (Characters & Locations) */
-      if (!params.skipPortraits && params.visualStyleModelId && (parsed.characterRegistry || parsed.locationRegistry)) {
-        const limit = pLimit(2)
-        const generationTasks = []
-
-        // 1. Characters
-        if (parsed.characterRegistry) {
-          generationTasks.push(
-            ...Object.entries(parsed.characterRegistry).map(([, char]) =>
-              limit(async () => {
-                if (!char.portraitPrompt) return
-                const result = await this.generateCharacterImageUseCase.execute({
-                  userId: params.userId,
-                  baseModelId: params.visualStyleModelId!,
-                  prompt: char.portraitPrompt,
-                  visualStyleGuide: parsed.visualStyleGuide
-                })
-                if (result.success && result.imageUrl) {
-                  char.thumbnailUrl = result.imageUrl
-                }
-              })
-            )
-          )
-        }
-
-        // 2. Locations
-        if (parsed.locationRegistry) {
-          generationTasks.push(
-            ...Object.entries(parsed.locationRegistry).map(([name, loc]) =>
-              limit(async () => {
-                if (!loc.description) return
-                // Mock seriesId for now if it doesn't exist yet, but we'll have it soon
-                // Better pass 'system' to bypass credit check if we already deducted SAGA_PREPARATION credits
-                const result = await this.generateLocationImageUseCase.execute({
-                  userId: 'system', // Bypass individual credit check
-                  seriesId: params.seriesId || 'temp-id', // Will be updated later if needed
-                  locationName: name,
-                  visualStyleGuide: parsed.visualStyleGuide,
-                  visualStyleModelId: params.visualStyleModelId,
-                  videoGenre: parsed.videoGenre || params.videoGenre
-                })
-
-                if (result.success && result.thumbnailUrl) {
-                  loc.thumbnailUrl = result.thumbnailUrl
-                }
-              })
-            )
-          )
-        }
-
-        await Promise.all(generationTasks)
-      }
-
       await this.creditsRepository.consumeCredits(params.userId, totalCost, planLimit)
 
       // 🔄 NON-DESTRUCTIVE SYNC: Fetch existing context if extension
@@ -394,8 +322,6 @@ RÈGLES NARRATIVES ROADMAP :
         language: params.language || 'fr',
         videoGenre: parsed.videoGenre || params.videoGenre,
         totalEpisodes: String(parsed.totalEpisodes || params.totalEpisodes || 5),
-        visualStyleModelId: params.visualStyleModelId,
-        visualStyleGuide: parsed.visualStyleGuide,
         thumbnailUrl: Object.values(characterRegistry || {})[0]?.thumbnailUrl,
         aspectRatio: params.aspectRatio || '9:16',
         status: 'draft' as const
@@ -450,7 +376,10 @@ RÈGLES NARRATIVES ROADMAP :
       const parsed = await this.generateSeriesLLM(params)
       await this.creditsRepository.consumeCredits(params.userId, totalCost, planLimit)
 
-      yield { type: 'progress', data: { status: 'generating_characters', progress: 60 } }
+      yield {
+        type: 'progress',
+        data: { status: params.skipPortraits ? 'finalizing' : 'generating_characters', progress: 60 }
+      }
 
       // 🔄 NON-DESTRUCTIVE SYNC: Fetch existing context if extension
       let existingChars = {}
@@ -477,9 +406,6 @@ RÈGLES NARRATIVES ROADMAP :
         language: params.language || 'fr',
         videoGenre: parsed.videoGenre || params.videoGenre,
         totalEpisodes: String(parsed.totalEpisodes),
-        visualStyleModelId: params.visualStyleModelId,
-        visualStyleGuide: parsed.visualStyleGuide,
-        thumbnailUrl: Object.values(characterRegistry || {})[0]?.thumbnailUrl,
         aspectRatio: params.aspectRatio || '9:16',
         status: 'draft' as const
       }
@@ -497,48 +423,6 @@ RÈGLES NARRATIVES ROADMAP :
       }
 
       yield { type: 'series_id', data: { id: seriesId } }
-
-      if (!params.skipPortraits && params.visualStyleModelId && (parsed.characterRegistry || parsed.locationRegistry)) {
-        // 1. Characters
-        if (parsed.characterRegistry) {
-          for (const [name, char] of Object.entries(parsed.characterRegistry)) {
-            if (!char.portraitPrompt) continue
-
-            const result = await this.generateCharacterImageUseCase.execute({
-              userId: params.userId,
-              baseModelId: params.visualStyleModelId!,
-              prompt: char.portraitPrompt,
-              visualStyleGuide: parsed.visualStyleGuide
-            })
-
-            if (result.success && result.imageUrl) {
-              char.thumbnailUrl = result.imageUrl
-              yield { type: 'character_portrait', data: { name, imageUrl: result.imageUrl } }
-            }
-          }
-        }
-
-        // 2. Locations
-        if (parsed.locationRegistry) {
-          for (const [name, loc] of Object.entries(parsed.locationRegistry)) {
-            if (!loc.description) continue
-
-            const result = await this.generateLocationImageUseCase.execute({
-              userId: 'system',
-              seriesId: seriesId!,
-              locationName: name,
-              visualStyleGuide: parsed.visualStyleGuide,
-              visualStyleModelId: params.visualStyleModelId,
-              videoGenre: parsed.videoGenre || params.videoGenre
-            })
-
-            if (result.success && result.thumbnailUrl) {
-              loc.thumbnailUrl = result.thumbnailUrl
-              yield { type: 'location_portrait', data: { name, imageUrl: result.thumbnailUrl } }
-            }
-          }
-        }
-      }
 
       yield { type: 'progress', data: { status: 'finalizing', progress: 90 } }
       if (params.roadmapOnly) {

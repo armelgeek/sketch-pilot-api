@@ -3,7 +3,12 @@
  */
 
 export interface LLMService {
-  generateContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => Promise<string>
+  generateContent: (
+    prompt: string,
+    systemInstruction?: string,
+    responseMimeType?: string,
+    images?: { data: string; mimeType: string }[]
+  ) => Promise<string>
   streamContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => AsyncIterable<string>
 }
 

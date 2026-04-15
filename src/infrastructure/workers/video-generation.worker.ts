@@ -9,7 +9,6 @@ import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/vid
 import { VideoGenerationService } from '@/application/services/video-generation.service'
 import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
-import { CREDIT_COSTS } from '@/infrastructure/config/video.config'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
@@ -249,8 +248,12 @@ async function handleSceneGenerated(
     }
 
     // 4. Update DB FIRST (Crucial for visual sync if user navigates/reloads)
+    // Part A: Relational Scenes Table (V70 Relational Refactor)
+    await videoRepository.upsertScene(videoId, updatedScene)
+
+    // Part B: Legacy JSONB safe sync
     await videoRepository.updateStatus(videoId, updatePayload)
-    console.info(`[VideoWorker] Scene ${index} persisted successfully.`)
+    console.info(`[VideoWorker] Scene ${index} persisted successfully (relational + legacy).`)
 
     // 4b. REAL-TIME REGISTRY EVOLUTION (Location/Characters)
     // This allows subsequent scenes to pick up reference images immediately
@@ -264,16 +267,21 @@ async function handleSceneGenerated(
         const updatedLocationRegistry = { ...(currentContext.locationRegistry || {}) }
         const updatedAssetRegistry = { ...(currentContext.assetRegistry || {}) }
 
+        const modifiedCharacters: { key: string; data: any }[] = []
+        const modifiedLocations: { key: string; data: any }[] = []
+
         // Promotion Characters
-        const chars = scene.charactersId || scene.charactersInScene || []
+        const chars = scene.charactersInScene || []
         if (chars.length > 0 && updatedScene.thumbnailUrl) {
           for (const charName of chars) {
-            const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, charName)
+            const key = SeriesVideoGenerator.findKeyInRegistry(updatedRegistry, charName)
+            const existing = key ? updatedRegistry[key] : undefined
             if (existing && (!existing.thumbnailUrl || existing.isNew)) {
               console.info(`[VideoWorker] ✨ Promoting scene image for character: ${charName} (Real-time)`)
               existing.thumbnailUrl = updatedScene.thumbnailUrl
               existing.referenceSceneId = updatedScene.id
               existing.referenceEpisode = currentContext.episodeNumber
+              modifiedCharacters.push({ key: key!, data: existing })
               registryChanged = true
             }
           }
@@ -287,9 +295,11 @@ async function handleSceneGenerated(
           !updatedLocationRegistry[scene.locationId].thumbnailUrl
         ) {
           console.info(`[VideoWorker] ✨ Promoting scene image for location: ${scene.locationId} (Real-time)`)
-          updatedLocationRegistry[scene.locationId].thumbnailUrl = updatedScene.thumbnailUrl
-          updatedLocationRegistry[scene.locationId].referenceSceneId = updatedScene.id
-          updatedLocationRegistry[scene.locationId].referenceEpisode = currentContext.episodeNumber
+          const loc = updatedLocationRegistry[scene.locationId]
+          loc.thumbnailUrl = updatedScene.thumbnailUrl
+          loc.referenceSceneId = updatedScene.id
+          loc.referenceEpisode = currentContext.episodeNumber
+          modifiedLocations.push({ key: scene.locationId, data: loc })
           registryChanged = true
         }
 
@@ -308,12 +318,26 @@ async function handleSceneGenerated(
           }
         }
 
+        // ATOMIC SYNC: Update each modified entity individually to avoid race conditions (V68 Fix)
+        if (modifiedCharacters.length > 0 || modifiedLocations.length > 0) {
+          console.info(
+            `[VideoWorker] 🔄 Atomic Registry Sync for ${videoId}: ${modifiedCharacters.length} chars, ${modifiedLocations.length} locations.`
+          )
+          const updatePromises: Promise<any>[] = []
+
+          for (const mod of modifiedCharacters) {
+            updatePromises.push(seriesRepository.updateRegistryItem(seriesId, 'characterRegistry', mod.key, mod.data))
+          }
+
+          for (const mod of modifiedLocations) {
+            updatePromises.push(seriesRepository.updateRegistryItem(seriesId, 'locationRegistry', mod.key, mod.data))
+          }
+
+          await Promise.all(updatePromises)
+        }
+
         if (registryChanged) {
-          await Promise.all([
-            seriesRepository.updateCharacterRegistry(seriesId, updatedRegistry),
-            seriesRepository.updateLocationRegistry(seriesId, updatedLocationRegistry),
-            seriesRepository.updateAssetRegistry(seriesId, updatedAssetRegistry)
-          ])
+          await seriesRepository.updateAssetRegistry(seriesId, updatedAssetRegistry)
           console.info(`[VideoWorker] ✓ Registry updated in real-time for series ${seriesId}`)
         }
       }
@@ -326,7 +350,7 @@ async function handleSceneGenerated(
         const updatedLocationRegistry = { ...(video.locationRegistry || {}) } as any
         const updatedAssetRegistry = { ...(video.assetRegistry || {}) } as any
 
-        const chars = scene.charactersId || scene.charactersInScene || []
+        const chars = scene.charactersInScene || []
         if (chars.length > 0 && updatedScene.thumbnailUrl) {
           for (const charName of chars) {
             const existing = SeriesVideoGenerator.findInRegistry<any>(updatedRegistry, charName) as any
@@ -523,40 +547,48 @@ async function promoteVisualSagaContext(seriesId: string, videoId: string, scrip
     }
 
     const scenes = script.scenes || []
+    let lastLocId = ''
     for (const scene of scenes) {
       // Character Portrait Promotion
-      const chars = scene.charactersId || scene.charactersInScene || []
+      const chars = scene.charactersInScene || []
       if (chars.length > 0 && scene.thumbnailUrl) {
         for (const charName of chars) {
           const existing = SeriesVideoGenerator.findInRegistry(updatedRegistry, charName)
-          if (existing && (!existing.thumbnailUrl || existing.isNew)) {
+          if (existing && (!existing.thumbnailUrl || existing.isNew || !existing.referenceSceneId)) {
             console.info(`[VideoWorker] Promoting character portrait: ${charName}`)
             existing.thumbnailUrl = scene.thumbnailUrl
             existing.referenceSceneId = scene.id
             existing.referenceEpisode = currentContext.episodeNumber
+            existing.isNew = false // Locked once promoted
           }
         }
       }
 
-      // Location Portrait Promotion
+      // Location Portrait Promotion (Dynamic Change Tracking)
+      const currentLocId = scene.locationId ? SeriesVideoGenerator.normalizeId(scene.locationId) : ''
+      const isLocationChange = currentLocId && currentLocId !== lastLocId
+
       if (
-        scene.locationId &&
+        currentLocId &&
         scene.thumbnailUrl &&
-        updatedLocationRegistry[scene.locationId] &&
-        (!updatedLocationRegistry[scene.locationId].thumbnailUrl || scene.isEstablishingShot)
+        updatedLocationRegistry[currentLocId] &&
+        (isLocationChange || !updatedLocationRegistry[currentLocId].thumbnailUrl)
       ) {
-        console.info(`[VideoWorker] Promoting location portrait: ${scene.locationId}`)
-        updatedLocationRegistry[scene.locationId].thumbnailUrl = scene.thumbnailUrl
-        updatedLocationRegistry[scene.locationId].referenceSceneId = scene.id
-        updatedLocationRegistry[scene.locationId].referenceEpisode = currentContext.episodeNumber
+        console.info(
+          `[VideoWorker] Promoting location portrait (${isLocationChange ? 'CHANGE' : 'FIRST'}): ${currentLocId}`
+        )
+        updatedLocationRegistry[currentLocId].thumbnailUrl = scene.thumbnailUrl
+        updatedLocationRegistry[currentLocId].referenceSceneId = scene.id
+        updatedLocationRegistry[currentLocId].referenceEpisode = currentContext.episodeNumber
       }
+      lastLocId = currentLocId
 
       // Asset Promotion (Heuristic)
       if (scene.thumbnailUrl) {
         for (const [assetName, assetData] of Object.entries(updatedAssetRegistry)) {
           const assetRef = assetData as any
           const inPrompt = (scene.summary || scene.imagePrompt || '').toLowerCase().includes(assetName.toLowerCase())
-          if (!assetRef.thumbnailUrl && inPrompt) {
+          if ((!assetRef.thumbnailUrl || !assetRef.referenceSceneId) && inPrompt) {
             console.info(`[VideoWorker] Promoting asset portrait: ${assetName}`)
             assetRef.thumbnailUrl = scene.thumbnailUrl
             assetRef.referenceSceneId = scene.id
@@ -594,7 +626,7 @@ async function promoteVisualSagaContext(seriesId: string, videoId: string, scrip
             persistentDecorTokens: finalScene.persistentDecorTokens,
             emotionalTokens: finalScene.emotionalTokens,
             interactions: finalScene.interactions,
-            charactersId: finalScene.charactersId || finalScene.charactersInScene || []
+            charactersInScene: finalScene.charactersInScene || []
           }
         }
 
@@ -701,9 +733,10 @@ async function evolveStandaloneContext(videoId: string, script: any) {
     }
 
     // 2. Promote visual portraits from scenes
+    console.log('[....................SCENES...............]', script)
     if (script.scenes) {
       for (const scene of script.scenes) {
-        const chars = scene.charactersId || scene.charactersInScene || []
+        const chars = scene.charactersInScene || []
         if (chars.length > 0 && scene.thumbnailUrl) {
           for (const charName of chars) {
             if (updatedRegistry[charName] && !updatedRegistry[charName].thumbnailUrl) {
@@ -779,8 +812,8 @@ async function deductCredits(userId: string, videoId: string, cost?: number, pla
  */
 async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
   const { videoId, userId, topic, options } = job.data
-  let masterAssetsCost = 0
-  console.info(`[ACTIVE VIDEO JOB]`, options)
+  const masterAssetsCost = 0
+  //console.info(`[ACTIVE VIDEO JOB]`, options)
   const lockKey = `active-video-job:${videoId}`
   const videoRecord = await videoRepository.findByIdAndUserId(videoId, userId).catch(() => null)
   // Defer if another job is already processing this videoId
@@ -852,7 +885,12 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       kokoroVoicePreset: options.kokoroVoicePreset || storedOptions.kokoroVoicePreset || options.voiceId,
       localProjectId: effectiveProjectId,
       projectId: effectiveProjectId,
-      seriesId: options.seriesId || storedOptions.seriesId || (videoRecord as any).seriesId
+      seriesId: options.seriesId || storedOptions.seriesId || (videoRecord as any).seriesId,
+      characterModelId:
+        options.characterModelId ||
+        storedOptions.characterModelId ||
+        videoRecord.options?.characterModelId ||
+        'gemini-2.5-flash'
     }
 
     // 3b. AUDIO-ONLY PATH — Lightweight initialization for audio/transcription step.
@@ -1024,94 +1062,16 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         }
       }
 
-      // 🔄 [PHASE 2.1] GENERATE MISSING MASTER ASSETS (Visual DNA Locking)
-      await reportProgress(job, videoId, 'asset_generation', 0, 'step.analyzing_assets')
-
-      let visualStyleGuide = ''
-      if (seriesId) {
-        const series = await seriesRepository.getSeriesContext(seriesId)
-        visualStyleGuide = series?.visualStyleGuide || ''
+      // [V68 Hardening] REFRESH videoRecord immediately after Pre-Sync to ensure registries are hydrated
+      const preSyncRefresh = await videoRepository.findById(videoId)
+      if (preSyncRefresh) {
+        videoRecord.characterRegistry = preSyncRefresh.characterRegistry
+        videoRecord.locationRegistry = preSyncRefresh.locationRegistry
+        videoRecord.assetRegistry = preSyncRefresh.assetRegistry
+        videoRecord.script = preSyncRefresh.script || script
       }
 
-      const finalRegistries = {
-        characters: videoRecord.characterRegistry || {},
-        locations: videoRecord.locationRegistry || {}
-      }
-
-      // 🏛️ Master Locations Generation
-      let newLocCount = 0
-      for (const [name, data] of Object.entries(finalRegistries.locations as Record<string, any>)) {
-        if (!data.thumbnailUrl && data.description) {
-          if (newLocCount >= 3) {
-            console.warn(`[VideoWorker] 🏛️ Budget cap reached (3). Skipping master generation for location: ${name}.`)
-            continue
-          }
-          newLocCount++
-          masterAssetsCost += (CREDIT_COSTS as any).SAGA_LOCATION_GENERATION || 5
-          await reportProgress(job, videoId, 'master_loc', -1, `step.generating_master_location:${name}`)
-          try {
-            const tempUrl = await videoGenerationService.generateLocationImage({
-              name,
-              description: data.description,
-              videoId,
-              options: videoRecord.options || {},
-              visualStyleGuide
-            })
-            const buffer = await fsPromises.readFile(tempUrl)
-            const minioPath = `series/${seriesId || 'standalone'}/locations/${SeriesVideoGenerator.normalizeId(name)}/master.webp`
-            const permanentUrl = await uploadBuffer(minioPath, buffer, 'image/webp')
-            data.thumbnailUrl = permanentUrl
-            data.isNew = false // Locked
-            console.info(`[VideoWorker] 🏛️ Master Location generated: ${name} -> ${permanentUrl}`)
-          } catch (error: any) {
-            console.error(`[VideoWorker] 🏛️ Failed to generate Master Location for ${name}:`, error.message)
-          }
-        }
-      }
-
-      // 🎭 Master Characters Generation
-      let newCharCount = 0
-      for (const [name, data] of Object.entries(finalRegistries.characters as Record<string, any>)) {
-        if (!data.thumbnailUrl && data.description) {
-          if (newCharCount >= 3) {
-            console.warn(`[VideoWorker] 🎭 Budget cap reached (3). Skipping master generation for character: ${name}.`)
-            continue
-          }
-          newCharCount++
-          masterAssetsCost += CREDIT_COSTS.CHARACTER_GENERATION || 5
-          await reportProgress(job, videoId, 'master_char', -1, `step.generating_master_character:${name}`)
-          try {
-            const tempUrl = await videoGenerationService.generateCharacterImage({
-              prompt: data.description,
-              baseModelId: videoRecord.options?.characterModelId || 'gemini-1.5-flash',
-              videoId,
-              visualStyleGuide
-            })
-            const buffer = await fsPromises.readFile(tempUrl)
-            const minioPath = `series/${seriesId || 'standalone'}/characters/${SeriesVideoGenerator.normalizeId(name)}/portrait.webp`
-            const permanentUrl = await uploadBuffer(minioPath, buffer, 'image/webp')
-            data.thumbnailUrl = permanentUrl
-            data.isNew = false // Locked
-            console.info(`[VideoWorker] 🎭 Master Character generated: ${name} -> ${permanentUrl}`)
-          } catch (error: any) {
-            console.error(`[VideoWorker] 🎭 Failed to generate Master Character for ${name}:`, error.message)
-          }
-        }
-      }
-
-      // Sync back to Bible and Video Record
-      if (seriesId) {
-        await seriesRepository.update(seriesId, {
-          characterRegistry: finalRegistries.characters,
-          locationRegistry: finalRegistries.locations
-        })
-      }
-      await videoRepository.updateStatus(videoId, {
-        characterRegistry: finalRegistries.characters,
-        locationRegistry: finalRegistries.locations,
-        options: { ...((videoRecord.options as any) || {}), masterAssetsCost }
-      })
-
+      // Phase 2.1: Narrative Checkpoint Sync
       await reportProgress(job, videoId, 'pre_sync', 100, 'step.assets_locked')
 
       // REFRESH videoRecord to get the hydrated registries (surged during preSync)
@@ -1272,6 +1232,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         // Sync script column too
         if (pkg.script) pkg.script.scenes = updatedScenes
 
+        // Part A: Relational Scenes Table
+        await videoRepository.saveScenes(videoId, updatedScenes)
+
+        // Part B: Legacy JSONB
         await videoRepository.updateStatus(videoId, {
           status: 'scenes_generated',
           progress: 100, // Storyboard phase is finished for this job
@@ -1308,6 +1272,10 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         scriptToSave.scenes = scenesToSave
       }
 
+      // Part A: Relational Scenes Table
+      await videoRepository.saveScenes(videoId, scenesToSave)
+
+      // Part B: Legacy JSONB
       const updatePayload: any = {
         status: 'scenes_generated',
         progress: 100,
@@ -1342,7 +1310,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
               persistentDecorTokens: finalScene.persistentDecorTokens,
               emotionalTokens: finalScene.emotionalTokens,
               interactions: finalScene.interactions,
-              charactersId: finalScene.charactersId || finalScene.charactersInScene || []
+              charactersInScene: finalScene.charactersInScene || []
             }
           }
           // Update Video payload
@@ -1410,6 +1378,13 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       }
 
       const duration = Math.round(pkg.script?.totalDuration ?? DEFAULT_VIDEO_DURATION)
+
+      // Part A: Relational Scenes Table
+      if (pkg.script?.scenes) {
+        await videoRepository.saveScenes(videoId, pkg.script.scenes)
+      }
+
+      // Part B: Legacy JSONB
       await videoRepository.updateStatus(videoId, {
         status: 'completed',
         progress: 100,

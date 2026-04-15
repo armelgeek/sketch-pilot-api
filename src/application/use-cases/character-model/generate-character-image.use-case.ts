@@ -11,12 +11,13 @@ type GenerateCharacterParams = {
   userId: string
   baseModelId: string
   prompt: string
-  visualStyleGuide?: string
+  seriesThumbnailUrl?: string
 }
 
 type GenerateCharacterResponse = {
   success: boolean
   imageUrl?: string
+  thumbnailUrl?: string
   creditsRequired?: number
   error?: string
   insufficientCredits?: boolean
@@ -26,12 +27,8 @@ const creditsRepository = new CreditsRepository()
 const videoGenerationService = new VideoGenerationService()
 
 export class GenerateCharacterImageUseCase extends IUseCase<GenerateCharacterParams, GenerateCharacterResponse> {
-  async execute({
-    userId,
-    baseModelId,
-    prompt,
-    visualStyleGuide
-  }: GenerateCharacterParams): Promise<GenerateCharacterResponse> {
+  async execute(params: GenerateCharacterParams): Promise<GenerateCharacterResponse> {
+    const { userId, baseModelId, prompt } = params
     try {
       const totalCost = CREDIT_COSTS.CHARACTER_GENERATION
 
@@ -51,13 +48,13 @@ export class GenerateCharacterImageUseCase extends IUseCase<GenerateCharacterPar
 
       // Prepare for generation (check balance only, don't deduct yet)
       const outputDir = path.join(cwd(), 'uploads', 'temp', `char-${userId}-${Date.now()}`)
-      // Enrich prompt with style guide if available
-      const finalPrompt = visualStyleGuide ? `${prompt}\n\nStyle Guide: ${visualStyleGuide}` : prompt
+      const finalPrompt = prompt
 
       const localPath = await videoGenerationService.generateCharacterImage({
         prompt: finalPrompt,
         baseModelId,
-        outputDir
+        outputDir,
+        referenceImages: params.seriesThumbnailUrl ? [{ name: 'series-dna', data: params.seriesThumbnailUrl }] : []
       })
 
       // Upload to MinIO
@@ -85,6 +82,7 @@ export class GenerateCharacterImageUseCase extends IUseCase<GenerateCharacterPar
       return {
         success: true,
         imageUrl: publicUrl,
+        thumbnailUrl: publicUrl,
         creditsRequired: totalCost
       }
     } catch (error) {

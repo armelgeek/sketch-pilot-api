@@ -68,8 +68,7 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
 
         topic = `MISSION NARRATIVE : Suivez scrupuleusement le plan prévu pour cet épisode. ${intensityInstr}
           TITRE PRÉVU : ${planned.title}
-          PITCH / INTRIGUE : ${planned.hook}
-          STYLE : Noir Cinématique, Focus sensoriel, Show Don't Tell.`
+          PITCH / INTRIGUE : ${planned.hook}`
       } else {
         topic = `Épisode ${nextEpisodeNumber}`
       }

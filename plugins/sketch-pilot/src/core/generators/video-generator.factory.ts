@@ -29,7 +29,7 @@ export const VideoGeneratorFactory = {
         unresolvedThreads: extraOptions.unresolvedThreads || sc.unresolvedThreads,
         totalEpisodes: extraOptions.totalEpisodes || sc.totalEpisodes,
         isFinalEpisode: !!(extraOptions.isFinalEpisode || sc.isFinalEpisode),
-        visualStyleModelId: extraOptions.visualStyleModelId || sc.visualStyleModelId,
+        characterModelId: extraOptions.characterModelId || sc.characterModelId,
         lastEpisodeFinalImage: extraOptions.lastEpisodeFinalImage || sc.lastEpisodeFinalImage,
         lastEpisodeFinalScene: extraOptions.lastEpisodeFinalScene || sc.lastEpisodeFinalScene
       } as any)

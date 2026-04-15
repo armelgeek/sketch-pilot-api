@@ -574,9 +574,9 @@ export class CharacterModelController implements Routes {
             content: {
               'application/json': {
                 schema: z.object({
-                  baseModelId: z.string(),
-                  prompt: z.string(),
-                  visualStyleGuide: z.string().optional()
+                  baseModelId: z.string().min(1),
+                  prompt: z.string().min(1),
+                  seriesThumbnailUrl: z.string().optional()
                 })
               }
             }
@@ -590,6 +590,7 @@ export class CharacterModelController implements Routes {
                 schema: z.object({
                   success: z.boolean(),
                   imageUrl: z.string().optional(),
+                  thumbnailUrl: z.string().optional(),
                   creditsRequired: z.number().optional(),
                   error: z.string().optional()
                 })
@@ -607,7 +608,7 @@ export class CharacterModelController implements Routes {
           userId: user.id,
           baseModelId: body.baseModelId,
           prompt: body.prompt,
-          visualStyleGuide: body.visualStyleGuide
+          seriesThumbnailUrl: body.seriesThumbnailUrl
         })
         return c.json(result)
       }

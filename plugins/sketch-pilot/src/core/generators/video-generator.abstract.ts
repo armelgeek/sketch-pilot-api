@@ -794,12 +794,13 @@ ${mandatoryRules.join('\n')}
     params: {
       styleAnchor?: string
       characterDescription?: string
+      locationDescription?: string
       customNegative?: string
     } = {}
   ): string {
     const styleRule = hasReferenceImages
       ? 'STYLE RULE: Maintain 100% visual style, color palette, and textures from the provided REFERENCE IMAGES. The images are the absolute master for visual truth.'
-      : 'STYLE RULE: Strict high-contrast black and white pencil drawing. No colors or glows allowed.'
+      : 'STYLE RULE: Maintain consistent artistic style and rendering technique as described in the instructions.'
 
     const logicRule =
       'PHYSICAL LOGIC: Render only requested subjects. Anatomy and interactions must be organic and narratively grounded. No disembodied parts or external production elements (artist hands, tools, screens).'
@@ -809,17 +810,24 @@ ${mandatoryRules.join('\n')}
     if (hasReferenceImages) {
       parts.push(
         'CRITICAL: THE REFERENCE IMAGES SUPERSEDE ALL TEXT DESCRIPTIONS for visual style and identity.',
+        'STRICT FIDELITY: DO NOT ALTER facial features, hair color, or clothing from the references. Follow them exactly.',
+        'MASTER STYLE: The image labeled "Master Style" is the absolute truth for the artistic aesthetic, line-art quality, and color palette of the series. Replicate its textures and vibe perfectly.',
         params.characterDescription ? `Subject Identity: ${params.characterDescription}.` : '',
+        params.locationDescription ? `Location/Environment: ${params.locationDescription}.` : '',
         'Style: Follow the exact visual style, colors, and textures of the provided REFERENCE IMAGES.'
       )
     } else {
       if (params.styleAnchor) parts.push(params.styleAnchor)
       if (params.characterDescription) parts.push(`Character/Subject: ${params.characterDescription}`)
+      if (params.locationDescription) parts.push(`Environment/Setting: ${params.locationDescription}`)
     }
 
     parts.push(styleRule, logicRule)
     if (params.customNegative) parts.push(`NEGATIVE CONSTRAINT: ${params.customNegative}`)
-    else parts.push('NEGATIVE CONSTRAINT: No whiteboard meta-elements.')
+    else
+      parts.push(
+        'NEGATIVE CONSTRAINT: No whiteboard meta-elements, no text, no signatures, no changes to character face, no variation in clothing color, no new facial features, no stylistic drift from reference.'
+      )
 
     return parts.filter(Boolean).join('\n')
   }
@@ -838,29 +846,18 @@ ${mandatoryRules.join('\n')}
     // 1. Character Locking
     if (registries.character) {
       for (const [name, data] of Object.entries(registries.character)) {
-        const visualAnchor = (data as any).portraitPrompt || (data as any).description
-        if (hasReferenceImages && visualAnchor) {
-          const anchorParts = [visualAnchor, visualAnchor.slice(0, 30), name].filter((p) => (p || '').length > 5)
-          for (const part of anchorParts) {
-            try {
-              const escapedPart = (part || '').replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
-              const regex = new RegExp(`\\b${escapedPart}\\b`, 'gi')
-              result = result.replace(regex, '').trim()
-            } catch {
-              result = result.replace(part, '').trim()
-            }
-          }
+        // [V45] AS REFERENCE ONLY: We no longer inject or anchor based on character descriptions in scenes.
+        // Identity is maintained via reference images and the IDENTITY LOCK instruction.
+        if (hasReferenceImages) {
           if (name) {
+            // [V46] More aggressive stripping of name/physiognomy if it leaks
             const nameRegex = new RegExp(`\\b${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\b`, 'gi')
             result = result.replace(nameRegex, '').trim()
           }
           // Prepend Reference anchor with explicit instructions for continuity
           if (paragraph.toLowerCase().includes(name.toLowerCase()) || paragraph.length < 50) {
-            result = `[IDENTITY LOCK: ${name}] (Appearance: AS REFERENCE). Maintain physical identity and clothing from reference. ${result}`
+            result = `[IDENTITY LOCK: ${name}] (STRICT REFERENCE: NO PHYSICAL DESCRIPTION). Use references for hair/face/clothes. ${result}`
           }
-        } else if (visualAnchor && !result.includes(visualAnchor.slice(0, 30))) {
-          // Fallback to text anchor if no reference images
-          result += `, Character ${name}: ${visualAnchor}`
         }
       }
     }

@@ -1,6 +1,7 @@
 /* eslint-disable no-control-regex */
 import fs from 'node:fs'
 import path from 'node:path'
+import axios from 'axios'
 import {
   completeVideoScriptSchema,
   computeSceneCountRange,
@@ -254,6 +255,26 @@ export class VideoScriptGenerator {
     return validated
   }
 
+  // ─── Gemini Vision: Multi-modal Reasoning ───────────────────────────────────
+
+  private async fetchAndEncodeImage(url: string | undefined): Promise<{ data: string; mimeType: string } | undefined> {
+    if (!url) return undefined
+    try {
+      if (url.startsWith('http')) {
+        const response = await axios.get(url, { responseType: 'arraybuffer' })
+        const mimeType = response.headers['content-type'] || 'image/webp'
+        return { data: Buffer.from(response.data, 'binary').toString('base64'), mimeType }
+      } else if (url.length < 500 && fs.existsSync(url)) {
+        const ext = path.extname(url).slice(1) || 'webp'
+        return { data: fs.readFileSync(url).toString('base64'), mimeType: `image/${ext}` }
+      }
+      return undefined
+    } catch (error) {
+      console.warn(`[VideoScriptGen] 👁️  Vision: Failed to fetch/encode bridge image:`, error)
+      return undefined
+    }
+  }
+
   // ─── Private: Structure ───────────────────────────────────────────────────
 
   /**
@@ -299,13 +320,25 @@ export class VideoScriptGenerator {
       if (onProgress)
         await onProgress(5, `Studio: Generating ${isStandard ? 'standard' : 'express'} script & visuals...`)
 
+      const bridgeImage = (this.promptManager as any).seriesContext?.lastEpisodeFinalImage
+      const encodedBridge = await this.fetchAndEncodeImage(bridgeImage)
+      if (encodedBridge) {
+        console.info(`[VideoScriptGen] 👁️  VISION ACTIVATE: Bridging with final frame of previous episode.`)
+      }
+
       const prompts = await this.promptManager.buildScriptGenerationPrompts(topic, options)
       const jsonText = await this.withPulse(
         5,
         12,
         `Studio: Generating ${isStandard ? 'standard' : 'express'} script & visuals...`,
         onProgress,
-        () => this.llmService.generateContent(prompts.userPrompt, prompts.systemPrompt, 'application/json')
+        () =>
+          this.llmService.generateContent(
+            prompts.userPrompt,
+            prompts.systemPrompt,
+            'application/json',
+            encodedBridge ? [encodedBridge] : undefined
+          )
       )
       console.log(`[VideoScriptGen] 🔮 RAW AI RESPONSE:\n${jsonText}\n-------------------`)
       const parsed = this.parseJsonResponse(jsonText)
@@ -325,11 +358,19 @@ export class VideoScriptGenerator {
     console.log(`[VideoScriptGen] Pass 1: Generating narration only (Targeting ~${effectiveDuration}s)...`)
     if (onProgress) await onProgress(5, 'Studio: Crafting narration flow...')
 
+    const bridgeImage = (this.promptManager as any).seriesContext?.lastEpisodeFinalImage
+    const encodedBridge = await this.fetchAndEncodeImage(bridgeImage)
+
     const { pass1 } = this.promptManager.buildTwoPassPrompts(topic, options)
     if (onProgress) await onProgress(6, 'Studio: Initializing narration pass...')
 
     let narrationText = await this.withPulse(6, 10, 'Studio: Crafting narration flow...', onProgress, () =>
-      this.llmService.generateContent(pass1.user, pass1.system)
+      this.llmService.generateContent(
+        pass1.user,
+        pass1.system,
+        'text/plain',
+        encodedBridge ? [encodedBridge] : undefined
+      )
     )
 
     if (!narrationText) {
@@ -441,7 +482,12 @@ export class VideoScriptGenerator {
           const nextStep = 12 + ((i + 1) / chunks.length) * 50
 
           const jsonText = await this.withPulse(Math.round(baseStep), Math.round(nextStep), stepMsg, onProgress, () =>
-            this.llmService.generateContent(promptOverride, p2.system, 'application/json')
+            this.llmService.generateContent(
+              promptOverride,
+              p2.system,
+              'application/json',
+              encodedBridge ? [encodedBridge] : undefined
+            )
           )
           if (!jsonText) throw new Error('Empty Pass 2 response')
 

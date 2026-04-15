@@ -17,6 +17,7 @@ type RegenerateSeriesCharacterImageParams = {
 
 type RegenerateSeriesCharacterImageResponse = {
   success: boolean
+  imageUrl?: string
   thumbnailUrl?: string
   error?: string
   insufficientCredits?: boolean
@@ -47,7 +48,7 @@ export class RegenerateSeriesCharacterImageUseCase extends IUseCase<
       }
 
       const character = registry[characterName]
-      const portraitPrompt = character.portraitPrompt || character.description
+      const portraitPrompt = `${character.portraitPrompt || character.description}. MAINTAIN STRICT IDENTITY CONSISTENCY with reference images.`
 
       if (!portraitPrompt) {
         throw new Error('Aucune description visuelle (portraitPrompt) disponible pour ce personnage.')
@@ -73,10 +74,7 @@ export class RegenerateSeriesCharacterImageUseCase extends IUseCase<
       const filename = path.join(os.tmpdir(), `char-gen-${Date.now()}-${Math.random().toString(36).slice(7)}.png`)
 
       // We augment the prompt with the global rules of the series if available
-      let basePrompt = portraitPrompt
-      if (series.visualStyleGuide) {
-        basePrompt += `\n\nStyle Guide: ${series.visualStyleGuide}`
-      }
+      let basePrompt = character.description || character.name
       if (series.videoGenre) {
         basePrompt += `, Style: ${series.videoGenre}`
       }
@@ -89,15 +87,6 @@ export class RegenerateSeriesCharacterImageUseCase extends IUseCase<
       if (series.thumbnailUrl) {
         // @ts-ignore
         referenceImages.push({ name: 'series-reference', data: series.thumbnailUrl })
-      }
-
-      // 1. Global visual style from the saga's visualStyleModelId (e.g. stickman)
-      if (series.visualStyleModelId) {
-        const styleModel = await this.characterModelRepository.findById(series.visualStyleModelId)
-        const styleImageUrl = styleModel?.images?.[0] || styleModel?.thumbnailUrl
-        if (styleImageUrl) {
-          referenceImages.push({ name: 'global-style', data: styleImageUrl })
-        }
       }
 
       // 2. Existing character portrait as secondary consistency anchor
@@ -140,6 +129,7 @@ export class RegenerateSeriesCharacterImageUseCase extends IUseCase<
 
       return {
         success: true,
+        imageUrl: newThumbnailUrl,
         thumbnailUrl: newThumbnailUrl
       }
     } catch (error) {

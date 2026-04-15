@@ -256,7 +256,7 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     const stylePrefix = characterMetadata?.stylePrefix || ''
 
     const instructions = this.buildImageGenerationInstructions(hasReferenceImages, {
-      styleAnchor: 'Style: Highly detailed black and white pencil drawing with rich grayscale shading.',
+      styleAnchor: 'Photorealistic and highly detailed rendering.',
       characterDescription
     })
 

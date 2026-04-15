@@ -42,10 +42,57 @@ export const videos = pgTable('videos', {
 
   // Script / scenes data
   script: jsonb('script'),
+  // @deprecated Use video_scenes table instead
   scenes: jsonb('scenes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   completedAt: timestamp('completed_at')
+})
+
+export const videoScenes = pgTable('video_scenes', {
+  id: text('id').primaryKey(),
+  videoId: text('video_id')
+    .notNull()
+    .references(() => videos.id, { onDelete: 'cascade' }),
+  sceneNumber: integer('scene_number').notNull(),
+
+  // Timing
+  startTime: numeric('start_time').default('0'),
+  endTime: numeric('end_time').default('0'),
+  duration: numeric('duration').default('0'),
+
+  // Content
+  summary: text('summary'),
+  justification: text('justification'),
+  narration: text('narration').notNull(),
+  locationId: text('location_id'),
+
+  // Visuals
+  imagePrompt: text('image_prompt'),
+  imageUrl: text('image_url'),
+  thumbnailUrl: text('thumbnail_url'),
+
+  // Directives
+  cameraAction: jsonb('camera_action').$type<any>(),
+  animationPrompt: text('animation_prompt'),
+  preset: text('preset'),
+  transition: text('transition'),
+  continueFromPrevious: text('continue_from_previous').default('false'), // boolean as text
+
+  // Continuity & Context
+  persistentDecorTokens: jsonb('persistent_decor_tokens').$type<string[]>().default([]),
+  isEstablishingShot: text('is_establishing_shot').default('false'),
+  spatialAnchor: text('spatial_anchor'),
+  composition: jsonb('composition').$type<any>(),
+  visualEvolution: jsonb('visual_evolution').$type<any>(),
+  weatherState: text('weather_state'),
+  timeOfDay: text('time_of_day'),
+  colorPalette: text('color_palette'),
+  cameraStyle: text('camera_style'),
+
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
 })
 
 export const userCredits = pgTable('user_credits', {

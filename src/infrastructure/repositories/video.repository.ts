@@ -1,6 +1,6 @@
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm'
 import { db } from '../database/db'
-import { videos } from '../database/schema'
+import { videos, videoScenes } from '../database/schema'
 
 export interface VideoFilters {
   page?: number
@@ -137,6 +137,110 @@ export class VideoRepository {
       .where(eq(videos.id, id))
       .returning()
     return video
+  }
+
+  // --- Scene Relational Methods ---
+
+  async createScene(videoId: string, scene: any) {
+    const compositeId = `${videoId}:${scene.id}`
+    const [inserted] = await db
+      .insert(videoScenes)
+      .values({
+        id: compositeId,
+        videoId,
+        sceneNumber: scene.sceneNumber,
+        startTime: String(scene.timeRange?.start || 0),
+        endTime: String(scene.timeRange?.end || 0),
+        duration: String(scene.duration || 0),
+        summary: scene.summary,
+        justification: scene.justification,
+        narration: scene.narration,
+        locationId: scene.locationId,
+        imagePrompt: scene.imagePrompt,
+        imageUrl: scene.imageUrl,
+        thumbnailUrl: scene.thumbnailUrl,
+        cameraAction: scene.cameraAction,
+        animationPrompt: scene.animationPrompt,
+        preset: scene.preset,
+        transition: scene.transition,
+        continueFromPrevious: String(!!scene.continueFromPrevious),
+        persistentDecorTokens: scene.persistentDecorTokens || [],
+        isEstablishingShot: String(!!scene.isEstablishingShot),
+        spatialAnchor: scene.spatialAnchor,
+        composition: scene.composition,
+        visualEvolution: scene.visualEvolution,
+        weatherState: scene.weatherState,
+        timeOfDay: scene.timeOfDay,
+        colorPalette: scene.colorPalette,
+        cameraStyle: scene.cameraStyle,
+        metadata: { ...scene },
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+      .returning()
+    return inserted
+  }
+
+  async upsertScene(videoId: string, scene: any) {
+    const compositeId = `${videoId}:${scene.id}`
+    const existing = await db.query.videoScenes?.findFirst?.({
+      where: (t: any, { eq: eqFn }: any) => eqFn(t.id, compositeId)
+    })
+
+    const values: any = {
+      videoId,
+      sceneNumber: scene.sceneNumber,
+      startTime: String(scene.timeRange?.start || 0),
+      endTime: String(scene.timeRange?.end || 0),
+      duration: String(scene.duration || 0),
+      summary: scene.summary,
+      justification: scene.justification,
+      narration: scene.narration,
+      locationId: scene.locationId,
+      imagePrompt: scene.imagePrompt,
+      imageUrl: scene.imageUrl,
+      thumbnailUrl: scene.thumbnailUrl,
+      cameraAction: scene.cameraAction,
+      animationPrompt: scene.animationPrompt,
+      preset: scene.preset,
+      transition: scene.transition,
+      continueFromPrevious: String(!!scene.continueFromPrevious),
+      persistentDecorTokens: scene.persistentDecorTokens || [],
+      isEstablishingShot: String(!!scene.isEstablishingShot),
+      spatialAnchor: scene.spatialAnchor,
+      composition: scene.composition,
+      visualEvolution: scene.visualEvolution,
+      weatherState: scene.weatherState,
+      timeOfDay: scene.timeOfDay,
+      colorPalette: scene.colorPalette,
+      cameraStyle: scene.cameraStyle,
+      metadata: { ...scene },
+      updatedAt: new Date()
+    }
+
+    if (existing) {
+      const [updated] = await db.update(videoScenes).set(values).where(eq(videoScenes.id, compositeId)).returning()
+      return updated
+    } else {
+      const [inserted] = await db
+        .insert(videoScenes)
+        .values({ id: compositeId, ...values, createdAt: new Date() })
+        .returning()
+      return inserted
+    }
+  }
+
+  async listScenes(videoId: string) {
+    return await db.select().from(videoScenes).where(eq(videoScenes.videoId, videoId)).orderBy(videoScenes.sceneNumber)
+  }
+
+  async saveScenes(videoId: string, scenes: any[]) {
+    if (!scenes || scenes.length === 0) return []
+    const results = []
+    for (const scene of scenes) {
+      results.push(await this.upsertScene(videoId, scene))
+    }
+    return results
   }
 
   async update(id: string, data: Partial<typeof videos.$inferInsert>) {

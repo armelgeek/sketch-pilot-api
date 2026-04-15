@@ -376,8 +376,7 @@ export const enrichedSceneSchema = z.object({
   charactersInScene: z
     .array(z.string())
     .default([])
-    .describe('List of exact character names present in this scene from the registry'),
-  charactersId: z.array(z.string()).default([]).describe('List of character names with @ prefix (e.g. ["@Sarah"])'),
+    .describe('List of character names with @ prefix (e.g. ["@Sarah"]) from the registry'),
   animationPrompt: z.string().optional().describe('Animation instructions for movement (subject motion)'),
   cameraAction: z
     .union([
@@ -894,7 +893,11 @@ export const videoGenerationOptionsSchema = z
   .object({
     duration: z.number().min(1).default(60).describe('Total video duration in seconds'),
     userId: z.string().optional().describe('The ID of the user generating the video'),
-    characterModelId: z.string().optional().describe('The ID of the character model to use as a visual reference'),
+    characterModelId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('The ID of the character model to use as a visual reference'),
     sceneCount: z
       .number()
       .int()
@@ -910,6 +913,8 @@ export const videoGenerationOptionsSchema = z
       .max(60)
       .default(15)
       .describe('Maximum duration of a single scene in seconds'),
+    enableVariants: z.boolean().default(false).describe('Generate 3 variants for re-anchor scenes (selection layer)'),
+    initialSeed: z.number().int().optional().describe('Initial seed for deterministic generation'),
     theme: z
       .enum(['script-system', 'psychology', 'Narrative System', 'Explainer', 'explainer'])
       .or(z.string())
@@ -1080,6 +1085,11 @@ export const imagePromptSchema = z.object({
       'Concise, single-string prompt (Crayon Capital style by default) including aspect ratio suffix at the end'
     ),
   referenceImage: z.string().optional().describe('Optional visual reference image (URL or Base64)'),
+  referenceImages: z
+    .array(z.union([z.string(), z.object({ name: z.string().optional(), data: z.string() })]))
+    .optional()
+    .describe('List of visual references (e.g. character portraits, location masters)'),
+  characterSheets: z.array(z.any()).optional().describe('Metadata for character model locking'),
   reuseReferenceImage: z
     .boolean()
     .optional()
