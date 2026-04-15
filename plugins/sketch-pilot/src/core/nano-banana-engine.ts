@@ -286,7 +286,7 @@ export class NanoBananaEngine {
     let lastError: any
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const imageService = await this.getImageService()
+        /**const imageService = await this.getImageService()
         const result = await imageService.generateImage(fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
@@ -299,6 +299,8 @@ export class NanoBananaEngine {
           format: 'webp'
         })
         return result
+        **/
+       return ''
       } catch (error: any) {
         lastError = error
         if (this.isNetworkError(error) && attempt < maxRetries) continue

@@ -302,6 +302,12 @@ export class VideoGenerationService {
       filename,
       true
     )
+
+    if (Buffer.isBuffer(imageUrl)) {
+      await fs.writeFile(filename, imageUrl)
+      return filename
+    }
+
     return imageUrl
   }
 
