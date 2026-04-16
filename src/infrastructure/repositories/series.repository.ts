@@ -239,6 +239,8 @@ export class SeriesRepository {
       cameraStyle: s.cameraStyle ?? undefined,
       threads: threadList,
       roadmap: s.roadmap ?? undefined,
+      narrationLayer: s.narrationLayer ?? undefined,
+      tensionState: (s.narrationLayer as any)?.tensionState ?? undefined,
 
       // V21 Recency Bias
       lastEpisodeSummary: this.getLastEpisodeSummary(s.previousEpisodesContext || '')

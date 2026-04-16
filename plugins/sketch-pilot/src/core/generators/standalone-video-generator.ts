@@ -139,7 +139,7 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     if (spec.instructions) {
       spec.instructions.push(
         "COHÉRENCE VISUELLE : Utilisez 'locationId' pour identifier les environnements récurrents.",
-        "DESCRIPTION : Dans 'imagePrompt', écrivez une description visuelle naturelle et vivante dans la langue cible. Décrivez les sujets naturellement (ex : 'la personne marche', 'une chambre sombre') sans utiliser d'identifiants techniques (comme 'YoungMan') comme des mots.",
+        "DESCRIPTION : Dans 'imagePrompt', favorisez un style descriptif et intense (Sujet + Décor + Expression). Exemple : 'Marguerite seule dans une bibliothèque silencieuse, entourée de livres et de tapisseries anciennes, regard intense et concentré.'",
         "MÉTADONNÉES : Fournissez un objet 'videoMetadata' à la racine de votre JSON contenant les descriptions de tous les lieux récurrents."
       )
     }
@@ -311,7 +311,8 @@ VOTRE DERNIÈRE TENTATIVE. Réécrivez la narration COMPLÈTE en développant ch
     scene: EnrichedScene,
     imageStyle?: { characterDescription?: string }
   ): { sceneId: string; instructions: string; movements: any[] } {
-    const instructions = scene.animationPrompt || ''
+    const cameraSignal = this.cinematicEngine.formatCameraSignal(scene.cameraAction)
+    const instructions = [scene.animationPrompt, cameraSignal].filter(Boolean).join(' ')
     const movements: any[] = [{ element: 'body', description: instructions }]
     return { sceneId: scene.id, instructions, movements }
   }

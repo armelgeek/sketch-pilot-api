@@ -1,6 +1,5 @@
 import * as dotenv from 'dotenv'
-import { SeriesVideoGenerator } from '../core/generators/series-video-generator.js'
-import type { VideoGeneratorConfig } from '../types/video-generator.types.js'
+import { SeriesVideoGenerator } from '../core/generators/series-video-generator'
 
 dotenv.config()
 
@@ -42,7 +41,7 @@ const HISTORY_HORROR_SPEC = {
 async function verifyContinuity() {
   console.log('🧪 Starting Verification...\n')
 
-  const baseConfig: VideoGeneratorConfig = {
+  const baseConfig: any = {
     scriptSpec: HISTORY_HORROR_SPEC as any,
     provider: 'openai',
     apiKey: 'mock-key' // No real call needed for prompt inspection

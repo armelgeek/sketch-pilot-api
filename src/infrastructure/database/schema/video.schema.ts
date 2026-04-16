@@ -42,6 +42,7 @@ export const videos = pgTable('videos', {
 
   // Script / scenes data
   script: jsonb('script'),
+  narrationLayer: jsonb('narration_layer').$type<any>(),
   // @deprecated Use video_scenes table instead
   scenes: jsonb('scenes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -85,10 +86,20 @@ export const videoScenes = pgTable('video_scenes', {
   spatialAnchor: text('spatial_anchor'),
   composition: jsonb('composition').$type<any>(),
   visualEvolution: jsonb('visual_evolution').$type<any>(),
+  visualDelta: jsonb('visual_delta').$type<any>(),
+  visualBaseState: jsonb('visual_base_state').$type<any>(),
+  visualStateLock: jsonb('visual_state_lock').$type<any>(),
+  frameAnchor: jsonb('frame_anchor').$type<any>(),
+  worldStateSnapshot: jsonb('world_state_snapshot').$type<any>(),
   weatherState: text('weather_state'),
   timeOfDay: text('time_of_day'),
   colorPalette: text('color_palette'),
   cameraStyle: text('camera_style'),
+
+  // v8.0 Narrative Layer
+  sceneDelta: jsonb('scene_delta').$type<any>(),
+  scenePurpose: jsonb('scene_purpose').$type<any>(),
+  tensionState: jsonb('tension_state').$type<any>(),
 
   metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),

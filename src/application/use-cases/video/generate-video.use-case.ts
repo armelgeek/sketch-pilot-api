@@ -50,7 +50,7 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     type: options.type,
     isQuotes: options.isQuotes,
     seriesId: options.seriesId,
-    characterModelId: options.characterModelId,
+    characterModelId: options.characterModelId ?? undefined,
     episodeNumber: options.episodeNumber || customSpec?.seriesMetadata?.episodeNumber,
     lastCliffhanger: customSpec?.seriesMetadata?.lastCliffhanger || (options as any).lastCliffhanger,
     unresolvedThreads: customSpec?.seriesMetadata?.unresolvedThreads || (options as any).unresolvedThreads
@@ -190,7 +190,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         userId,
         topic,
         title: (options as any).title || preliminaryTitle,
-        characterModelId: options.characterModelId,
+        characterModelId: options.characterModelId ?? undefined,
         seriesId: spec?.seriesMetadata?.seriesId,
         episodeNumber: spec?.seriesMetadata?.episodeNumber,
         options: { ...videoOptions, creditsUsed: totalCost },

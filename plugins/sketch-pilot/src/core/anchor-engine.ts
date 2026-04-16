@@ -4,12 +4,42 @@ export interface Anchor {
   type: 'base' | 'progressive' | 'coupled'
 }
 
+export type AnchorMode = 'STRUCTURE_ONLY' | 'STRUCTURE_PLUS_EVOLUTION'
+
+export interface DynamicState {
+  positions?: string[]
+  changes?: string[]
+  damages?: string[]
+  cameraShift?: string
+  emotionalTone?: string
+}
+
+export interface BaseState {
+  lighting?: string
+  atmosphere?: string
+  persistentElements?: string[]
+}
+
+export interface StateLock {
+  mustPersist?: string[]
+  forbiddenChanges?: string[]
+}
+
+export interface WorldState {
+  stableAnchor: string
+  dynamicState: DynamicState
+  baseState?: BaseState
+  stateLock?: StateLock
+}
+
 export interface CoherenceState {
   baseAnchor?: Anchor
   lastGeneratedAnchor?: Anchor
   chainCount: number
   maxChainLength: number
   reanchorThreshold: number
+  mode: AnchorMode
+  worldState?: WorldState
 }
 
 /**
@@ -24,8 +54,14 @@ export class AnchorEngine {
     this.state = {
       chainCount: 0,
       maxChainLength: options.maxChainLength || 6,
-      reanchorThreshold: options.reanchorThreshold || 4
+      reanchorThreshold: options.reanchorThreshold || 4,
+      mode: 'STRUCTURE_PLUS_EVOLUTION'
     }
+  }
+
+  public setMode(mode: AnchorMode): void {
+    console.log(`[AnchorEngine] 🧩 Switching mode to: ${mode}`)
+    this.state.mode = mode
   }
 
   /**
@@ -41,6 +77,10 @@ export class AnchorEngine {
     this.state.baseAnchor = { id, url, type: 'base' }
     this.state.chainCount = 0
     this.state.lastGeneratedAnchor = undefined
+    this.state.worldState = {
+      stableAnchor: url,
+      dynamicState: {}
+    }
   }
 
   /**
@@ -104,6 +144,88 @@ export class AnchorEngine {
     }
 
     return anchors
+  }
+
+  /**
+   * Registers a narrative "Delta" to evolve the dynamic state.
+   */
+  public registerDelta(delta: DynamicState, base?: BaseState, lock?: StateLock): void {
+    if (!this.state.worldState) return
+
+    console.log('[AnchorEngine] ⚡ Registering Delta + V4 States:', { delta, base, lock })
+    this.state.worldState.dynamicState = {
+      ...this.state.worldState.dynamicState,
+      ...delta,
+      positions: [...new Set([...(this.state.worldState.dynamicState.positions || []), ...(delta.positions || [])])],
+      changes: [...new Set([...(this.state.worldState.dynamicState.changes || []), ...(delta.changes || [])])],
+      damages: [...new Set([...(this.state.worldState.dynamicState.damages || []), ...(delta.damages || [])])]
+    }
+
+    if (base) {
+      this.state.worldState.baseState = {
+        ...this.state.worldState.baseState,
+        ...base,
+        persistentElements: [
+          ...new Set([
+            ...(this.state.worldState.baseState?.persistentElements || []),
+            ...(base.persistentElements || [])
+          ])
+        ]
+      }
+    }
+
+    if (lock) {
+      this.state.worldState.stateLock = {
+        ...this.state.worldState.stateLock,
+        ...lock,
+        mustPersist: [
+          ...new Set([...(this.state.worldState.stateLock?.mustPersist || []), ...(lock.mustPersist || [])])
+        ],
+        forbiddenChanges: [
+          ...new Set([...(this.state.worldState.stateLock?.forbiddenChanges || []), ...(lock.forbiddenChanges || [])])
+        ]
+      }
+    }
+  }
+
+  /**
+   * Generates technical hints for the image generator based on current WorldState.
+   */
+  public getEvolutionHints(): string {
+    if (!this.state.worldState || this.state.mode === 'STRUCTURE_ONLY') return ''
+
+    const ws = this.state.worldState
+    const ds = ws.dynamicState
+    const bs = ws.baseState
+    const sl = ws.stateLock
+    const hints: string[] = []
+
+    // 1. Base State (Stable Truth)
+    if (bs?.lighting) hints.push(`LIGHTING: ${bs.lighting}`)
+    if (bs?.atmosphere) hints.push(`ATMOSPHERE: ${bs.atmosphere}`)
+    if (bs?.persistentElements?.length) hints.push(`STABLE TRUTH: ${bs.persistentElements.join(', ')}`)
+
+    // 2. Dynamic Delta (Evolution)
+    if (ds.changes?.length) hints.push(`EVOLUTION: ${ds.changes.join(', ')}`)
+    if (ds.damages?.length) hints.push(`DAMAGES: ${ds.damages.join(', ')}`)
+    if (ds.positions?.length) hints.push(`POSITIONS: ${ds.positions.join(', ')}`)
+    if (ds.cameraShift) hints.push(`CAMERA: ${ds.cameraShift}`)
+    if (ds.emotionalTone) hints.push(`TONE: ${ds.emotionalTone}`)
+
+    // 3. State Lock (Anti-Hallucination)
+    if (sl?.mustPersist?.length || sl?.forbiddenChanges?.length) {
+      hints.push('\n🔒 CONTINUITY LOCKS (CRITICAL) :')
+      if (sl?.mustPersist?.length) {
+        sl.mustPersist.forEach((p) => hints.push(`- NE CHANGE PAS : ${p}`))
+      }
+      if (sl?.forbiddenChanges?.length) {
+        sl.forbiddenChanges.forEach((f) => hints.push(`- INTERDICTION DE : ${f}`))
+      }
+    }
+
+    return hints.length > 0
+      ? `\n\n--- 🛡️ VISUAL COHERENCE SYSTEM (V4) ---\n${hints.join('\n')}\nRule: Follow LOCKS strictly. Prioritize TRUTH over mutation.`
+      : ''
   }
 
   /**

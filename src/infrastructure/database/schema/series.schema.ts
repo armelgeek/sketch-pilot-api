@@ -72,6 +72,7 @@ export const series = pgTable('series', {
   cameraStyle: text('camera_style'),
   threads: jsonb('threads').$type<any[]>().default([]),
   roadmap: jsonb('roadmap').$type<any>().default({}),
+  narrationLayer: jsonb('narration_layer').$type<any>(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

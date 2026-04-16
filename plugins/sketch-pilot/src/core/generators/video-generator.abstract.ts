@@ -1,5 +1,6 @@
 import { CharacterModelRepository } from '../../../../../src/infrastructure/repositories/character-model.repository'
 import { computeSceneCountRange } from '../../types/video-script.types'
+import { CinematicControlEngine } from '../cinematic-control-engine'
 import type { EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../../types/video-script.types'
 import type { VideoTypeSpecification } from '../prompt-maker.types'
 import type { SceneMemory } from '../scene-memory'
@@ -99,7 +100,7 @@ export const BASE_SPEC: Partial<VideoTypeSpecification> & {
     reveal: { minWords: 25, minSentences: 4, description: 'Révélation du concept ou de la solution' },
     mirror: { minWords: 20, minSentences: 3, description: 'Mise en miroir des bénéfices ou de la réalité' },
     bridge: { minWords: 18, minSentences: 3, description: "Transition vers l'appel à l'action ou le pivot final" },
-    conclusion: { minWords: 20, minSentences: 3, description: "Résolution et appel à l'action définitif" }
+    conclusion: { minWords: 25, minSentences: 3, description: "Résolution et appel à l'action définitif" }
   }
 }
 
@@ -129,8 +130,11 @@ export abstract class VideoGenerator {
   protected readonly cameraActions: string[] = CAMERA_ACTIONS_LIST
   protected readonly transitionTypes: string[] = TRANSITIONS_LIST
 
+  protected readonly cinematicEngine: CinematicControlEngine
+
   constructor(config: VideoGeneratorConfig = {}) {
     this.config = config
+    this.cinematicEngine = new CinematicControlEngine()
   }
 
   public abstract getType(): string
@@ -613,6 +617,14 @@ ${mandatoryRules.join('\n')}
 
   abstract buildImageSystemInstruction(hasReferenceImages: boolean): Promise<string>
 
+  /**
+   * Performs a semantic audit of the parsed script.
+   * Useful for catching hallucinations in specific video types (like Series).
+   */
+  public auditScript(script: any): { isValid: boolean; issues: string[]; feedback?: string } {
+    return { isValid: true, issues: [] }
+  }
+
   // ─── Protected Prompt Builders ───────────────────────────────────────────
 
   protected getDefaultOutputFormat(): string {
@@ -625,13 +637,14 @@ ${mandatoryRules.join('\n')}
       "id": "scene-1",
       "sceneNumber": 1,
       "summary": "Résumé visuel court",
-      "narration": "Segment de narration exact pour cette scène...",
+      "narration": "Projection sémantique (réécriture) du segment de l'histoire pour cette scène...",
       "locationId": "identifiant-lieu-unique",
       "persistentDecorTokens": ["vase bleu sur la table", "lumière matinale"],
       "imagePrompt": "Description visuelle détaillée",
       "charactersInScene": ["Nom exacte du perso"],
       "cameraAction": [{ "type": "pan-right", "intensity": "low" }],
       "preset": "hook",
+      "pacing": 5,
       "transition": "fade",
       "continueFromPrevious": true
     }

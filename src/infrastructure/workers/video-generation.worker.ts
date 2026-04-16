@@ -449,7 +449,8 @@ async function syncNarrativeSagaContext(seriesId: string, videoId: string, scrip
       roadmap: updatedContext.roadmap,
       globalContext: updatedContext.globalContext,
       previousEpisodesContext: updatedContext.previousEpisodesContext,
-      lastEpisodeNumber: String(updatedContext.episodeNumber)
+      lastEpisodeNumber: String(updatedContext.episodeNumber),
+      narrationLayer: updatedContext.narrationLayer
     })
 
     // 2.5. Update Video Title based on intrigue (V43)
@@ -467,6 +468,7 @@ async function syncNarrativeSagaContext(seriesId: string, videoId: string, scrip
       previousEpisodesContext: updatedContext.previousEpisodesContext,
       globalContext: updatedContext.globalContext,
       lastCliffhanger: updatedContext.lastCliffhanger,
+      narrationLayer: updatedContext.narrationLayer,
       continuityAnalysis: script.seriesMetadata?.continuityAnalysis
     })
 

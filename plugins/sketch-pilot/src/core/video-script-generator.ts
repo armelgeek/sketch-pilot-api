@@ -14,6 +14,7 @@ import {
   type VideoGenerationOptions
 } from '../types/video-script.types'
 import type { LLMService } from '../services/llm'
+import { CinematicControlEngine, type CinematicVisuals } from './cinematic-control-engine'
 import { StandaloneVideoGenerator } from './generators/standalone-video-generator'
 import { SceneMemoryBuilder } from './scene-memory'
 import type { VideoGenerator } from './generators/video-generator.abstract'
@@ -149,10 +150,12 @@ function scoreCandidate(
 export class VideoScriptGenerator {
   private readonly llmService: LLMService
   readonly promptManager: VideoGenerator
+  private readonly cinematicEngine: CinematicControlEngine
 
   constructor(llmService: LLMService, promptManager?: VideoGenerator) {
     this.llmService = llmService
     this.promptManager = promptManager ?? new StandaloneVideoGenerator()
+    this.cinematicEngine = new CinematicControlEngine()
   }
 
   /**
@@ -503,21 +506,37 @@ export class VideoScriptGenerator {
           const fullWords = chunkText.trim().split(/\s+/).filter(Boolean).length
           const minWords = Math.max(20, Math.floor(fullWords / Math.max(1, parsed.scenes.length)) * 0.75)
 
-          const { score, issues } = scoreCandidate(parsed, fullWords, effectiveDuration / chunks.length, minWords)
+          const { score: baseScore, issues: structuralIssues } = scoreCandidate(
+            parsed,
+            fullWords,
+            effectiveDuration / chunks.length,
+            minWords
+          )
+
+          // --- Hardcore Semantic Audit ---
+          const auditReport = this.promptManager.auditScript(parsed)
+          const semanticIssues = auditReport.issues || []
+
+          // Semantic fail is a heavy penalty (0.4)
+          const semanticPenalty = auditReport.isValid ? 0 : 0.4
+          const score = Math.max(0, baseScore - semanticPenalty)
+
+          const issues = [...structuralIssues, ...semanticIssues]
           const candidate: ScriptCandidate = { parsed, score, attempt, issues }
 
           if (!bestCandidate || score > bestCandidate.score) {
             bestCandidate = candidate
           }
 
-          if (score >= 0.7) {
+          if (score >= 0.7 && auditReport.isValid) {
             console.log(`[VideoScriptGen] Pass 2 Evaluation: GOOD (Score ${score.toFixed(2)}). Accepting.`)
             break
           } else {
             console.log(
-              `[VideoScriptGen] Pass 2 Evaluation: POOR (Score ${score.toFixed(2)}). Attempt ${attempt}/${MAX_P2_RETRIES}. Issues: ${issues.join(', ')}`
+              `[VideoScriptGen] Pass 2 Evaluation: ${auditReport.isValid ? 'STRUCTURAL POOR' : 'HALLUCINATION'} (Score ${score.toFixed(2)}). Attempt ${attempt}/${MAX_P2_RETRIES}.`
             )
-            lastFeedback = this.buildValidationFeedback(
+
+            const baseFeedback = this.buildValidationFeedback(
               parsed,
               actualWords,
               fullWords,
@@ -525,6 +544,11 @@ export class VideoScriptGenerator {
               effectiveDuration / chunks.length,
               minWords
             )
+
+            // Inject sentinel correction prompt if it exists
+            const sentinelFeedback = auditReport.feedback ? `\n\n${auditReport.feedback}` : ''
+            lastFeedback = `${baseFeedback}${sentinelFeedback}`
+
             if (attempt === MAX_P2_RETRIES) break
           }
         } catch (error: any) {
@@ -580,6 +604,10 @@ export class VideoScriptGenerator {
 
     // 3. Final structural assignments
     if (onProgress) await onProgress(90, 'Studio: Finalizing script structure...')
+
+    // Apply cinematic logic (Rule 44/45)
+    this.applyCinematicVisuals(fixedScript.scenes)
+
     fixedScript.scenes = this.postProcessScenes(fixedScript.scenes, options)
 
     fixedScript.scenes = this.assignTimeRanges(fixedScript.scenes, options)
@@ -804,125 +832,40 @@ export class VideoScriptGenerator {
   }
 
   /**
-   * Automatically assign transitions and camera movements to scenes that lack them.
+   * Automatically assign transitions and camera movements to scenes that lack them
+   * using the specialized CinematicControlEngine.
    */
-  private applyAutoVisuals(scenes: RawScene[]): void {
+  private applyCinematicVisuals(scenes: RawScene[]): void {
+    const history: CinematicVisuals[] = []
+
     scenes.forEach((scene, idx) => {
-      const tension = (scene as any).tension || this.pacingToTension(scene.pacing || 'medium')
+      const visuals = this.cinematicEngine.suggestVisuals(scene as any, idx, scenes.length, history)
 
-      // 1. Assign camera action based on tension if missing or static
-      const currentCamObj = Array.isArray(scene.cameraAction) ? scene.cameraAction[0] : scene.cameraAction
-      const currentType = typeof currentCamObj === 'object' ? currentCamObj?.type : currentCamObj
-
-      if (!currentType || currentType === 'static' || currentType === 'none') {
-        const tension = (scene as any).tension || this.pacingToTension(scene.pacing || 'medium')
-
-        // Simple algorithmic fallback if LLM didn't specify
-        let smartCam = 'zoom-in'
-        let smartIntensity = 'medium'
-
-        if (tension > 7) {
-          smartCam = 'snap-zoom'
-          smartIntensity = 'high'
-        } else if (tension <= 3) {
-          smartCam = 'breathing'
-          smartIntensity = 'low'
-        } else if (idx % 2 === 0) {
-          smartCam = 'pan-right'
-        } else {
-          smartCam = 'zoom-in'
-        }
-
-        scene.cameraAction = {
-          type: smartCam,
-          intensity: smartIntensity
-        } as any
-
-        console.log(
-          `[VideoScriptGen] 🎥 Smart-assigned fallback camera action to scene ${idx + 1} (tension ${tension}): ${smartCam} (${smartIntensity})`
-        )
+      // Update scene with suggested visuals if they are missing
+      const currentCam = (this.cinematicEngine as any).getCameraType(scene.cameraAction)
+      if (!scene.cameraAction || currentCam === 'none' || currentCam === 'static') {
+        scene.cameraAction = visuals.cameraAction as any
       }
 
-      // 2. Assign transition based on tension for all except the last scene
-      if (idx < scenes.length - 1) {
-        if (!scene.transition || scene.transition === 'none') {
-          let smartTrans = 'dissolve'
-          if (tension > 7) smartTrans = 'slide-left'
-          else if (tension <= 3) smartTrans = 'fade'
-
-          scene.transition = smartTrans as any
-          console.log(
-            `[VideoScriptGen] 🎞️ Smart-assigned transition to scene ${idx + 1} (tension ${tension}): ${smartTrans}`
-          )
-        }
-      } else {
-        scene.transition = 'none' as any
+      if (!scene.transition || scene.transition === 'none') {
+        scene.transition = visuals.transition as any
       }
+
+      history.push(visuals)
     })
+
+    // Final deduplication pass
+    this.cinematicEngine.deduplicate(scenes as any)
   }
 
-  /** Algorithmic safety: ensure no two consecutive scenes have identical camera moves or transitions. */
+  private applyAutoVisuals(scenes: RawScene[]): void {
+    // Legacy mapping - now handled by applyCinematicVisuals
+    this.applyCinematicVisuals(scenes)
+  }
+
+  /** Algorithmic safety: ensure variety in camera moves and transitions. */
   private deduplicateVisuals(scenes: RawScene[]): void {
-    const CAMERA_LIST = [
-      'zoom-in',
-      'zoom-out',
-      'shake',
-      'pan-left',
-      'pan-right',
-      'pan-up',
-      'pan-down',
-      'static',
-      'breathing',
-      'snap-zoom'
-    ]
-    const TRANSITION_LIST = [
-      'fade',
-      'crossfade',
-      'blur',
-      'zoom',
-      'zoomin',
-      'dissolve',
-      'wipeleft',
-      'wiperight',
-      'slideleft',
-      'slideright',
-      'fadeblack',
-      'fadewhite'
-    ]
-
-    scenes.forEach((scene, idx) => {
-      if (idx > 0) {
-        const prev = scenes[idx - 1]
-
-        // Deduplicate camera actions
-        const currentCamObj = Array.isArray(scene.cameraAction) ? scene.cameraAction[0] : scene.cameraAction
-        const prevCamObj = Array.isArray(prev.cameraAction) ? prev.cameraAction[0] : prev.cameraAction
-
-        const currentCam = typeof currentCamObj === 'object' ? currentCamObj?.type : currentCamObj
-        const prevCam = typeof prevCamObj === 'object' ? prevCamObj?.type : prevCamObj
-
-        if (currentCam && currentCam !== 'static' && currentCam === prevCam) {
-          const others = CAMERA_LIST.filter((c) => c !== currentCam)
-          const newType = others[idx % others.length]
-
-          if (Array.isArray(scene.cameraAction)) {
-            if (scene.cameraAction[0]) scene.cameraAction[0].type = newType
-          } else if (typeof scene.cameraAction === 'object' && scene.cameraAction) {
-            scene.cameraAction.type = newType
-          } else {
-            scene.cameraAction = newType as any
-          }
-          console.log(`[VideoScriptGen] 🎥 Fixed duplicate camera action in scene ${idx + 1}: ${newType}`)
-        }
-
-        // Deduplicate transitions
-        if (scene.transition && scene.transition !== 'none' && prev.transition === scene.transition) {
-          const others = TRANSITION_LIST.filter((t) => t !== scene.transition)
-          scene.transition = others[idx % others.length] as any
-          console.log(`[VideoScriptGen] 🎞️ Fixed duplicate transition in scene ${idx + 1}: ${scene.transition}`)
-        }
-      }
-    })
+    this.cinematicEngine.deduplicate(scenes as any)
   }
 
   /** Clear narration that is identical to the previous scene. */

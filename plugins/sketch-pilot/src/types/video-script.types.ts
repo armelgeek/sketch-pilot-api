@@ -15,10 +15,22 @@ export const threadSchema = z.object({
   title: z.string().describe('Title of the plot thread (e.g. "Le secret d\'Alexandre")'),
   status: z.enum(['open', 'partial', 'resolved', 'new']).default('open'),
   description: z.string().describe('Detailed description of the thread and its current state'),
-  lastUpdatedEpisode: z.number().int().optional()
+  lastUpdatedEpisode: z.number().int().optional(),
+  importance: z.number().int().min(1).max(10).optional(),
+  maturity: z.number().int().min(0).max(100).optional()
 })
 
 export type NarrativeThread = z.infer<typeof threadSchema>
+
+// ─── Narration Layer (Narrative Intelligence) ───────────────────────────────
+
+export const narrationLayerSchema = z.object({
+  psychologicalArc: z.string().describe('Évolution mentale des personnages (ex: de la curiosité à la dépendance).'),
+  causalThread: z.string().describe('Logique sous-jacente et causalité invisible du récit.'),
+  hiddenForce: z.string().describe('Forces mystérieuses ou mémoires du lieu interagissant avec le présent.')
+})
+
+export type NarrationLayer = z.infer<typeof narrationLayerSchema>
 
 /**
  * Narrative watchpoints to track unresolved questions or pending choices
@@ -189,6 +201,18 @@ export const timeRangeSchema = z.object({
 export type TimeRange = z.infer<typeof timeRangeSchema>
 
 /**
+ * Refined Tension State (v8.0)
+ */
+export const tensionStateSchema = z
+  .object({
+    level: z.number().min(0).max(10).describe('Absolute tension level'),
+    type: z.enum(['internal', 'external', 'thematic']).describe('Tension nature')
+  })
+  .describe('Current state of narrative tension')
+
+export type TensionState = z.infer<typeof tensionStateSchema>
+
+/**
  * Sound effect configuration
  */
 export const soundEffectSchema = z.object({
@@ -247,6 +271,84 @@ export const cameraActionSchema = z.object({
 })
 
 export type CameraAction = z.infer<typeof cameraActionSchema>
+
+/**
+ * Information Delta Rule (v8.0)
+ * Ensures every scene provides NEW, consequential information.
+ */
+export const sceneDeltaSchema = z.object({
+  newInformation: z.string().describe('Information unique et irréversible introduite dans cette scène.'),
+  consequence: z.string().describe("L'impact immédiat de cette information sur les personnages ou l'environnement.")
+})
+
+export type SceneDelta = z.infer<typeof sceneDeltaSchema>
+
+/**
+ * Scene Purpose (v8.0)
+ * Functional role of the scene in the global architecture.
+ */
+export const scenePurposeSchema = z.object({
+  function: z
+    .string()
+    .transform((val) => {
+      const lower = val.toLowerCase()
+      if (['reveal', 'escalate', 'misdirect', 'stabilize', 'collapse'].includes(lower)) return lower as any
+      if (['build', 'tension', 'suspense'].includes(lower)) return 'escalate' as const
+      if (['resolution', 'end', 'final'].includes(lower)) return 'stabilize' as const
+      if (['revelation', 'discovery'].includes(lower)) return 'reveal' as const
+      return 'reveal' as const // Safe fallback
+    })
+    .describe('Rôle structurel : révélation, escalade, fausse-piste, stabilisation ou effondrement.')
+})
+
+export const sceneStoryLayerSchema = z.object({
+  scenePurpose: z
+    .string()
+    .transform((val) => {
+      const lower = val.toLowerCase()
+      if (['reveal', 'escalate', 'misdirect', 'stabilize', 'collapse'].includes(lower)) return lower as any
+      if (['build', 'tension', 'suspense'].includes(lower)) return 'escalate' as const
+      if (['resolution', 'end', 'final'].includes(lower)) return 'stabilize' as const
+      return 'reveal' as const
+    })
+    .describe('reveal | escalate | misdirect | stabilize | collapse'),
+  sceneDelta: z.string().min(1).describe('New information or causal change introduced by this scene')
+})
+
+export const sceneProjectionsLayerSchema = z.object({
+  camera: z.array(z.any()).optional(),
+  composition: z.any().optional(),
+  pacing: z.number().min(1).max(10).default(5),
+  mood: z.string().optional(),
+  characters: z
+    .array(z.string())
+    .default([])
+    .describe('Handles of characters present in this scene (e.g. ["@Alexandre"])'),
+  visualDescription: z.string().min(1).describe('Telegraphic description of the visual scene for the Render Layer'),
+  tensionState: tensionStateSchema.optional()
+})
+
+export const sceneSimulationLayerSchema = z.object({
+  charactersPatch: z
+    .record(
+      z.object({
+        status: z.string().optional(),
+        evolution: z.string().optional(),
+        location: z.string().optional()
+      })
+    )
+    .optional(),
+  worldPatch: z
+    .object({
+      weather: z.string().optional(),
+      time: z.string().optional(),
+      locks: z.array(z.string()).optional()
+    })
+    .optional(),
+  assetPatch: z.record(z.string()).optional()
+})
+
+export type ScenePurpose = z.infer<typeof scenePurposeSchema>
 
 // Transition types supported by xfade
 export const transitionTypeSchema = z
@@ -349,22 +451,28 @@ export const transitionTypeSchema = z
     })
   )
 export type TransitionType = z.infer<typeof transitionTypeSchema>
-
 /**
  * Enriched scene with all details needed for generation
  */
 export const enrichedSceneSchema = z.object({
-  id: z.string(),
-  sceneNumber: z.number().int().positive(),
-  timeRange: timeRangeSchema,
-  duration: z.number().optional().describe('Scene duration in seconds (aim for 10-12s)'),
-  timestamp: z
-    .union([z.number(), z.string()])
-    .optional()
-    .transform((val) => (typeof val === 'string' ? parseFloat(val) : val))
-    .describe('Start timestamp of the scene'),
-  summary: z.string().optional().describe('Concise summary of identifying actions in the scene'),
+  id: z.string().describe('Unique ID for the scene (e.g. "scene-1")'),
+  sceneNumber: z.number().int().positive().describe('Sequential position in the video'),
+
+  // Script / Legacy Support
   narration: z.string().describe('Main narrative text for the scene'),
+
+  summary: z.string().optional().describe('Concise summary of identifying actions in the scene'),
+  metadata: z.record(z.any()).optional(),
+
+  // Runtime fields
+  imageUrl: z.string().optional(),
+  audioUrl: z.string().optional(),
+  thumbnailUrl: z.string().url().optional().describe('URL to the generated thumbnail for this scene'),
+  videoUrl: z.string().optional(),
+  audioDuration: z.number().optional(),
+  globalWordTimings: z.array(z.any()).optional(),
+
+  // Script Legacy / Derived (v9.0 Transition)
   locationId: z
     .string()
     .optional()
@@ -381,6 +489,10 @@ export const enrichedSceneSchema = z.object({
       })
     ),
   imagePrompt: z.string().optional().describe('Full description of the visual scene for image generation'),
+  visualDescription: z
+    .string()
+    .optional()
+    .describe('Telegraphic description of the visual scene (alias for imagePrompt)'),
   charactersInScene: z
     .array(z.string())
     .default([])
@@ -399,30 +511,12 @@ export const enrichedSceneSchema = z.object({
     .optional()
     .describe('Cinematic camera movement(s) for the scene. Can be a single action or a sequence of actions.'),
   // Dynamism fields
-  // Dynamism fields (transitionToNext removed in favor of camera acceleration)
   pauseBefore: z.number().default(0.4).describe('Specific silence duration before narration starts (in seconds)'),
   pauseAfter: z.number().default(0.1).describe('Specific silence duration after narration ends (in seconds)'),
   continueFromPrevious: z
     .boolean()
     .default(false)
     .describe('If true, this scene reuses the visual background of the previous scene for perfect continuity'),
-  imageUrl: z.string().optional().describe('URL to the generated visual for this scene'),
-  preset: z.string().optional().describe('Strategic role of the scene (e.g. hook, reveal, etc.)'),
-  pacing: z
-    .enum(['fast', 'medium', 'slow', 'intense', 'tense'])
-    .or(z.string())
-    .transform((val) => {
-      if (val === 'fast' || val === 'medium' || val === 'slow') return val
-      if (val === 'intense' || val === 'tense') return 'fast' as const
-      return 'medium' as const
-    })
-    .default('medium')
-    .describe('Narration pacing: fast (dense), medium (balanced), slow (breathable)'),
-  breathingPoints: z
-    .array(z.string())
-    .default([])
-    .describe('List of strategic pause locations (e.g. "after sentence 1", "before the reveal")'),
-  thumbnailUrl: z.string().url().optional().describe('URL to the generated thumbnail for this scene'),
   transition: transitionTypeSchema.optional().describe('Visual transition to the NEXT scene'),
   persistentDecorTokens: z
     .preprocess((val) => (typeof val === 'string' ? val.split(',').map((s) => s.trim()) : val), z.array(z.string()))
@@ -476,6 +570,51 @@ export const enrichedSceneSchema = z.object({
     .describe(
       'Physical changes for characters/entities (e.g. {"@Alexandre": "Cicatrice au front", "@Marek": "Vêtements brûlés"})'
     ),
+  visualDelta: z
+    .object({
+      changes: z.array(z.string()).optional(), // What moved or changed
+      damages: z.array(z.string()).optional(), // Environmental wear/tear
+      positions: z.array(z.string()).optional(), // Character spatial anchoring
+      cameraShift: z.string().optional(), // Camera movement hints
+      emotionalTone: z.string().optional() // Mood shift
+    })
+    .optional(),
+  worldStateSnapshot: z
+    .object({
+      location: z.string().optional(),
+      lighting: z.string().optional(),
+      weather: z.string().optional(),
+      activeProps: z.array(z.string()).optional(),
+      lockedCharacters: z
+        .record(
+          z.string(),
+          z.object({
+            injury: z.string().optional(),
+            clothing: z.string().optional()
+          })
+        )
+        .optional()
+    })
+    .optional(),
+  visualBaseState: z
+    .object({
+      lighting: z.string().optional(),
+      atmosphere: z.string().optional(),
+      persistentElements: z.array(z.string()).optional() // Fixed truth: "Blue neon sign", "Heavy rain"
+    })
+    .optional(),
+  visualStateLock: z
+    .object({
+      mustPersist: z.array(z.string()).optional(), // "Clothing", "@John's scar"
+      forbiddenChanges: z.array(z.string()).optional() // "No time skip", "No weather change"
+    })
+    .optional(),
+  frameAnchor: z
+    .object({
+      referenceSceneId: z.string().optional(),
+      similarityMode: z.enum(['strict', 'soft']).default('strict')
+    })
+    .optional(),
   weatherState: z.string().optional().describe('Current weather/climate (e.g. "Orage violent", "Brume épaisse")'),
   timeOfDay: z.string().optional().describe('Current time (e.g. "Minuit", "Aube", "Crépuscule")'),
   relationshipMap: z
@@ -579,6 +718,7 @@ export const completeVideoScriptSchema = z.object({
   totalDuration: z.number().min(1),
   sceneCount: z.number().int().positive(),
   scenes: z.array(enrichedSceneSchema),
+  narrationLayer: narrationLayerSchema.optional(),
   backgroundMusic: z
     .string()
     .catch((error) => (typeof error.input === 'object' ? JSON.stringify(error.input) : 'upbeat'))
@@ -657,7 +797,8 @@ export const completeVideoScriptSchema = z.object({
         .describe('Map of newly discovered characters [name]: [description]'),
       newAssets: z.record(z.string()).optional().describe('Map of newly discovered story assets [name]: [description]'),
       threadUpdates: z.array(threadSchema).optional().describe('New or updated plot threads for the saga ledger'),
-      roadmapUpdate: sagaRoadmapSchema.optional().describe('Progress update on the series-wide milestones')
+      roadmapUpdate: sagaRoadmapSchema.optional().describe('Progress update on the series-wide milestones'),
+      narrationLayer: narrationLayerSchema.optional()
     })
     .optional()
     .describe('Episodic metadata for series-mode videos'),
@@ -955,6 +1096,10 @@ export const videoGenerationOptionsSchema = z
     seriesId: z.string().optional().describe('ID of the series for episodic continuity'),
     episodeNumber: z.number().optional().describe('Episode number within the series'),
     episodeSummary: z.string().optional().describe('Planned summary for this specific episode'),
+    tiktokViral: z
+      .boolean()
+      .default(true)
+      .describe('If true, optimizes for TikTok viral storytelling (hooks, loops, high retention)'),
 
     /** If true, missing transitions will be filled randomly (default true); set false to always use fade. */
     promptId: z.string().optional().describe('ID of the managed prompt template to use'),

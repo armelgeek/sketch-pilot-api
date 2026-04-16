@@ -35,6 +35,7 @@ export class VideoRepository {
     continuityAnalysis?: any
     lastEpisodeFinalImage?: string
     lastEpisodeFinalScene?: any
+    narrationLayer?: any
   }) {
     const [video] = await db
       .insert(videos)
@@ -62,6 +63,7 @@ export class VideoRepository {
         continuityAnalysis: data.continuityAnalysis,
         lastEpisodeFinalImage: data.lastEpisodeFinalImage,
         lastEpisodeFinalScene: data.lastEpisodeFinalScene,
+        narrationLayer: data.narrationLayer,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -147,6 +149,7 @@ export class VideoRepository {
       continuityAnalysis?: any
       lastEpisodeFinalImage?: string
       lastEpisodeFinalScene?: any
+      narrationLayer?: any
     }
   ) {
     const updateData: any = { ...data }
@@ -197,10 +200,18 @@ export class VideoRepository {
         spatialAnchor: scene.spatialAnchor,
         composition: scene.composition,
         visualEvolution: scene.visualEvolution,
+        visualDelta: scene.visualDelta,
+        visualBaseState: scene.visualBaseState,
+        visualStateLock: scene.visualStateLock,
+        frameAnchor: scene.frameAnchor,
+        worldStateSnapshot: scene.worldStateSnapshot,
         weatherState: scene.weatherState,
         timeOfDay: scene.timeOfDay,
         colorPalette: scene.colorPalette,
         cameraStyle: scene.cameraStyle,
+        sceneDelta: scene.sceneDelta,
+        scenePurpose: scene.scenePurpose,
+        tensionState: scene.tensionState,
         metadata: { ...scene },
         createdAt: new Date(),
         updatedAt: new Date()
@@ -238,10 +249,18 @@ export class VideoRepository {
       spatialAnchor: scene.spatialAnchor,
       composition: scene.composition,
       visualEvolution: scene.visualEvolution,
+      visualDelta: scene.visualDelta,
+      visualBaseState: scene.visualBaseState,
+      visualStateLock: scene.visualStateLock,
+      frameAnchor: scene.frameAnchor,
+      worldStateSnapshot: scene.worldStateSnapshot,
       weatherState: scene.weatherState,
       timeOfDay: scene.timeOfDay,
       colorPalette: scene.colorPalette,
       cameraStyle: scene.cameraStyle,
+      sceneDelta: scene.sceneDelta,
+      scenePurpose: scene.scenePurpose,
+      tensionState: scene.tensionState,
       metadata: { ...scene },
       updatedAt: new Date()
     }
@@ -388,6 +407,11 @@ export class VideoRepository {
           video.thumbnailUrl = scenesWithImages[index].imageUrl
         }
       }
+    }
+
+    // 3. Flatten Tension State for UI (v8.0 Alignment)
+    if (video.narrationLayer?.tensionState) {
+      video.tensionState = video.narrationLayer.tensionState
     }
 
     return video

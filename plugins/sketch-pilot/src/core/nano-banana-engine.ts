@@ -184,7 +184,8 @@ export class NanoBananaEngine {
     isReprompt: boolean = false,
     onStatus?: (status: string, message?: string) => void,
     visualDNA?: string,
-    seed?: number
+    seed?: number,
+    evolutionHints?: string
   ): Promise<string> {
     const filename = tempPath || path.join(this.outputDir, scene.id, `prompt_${scene.id}.webp`)
     const bypassCache = isReprompt
@@ -255,14 +256,16 @@ export class NanoBananaEngine {
     // 2. Extract & Strip Internal Tags (@VisualState, @LocationState)
     let internalContext = ''
     const visualStateRegex = /@VisualState:\s*\[([^\]]+)\]/i
-    const match = visualStateRegex.exec(scene.imagePrompt || '')
+
+    // Use Projections Layer if available (v9.0)
+    const basePrompt = (scene as any).projections?.visualDescription || scene.imagePrompt || ''
+    const match = visualStateRegex.exec(basePrompt)
     if (match) {
       internalContext = `SCENE COMPOSITION / VISUAL STATE: ${match[1]}`
       console.info(`[NanoBanana] 👁️  Internal Visual State: ${match[1]}`)
     }
 
-    // Strip internal tags from the prompt to avoid polluting the token limit
-    const cleanPrompt = (scene.imagePrompt || '').replaceAll(/@VisualState:\s*\[[^\]]+\]/gi, '').trim()
+    const cleanPrompt = basePrompt.replaceAll(/@VisualState:\s*\[[^\]]+\]/gi, '').trim()
     const tempScene = { ...scene, imagePrompt: cleanPrompt }
 
     const { prompt: fullPrompt, reuseReferenceImage } = await this.promptManager.buildImagePrompt(
@@ -293,6 +296,10 @@ export class NanoBananaEngine {
       if (isPortrait) {
         systemInstruction = `CHARACTER IDENTITY PRIORITY: Maintain the exact features of the character provided in reference images. The DNA below should ONLY be used for artistic style (lighting, linework, color palette, rendering style).\n\n${systemInstruction}`
       }
+    }
+
+    if (evolutionHints) {
+      systemInstruction = `${evolutionHints}\n\n${systemInstruction}`
     }
 
     if (!bypassCache) {
@@ -483,6 +490,16 @@ export class NanoBananaEngine {
       console.info(`[NanoBanana] 🧬 DNA: ${dnaInstruction}`)
     }
 
+    // [V4] Visual State Management: Register Base, Delta, and Locks
+    if ((scene as any).visualDelta || (scene as any).visualBaseState || (scene as any).visualStateLock) {
+      anchorEngine.registerDelta(
+        (scene as any).visualDelta || {},
+        (scene as any).visualBaseState,
+        (scene as any).visualStateLock
+      )
+    }
+    const evolutionHints = anchorEngine.getEvolutionHints()
+
     // Legacy Continuity Support (Previous Frame Chaining)
     if (scene.continueFromPrevious && lastSceneB64) {
       console.info(`[NanoBanana] 🔗 CONTINUITY: Adding previous scene as reference anchor.`)
@@ -533,7 +550,8 @@ export class NanoBananaEngine {
                 if (onProgress) onProgress(-1, statusMsg, { message: m })
               },
               dnaInstruction,
-              currentSeed
+              currentSeed,
+              evolutionHints
             )
             await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(currentTarget)
 
@@ -622,7 +640,10 @@ export class NanoBananaEngine {
 
     await this.generateThumbnail(imagePath, path.join(outputDir, 'thumbnail.jpg'))
     const wordTimings = (scene as any).globalWordTimings
-    const totalDuration = scene.timeRange ? scene.timeRange.end - scene.timeRange.start : 5
+    const totalDuration =
+      (scene as any).timeRange?.start !== undefined && (scene as any).timeRange?.end !== undefined
+        ? (scene as any).timeRange.end - (scene as any).timeRange.start
+        : 5
 
     let hasVideo = false
     const videoPath = path.join(outputDir, 'animation.mp4')
@@ -659,8 +680,8 @@ export class NanoBananaEngine {
       aspectRatio
     }
 
-    if (wordTimings?.length > 0) {
-      const start = (scene.timeRange as any).start
+    if (wordTimings?.length > 0 && (scene as any).timeRange?.start !== undefined) {
+      const start = (scene as any).timeRange.start
       manifest.wordTimings = wordTimings.map((w: any) => ({
         ...w,
         start: Math.round(Math.max(0, w.start - start) * 100) / 100,
@@ -690,8 +711,10 @@ export class NanoBananaEngine {
       const audioPath = path.join(projectDir, 'scenes', scene.id, 'narration.mp3')
       const d = fs.existsSync(audioPath)
         ? await this.getRealDuration(audioPath)
-        : scene.timeRange?.end - scene.timeRange?.start || 5
-      scene.timeRange = { start: currentTime, end: currentTime + d }
+        : (scene as any).timeRange?.end !== undefined && (scene as any).timeRange?.start !== undefined
+          ? (scene as any).timeRange.end - (scene as any).timeRange.start
+          : 5
+      ;(scene as any).timeRange = { start: currentTime, end: currentTime + d }
       currentTime += d
       if (onProgress) await onProgress(Math.round(((i + 1) / script.scenes.length) * 100), `Syncing sc ${i + 1}`)
     }
@@ -1009,14 +1032,17 @@ export class NanoBananaEngine {
       const audioFiles: string[] = []
       for (const s of script.scenes) {
         const p = path.join(scenesDir, s.id, 'narration.mp3')
-        if (fs.existsSync(p)) {
+        if (p && fs.existsSync(p)) {
           audioFiles.push(p)
           const d = (s as any).audioDuration || (await this.getRealDuration(p))
-          s.timeRange = { start: currentTime, end: currentTime + d }
+          ;(s as any).timeRange = { start: currentTime, end: currentTime + d }
           currentTime += d
         } else {
-          const d = s.timeRange?.end - s.timeRange?.start || 5
-          s.timeRange = { start: currentTime, end: currentTime + d }
+          const d =
+            (s as any).timeRange?.end !== undefined && (s as any).timeRange?.start !== undefined
+              ? (s as any).timeRange.end - (s as any).timeRange.start
+              : 5
+          ;(s as any).timeRange = { start: currentTime, end: currentTime + d }
           currentTime += d
         }
       }

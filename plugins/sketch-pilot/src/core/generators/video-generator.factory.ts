@@ -31,7 +31,13 @@ export const VideoGeneratorFactory = {
         isFinalEpisode: !!(extraOptions.isFinalEpisode || sc.isFinalEpisode),
         characterModelId: extraOptions.characterModelId || sc.characterModelId,
         lastEpisodeFinalImage: extraOptions.lastEpisodeFinalImage || sc.lastEpisodeFinalImage,
-        lastEpisodeFinalScene: extraOptions.lastEpisodeFinalScene || sc.lastEpisodeFinalScene
+        lastEpisodeFinalScene: extraOptions.lastEpisodeFinalScene || sc.lastEpisodeFinalScene,
+        tiktokViral:
+          extraOptions.tiktokViral !== undefined
+            ? !!extraOptions.tiktokViral
+            : sc.tiktokViral !== undefined
+              ? !!sc.tiktokViral
+              : true
       } as any)
     }
 
