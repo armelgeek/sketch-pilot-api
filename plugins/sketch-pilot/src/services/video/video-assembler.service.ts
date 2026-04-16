@@ -42,6 +42,16 @@ function easeOutCubic(p: string): string {
   return `(1-pow(1-(${p}),3))`
 }
 
+/** Ease-in-out cubic: smooth acceleration and deceleration */
+function easeInOutCubic(p: string): string {
+  return `if(lt(${p},0.5), 4*pow(${p},3), 1-pow(-2*(${p})+2,3)/2)`
+}
+
+/** Ease-out expo: very rapid start, then long smooth tail (extremely dramatic) */
+function easeOutExpo(p: string): string {
+  return `(1-pow(2,-10*(${p})))`
+}
+
 /**
  * Cinematic snap zoom with overshoot.
  * Rises sharply to peak then decays with a small overshoot (like a physical lens "clack").
@@ -834,8 +844,14 @@ export class VideoAssembler {
         const frameCount = Math.round(aDuration * ZOOMPAN_INTERNAL_FPS)
 
         // Localized S-Curve (SS)
-        const localP = `(on-${startFrame})/(${frameCount})`
-        const activeSS = smootherstep(`min(1,max(0,${localP}))`)
+        // Localized Easing based on Intensity
+        const localP = `min(1,max(0,(on-${startFrame})/(${frameCount})))`
+        let activeSS = smootherstep(localP)
+        if (intensity === 'high') {
+          activeSS = easeOutExpo(localP)
+        } else if (intensity === 'medium') {
+          activeSS = easeInOutCubic(localP)
+        }
 
         // Intensity scaling for Panning
         const panMult = intensity === 'low' ? 0.3 : intensity === 'high' ? 0.8 : 0.6
@@ -866,8 +882,9 @@ export class VideoAssembler {
           case 'shake': {
             const shakePx = intensity === 'low' ? 3 : intensity === 'high' ? 12 : 7
             zBaseExpr = '1.05'
-            xRaw = `${CX}+${shakePx}*sin(2*pi*on/3)`
-            yRaw = `${CY}+${shakePx}*cos(2*pi*on/5)`
+            // Organic pseudo-random shake using multi-frequency components
+            xRaw = `${CX}+${shakePx}*(sin(2*pi*on/4.1)*0.6 + sin(2*pi*on/2.9)*0.4)`
+            yRaw = `${CY}+${shakePx}*(cos(2*pi*on/5.3)*0.6 + cos(2*pi*on/3.7)*0.4)`
             break
           }
           case 'breathing': {
@@ -947,8 +964,13 @@ export class VideoAssembler {
           const DZ = (zoomScale - 1).toFixed(4)
 
           // Local progress for this action
-          const localP = `(on-${startFrame})/(${Math.round(actionDuration * ZOOMPAN_INTERNAL_FPS)})`
-          const localSS = smootherstep(`min(1,max(0,${localP}))`)
+          const localP = `min(1,max(0,(on-${startFrame})/(${Math.round(actionDuration * ZOOMPAN_INTERNAL_FPS)})))`
+          let localSS = smootherstep(localP)
+          if (intensity === 'high') {
+            localSS = easeOutExpo(localP)
+          } else if (intensity === 'medium') {
+            localSS = easeInOutCubic(localP)
+          }
 
           let currentZ = '1.0'
           let currentX = CX
@@ -980,8 +1002,9 @@ export class VideoAssembler {
             case 'shake': {
               const shakePx = intensity === 'low' ? 3 : intensity === 'high' ? 12 : 7
               currentZ = '1.05'
-              currentX = `${CX}+${shakePx}*sin(2*pi*on/3)`
-              currentY = `${CY}+${shakePx}*cos(2*pi*on/5)`
+              // Organic pseudo-random shake using multi-frequency components
+              currentX = `${CX}+${shakePx}*(sin(2*pi*on/4.1)*0.6 + sin(2*pi*on/2.9)*0.4)`
+              currentY = `${CY}+${shakePx}*(cos(2*pi*on/5.3)*0.6 + cos(2*pi*on/3.7)*0.4)`
               break
             }
             case 'breathing': {

@@ -449,7 +449,19 @@ export const enrichedSceneSchema = z.object({
   composition: z
     .object({
       shotType: z
-        .enum(['CLOSEUP', 'MEDIUM', 'WIDE', 'ESTABLISHING', 'POV', 'OVERSHOULDER', 'PANORAMIC'])
+        .enum([
+          'CLOSEUP',
+          'MEDIUM',
+          'WIDE',
+          'ESTABLISHING',
+          'POV',
+          'OVERSHOULDER',
+          'PANORAMIC',
+          'LOW_ANGLE',
+          'HIGH_ANGLE',
+          'EXTREME_CLOSEUP',
+          'BIRD_EYE'
+        ])
         .or(
           z.string().transform((val) => {
             const upper = val.toUpperCase()
@@ -457,6 +469,8 @@ export const enrichedSceneSchema = z.object({
             if (upper.includes('ESTABLISH')) return 'ESTABLISHING' as const
             if (upper.includes('WIDE')) return 'WIDE' as const
             if (upper.includes('CLOSE')) return 'CLOSEUP' as const
+            if (upper.includes('LOW')) return 'LOW_ANGLE' as const
+            if (upper.includes('HIGH')) return 'HIGH_ANGLE' as const
             return 'MEDIUM' as const
           })
         )
@@ -467,15 +481,36 @@ export const enrichedSceneSchema = z.object({
         .describe('Layout type: SINGLE for one frame, SPLIT/MONTAGE for multiple panels/polyptychs'),
       foregroundAnchor: z.string().optional().describe('Context-aware object for Dirty Frame (e.g. "blurry pillar")'),
       lightingMood: z.string().optional().describe('Specific lighting (e.g. "low key", "warm sunset")'),
-      focusTarget: z.string().optional().describe('Where the character is looking or the camera focuses')
+      focusTarget: z.string().optional().describe('Where the character is looking or the camera focuses'),
+      cameraAngle: z
+        .string()
+        .optional()
+        .describe('Specific cinematic angle (e.g. "Dramatic Low Angle", "Canted Frame")'),
+      cameraElevation: z
+        .enum(['high-angle', 'eye-level', 'low-angle', 'bird-eye', 'worm-eye'])
+        .or(z.string())
+        .optional()
+        .describe('Vertical camera position relative to the subject'),
+      lightingDescription: z
+        .string()
+        .optional()
+        .describe('Detailed narrative description of light sources, shadows, and atmosphere')
     })
     .default({ shotType: 'MEDIUM', layout: 'SINGLE' }),
+  atmosphericFX: z
+    .string()
+    .optional()
+    .describe('Particle effects or environmental FX (e.g. "floating embers", "thick fog", "dust motes")'),
   visualEvolution: z
     .record(z.any())
     .default({})
     .describe(
       'Physical changes for characters/entities (e.g. {"@Alexandre": "Cicatrice au front", "@Marek": "Vêtements brûlés"})'
     ),
+  characterEvolution: z
+    .record(z.any())
+    .default({})
+    .describe('Deeper psychological or physical status changes for characters'),
   weatherState: z.string().optional().describe('Current weather/climate (e.g. "Orage violent", "Brume épaisse")'),
   timeOfDay: z.string().optional().describe('Current time (e.g. "Minuit", "Aube", "Crépuscule")'),
   relationshipMap: z
@@ -794,13 +829,12 @@ export interface SceneCountRange {
  */
 export function computeSceneCountRange(durationSeconds: number): SceneCountRange {
   // Smoothly scaling seconds per scene (SPS)
-  // Short videos: 10-12s/scene
-  // Long videos: 15-18s/scene
-  let sps = 15
-  if (durationSeconds <= 45) sps = 10
-  else if (durationSeconds <= 90) sps = 12
-  else if (durationSeconds <= 180) sps = 14
-  else sps = 20 // Slower scaling for long videos to keep scene count manageable
+  // [V49] Increased SPS to allow for longer, more stable scenes
+  let sps = 20
+  if (durationSeconds <= 45) sps = 15
+  else if (durationSeconds <= 90) sps = 18
+  else if (durationSeconds <= 180) sps = 22
+  else sps = 25 // Slower scaling for long videos
 
   let ideal = Math.max(2, Math.round(durationSeconds / sps))
 
@@ -1101,7 +1135,9 @@ export const imagePromptSchema = z.object({
   reuseReferenceImage: z
     .boolean()
     .optional()
-    .describe('If true, bypass generation and reuse the reference image directly')
+    .describe('If true, bypass generation and reuse the reference image directly'),
+  shotDirective: z.string().optional().describe('Cinematic framing instruction for system instruction injection'),
+  cameraDirective: z.string().optional().describe('Camera physical effect instruction for system instruction injection')
 })
 
 export type ImagePrompt = z.infer<typeof imagePromptSchema>

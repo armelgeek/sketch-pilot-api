@@ -1,5 +1,7 @@
 import { computeSceneCountRange, type EnrichedScene, type VideoGenerationOptions } from '../../types/video-script.types'
 import type { VideoTypeSpecification } from '../prompt-maker.types'
+import { NarrativePacingSentinel } from './series/narrative-pacing-sentinel'
+import { SeriesPromptBuilders } from './series/series-prompt-builders'
 import { VideoGenerator } from './video-generator.abstract'
 import type { VideoGeneratorConfig } from './video-generator.abstract'
 
@@ -155,75 +157,6 @@ export interface SeriesContext {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function cliffhangerDescription(ch: TypedCliffhanger | string | undefined): string {
-  if (!ch) return 'Aucun.'
-  if (typeof ch === 'string') return ch
-  return ch.description
-}
-
-function cliffhangerBridgeInstruction(
-  ch: TypedCliffhanger | string | undefined,
-  episodeNumber: number,
-  lastScene?: any
-): string {
-  if (episodeNumber <= 1 || (!ch && !lastScene)) return ''
-
-  let prompt =
-    "\n\n🆘 TRANSITION VS CAMERA ACTION (STRICT) : \n- TRANSITION : Changement de scène. 'shake', 'static', 'breathing' ne sont PAS des transitions.\n- CAMERA ACTION : Mouvement DANS la scène. 'shake' est une CAMERA ACTION.\nSi vous voulez une secousse, utilisez 'cameraAction': 'shake' et 'transition': 'none'.\n\n⚠️ PONT NARRATIF OBLIGATOIRE :"
-
-  if (lastScene) {
-    prompt += `\nL'épisode précédent s'est arrêté EXACTEMENT sur cette scène : "${lastScene.summary || lastScene.imagePrompt}"`
-    if (lastScene.locationId)
-      prompt += `\nLieu de reprise OBLIGATOIRE : "${lastScene.locationId}" (Vous DEVEZ démarrer ici).`
-    if (lastScene.persistentDecorTokens?.length > 0) {
-      prompt += `\nAmbiance & Lumière à maintenir : ${lastScene.persistentDecorTokens.join(', ')}`
-    }
-
-    prompt += `\n🆘 ANTI-SAUT TEMPOREL (CRITICAL) : Interdiction absolue de commencer par 'Mais alors qu'ils discutaient', 'Quelques heures plus tard', ou toute ellipse. Vous reprenez au MÊME ENDROIT, à la MÊME SECONDE.`
-    prompt += `\n- HÉRITAGE TECHNIQUE [S1] (CLONAGE) : La Scène 1 DOIT être l'héritière technique de l'épisode précédent :`
-    prompt += `\n    * locationId : "${lastScene.locationId}" (Utilisez cet ID EXACT)`
-    prompt += `\n    * charactersInScene : [${(lastScene.charactersInScene || []).join(', ')}]`
-    prompt += `\n    * persistentDecorTokens : [${(lastScene.persistentDecorTokens || []).join(', ')}]`
-    prompt += `\n    * shotType : "${lastScene.shotType || 'WIDE'}"`
-    prompt += `\n- ECHO DU DERNIER SOUFFLE : L'épisode précédent s'est achevé sur : "${lastScene.narration}".`
-    prompt += `\n  ⚠️ LA PREMIÈRE PHRASE DE SCÈNE 1 DOIT RÉPONDRE DIRECTEMENT À CES MOTS (Action immediate ou Ressenti sensoriel).`
-    prompt += `\n- RÉACTION VISCÉRALE : Lars (ou le perso actuel) doit être dans le MÊME état émotionnel (Peur, Choc, Détermination).`
-    prompt += `\n⚠️ IMAGE : La Scène 1 réutilisera PHYSIQUEMENT l'image finale. Votre description d'image DOIT être identique à la finale précédente.`
-  }
-
-  if (ch) {
-    if (typeof ch === 'string') {
-      prompt += `\nCliffhanger à résoudre : "${ch}"`
-    } else {
-      const typeInstructions: Record<CliffhangerType, string> = {
-        revelation: `Le personnage ou le lecteur vient d'apprendre une vérité qui change tout. L'épisode doit s'ouvrir sur les CONSÉQUENCES émotionnelles immédiates de cette révélation, pas sur une autre action. Le choc doit résonner.`,
-        peril: `Un personnage est en danger immédiat. L'épisode DOIT s'ouvrir en plein milieu de ce danger (In Media Res). NE PAS résoudre le péril en deux lignes — laissez la tension monter au moins 2 scènes avant toute issue.`,
-        choice: `Un personnage fait face à un choix impossible. L'épisode DOIT montrer le processus de décision dans ses moindres contradictions — pas seulement la décision elle-même. La souffrance du choix est le coeur de cette ouverture.`,
-        betrayal: `Une trahison vient d'être révélée ou commise. L'épisode s'ouvre sur la réaction viscérale du personnage trahi ou du traître face aux conséquences. Evitez les explications immédiates — laissez l'ambiguïté respirer.`,
-        unknown: `L'épisode doit reconnecter avec la tension précédente de façon directe et immersive.`
-      }
-      prompt += `\n[Type: ${(ch.type || 'unknown').toUpperCase()}] : "${ch.description}"`
-      if (ch.audienceQuestion) prompt += `\nQuestion du public : "${ch.audienceQuestion}"`
-      prompt += `\nInstruction de reprise : ${typeInstructions[ch.type as CliffhangerType] || typeInstructions.unknown}`
-    }
-  }
-
-  return prompt
-}
-
-/**
- * Validate that unresolved threads are questions, not statements.
- * Returns a warning list (non-blocking).
- */
-function validateThreadsAsQuestions(threads: NarrativeThread[]): string[] {
-  return threads
-    .filter((t) => !t.title.trim().endsWith('?') && !t.description.trim().endsWith('?'))
-    .map(
-      (t) =>
-        `[SeriesVideoGenerator] Thread title ou description non formulé comme question : "${t.title.slice(0, 30)}..."`
-    )
-}
-
 // ─── SeriesVideoGenerator ─────────────────────────────────────────────────────
 
 /**
@@ -237,64 +170,19 @@ export class SeriesVideoGenerator extends VideoGenerator {
   public seriesContext: SeriesContext
   private narrativeInstructions: string[] = []
 
+  private validateThreadsAsQuestions(threads: NarrativeThread[]): string[] {
+    return threads
+      .filter((t) => !t.title.trim().endsWith('?') && !t.description.trim().endsWith('?'))
+      .map(
+        (t) =>
+          `[SeriesVideoGenerator] Thread title ou description non formulé comme question : "${t.title.slice(0, 30)}..."`
+      )
+  }
+
   constructor(config: VideoGeneratorConfig, seriesContext: SeriesContext) {
     super(config)
     this.seriesContext = seriesContext
-    //console.log('[CONTEXTUAL_SERIE_CONTEXT_CONTEXT]', seriesContext)
-    // Automatic final episode detection
-    const instructions = [
-      `Génère l'Épisode nº${this.seriesContext.episodeNumber}${this.seriesContext.totalEpisodes ? ` sur ${this.seriesContext.totalEpisodes}` : ''} de la saga : "${this.seriesContext.videoGenre || 'Horreur Historique'}".`
-    ]
-
-    if (this.seriesContext.currentEpisodePitch) {
-      instructions.push(
-        `🚨 MISSION NARRATIVE (PLAN REÇU) : Suivez ce pitch : "${this.seriesContext.currentEpisodePitch}".`
-      )
-    } else if (!this.seriesContext.isFinalEpisode && this.seriesContext.episodeNumber > 1) {
-      instructions.push(
-        `🚨 MISSION NARRATIVE (IMPROVISATION DIRIGÉE) : Le plan initial est épuisé. Vous DEVEZ improviser une suite logique en exploitant les mystères non résolus (@unresolvedThreads). Maintenez la tension sans conclure prématurément.`
-      )
-    }
-
-    if (this.seriesContext.totalEpisodes && this.seriesContext.episodeNumber >= this.seriesContext.totalEpisodes) {
-      this.seriesContext.isFinalEpisode = true
-    }
-
-    // Narrative Pacing Sentinel (Project Sequel - V42)
-    const currentEp = this.seriesContext.episodeNumber
-    const totalEp = this.seriesContext.totalEpisodes || 10
-    const progress = currentEp / totalEp
-    const isSequel = currentEp > totalEp
-
-    let phaseInstruction = ''
-    if (isSequel) {
-      phaseInstruction = `🌀 MODE SÉQUELLE / NOUVEAU CYCLE : Vous avez dépassé la fin prévue. RELANCEZ l'intrigue avec un nouvel Arc. Introduisez une menace résurgente, un saut dans le temps ou un changement de paradigme. Le monde a changé, montrez-le.`
-    } else if (progress <= 0.25) {
-      phaseInstruction = `🔹 PHASE 1 (SETUP) : Établissez le monde et les enjeux. INTERDICTION de résoudre l'intrigue principale. Introduisez au moins 2 nouveaux mystères ou personnages intrigants.`
-    } else if (progress <= 0.75) {
-      phaseInstruction = `🔹 PHASE 2 (ESCALADE) : La situation DOIT s'aggraver. Enchaînez les complications. Évitez toute victoire définitive. Si une solution semble proche, introduisez un obstacle imprévu ou une trahison.`
-    } else if (progress < 1) {
-      phaseInstruction = `🔹 PHASE 3 (CLIMAX) : On approche de la fin. Les fils narratifs commencent à se croiser. La tension est à son maximum. Le cliffhanger DOIT être de type 'péril' ou 'révélation' majeure.`
-    } else {
-      phaseInstruction = `🏆 PHASE FINALE (RÉSOLUTION) : Concluez les intrigues majeures de ce cycle. Focus sur l'impact émotionnel. 🚨 GRAINE DE SUITE : Laissez un infime indice "post-générique" suggérant qu'une menace plus grande sommeille encore.`
-    }
-    instructions.push(phaseInstruction)
-
-    // Anti-Looping / Mandatory Hooks
-    const threadCount = this.seriesContext.unresolvedThreads?.length || 0
-    if (threadCount < 2 && !this.seriesContext.isFinalEpisode) {
-      instructions.push(
-        `🚨 ALERTE NARRATIVE : Trop peu de mystères actifs. Vous DEVEZ introduire un NOUVEAU fil narratif (@unresolvedThreads) ou une découverte énigmatique dans cet épisode.`
-      )
-    }
-
-    if (currentEp > 3 && threadCount > 0 && !this.seriesContext.isFinalEpisode) {
-      instructions.push(
-        `🧩 COMPLEXITÉ : Un des secrets existants doit s'épaissir. Ce qu'on croyait savoir est remis en question par un nouvel élément de lore.`
-      )
-    }
-
-    this.narrativeInstructions = instructions
+    this.narrativeInstructions = NarrativePacingSentinel.getPhaseInstructions(this.seriesContext)
   }
 
   public getType(): string {
@@ -400,6 +288,11 @@ squeezev, squeezeh, zoomin, zoomout, diagtl, diagtr, diagbl, diagbr
 
 CAMERA ACTIONS :
 none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing, snap-zoom, dutch-tilt
+
+--- 🎬 DYNAMISME CINÉMATOGRAPHIQUE (R45 & R46) 🎬 ---
+- **Règle 45 (Variation de Cadrage)** : INTERDICTION DE RÉPÉTER le même 'shotType' pour deux scènes consécutives. Si Scène N est 'CLOSE-UP', Scène N+1 DOIT être 'WIDE', 'MEDIUM' ou 'OTS'. Le public s'ennuie devant la répétition.
+- **Règle 46 (Persistance & Nettoyage Décor)** : Chaque objet manipulé ou posé dans le décor DOIT être tracé. Utilisez 'assetEvolution' pour signaler un objet ajouté ou RETIRÉ ("@Objet": "Retiré").
+- **Règle 47 (Dirty Frame)** : Pour les 'MEDIUM' et 'CLOSE-UP', incluez souvent un élément de décor flou au premier plan (Foreground Anchor) pour donner de la profondeur.
 `.trim()
   }
 
@@ -430,11 +323,7 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
     const safetyFactor = this.getSafetyFactor(options)
     const target = targetWords ?? Math.round(duration * wps * safetyFactor)
 
-    const bridgeInstruction = cliffhangerBridgeInstruction(
-      this.seriesContext.lastCliffhanger,
-      this.seriesContext.episodeNumber,
-      this.seriesContext.lastEpisodeFinalScene
-    )
+    const bridgeInstruction = NarrativePacingSentinel.getBridgeInstruction(this.seriesContext)
 
     const threadsInstruction = this.seriesContext.unresolvedThreads?.length
       ? `\n\nINTRIGUES SECONDAIRES EN COURS (à tisser subtilement, sans forcer) :\n${this.seriesContext.unresolvedThreads
@@ -521,312 +410,23 @@ none, pan-left, pan-right, pan-up, pan-down, zoom-in, zoom-out, shake, breathing
       : ''
 
     const seedingInstruction = this.seriesContext.seedingHints?.length
-      ? `\n\n🚨 PRÉPARATION DES TWISTS FUTURS (SEEDING) :\n${this.seriesContext.seedingHints.join('\n')}\nSemez des indices subtils pour préparer ces événements sans les révéler totalement.`
-      : ''
-
     return {
       pass1: {
-        system: `Vous êtes un scénariste de séries expert en binge-watching et en narration épisodique.
-      Episode N° ${this.seriesContext.episodeNumber}.
-      RÔLE NARRATIF : ${
-        this.seriesContext.episodeNumber === 1
-          ? 'ACTE 1 (DÉCOMPRESSION/DÉPART)'
-          : this.seriesContext.isFinalEpisode
-            ? 'ACTE 3 (RÉSOLUTION FINALE)'
-            : `ACTE 2 (DÉVELOPPEMENT/INTENSIFICATION - Épisode ${this.seriesContext.episodeNumber})`
-      }
-      Tâche: Écrire la narration de l'épisode ${this.seriesContext.episodeNumber}.
-
-      🚨 DIRECTIVE NARRATIVE PRIORITAIRE (PHASE ACTUELLE) :
-      ${this.narrativeInstructions.join('\n')}
-
-      CONTEXTE GLOBAL (BIBLE) :
-      ${this.seriesContext.globalContext || 'Pas de bible spécifiée.'}
-
-      ÉPISODES PRÉCÉDENTS :
-      ${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
-
-      REGISTRE DES PERSONNAGES (Canon) :
-      ${
-        Object.entries(characterRegistry)
-          .map(([name, data]) => {
-            const attributes = []
-            if (data.backstory) attributes.push(`Infos : ${data.backstory}`)
-            if (data.abilities?.length) attributes.push(`Capacités : ${data.abilities.join(', ')}`)
-            if (data.knownFacts?.length) attributes.push(`Faits établis : ${data.knownFacts.join(', ')}`)
-            if (data.fate) attributes.push(`Destin : ${data.fate}`)
-
-            const attrText = attributes.length ? ` | ${attributes.join(' | ')}` : ''
-            return `• ${name}: (Motivation: ${data.motivation || 'N/A'}, But: ${data.personalGoal || 'N/A'}, Statut: ${data.status || 'alive'})${attrText}`
-          })
-          .join('\n') || 'Aucun personnage récurrent défini.'
-      }
-
-      REGISTRE DES LIEUX (Canon) :
-      ${
-        Object.entries(this.seriesContext.locationRegistry || {})
-          .map(([name, data]) => {
-            const normalized = SeriesVideoGenerator.normalizeId(name)
-            const evol = (this.seriesContext.visualEvolution as any)?.[normalized]
-            const stateText = evol ? ` [ÉTAT ACTUEL : ${typeof evol === 'string' ? evol : evol.state}]` : ''
-            return `• ${name}: ${data.description}${stateText}`
-          })
-          .join('\n') || 'Aucun lieu récurrent défini.'
-      }
-
-      REGISTRE DES ENTITÉS & MONSTRES (Canon) :
-      ${
-        Object.entries(this.seriesContext.assetRegistry || {})
-          .map(([name, data]) => {
-            const normalized = SeriesVideoGenerator.normalizeId(name)
-            const evol = (this.seriesContext.assetEvolution as any)?.[normalized]
-            const stateText = evol ? ` [ÉTAT ACTUEL : ${typeof evol === 'string' ? evol : evol.state}]` : ''
-            return `• ${name} [${data.type || 'entité'}]: ${data.description}${stateText}`
-          })
-          .join('\n') || 'Aucune entité récurrente définie.'
-      }
-
-      🎨 GUIDE DE STYLE VISUEL (DNA DE LA SAGA) :
-      Style organique basé sur les références fournies.
-      ⚠️ RÈGLE D'OR VISUELLE : La narration de cet épisode DOIT rester 100% cohérente avec les références visuelles passées.
-
-      ÉPISODES PRÉCÉDENTS :
-      ${this.seriesContext.previousEpisodesContext || 'Premier épisode.'}
-
-      BIAIS DE RÉCENCE (ANCRE CRITIQUE) :
-      ${
-        this.seriesContext.lastEpisodeSummary
-          ? `L'épisode immédiatement précédent (N-1) s'est terminé sur ces événements : "${this.seriesContext.lastEpisodeSummary}". C'est votre point de départ logique et émotionnel ABSOLU.`
-          : 'N/A'
-      }
-
-      DIRECTIVES DE CONTINUITÉ :${bridgeInstruction}${threadsInstruction}${seedingInstruction}${closedStakesInstruction}${deadCharacters ? `\n\nPERSONNAGES MORTS (ANTI-RÉSURRECTION) :\n${deadCharacters}` : ''}${forbiddenInstruction}
-      🏗️ RÈGLES DE RIGUEUR NARRATIVE ET CAUSALITÉ :
-      1. PERSISTANCE DU MONDE : Si un objet ou lieu est marqué comme 'DÉTRUIT' ou 'ENDOMMAGÉ' dans les registres, cela DOIT être maintenu visuellement et narrativement. Interdiction de "réparer" sans une action explicite.
-      2. LOGIQUE DES CONSÉQUENCES : Chaque action majeure (explosion, incendie, vol) doit avoir des répercussions durables sur l'environnement.
-      3. CAUSALITÉ VISUELLE : Si un personnage a perdu son chapeau à la scène 4, il ne doit pas l'avoir à la scène 5.
-      4. COHÉRENCE ÉMOTIONNELLE : Les personnages DOIVENT réagir avec une intensité proportionnelle aux enjeux (Peur viscérale si mort imminente, Joie éclatante si retrouvailles).
-      5. AUDIT DE NÉCESSITÉ : Avant de créer une nouvelle scène, demandez-vous : "Est-ce indispensable ?" Si l'action peut continuer dans le même plan ou le même angle, ne divisez pas. La fragmentation excessive nuit à la performance visuelle.
-
-      RÈGLES D'OR DE NARRATION :
-      • INTERDICTION ABSOLUE : Ne créez aucun personnage absent du characterRegistry. Si la narration nécessite un allié, utilisez un personnage existant ou laissez le rôle anonyme.
-      • ÉCONOMIE DE MOYENS (BUDGET PRODUCTION) : Un nouvel asset maître (personnage ou lieu) a un coût de production élevé (crédits). Vous DEVEZ limiter l'introduction de nouveaux éléments.
-        - MAXIMUM : 1 nouveau lieu et 1 nouveau personnage par épisode.
-      • RÉUTILISATION PRIORITAIRE : Privilégiez EXCLUSIVEMENT les lieux et personnages déjà présents dans le registre. Ne créez un nouvel élément que si l'intrigue l'exige ABOLUMENT.
-      • LISTES AUTORISÉES (ID FIXES - PRIORITÉ ABSOLUE) : 
-        - PERSONNAGES : ${authorizedCharacters}
-        - LIEUX (BUDGET ZÉRO) : ${Object.keys(this.seriesContext.locationRegistry || {}).join(', ') || 'Aucun lieu défini'}
-      • RÈGLE D'OR DES LIEUX : Si l'action peut se dérouler dans un lieu existant (ex: @Archives), INTERDICTION d'en créer un nouveau. La fragmentation géographique est un échec narratif et budgétaire.
-      • SOUDURE DE CONTINUITÉ DIRECTE (ARC N → ARC N+1) [CRITIQUE] : La Scène 1 du premier épisode d'un Arc DOIT commencer par justifier la survie ou la suite immédiate du cliffhanger de l'Arc précédent. INTERDICTION de sauter le 'Comment avons-nous survécu ?' (ex: "Le flash de la Brèche nous avait projeté au sol, mais les ombres semblaient avoir reculé...").
-      • PERSISTANCE DES MENACES ACTIVES : Si des ennemis (ex: silhouettes) étaient présents à la fin de l'épisode précédent, ils DOIVENT être mentionnés, combattus ou leur fuite justifiée.
-      • HÉRITAGE DE L'ÉTAT PHYSIQUE : Les personnages conservent les séquelles immédiates (essoufflement, blessures, entraves) de la scène finale précédente.
-      • TRANSFERT D'IMPULSION (PONT N → N+1) : La Scène 1 de l'épisode N+1 DOIT commencer par une phrase qui justifie l'action à partir du cliffhanger. INTERDICTION de sauter le 'Pourquoi' du déplacement.
-      • SOUDURE DES OUTILS (ASSET PERSISTENCE) : Si un personnage utilisait un outil (ex: ordi/data) à l'épisode N et un autre (ex: inscriptions) à l'épisode N+1, créez un lien logique (ex: "Les inscriptions confirmaient ses calculs").
-      • PERSISTANCE DES ANOMALIES : Si un concept fort (ex: distorsions temporelles) est introduit, il DOIT être maintenu ou intensifié tant qu'il n'est pas résolu.
-      • PAYOFF DU CLIFFHANGER : Tout élément spécifique (ex: une silhouette, un cri) du cliffhanger précédent DOIT être adressé nominativement dans les scènes 1 ou 2.
-      • IDENTITÉS CANON (OBLIGATOIRE) : Utilisez EXCLUSIVEMENT les personnages du registre (ex: @Elias). Il est STRICTEMENT INTERDIT d'inventer de nouveaux héros ou de renommer les existants par des noms génériques (ex: @Kael).
-      • GARDE-FOU D'IDENTITÉ (PASS 2) : Si un héros a été renommé par erreur dans la narration, restaurez son identité d'origine du registre lors de la structuration.
-      • SYNERGIE DES ENJEUX (MANDATORY) : Interdiction de créer un enjeu "nouveau" pour résoudre la série. Utilisez EXCLUSIVEMENT les 'unresolvedStakes' déjà listés.
-      • RÉUNION TOUS-AZIMUTS (MÉMOIRE) : En cas de scène de victoire/paix, TOUS les personnages marqués 'ALIVE' dans le registre (y compris la famille libérée précédemment) DOIVENT être présents visuellement ou mentionnés nominativement.
-      • LOGIQUE DES VESTIGES : Si l'antagoniste principal est mort, nommez explicitement les geôliers restants (ex: "Les mercenaires abandonnés par le @Baron") pour éviter le flou.
-      • PRÉSENCE ACTIVE NOMINATIVE : Chaque personnage du 'characterRegistry' (Vivant) DOIT accomplir une action ou ligne de dialogue NOMMÉE.
-      • RÉSOLUTION DES ENJEUX À L'ÉCRAN : Tout enjeu dans 'unresolvedStakes' DOIT être montré lors de sa résolution.
-      • PAYOFF RELATIONNEL : Les relations (Romance/Rivalité) DOIVENT trouver une conclusion explicite (serment, adieu).
-      • BANNIR LE VAGUE (FINALE) : Décrivez l'état final précis de CHAQUE héros.
-      • LEGACY AUDIT (OBLIGATOIRE) : Récapitulez les 3 plus anciens fils narratifs actifs.
-      • LORE GUARD (STABILITÉ TERMINOLOGIQUE) : Inviolabilité des termes d'origine (ex: 'Les Plaines').
-      • HÉRITAGE ÉMOTIONNEL & SENSORIALITÉ : Reprenez les personnages exactement dans l'état émotionnel où ils étaient. S'ils étaient en plein conflit, la tension doit être palpable dès la première seconde.
-      • SOUDURE INVISIBLE (FLUIDITÉ TOTALE) : Entre l'épisode N et N+1, il ne doit y avoir AUCUN saut de ton. L'épisode N+1 est la suite organique du dernier souffle de l'épisode N.
-      • LOCATION_CONSISTENCY (STRICT) : Chaque scène DOIT identifier son lieu via la propriété \`locationId\` en utilisant un handle du registre (ex: "@Maison_Victor").
-      • CHARACTER_STABILITY : Les personnages (@Handle) conservent exactement les mêmes habits et traits d'un plan à l'autre.
-      • FAUSSE RÉSOLUTION (OBLIGATOIRE) : Entre la scène 3 et 5, inclure un moment où le personnage croit avoir résolu le problème principal — avant une aggravation inattendue. C'est le coeur du ressort addictif.
-      • CURIOSITÉ EN ESCALIER : Ouvrez de nouvelles questions à chaque fois que vous fermez une ancienne. Le ratio doit être 1 réponse pour 2 nouvelles questions.
-      • LIEUX : Réutilisez les lieux du registre pour créer un sentiment de familiarité. Décrivez-les avec constance en incluant leur ÉTAT ACTUEL (ex: "La chapelle dévastée").
-      • PERSONNAGES : Respectez scrupuleusement les traits de personnalité et les descriptions physiques du registre.
-      • PROTOCOLE VISUAL DNA (CRITICAL) : Lorsque vous décrivez une scène, donnez la priorité au cadrage, à l'action et à l'expression émotionnelle. NE RÉ-DÉCRIVEZ PAS minutieusement les traits du visage s'ils sont déjà dans le registre. Utilisez des ancres comme "Expression de [Emotion]" pour laisser le modèle de référence faire son travail.
-      • ANTI-RÉSURRECTION (ABSOLU) : Si un personnage est 'DEAD', il le reste.
-      • RÈGLE DU COÛT DE LA VICTOIRE : La défaite d'un grand antagoniste laisse une cicatrice permanente.
-      • SEEDING ÉMOTIONNEL : Préparation des twists par un HINT au moins 2 épisodes avant.
-      • ANTI-LOOPING : Interdiction de répéter un dilemme. Une fois tranché, il est acquis.
-      • FAITS IRRÉVERSIBLES : Chaque épisode ajoute un fait permanent au registre.
-      • CAUSALITÉ MONDIALE : Tout élément détruit reste détruit.
-      • GENRE GUARD (STRICT) : Respectez scrupuleusement les 'genreConstraints'. L'univers est immuable.
-      • KNOWLEDGE MEMORY : Les personnages ne réagissent pas à une info connue comme nouvelle.
-      • EXPOSITION MONDIALE (OBLIGATOIRE) : Le premier épisode de chaque Arc DOIT s'ouvrir sur une description visuelle riche de l'environnement global. Tout objet central (ex: relique) introduit doit être décrit précisément.
-      • RÉVÉLATIONS (SHOW DON'T TELL) : Toute découverte sur un objet ou un mystère doit être PROUVÉE par une action ou un effet visuel, pas seulement affirmée par un personnage.
-      • ÉQUILIBRE D'ACTION (MAPPING NOMINATIF) : Chaque personnage majeur du registre DOIT effectuer au moins une action décisive ou une ligne de dialogue qui fait progresser l'intrigue. Pas de personnages 'spectateurs' ou passifs.
-      • ASSET PERSISTENCE & TRANSITION : Si un objet est marqué comme 'perdu' ou 'cherché' dans le registre, il ne peut PAS apparaître subitement dans la main d'un personnage.
-      • ANTI-CREDIT BURN : Avant d'ajouter un @locationId non répertorié, demandez-vous si l'action ne peut pas se dérouler dans un lieu déjà connu. La fragmentation géographique excessive nuit à l'immersion et au budget.
-      • RÈGLE : OUVERTURE ATMOSPHÉRIQUE (ÉPISODE 1) [CRITIQUE] : S'il s'agit du premier épisode de la saga, la Scène 1 DOIT s'ouvrir sur une action immédiate ou une sensation sensorielle forte.
-      • 🏛️ ANCRAGE VISUEL DES LIEUX (LOC-DNA) : Chaque scène DOIT être taguée avec un \`@locationId\` du registre. L'image GÉNÉRÉE doit être 100% cohérente avec la première apparition de ce lieu.
-      • 🎬 CONTINUITÉ DE PERSPECTIVE (RACCORD) : Lors d'un changement d'angle, les éléments de décor en arrière-plan NE DOIVENT PAS changer.
-      `,
-        user: `${missionBlock}DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga.'}\nCible : ${target} mots.`,
+        system: this.buildPass1SystemInstructions(),
+        user: `DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga.'}\nCible : ${target} mots.`,
         targetWords: target
       }
     }
   }
 
+  protected buildPass1SystemInstructions(): string {
+    return SeriesPromptBuilders.buildPass1System(this.seriesContext, this.narrativeInstructions)
+  }
+
   // ─── Pass 2: Structuring system prompt ─────────────────────────────────────
 
   protected buildStructuringSystemPrompt(options: VideoGenerationOptions): string {
-    const spec = this.getEffectiveSpec(options)
-    const ch = this.seriesContext.lastCliffhanger
-
-    let prompt = `
-🚨 DIRECTIVE NARRATIVE PRIORITAIRE :
-${this.narrativeInstructions.join('\n')}
-`
-    prompt += '\n\n🆘 TRANSITION VS CAMERA ACTION (STRICT) : '
-    const cliffhangerContext = ch
-      ? typeof ch === 'string'
-        ? `Dernier Cliffhanger (À RÉSOUDRE OU ÉVOLUER): ${ch}`
-        : `Dernier Cliffhanger [${(ch as TypedCliffhanger).type.toUpperCase()}]: ${(ch as TypedCliffhanger).description}`
-      : 'Aucun cliffhanger précédent.'
-
-    const lastTease = this.seriesContext.nextEpisodeTease || 'Aucun teasing spécifique.'
-    const lastQuestion =
-      typeof this.seriesContext.lastCliffhanger === 'object'
-        ? this.seriesContext.lastCliffhanger.audienceQuestion
-        : 'Aucune question spécifique.'
-
-    const seriesSpec: VideoTypeSpecification = {
-      ...spec,
-      goals: spec.goals,
-      task: `${spec.task}
-      
-🚨 ATTENTION CRITIQUE : 
-1. Vous DEVEZ impérativement inclure l'objet "seriesMetadata" à la fin de votre réponse JSON. Sans ce bloc, la série sera corrompue.
-2. EXPULSION NARRATIVE (STRICT) : Si un personnage est enlevé (kidnappé), tué, ou s'enfuit de la scène, il DOIT être IMMÉDIATEMENT retiré de la liste 'charactersInScene' pour toutes les scènes suivantes où il n'est plus présent physically. Ne laissez PAS de 'fantômes' visuels.
-3. DISTINCTION VISUEL VS NARRATION : Si la narration parle d'une personne (@Maya) mais qu'elle n'est pas physiquement présente dans la scène, vous ne devez PAS l'ajouter dans 'charactersInScene'. Sa mention dans 'fullNarration' suffit. 'charactersInScene' est réservé STRICTEMENT à la présence physique visible.
-4. ÉVOLUTION NARRATIVE (@characterEvolution) : Si un personnage change de statut (meurt, devient un traître, est blessé) même s'il n'est pas présent visuellement, vous devez l'enregistrer dans 'characterEvolution' pour assurer la continuité.
-5. POSITIONNEMENT ET ÉQUILIBRE (FIX) : Pour assurer une continuité parfaite du décor, vous DEVEZ décrire la POSITION relative des personnages dans 'spatialAnchor' (ex: "@Maya est au centre, @Elias à sa droite"). Si la scène continue de la précédente ('continueFromPrevious': true), maintenez les positions initiales pour éviter les sauts visuels.
-6. IDENTITÉ DES PERSONNAGES (STRICT) : Utilisez UNIQUEMENT le PRÉNOM pour les handles @. EXCLUEZ les préfixes (Frère, Dr, Sœur, Maître, etc.), les noms de famille et les suffixes de profession. (Exemple Correct : @Aloysius, @Jean; INCORRECT : @BrotherAloysius, @DrWatson).
-Schéma attendu :
-{
-  "seriesMetadata": {
-    "episodeSummary": "Promesse narrative de suite.",
-    "cliffhanger": { "type": "revelation | peril | choice | betrayal", "description": "...", "audienceQuestion": "..." },
-    "characterContinuity": { "@Nom": { "description": "...", "isNew": false } },
-    "locationContinuity": { "LieuID": { "description": "...", "isNew": false } },
-    "nextEpisodeTease": "Question CONCRÈTE avec NOM PROPRE (Ex: 'Maya survivra-t-elle au Baron ?'). INTERDICTION de phrases vagues.",
-    "unresolvedThreads": [
-      { 
-        "id": "T1",
-        "title": "Question?", 
-        "status": "open | partial | resolved", 
-        "description": "Expliquez l'évolution ou la résolution finale ici." 
-      }
-    ],
-    "assetEvolution": { "@Objet": "Nouvel état" },
-    "visualEvolution": { "@Nom": "État visuel" },
-    "characterContinuity": { "@Nom": { "description": "Description mise à jour (ex: blessure, vieillissement)" } },
-    "locationContinuity": { "LieuID": { "description": "Description mise à jour (ex: ruines, hiver)" } },
-    "newCharacters": { "@Nom": "Description physique détaillée" },
-    "newLocations": { "LieuID": "Description visuelle (Ambiance, Lumière, Matériaux)" },
-    "continuityAnalysis": {
-      "soudureBrute": "Notez tout saut temporel ou spatial illogique.",
-      "lastVisualBridge": "Rappelez ici l'état visuel exact de la Scène N-1 (ou de la fin de l'épisode précédent) pour valider l'accumulation."
-    },
-    "loreUpdates": ["Points de chronologie, de géographie ou de lore à graver dans la bible."]
-  },
-  "titles": ["Titre accrocheur de l'épisode correspondant à l'intrigue"],
-  "fullNarration": "...",
-  "scenes": [
-    {
-      "id": "scene-1",
-      "justification": "Expliquez pourquoi ce changement de scène est nécessaire (Ex: Changement d'angle, Nouvelle interaction, Déplacement).",
-      "summary": "...",
-      "narration": "...",
-      "locationId": "...",
-      "charactersInScene": ["@Nom"],
-      "emotionalTokens": { "@Nom": ["Emotion"] },
-      "relationshipMap": { "@A": { "@B": "Relation" } },
-      "spatialAnchor": "Description physique du lieu ET POSITION relative (ex: @Maya au centre devant la porte)",
-      "visualEvolution": { "@Objet": "Nouvel état" },
-      "imagePrompt": "...",
-      "cameraAction": [{ "type": "...", "intensity": "..." }],
-      "preset": "...",
-      "transition": "...",
-      "persistentDecorTokens": ["..."]
-    }
-  ]
-}`,
-      context: `[STRUCTURATION SAGA N°${this.seriesContext.episodeNumber}] 
-${cliffhangerContext}
-ATTENTE PRÉCÉDENTE (PROMESSA) : "${lastTease}"
-QUESTION DU PUBLIC À RÉSOUDRE : "${lastQuestion}"
-FILS NARRATIFS ACTIFS (AUDIT OBLIGATOIRE PAR ID - T1, T2, etc.) : ${
-        this.seriesContext.unresolvedThreads?.length
-          ? this.seriesContext.unresolvedThreads
-              .map((t, i) => {
-                const id = t.id || `T${i + 1}`
-                return `[${id}] (${t.status.toUpperCase()}) ${t.title}: ${t.description}`
-              })
-              .join(' ; ')
-          : 'Aucun.'
-      }
-DETTES DE CONTINUITÉ À VÉRIFIER : ${this.seriesContext.continuityDebts?.length ? this.seriesContext.continuityDebts.join(' ; ') : 'Aucune.'}
-PONT VISUEL OBLIGATOIRE : ${
-        this.seriesContext.lastEpisodeFinalScene
-          ? `L'épisode précédent s'est terminé sur : "${this.seriesContext.lastEpisodeFinalScene.summary}". 
-       DÉTAILS TECHNIQUES POUR LA SCÈNE 1 (In Media Res) :
-       - Image de référence : ${this.seriesContext.lastEpisodeFinalImage || 'Non disponible'}
-       - Prompt visuel précédent : "${this.seriesContext.lastEpisodeFinalScene.imagePrompt}"
-       - Jetons de Décor : ${this.seriesContext.lastEpisodeFinalScene.persistentDecorTokens?.join(', ') || 'Standard'}
-       - Emplacement précis : ${this.seriesContext.lastEpisodeFinalScene.locationId}
-       - État émotionnel : ${JSON.stringify(this.seriesContext.lastEpisodeFinalScene.emotionalTokens || {})}
-       - Interactions en cours : "${this.seriesContext.lastEpisodeFinalScene.interactions || 'Aucune'}"
-       - Personnages présents : ${this.seriesContext.lastEpisodeFinalScene.charactersInScene?.join(', ') || 'Inconnu'}
-       La première scène de ce NOUVEL ÉPISODE doit être la suite immédiate et indissociable de cet état.`
-          : 'Aucun (Premier épisode).'
-      }
-REGISTRE DES PERSONNAGES : ${
-        Object.entries(this.seriesContext.characterRegistry || {})
-          .map(([name, data]) => {
-            const handle = SeriesVideoGenerator.normalizeId(name)
-            return `${name} (${handle}): ${data.description}`
-          })
-          .join(' | ') || 'Aucun.'
-      }
-REGISTRE DES LIEUX : ${
-        Object.entries(this.seriesContext.locationRegistry || {})
-          .map(([name, data]) => {
-            const normalized = SeriesVideoGenerator.normalizeId(name)
-            return `${normalized}: ${data.description}`
-          })
-          .join(' | ') || 'Aucun.'
-      }
-REGISTRE DES ASSETS PROPRES : ${
-        Object.entries(this.seriesContext.assetRegistry || {})
-          .map(([name, data]) => `${name}: ${data.description}`)
-          .join(' | ') || 'Aucun.'
-      }
-LORE BIBLE : ${this.seriesContext.globalContext || 'Vide.'}`,
-      instructions: [
-        ...(spec.instructions || []),
-        'RÈGLE DE SOUDURE : Les premières secondes DOIVENT résoudre le cliffhanger précédent.',
-        "SONDAGE ÉMOTIONNEL : Chaque scène DOIT obligatoirement avoir des 'emotionalTokens' pour les personnages présents (min. 2 jetons par perso) ET une description d'expression faciale intense dans 'imagePrompt'.",
-        "DENTISTÉ CINÉMATOGRAPHIQUE : Décrivez avec précision la position des personnages et objets dans 'spatialAnchor'.",
-        "STABILITÉ VISUELLE : Utilisez 'visualEvolution' and 'assetEvolution' pour traquer les changements permanents (ex: 'destroyed', 'scarred').",
-        "PROTOCOLE IDENTITÉ (RÉFÉRENCE UNIQUE) : Dans 'imagePrompt', INTERDICTION TOTALE de décrire la physionomie des personnages (cheveux, vêtements, yeux, peau, taille). Limitez-vous EXCLUSIVEMENT à leur EXPRESSION ÉMOTIONNELLE (Inquiet, Déterminé, Souriant) et à leur ACTION (Courant, Lisant).",
-        "CONCISION MAXIMALE : Les 'imagePrompt' doivent être extrêmement courts. Pas de phrases longues. Utilisez une syntaxe télégraphique focalisée sur l'ambiance et l'action (ex: 'Rafael est effrayé. Sarah le soutient. Grotte sombre. Éclairage à la lampe torche.').",
-        'LOGIQUE CAUSALE (ASSETS) : Vérifiez que chaque objet (tenu ou au sol) est dans son état correct. Un objet tenu en main NE PEUT PAS disparaître au plan suivant sans justification.',
-        "TEASING PRÉCIS : Le 'nextEpisodeTease' doit bannir le vague. Soyez spécifique.",
-        "MANDAT DE JUSTIFICATION : Vous DEVEZ remplir le champ 'justification' pour CHAQUE scène. Justifiez tout changement de lieu, de tenue ou la DISPARITION d'un objet précédemment tenu.",
-        "LORE GUARD (CANONISATION) : Tout fait nouveau (date, lieu dit, règle du monde) introduit dans l'épisode DOIT être consigné dans 'loreUpdates' pour devenir canon. Les personnages ne peuvent pas contredire le Lore existant.",
-        "FIL CONDUCTEUR (MÉMOIRE ACTIVE) : Chaque épisode DOIT impérativement faire progresser l'un des 'unresolvedThreads' (passage à 'partial' ou 'resolved'). Interdiction de créer des épisodes 'de remplissage' sans évolution des enjeux.",
-        "EPISODE TITLE : Le premier titre dans la liste 'titles' DOIT être un titre accrocheur, dramatique et spécifique à l'intrigue de CET épisode (ex: 'Le Secret de la Crypte', 'L'Ombre du Passé'). Évitez les titres génériques comme 'Épisode 2'.",
-        "GEMINI VISION (ACTIVATE): Une image de référence (dernière frame de l'épisode précédent) vous est fournie en entrée multi-modale. Vous DEVEZ l'analyser pour assurer que la Scène 1 est visuellement raccord (détails du décor, vêtements, éclairage).",
-        "PROTOCOLE D'ACCUMULATION VISUELLE (OBLIGATOIRE) : Chaque 'imagePrompt' de la scène 'N' doit commencer par '@VisualState: [Position de N-1, OBJETS TENUS]'. L'image doit être une évolution directe de la scène précédente (positions des membres, objets tenus, orientation) pour assurer une continuité parfaite.",
-        "INVENTAIRE ACTIF & PERSISTANCE : Si un personnage tient un objet (ex: torche, livre, épée) en scène N, il DOIT obligatoirement le tenir en scène N+1, N+2, etc., sauf si une action explicite décrit qu'il le pose ou le perd. Ne faites JAMAIS disparaître un objet entre deux plans.",
-        "ANALYSE DE CONTINUITÉ (VISION) : Dans 'continuityAnalysis.lastVisualBridge', décrivez les 3 éléments visuels clés que vous avez identifiés dans l'image de référence pour prouver votre analyse visuelle.",
-        "STABILITÉ GÉOGRAPHIQUE (LIEUX POSSIBLES) : Vous DEVEZ réutiliser les lieux du 'REGISTRE DES LIEUX'. Chaque scène DOIT avoir un 'locationId' valide. Si la narration ne mentionne pas un changement de lieu EXPLICITE, vous DEVEZ copier le 'locationId' de la scène précédente. Interdiction totale d'inventer des lieux génériques.",
-        "ENREGISTREMENT DES NOUVEAUX LIEUX (NEW_LOCATIONS) [CRITIQUE] : Si vous introduisez un lieu ABSENT du 'REGISTRE DES LIEUX', vous DEVEZ obligatoirement l'ajouter dans 'seriesMetadata.newLocations' avec une description visuelle détaillée (Architecture, Ambiance, Lumière). Un lieu ne peut pas exister dans 'scenes' sans être soit dans le registre, soit dans 'newLocations'."
-      ]
-    }
-
-    return this.buildSystemInstructions(seriesSpec) || 'Structurez cet épisode de série.'
+    return SeriesPromptBuilders.buildStructuringSystem(this.seriesContext, this.narrativeInstructions)
   }
 
   // ─── Pass 2: Structuring user prompt ───────────────────────────────────────
@@ -854,10 +454,13 @@ LORE BIBLE : ${this.seriesContext.globalContext || 'Vide.'}`,
         ...spec,
         structure: [
           {
-            preset: 'sequel_reprise',
+            preset: this.seriesContext.episodeNumber > 1 ? 'sequel_reprise' : 'pilot_intro',
             minWords: hookWords + introWords,
             minSentences: 3,
-            description: "Reprise immédiate du cliffhanger et suite de l'action."
+            description:
+              this.seriesContext.episodeNumber > 1
+                ? "Reprise du cliffhanger et suite de l'action."
+                : "Introduction contemplative et installation de l'ambiance."
           },
           ...remainingStructure
         ] as any
@@ -887,7 +490,11 @@ LORE BIBLE : ${this.seriesContext.globalContext || 'Vide.'}`,
       this.seriesContext.isFinalEpisode
         ? '⚠️ ÉPISODE FINAL : Ne laissez aucune question sans réponse. Résolution totale de chaque unresolvedThread.'
         : '⚠️ RAPPEL ADDICTIF : Vérifiez que la fausse résolution est présente (scènes 3-5), que le cliffhanger est typé, et que les unresolvedThreads sont des questions actives.'
-    }\nTÂCHE : Découpe en scènes JSON valides. SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise.
+    }\nTÂCHE : Découpe en scènes JSON valides. ${
+      this.seriesContext.episodeNumber > 1
+        ? 'SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise (resolving cliffhanger).'
+        : 'PILOT MODE ACTIVE : Scene 1-2 MUST be a slow establishment (World Building / World atmosphere).'
+    }
       
 🚨 ACCUMULATION VISUELLE : Chaque 'imagePrompt' DOIT commencer par '@VisualState: [Résumé Scène N-1]'.
 🚨 ATTENTION : Vous DEVEZ impérativement inclure le bloc "seriesMetadata" à la fin de votre réponse JSON.
@@ -1008,34 +615,6 @@ Please expand the script for subject: ${topic}. Focus on narrative depth, the fa
     topic: string,
     options: VideoGenerationOptions
   ): Promise<{ systemPrompt: string; userPrompt: string }> {
-    const instructions = []
-    if (this.seriesContext.roadmap) {
-      const rm = this.seriesContext.roadmap
-      instructions.push(
-        `--- NARRATIVE ROADMAP ---`,
-        `Phase actuelle : ${rm.currentPhase || 'Intro'}`,
-        `Objectifs : ${rm.objectives?.join(', ') || 'Inconnus'}`,
-        rm.irreversibleFacts?.length
-          ? `FAITS IRRÉVERSIBLES : ${rm.irreversibleFacts.join('; ')} (INTERDICTION DE CONTRADIRE)`
-          : '',
-        rm.pendingChoices?.length ? `PROGRES DU CHOIX : ${rm.pendingChoices.join(', ')}` : '',
-        rm.watchpoints?.length ? `POINTS DE VIGILANCE : ${rm.watchpoints.join(', ')}` : ''
-      )
-    }
-
-    if (this.seriesContext.unresolvedThreads?.length) {
-      instructions.push(
-        `--- FILS NARRATIFS ACTIFS ---`,
-        ...this.seriesContext.unresolvedThreads.map((t) => `- [${t.status.toUpperCase()}] ${t.title}: ${t.description}`)
-      )
-    }
-
-    instructions.push(`---`)
-
-    this.config.systemPrompt = `
-${this.config.systemPrompt}
-${instructions.join('\n')}
-`
     return {
       systemPrompt: this.buildStructuringSystemPrompt(options),
       userPrompt: this.buildStructuringUserPrompt('', topic, options)
@@ -1124,11 +703,21 @@ ${instructions.join('\n')}
         }
 
         const refLabel = isSequelBridge ? 'Sequel Bridge (ZÉRO DRIFT)' : `Scene ${previousScene.id}`
+        const shotChanged = scene.composition?.shotType !== previousScene.composition?.shotType
+
+        const forceContrast = shotChanged
+          ? "⚠️ CONTRASTE RADICAL : Le cadrage CHANGE. Ne reprenez PAS la composition précédente. Modifiez l'angle et la perspective."
+          : ''
+
         const fidelityInstruction = isSequelBridge
           ? "⚠️ FIDÉLITÉ ABSOLUE : Cette scène est la reprise directe de l'épisode précédent. Utilisez l'image de référence comme point de départ IMMUABLE."
-          : "⚠️ ZÉRO DRIFT : Les meubles, l'éclairage et la POSITION RELATIVE des personnages DOIVENT rester IDENTIQUES à ceux de la scène précédente pour préserver la continuité du plan."
+          : `⚠️ ZÉRO DRIFT : Les meubles, l'éclairage et le décor DOIVENT rester IDENTIQUES. ${
+              shotChanged
+                ? `Notez que le cadrage passe de ${previousScene.composition?.shotType || 'MEDIUM'} à ${scene.composition?.shotType || 'MEDIUM'}. ${forceContrast}`
+                : 'La COMPOSITION et le CADRAGE restent IDENTIQUES.'
+            }`
 
-        continuityContext += `Reference (${refLabel}). ${fidelityInstruction} COMPOSITION IDENTIQUE. `
+        continuityContext += `Reference (${refLabel}). ${fidelityInstruction} `
 
         // [HARDENING V42] Removed Background presence pollution.
         // We only render what is explicitly in the current scene's cast.
@@ -1193,16 +782,41 @@ ${instructions.join('\n')}
 
     // ─── 7. Composition & Camera ────────────────────────────────────────────────
     const comp = scene.composition || { shotType: 'MEDIUM' }
+
+    // [V58] Emotional Escalation: If terrified, force EXTREME close-up
+    const hasTerror = Object.values(scene.emotionalTokens || {}).some((tokens: any) =>
+      (tokens as string[]).some((t) =>
+        ['terrifie', 'terror', 'horrifies', 'effraye', 'peur', 'affray', 'panic'].includes(
+          t
+            .toLowerCase()
+            .normalize('NFD')
+            .replaceAll(/[\u0300-\u036F]/g, '')
+        )
+      )
+    )
+
     const shotMap: Record<string, string> = {
-      CLOSEUP: 'CLOSE-UP SHOT: Focus on face and expression.',
-      MEDIUM: 'MEDIUM SHOT: Character from waist up, showing some environment.',
-      WIDE: 'WIDE SHOT: Full body and environment, character in context.',
-      ESTABLISHING: 'ESTABLISHING SHOT: Extreme wide view to set the location.',
-      PANORAMIC: 'PANORAMIC VIEW: Ultra-wide cinematic view to capture the full scope of scenery.',
-      POV: 'POV SHOT: Seen through the eyes of the character.',
-      OVERSHOULDER: 'OVER-THE-SHOULDER SHOT: Looking at subject over another character shoulder.'
+      CLOSEUP: hasTerror
+        ? '⚠️ EXTREME CLOSE-UP SHOT (ECU): Macro focus on terrified eyes and face. Radical zoom and cinematic intensity.'
+        : 'CLOSE-UP SHOT: Cinematic focus on head and shoulders. Depth of field.',
+      EXTREME_CLOSEUP:
+        'EXTREME CLOSE-UP (ECU): Macro cinematic focus on a specific detail or facial feature. High texture visibility.',
+      MEDIUM: 'MEDIUM SHOT: Character from waist up. Cinematic composition and environmental context.',
+      WIDE: 'WIDE SHOT: Full body and environment. Establish depth and scale.',
+      ESTABLISHING: 'ESTABLISHING SHOT: Aerial or very wide cinematic view. Grand scale and environment mapping.',
+      PANORAMIC: 'PANORAMIC VIEW: Ultra-wide cinematic scope, breathtaking horizon.',
+      POV: 'POV SHOT: Subjective eyes perspective, immersive first-person view.',
+      OVERSHOULDER: 'OVER-THE-SHOULDER SHOT: Narrative focus over foreground shoulder, depth-based composition.',
+      LOW_ANGLE:
+        'LOW-ANGLE SHOT (worms view): Camera looking up, making the subject look heroic, powerful or daunting.',
+      HIGH_ANGLE: 'HIGH-ANGLE SHOT (birds view): Camera looking down, emphasizing vulnerability, scale or overview.',
+      BIRD_EYE: "BIRD'S EYE VIEW: Zenithal top-down perspective, looking straight down from above."
     }
     let shotDirective = shotMap[comp.shotType] || shotMap.MEDIUM
+
+    if (comp.cameraAngle) {
+      shotDirective = `${shotDirective} CAMERA ANGLE: ${comp.cameraAngle}.`
+    }
 
     if (comp.foregroundAnchor) {
       shotDirective = `${shotDirective} Foreground element: ${comp.foregroundAnchor} (blurry dirty frame).`
@@ -1212,6 +826,33 @@ ${instructions.join('\n')}
     }
     if (comp.focusTarget) {
       shotDirective = `${shotDirective} Precise focus on ${comp.focusTarget}.`
+    }
+
+    const rawActions = scene.cameraAction || []
+    const actions = Array.isArray(rawActions) ? rawActions : [rawActions]
+
+    // [V59] Camera Bake Cues: Descriptive instructions to help AI generator 'bake' movement into the image
+    const cameraEffectBakes: Record<string, string> = {
+      'dutch-tilt': 'Heavily tilted cinematic horizon (15-20 degrees tilt), dramatic diagonal composition.',
+      'pan-left': 'Visual cues suggesting movement to the left, subtle motion blur on the sides.',
+      'pan-right': 'Visual cues suggesting movement to the right, subtle motion blur on the sides.',
+      'zoom-in': 'Dynamic central focus, compressed perspective, suggestion of rapid approach.',
+      'zoom-out': 'Expanding wide perspective, revealing environment scale.',
+      shake: 'Kinetic handheld energy, slight motion blur, immersive action feel.',
+      'pan-up': 'Bottom-up perspective, suggesting rising camera motion.',
+      'pan-down': 'Top-down perspective, suggesting descending camera motion.'
+    }
+
+    if (actions.length > 0) {
+      const actionStr = actions
+        .map((a: any) => {
+          const type = String(a.type || a).toLowerCase()
+          const intensity = a.intensity || 'medium'
+          const bakeCue = cameraEffectBakes[type] || ''
+          return `${type.toUpperCase()} (${intensity} intensity). ${bakeCue}`
+        })
+        .join(' ')
+      shotDirective = `${shotDirective} CAMERA ACTION: ${actionStr}`
     }
 
     paragraph = `${shotDirective} ${paragraph}`
@@ -1256,12 +897,19 @@ ${instructions.join('\n')}
 
     // 2. Assets (fuzzy check in prompt)
     for (const [assetName, evolutionData] of Object.entries(assetState)) {
-      if (
-        paragraph.toLowerCase().includes(assetName.toLowerCase()) ||
-        paragraph.toLowerCase().includes(SeriesVideoGenerator.normalizeId(assetName))
-      ) {
-        const stateStr = getEvolutionString(evolutionData)
-        if (stateStr) relevantEvolutions.push(`${assetName} (${stateStr})`)
+      const stateStr = getEvolutionString(evolutionData)
+      if (stateStr) {
+        if (
+          stateStr.toLowerCase().includes('retiré') ||
+          stateStr.toLowerCase().includes('supprimé') ||
+          stateStr.toLowerCase().includes('removed')
+        ) {
+          relevantEvolutions.push(
+            `🛑 ABSENCE OBLIGATOIRE : ${assetName} (Cet objet a été RETIRÉ du décor, ne pas le générer)`
+          )
+        } else {
+          relevantEvolutions.push(`${assetName} (${stateStr})`)
+        }
       }
     }
 
@@ -1305,7 +953,23 @@ ${instructions.join('\n')}
       let styleStr = ''
       if (palette) styleStr += `Color Palette: ${palette}. `
       if (motifs.length > 0) styleStr += `Symbolic Motifs: ${motifs.join(', ')}. `
-      if (camStyle) styleStr += `Camera Technique: ${camStyle}. `
+      if (camStyle) {
+        styleStr += `Camera Technique: ${camStyle}. `
+        if (camStyle.toLowerCase().includes('handheld')) {
+          styleStr += 'Real-world handheld jitter, natural organic camera movement. '
+        }
+      }
+
+      // High-end Cinematic Optics (V61)
+      const opticalDirectives = [
+        'captured on 35mm film',
+        'cinematic lens flares',
+        'natural depth of field',
+        comp.shotType === 'CLOSEUP' || comp.shotType === 'EXTREME_CLOSEUP' ? '85mm portrait lens' : '35mm wide lens',
+        'professional color grading'
+      ]
+      styleStr += `Optics: ${opticalDirectives.join(', ')}. `
+
       paragraph = `Direction Artistique : ${styleStr}${paragraph}`
     }
 
@@ -1358,13 +1022,30 @@ ${instructions.join('\n')}
     const spec = this.getEffectiveSpec({} as any)
     const finalPrompt = this.getEnrichedImagePrompt(paragraph, spec)
 
+    // [V59] Extract camera actions for separated injection
+    // Using scene.cameraAction directly to get fresh data
+    const rawCam = scene.cameraAction || []
+    const camActions = Array.isArray(rawCam) ? rawCam : [rawCam]
+    const cameraDirective =
+      actions.length > 0
+        ? actions
+            .map((a: any) => {
+              const type = String(a.type || a).toLowerCase()
+              const bake = cameraEffectBakes[type] || ''
+              return `${type.toUpperCase()} (${a.intensity || 'medium'}). ${bake}`
+            })
+            .join(' ')
+        : undefined
+
     return {
       sceneId: scene.id,
       prompt: finalPrompt,
       referenceImage: referenceImageUrl,
       referenceImages: allReferenceImages,
       characterSheets,
-      reuseReferenceImage: !!sequelBridgeUrl
+      reuseReferenceImage: !!sequelBridgeUrl,
+      shotDirective: shotDirective as any,
+      cameraDirective
     }
   }
 
@@ -1642,7 +1323,7 @@ ${instructions.join('\n')}
       finalThreads.push(thread)
     })
 
-    const warnings = validateThreadsAsQuestions(finalThreads)
+    const warnings = this.validateThreadsAsQuestions(finalThreads)
     warnings.forEach((w) => console.warn(w))
 
     const episodeSummary = metadata.episodeSummary || 'Pas de résumé.'

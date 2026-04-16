@@ -19,6 +19,7 @@ export interface CoherenceState {
  */
 export class AnchorEngine {
   private state: CoherenceState
+  private locationAnchors: Map<string, Anchor> = new Map()
 
   constructor(options: { maxChainLength?: number; reanchorThreshold?: number } = {}) {
     this.state = {
@@ -41,6 +42,18 @@ export class AnchorEngine {
     this.state.baseAnchor = { id, url, type: 'base' }
     this.state.chainCount = 0
     this.state.lastGeneratedAnchor = undefined
+    // Note: We don't clear locationAnchors here as they are geographic, not episodic
+  }
+
+  /**
+   * Registers a stable reference for a specific location.
+   * If force is true, it overwrites the existing anchor (Progressive Checkpoint).
+   */
+  public registerLocationAnchor(locationId: string, url: string, force: boolean = false): void {
+    if (!url || !locationId) return
+    if (this.locationAnchors.has(locationId) && !force) return
+    console.log(`[AnchorEngine] 📍 Registering ${force ? 'NEW CHECKPOINT' : 'GOLD'} Location Anchor for: ${locationId}`)
+    this.locationAnchors.set(locationId, { id: `gold-${locationId}`, url, type: 'base' })
   }
 
   /**
@@ -76,10 +89,10 @@ export class AnchorEngine {
    * Resolves the set of reference images to use for the next scene generation.
    * Following the "Visual Chaining" rules:
    * 1. Always use BASE_ANCHOR for global structure.
-   * 2. Use PREVIOUS_SCENE for progressive chaining.
-   * 3. Trigger RE-ANCHOR coupling every N steps (resetting the chain).
+   * 2. Use LOCATION_ANCHOR if available for geographic stability.
+   * 3. Use PREVIOUS_SCENE for progressive chaining.
    */
-  public getNextAnchors(): { url: string; name: string }[] {
+  public getNextAnchors(locationId?: string): { url: string; name: string }[] {
     const anchors: { url: string; name: string }[] = []
 
     if (!this.state.baseAnchor) {
@@ -87,8 +100,16 @@ export class AnchorEngine {
       return []
     }
 
-    // Rule: Always anchor to the stable base
-    anchors.push({ url: this.state.baseAnchor.url, name: 'BASE_ANCHOR' })
+    // 1. Always anchor to the stable global base (Series Master Style)
+    anchors.push({ url: this.state.baseAnchor.url, name: 'SERIES_MASTER' })
+
+    // 2. Add Location Guard if we have a gold reference for this place
+    if (locationId) {
+      const locAnchor = this.locationAnchors.get(locationId)
+      if (locAnchor) {
+        anchors.push({ url: locAnchor.url, name: 'LOCATION_ESTABLISHMENT' })
+      }
+    }
 
     if (this.state.lastGeneratedAnchor) {
       const isReanchorStep = this.state.chainCount > 0 && this.state.chainCount % this.state.reanchorThreshold === 0
@@ -99,7 +120,7 @@ export class AnchorEngine {
         anchors.push({ url: this.state.lastGeneratedAnchor.url, name: 'REANCHOR_COUPLING' })
       } else {
         // Normal progressive chain: Previous -> Next
-        anchors.push({ url: this.state.lastGeneratedAnchor.url, name: 'PREVIOUS_SCENE' })
+        anchors.push({ url: this.state.lastGeneratedAnchor.url, name: 'VISUAL_BRIDGE' })
       }
     }
 

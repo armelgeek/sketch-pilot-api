@@ -331,7 +331,7 @@ RÈGLES NARRATIVES ROADMAP :
         videoGenre: parsed.videoGenre || params.videoGenre,
         totalEpisodes: String(parsed.totalEpisodes || params.totalEpisodes || 5),
         thumbnailUrl: Object.values(characterRegistry || {})[0]?.thumbnailUrl,
-        aspectRatio: params.aspectRatio || '9:16',
+        aspectRatio: params.aspectRatio || '16:9',
         characterModelId: params.characterModelId,
         status: 'draft' as const
       }

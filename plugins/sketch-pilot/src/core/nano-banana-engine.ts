@@ -276,6 +276,14 @@ export class NanoBananaEngine {
       hasReferenceImages || !!sequelBridgeUrl
     )
 
+    // [V59] Inject Critical Cinematic Directives into SYSTEM instructions for maximum weight
+    if ((fullPrompt as any).shotDirective) {
+      systemInstruction = `CINEMATIC FRAMING: ${(fullPrompt as any).shotDirective}\n${systemInstruction}`
+    }
+    if ((fullPrompt as any).cameraDirective) {
+      systemInstruction = `PHYSICAL CAMERA EFFECT: ${(fullPrompt as any).cameraDirective}\n${systemInstruction}`
+    }
+
     // 3. Inject Visual DNA & Internal Context
     if (visualDNA || internalContext || masterStyleUrl) {
       const isPortrait = scene.id === 'char-gen' || scene.locationId === 'studio'
@@ -312,7 +320,7 @@ export class NanoBananaEngine {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const imageService = await this.getImageService()
-        const imageUrl = await imageService.generateImage(fullPrompt, filename, {
+        const imageUrl = await imageService.generateImage((fullPrompt as any).prompt || fullPrompt, filename, {
           aspectRatio: this.currentOptions?.aspectRatio || '16:9',
           referenceImages: allBaseImages,
           onStatus,
@@ -378,6 +386,63 @@ export class NanoBananaEngine {
     return results
   }
 
+  private async verifyImageWithVision(
+    imagePath: string,
+    scene: EnrichedScene
+  ): Promise<{ ok: boolean; reason?: string }> {
+    try {
+      const service = await this.getImageService()
+      if (!service.analyzeImage) return { ok: true }
+
+      const shotType = scene.composition?.shotType || 'MEDIUM'
+      const assetState = scene.assetEvolution || {}
+
+      // Merge character-related evolutions
+      const charState = {
+        ...(scene.visualEvolution || {}),
+        ...(scene.characterEvolution || {})
+      }
+
+      const rawActions: any = scene.cameraAction || []
+      const actions = Array.isArray(rawActions) ? rawActions : [rawActions]
+
+      const prompt = `
+        Vous êtes un superviseur de continuité visuelle (Script Supervisor). 
+        Analysez cette image par rapport aux instructions de production :
+        
+        1. CADRAGE : L'image correspond-elle à un ${shotType} ? (CLOSEUP, MEDIUM, WIDE, ESTABLISHING)
+        
+        2. ÉVOLUTION DES PERSONNAGES :
+           ${JSON.stringify(charState, null, 2)}
+           (Vérifiez : blessures, vêtements, postures spécifiques mentionnées).
+           
+        3. ÉVOLUTION DES OBJETS / DÉCOR :
+           ${JSON.stringify(assetState, null, 2)}
+
+        4. EFFETS CAMÉRA (PHYSIQUE) :
+           ${JSON.stringify(actions, null, 2)}
+           (Vérifiez si l'effet est suggéré : horizon penché pour 'dutch-tilt', flou de mouvement pour 'pan', distorsion pour 'zoom').
+           
+        ⚠️ VÉRIFICATIONS CRITIQUES :
+        - Si un objet est marqué comme "retiré", "absent", "supprimé" ou "parti", il ne doit PAS être dans l'image.
+        - Si un personnage a une "blessure" ou un "changement de tenue", cela doit être visible.
+        - L'IA de génération a tendance à oublier ces détails ou à rajouter des objets fantômes.
+        
+        Répondez UNIQUEMENT en JSON :
+        { "ok": boolean, "shotCorrect": boolean, "hallucinationsFound": string[], "reason": "explication courte en français" }
+      `
+
+      const result = await service.analyzeImage(imagePath, prompt)
+      const clean = result.replaceAll(/```json|```/g, '').trim()
+      const parsed = JSON.parse(clean)
+
+      return { ok: parsed.ok, reason: parsed.reason }
+    } catch (error) {
+      console.warn(`[NanoBanana] 👁️ Vision Audit failed or timed out. Bypassing check.`, error)
+      return { ok: true }
+    }
+  }
+
   private async generateThumbnail(imagePath: string, thumbnailPath: string): Promise<void> {
     if (!fs.existsSync(imagePath)) return
     try {
@@ -406,6 +471,8 @@ export class NanoBananaEngine {
     memory?: SceneMemory,
     onProgress?: (p: number, m: string, meta?: any) => void
   ): Promise<void> {
+    const rawActions: any = scene.cameraAction || []
+    const actions = Array.isArray(rawActions) ? rawActions : [rawActions]
     const options = this.currentOptions
     const resolutionPreset = options.resolution || '720p'
     let baseHeight = 720
@@ -459,7 +526,7 @@ export class NanoBananaEngine {
     */
 
     // 2. Add anchors from the engine to generation references
-    const engineAnchors = anchorEngine.getNextAnchors()
+    const engineAnchors = anchorEngine.getNextAnchors(locationId)
     for (const anchor of engineAnchors) {
       effectiveRefs.push({ name: anchor.name, data: anchor.url })
     }
@@ -478,7 +545,7 @@ export class NanoBananaEngine {
       dnaParts.push(`DECOR: ${scene.persistentDecorTokens.join(', ')}`)
     }
 
-    const dnaInstruction = dnaParts.length > 0 ? dnaParts.join(' | ') : undefined
+    let dnaInstruction = dnaParts.length > 0 ? dnaParts.join(' | ') : undefined
     if (dnaInstruction) {
       console.info(`[NanoBanana] 🧬 DNA: ${dnaInstruction}`)
     }
@@ -494,7 +561,7 @@ export class NanoBananaEngine {
       console.log(`[NanoBanana] 💎 Using existing image asset for scene ${scene.id}`)
       scene.imageUrl = imagePath
     } else {
-      const MAX_IMAGE_RETRIES = 3
+      const MAX_IMAGE_RETRIES = 5
       let lastImageError: any
 
       // REPROMPT CONTINUITY: If we are reprompting, use the existing image as a strong reference
@@ -536,6 +603,19 @@ export class NanoBananaEngine {
               currentSeed
             )
             await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(currentTarget)
+
+            // [V56] Vision Audit Guard: Verify the image against the script rules
+            if (attempt < MAX_IMAGE_RETRIES) {
+              const audit = await this.verifyImageWithVision(currentTarget, scene)
+              if (!audit.ok) {
+                console.warn(
+                  `[NanoBanana] 👁️ Vision Audit REJECTED scene ${scene.id}: ${audit.reason}. Retrying with correction...`
+                )
+                // Inject the reason into DNA instruction for the NEXT attempt
+                dnaInstruction = `${dnaInstruction || ''}\nCORRECTION CRITIQUE (Audit Vision) : ${audit.reason}.`.trim()
+                continue // Force retry
+              }
+            }
 
             // Auto-promote the first variant as the main scene image for default preview
             if (shouldGenerateVariants && v === 0) {
@@ -602,7 +682,7 @@ export class NanoBananaEngine {
         const anchorEngine = this.locationAnchors.get(locId)
         const context = (this.promptManager as any).seriesContext
 
-        // [V48] Master Style Promotion: If this is the FIRST scene and no thumbnail exists,
+        //Master Style Promotion: If this is the FIRST scene and no thumbnail exists,
         // promote it as the absolute aesthetic truth for the entire series/episode.
         if (context && !context.thumbnailUrl) {
           console.info(`[NanoBanana] 🎨 MASTER STYLE PROMOTION: Setting global series DNA from first scene result.`)
@@ -610,11 +690,19 @@ export class NanoBananaEngine {
         }
 
         if (anchorEngine) {
-          // If no base anchor exists yet, this is our absolute reference for this location
+          // [V55] Progressive Checkpoint Logic
+          // We update the stable geographic reference (Location Anchor) every 4 scenes
+          // to allow the "Canon" of where characters are and what they are doing to evolve
+          // while maintaining the background plate's lighting and style.
           if (!anchorEngine.getState().baseAnchor) {
             anchorEngine.registerBaseAnchor(b64, scene.id)
+            anchorEngine.registerLocationAnchor(locId, b64) // Initial Gold
           } else {
             anchorEngine.registerGenerationResult(b64, scene.id)
+            const chainCount = anchorEngine.getState().chainCount
+            if (chainCount > 0 && chainCount % 4 === 0) {
+              anchorEngine.registerLocationAnchor(locId, b64, true) // Update Gold
+            }
           }
         }
       }
