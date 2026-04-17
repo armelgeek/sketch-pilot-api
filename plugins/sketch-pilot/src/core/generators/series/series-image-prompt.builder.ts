@@ -201,7 +201,7 @@ function buildSpatialContext(
       text += `LIEU : ${normalizeId(effectiveLocationId)} (${referenceMark}). `
       if (showFullDesc) text += `${locDesc.trim()}. `
       if (locationMasterUrl) {
-        text += `🚨 COHÉRENCE DÉCOR : Reproduire EXACTEMENT le décor de ${effectiveLocationId} via l'image de référence. `
+        text += `✨ CONTINUITÉ ATMOSPHÉRIQUE : Capturez l'essence de ${effectiveLocationId} en vous basant sur l'image de référence, tout en restant ouvert à l'évolution de la scène. `
       }
     }
   }
@@ -234,12 +234,19 @@ function buildContinuityBridge(
     text += `Lumière héritée de la ${label}: ${previousScene.persistentDecorTokens.join(', ')}. `
   }
 
-  const refLabel = isSequelBridge ? 'Sequel Bridge (ZÉRO DRIFT)' : `Scene ${previousScene.id}`
+  const refLabel = isSequelBridge ? 'Sequel Bridge (DYNAMIQUE)' : `Scene ${previousScene.id}`
   const fidelityInstruction = isSequelBridge
-    ? '⚠️ FIDÉLITÉ ABSOLUE : Image de référence = point de départ IMMUABLE.'
-    : '⚠️ ZÉRO DRIFT : Meubles, éclairage et POSITION RELATIVE IDENTIQUES à la scène précédente.'
+    ? "🌟 ALIGNEMENT NARRATIF : L'image de référence est votre guide pour l'atmosphère et les détails clés. "
+    : '🌊 FLUIDITÉ VISUELLE : Priorité au mouvement et à la vie. Maintenez la cohérence des éléments majeurs tout en autorisant le décor à respirer. '
 
-  text += `Reference (${refLabel}). ${fidelityInstruction} COMPOSITION IDENTIQUE. `
+  // v12 Update: Visual Contrast Injection
+  const sameLocation = ctx.scene.locationId && ctx.scene.locationId === previousScene.locationId
+  const contrastTip =
+    isInternalSequence && sameLocation
+      ? "🌓 CONTRASTE DE SÉQUENCE : Puisque nous sommes dans le même lieu, variez l'échelle ou l'angle pour éviter la redondance visuelle. "
+      : ''
+
+  text += `Reference (${refLabel}). ${fidelityInstruction}${contrastTip}TRANSITION FLUIDE. `
 
   return { text, updatedReferenceImageUrl: updatedRef }
 }

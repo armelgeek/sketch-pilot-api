@@ -935,13 +935,14 @@ export interface SceneCountRange {
  */
 export function computeSceneCountRange(durationSeconds: number): SceneCountRange {
   // Smoothly scaling seconds per scene (SPS)
-  // Short videos: 10-12s/scene
-  // Long videos: 15-18s/scene
-  let sps = 15
-  if (durationSeconds <= 45) sps = 10
-  else if (durationSeconds <= 90) sps = 12
-  else if (durationSeconds <= 180) sps = 14
-  else sps = 20 // Slower scaling for long videos to keep scene count manageable
+  // v12 Update: Increased SPS to reduce fragmentation and redundancy
+  // Short videos: 12-15s/scene
+  // Long videos: 25-30s/scene
+  let sps = 25
+  if (durationSeconds <= 45) sps = 12
+  else if (durationSeconds <= 90) sps = 18
+  else if (durationSeconds <= 180) sps = 22
+  else sps = 30 // Slower scaling for long videos to keep scene count manageable
 
   let ideal = Math.max(2, Math.round(durationSeconds / sps))
 
@@ -950,7 +951,7 @@ export function computeSceneCountRange(durationSeconds: number): SceneCountRange
 
   // Use a tighter range to force LLM toward the ideal
   return {
-    min: Math.max(2, Math.round(ideal * 0.9)),
+    min: Math.max(2, Math.round(ideal * 0.8)),
     max: ideal,
     ideal
   }

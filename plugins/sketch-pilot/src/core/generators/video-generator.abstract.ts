@@ -812,7 +812,7 @@ ${mandatoryRules.join('\n')}
     } = {}
   ): string {
     const styleRule = hasReferenceImages
-      ? 'STYLE RULE: Maintain 100% visual style, color palette, and textures from the provided REFERENCE IMAGES. The images are the absolute master for visual truth.'
+      ? 'STYLE RULE: Maintain atmospheric and stylistic coherence based on the REFERENCE IMAGES. Prioritize the living energy and narrative flow of the sequence.'
       : 'STYLE RULE: Maintain consistent artistic style and rendering technique as described in the instructions.'
 
     const logicRule =
@@ -822,8 +822,8 @@ ${mandatoryRules.join('\n')}
 
     if (hasReferenceImages) {
       parts.push(
-        'STRICT VISUAL STYLE: Maintain 100% of the artistic style, color palette, and textures from the provided REFERENCE IMAGES.',
-        'MASTER STYLE: The image labeled "Master Style" is the absolute truth for aesthetic/rendering style. Replicate its textures and vibe perfectly.',
+        'VISUAL COHERENCE: Maintain the artistic style, color palette, and textures from the provided REFERENCE IMAGES while allowing for dynamic movement and perspective changes.',
+        'ATMOSPHERIC MASTER: The image labeled "Master Style" defines the aesthetic/rendering vibe. Ensure the sequence feels like it belongs in this world.',
         'IDENTITY PRIORITY: Follow the TEXT PROMPT for the number and names of characters. Use Reference Images ONLY to maintain the features of characters mentioned in the prompt. If a character is in a reference image but NOT in the text prompt, DO NOT include them.',
         params.characterDescription ? `Subject Identity: ${params.characterDescription}.` : '',
         params.locationDescription ? `Location/Environment: ${params.locationDescription}.` : ''
@@ -838,7 +838,7 @@ ${mandatoryRules.join('\n')}
     if (params.customNegative) parts.push(`NEGATIVE CONSTRAINT: ${params.customNegative}`)
     else
       parts.push(
-        'NEGATIVE CONSTRAINT: No whiteboard meta-elements, no text, no signatures, no changes to character face, no variation in clothing color, no new facial features, no stylistic drift from reference.'
+        'NEGATIVE CONSTRAINT: No whiteboard meta-elements, no text, no signatures, no artist hands. Avoid static or "dead" compositions. Allow for organic expressive movement.'
       )
 
     return parts.filter(Boolean).join('\n')
@@ -866,9 +866,9 @@ ${mandatoryRules.join('\n')}
             const nameRegex = new RegExp(`\\b${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}\\b`, 'gi')
             result = result.replace(nameRegex, '').trim()
           }
-          // Prepend Reference anchor with explicit instructions for continuity
+          // [V47] LIVING IDENTITY: Maintain recognizable features while allowing for expression and movement.
           if (paragraph.toLowerCase().includes(name.toLowerCase()) || paragraph.length < 50) {
-            result = `[IDENTITY LOCK: ${name}] (STRICT REFERENCE: NO PHYSICAL DESCRIPTION). Use references for hair/face/clothes. ${result}`
+            result = `[LIVING IDENTITY: ${name}] (REFERENCE GUIDED). Prioritize expression and narrative action. ${result}`
           }
         }
       }

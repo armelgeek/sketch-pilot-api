@@ -12,34 +12,48 @@ export const PROMPT_VERSION = 'v11.0'
 // ─── Visual Consistency Hierarchy ─────────────────────────────────────────────
 
 export const VISUAL_CONSISTENCY_PRIORITY = `
-🧠 PRIORITÉ DES ÉTATS VISUELS (ABSOLUE) :
-1. visualStateLock = VÉRITÉ IMMUTABLE (Priorité MAX - Ex: Si lock dit 'chemise rouge', ignorez toute autre couleur).
-2. visualBaseState = État canonique persistant du décor (Vérité de base).
-3. visualDelta = Évolutions autorisées par rapport à l'état précédent.
-4. imagePrompt = Résumé narratif (Ne peut pas contredire les 3 niveaux supérieurs).
+🧠 GUIDAGE DE LA COHÉRENCE (DYNAMIQUE v12.0) :
+1. visualStateLock = ANCRE DE CONTINUITÉ (Référence pour les détails clés, ex: 'écharpe rouge').
+2. visualBaseState = BASE ATMOSPHÉRIQUE (Ton et lumière du décor).
+3. visualDelta = ÉVOLUTION NARRATIVE (Mouvements, actions et changements d'états).
+4. imagePrompt = VIE DE LA SÉQUENCE (Priorité à l'expression et au dynamisme).
 
-🚫 RÈGLE CRITIQUE : Toute contradiction doit être résolue en faveur du niveau le plus haut (Lock > Base > Delta).
+🚀 RÈGLE DE FLUIDITÉ : Favorisez le mouvement et la vie de la scène. La cohérence visuelle doit servir le récit, pas le figer. Un léger drift est acceptable s'il apporte du dynamisme.
+
+🎭 RYTHME VISUEL ET VARIATION (ANTI-REDOUTANCE) :
+- Si une séquence se déroule dans le MÊME lieu (@locationId), vous DEVEZ alterner les échelles de plan (shotType) à chaque scène.
+- Enchaînement suggéré : WIDE (Établissement) -> MEDIUM (Action) -> CLOSEUP (Émotion/Réaction) -> MEDIUM.
+- Évitez de répéter le même shotType deux fois de suite dans un contexte stable.
+`
+
+export const SCENE_CONSOLIDATION_RULES = `
+📦 CONSOLIDATION DE SCÈNES (OPTIMISATION) :
+1. NE créez PAS de nouvelle scène si le décor et les personnages restent les mêmes et que l'action est continue.
+2. GROUPEZ la narration dans une scène plus longue (jusqu'à 40-50 mots) et utilisez des listes de 'cameraAction' pour créer du mouvement interne.
+3. Ne déclenchez une NOUVELLE scène que si : 
+   - Un personnage entre/sort.
+   - La lumière/météo change radicalement.
+   - Un saut temporel se produit.
+   - L'angle de vue doit changer du tout au tout (nouvel ancrage).
 `
 
 // ─── Atomic Narration Rules (Frame-Atomic) ────────────────────────────────────
 
 export const ATOMIC_NARRATION_RULES = `
 🏗️ NORMES DE NARRATION ATOMIQUE (FRAME-READY) :
-1. 🎬 IDÉE UNIQUE : Une phrase = Un moment observable Unique. 
+1. 🎬 IDÉE UNIQUE : 1 phrase = 1 moment observable Unique = 1 scène.
 2. 🚫 INTERDICTION DE MÉLANGE : Ne mélangez JAMAIS action + émotion + interprétation dans la même phrase.
 3. 👁️ PRIORITÉ VISUELLE : Décrivez ce qu'on VOIT avant ce qu'on COMPREND.
-4. 🧱 DÉCOUPAGE PHYSIQUE : La narration doit être une séquence de micro-frames.
+4. 🧱 DÉCOUPAGE CINÉMATIQUE : Ne fragmentez pas l'action en micro-mouvements (ex: "il lève le pied", "il pose le pied"). Chaque frame doit représenter une intention narrative ou un changement de focus visuel significatif.
+5. ⚖️ DENSITÉ NARRATIVE : Si une série de petits gestes forme une seule action cohérente (ex: "Alaric s'assoit et soupire"), gardez-les dans une seule frame dense. Splittez uniquement pour marquer un impact fort ou un changement de plan (WIDE -> CLOSEUP).
 
-Types de phrases autorisés :
-• VISUAL (Ce que l'on voit) : "Le parchemin repose sur la table de pierre."
-• PHYSICAL (Action du corps) : "Guillaume s'arrête net."
-• CONTRADICTION (Rupture/Tension) : "Mais ses yeux ne clignent pas."
+Types de phrases recommandés (1 ligne = 1 scène) :
+• VISUAL : "La pièce est plongée dans le noir, seule une bougie vacille sur la table."
+• ACTION : "Alaric s'approche du coffre avec une hésitation palpable dans ses gestes."
+• IMPACT : "Une lueur émeraude jaillit du cadenas, révélant les runes sacrées."
+• RÉACTION : "Il détourne le regard, ébloui par la puissance brute de l'artefact."
 
-STRUCTURE OPTIMALE (Pattern de base) :
-1. OBSERVATION (Visuel pur)
-2. RÉACTION (Physique / Émotion visible)
-3. INTERPRÉTATION (Courte / Ambiance)
-4. TENSION (Doute / Rupture)
+🚫 ANTI-DETAIL : Évitez de raconter "comment" il bouge chaque doigt. Racontez ce qu'il "fait" de façon cinématographique.
 `
 
 export const NARRATION_LAYER_RULES = `
@@ -124,11 +138,11 @@ export const SCENE_OBJECT_EXAMPLE = `
   },
   "visualStateLock": {
     "mustPersist": ["écharpe rouge", "@Sarah blessure main"],
-    "forbiddenChanges": ["pas de soleil", "garder les vêtements intacts"]
+    "forbiddenChanges": ["pas de soleil"]
   },
-  "frameAnchor": { "referenceSceneId": "scene-1", "similarityMode": "strict" },
-  "animationPrompt": "Instructions pour le sujet...",
-  "cameraAction": [{ "type": "zoom-in", "intensity": "high" }, { "type": "shake", "intensity": "low" }],
+  "frameAnchor": { "referenceSceneId": "scene-1", "similarityMode": "soft" },
+  "animationPrompt": "Instructions de mouvement fluide...",
+  "cameraAction": [{ "type": "zoom-in", "intensity": "high" }],
   "preset": "hook",
   "scenePurpose": { "function": "reveal" },
   "sceneDelta": { 
@@ -326,22 +340,21 @@ export function buildPass1SystemPrompt(p: Pass1SystemPromptParams): string {
 
   return `Tu es l'Auteur Saga Engine v11.0.
 
-MISSION : Générer l'épisode N° ${p.episodeNumber} en tant que simulation d'état déterministe.
+MISSION : Générer l'épisode N° ${p.episodeNumber} sous forme de NARRATION ATOMIQUE.
 
 ---
 
 ### ARCHITECTURE DE PRODUCTION (v11.0)
-Chaque scène DOIT être un objet plat contenant :
-- Story : \`sceneDelta\`, \`scenePurpose\`, \`narration\`, \`tensionState\`.
-- Projections : \`imagePrompt\`, \`charactersInScene\`, \`composition\`, \`cameraAction\`.
-- Simulation : \`simulationPatch\`.
+Générez UNIQUEMENT un tableau JSON de chaînes de caractères.
+Chaque chaîne est une "frame atomique" (une action, un focus visuel).
+Exemple : [ "Phrase 1", "Phrase 2", "Phrase 3" ]
 
 ---
 
 ### RÈGLES CRITIQUES
-- **Information Delta Rule (IDR)**: 1 scène = 1 changement irréversible.
-- **Global Identity Locks**: Verrouille les traits physiques critiques dans \`simulationPatch.locks\`.
-- **Zéro Redondance**: La narration ne doit jamais décrire le visuel.
+- **Atomicité Absolue**: 1 phrase = 1 scène future. Ne faites pas de paragraphes.
+- **Action Directe**: Pas de fioritures narratives, restez sur le visuel et l'action immédiate.
+- **Causalité**: Chaque phrase doit être la suite logique et chronologique de la précédente.
 
 ---
 
@@ -384,7 +397,7 @@ ${p.threadsInstruction || ''}
 ---
 
 ### FORMAT DE SORTIE (JSON STRICT)
-Respecte scrupuleusement le schéma v9.0.
+Retournez UNIQUEMENT un tableau JSON de type string[].
 ${tiktokRules}
 ${p.tiktokViral ? GOLDEN_TIKTOK_RULES : GOLDEN_NARRATION_RULES(authorizedCharacters, authorizedLocations)}`
 }
@@ -392,38 +405,27 @@ ${p.tiktokViral ? GOLDEN_TIKTOK_RULES : GOLDEN_NARRATION_RULES(authorizedCharact
 // ─── Shared Narrative Rule Blocks ─────────────────────────────────────────────
 
 export const NARRATIVE_RIGOR_RULES = `
-🏗️ RÈGLES DE RIGUEUR NARRATIVE :
-1. TRANSITION SPATIALE : Si vous changez de lieu, vous DEVEZ décrire le trajet. Interdiction de "téléporter" les personnages.
-2. DÉFINITION DES MENACES : Les ennemis ne peuvent pas être juste des "silhouettes". Précisez leur nature.
-3. INTÉGRITÉ DES CONFLITS : Ne jamais escamoter un combat entamé. Narrez au moins 2 tours d'action avant toute résolution.
-4. POIDS DES DÉCISIONS : Un choix radical nécessite un court moment de délibération émotionnelle.
+🏗️ PRINCIPES DE FLUIDITÉ NARRATIVE :
+1. TRANSITION FLUIDE : Favorisez la continuité, mais privilégiez le rythme. Les ellipses narratives sont encouragées si elles servent l'intensité de la séquence.
+2. DÉFINITION DES MENACES : Précisez la nature des dangers pour ancrer l'action.
+3. ÉNERGIE DES CONFLITS : L'action doit être viscérale. Concentrez-vous sur l'impact et le mouvement immédiat.
+4. RYTHME ÉMOTIONNEL : Les personnages réagissent avec intensité. Ne bridez pas leur expressivité pour la simple logique.
 
-🏗️ RÈGLES DE CAUSALITÉ (MONDE PERSISTANT) :
-1. PERSISTANCE DU MONDE : Si un objet est 'DÉTRUIT', cela DOIT être maintenu. Interdiction de "réparer" sans action explicite.
-2. LOGIQUE DES CONSÉQUENCES : Chaque action majeure laisse des répercussions durables.
-3. CAUSALITÉ VISUELLE : Si un personnage a perdu son chapeau à la scène 4, il ne l'a pas à la scène 5.
-4. COHÉRENCE ÉMOTIONNELLE : Les personnages réagissent avec une intensité proportionnelle aux enjeux.
-5. AUDIT DE NÉCESSITÉ : Avant de créer une nouvelle scène, demandez-vous si c'est indispensable.`
+🏗️ LOGIQUE DE SIMULATION (MONDE VIVANT) :
+1. PERSISTANCE ÉVOLUTIVE : Le monde change avec l'action. Si un objet est détruit, c'est une nouvelle opportunité visuelle.
+2. CAUSALITÉ ORGANIQUE : Les actions laissent des traces, mais le récit avance toujours.
+3. MÉMOIRE VISUELLE : Maintenez les repères iconiques, mais autorisez le décor à vivre (fumée, débris, lumière changeante).
+4. AUDIT DE RYTHME : Chaque scène doit apporter une pulsation nouvelle au récit.
+`
 
 export const GOLDEN_NARRATION_RULES = (authorizedCharacters: string, authorizedLocations: string) => `
 RÈGLES D'OR DE NARRATION :
-• NARRATION ATOMIQUE : Chaque phrase DOIT être une micro-frame (1 idée = 1 moment).
-• INTERDICTION ABSOLUE : Pas de phrases complexes mélangeant action et pensée.
-• INTERDICTION ABSOLUE : Ne créez aucun personnage absent du characterRegistry.
-• ÉCONOMIE DE MOYENS : MAXIMUM 1 nouveau lieu et 1 nouveau personnage par épisode.
-• RÉUTILISATION PRIORITAIRE : Privilégiez EXCLUSIVEMENT les lieux et personnages déjà présents.
-• LISTES AUTORISÉES :
-  - PERSONNAGES : ${authorizedCharacters}
-  - LIEUX : ${authorizedLocations}
-• FAUSSE RÉSOLUTION (OBLIGATOIRE) : Entre la scène 3 et 5, inclure un moment où le personnage croit avoir résolu le problème — avant une aggravation inattendue.
-• CURIOSITÉ EN ESCALIER : 1 réponse pour 2 nouvelles questions.
-• SOUDURE DE CONTINUITÉ DIRECTE : La Scène 1 DOIT commencer par justifier la survie ou la suite immédiate du cliffhanger.
-• PERSISTANCE DES MENACES ACTIVES : Les ennemis présents à la fin du dernier épisode DOIVENT être mentionnés ou leur fuite justifiée.
-• HÉRITAGE DE L'ÉTAT PHYSIQUE : Les personnages conservent les séquelles immédiates (essoufflement, blessures).
-• ANTI-RÉSURRECTION (ABSOLU) : Si un personnage est 'DEAD', il le reste.
-• ANTI-LOOPING : Interdiction de répéter un dilemme. Une fois tranché, il est acquis.
-• KNOWLEDGE MEMORY : Les personnages ne réagissent pas à une info connue comme nouvelle.
-• GENRE GUARD : Respectez scrupuleusement les genreConstraints. L'univers est immuable.`
+• NARRATION ATOMIQUE : 1 phrase = 1 moment présent. Utilisez un tableau JSON [ "Action 1", "Action 2" ].
+• ACTION PURE : Bannissez les intros du type "Il était une fois" ou les conclusions explicatives.
+• IDENTITÉ @HANDLE (STRICT) : Utilisez uniquement les handles du registre canon.
+• RYTHME CHRONOLOGIQUE : Chaque ligne du tableau doit faire avancer le temps. Interdiction de revenir en arrière dans la même passe.
+${ATOMIC_NARRATION_RULES}
+`
 
 // ─── Pass 2 System Prompt Builder ─────────────────────────────────────────────
 
@@ -520,10 +522,10 @@ STRATÉGIE NARRATIVE (LAYER) : ${p.narrationLayer ? JSON.stringify(p.narrationLa
 }
 
 export const PASS2_SCENE_INSTRUCTIONS = [
+  'IMAGE PROMPT (PROSE CINÉMATOGRAPHIQUE) : `imagePrompt` DOIT être une phrase unique structurée ainsi : "[TYPE DE PLAN] depuis [ANGLE CAMÉRA], [SUJET + POSITION PRÉCISE], [LUMIÈRE], [ATMOSPHÈRE], [DÉTAIL VISUEL CLÉ]." Exemple : "Plan rapproché depuis le bas, Sarah accroupie au centre du cadre, éclairage néon bleu froid sur le visage, brume industrielle en arrière-plan, main posée sur une vitre brisée."',
   'ARCHITECTURE v11.0 : Chaque scène doit être un objet plat. Ne créez PAS de sous-objets "story" ou "projections".',
-  'RÈGLE DE SOUDURE : Les premières secondes DOIVENT résoudre le cliffhanger précédent.',
+  "RÈGLE D'ENRICHISSEMENT (STRICT) : Transformez CHAQUE phrase atomique reçue en une scène complète. Le champ `narration` de la scène DOIT être la phrase atomique telle quelle. 1 Phrase = 1 Scène. 🎬 VARIATION : Changez d'échelle (shotType) ou d'angle à chaque scène pour dynamiser le récit. 🚨 ANTI-DÉTAIL : Si une frame est trop insignifiante, enrichissez-la visuellement pour lui donner du poids.",
   'SIMULATION PATCH (STRICT) : Si un objet change ou un personnage est blessé, documente-le EXCLUSIVEMENT dans simulationPatch.locks.',
-  "PROTOCOLE IDENTITÉ : Dans 'imagePrompt', INTERDICTION de décrire la physionomie fixe. Concentrez-vous sur l'expression, l'atmosphère et les détails évocateurs du décor immédiat.",
   "STYLE VISUEL (GOLDEN STANDARD) : Favorisez un style descriptif et intense. Exemple : 'Marguerite seule dans une bibliothèque silencieuse, entourée de livres et de tapisseries anciennes, regard intense et concentré.'",
   'INVENTAIRE ACTIF : Tout changement physique persistant DOIT être patché pour être propagé.',
   "TEASING PRÉCIS : 'nextEpisodeTease' doit contenir un nom propre et un enjeu concret.",
@@ -536,6 +538,8 @@ export const PASS2_SCENE_INSTRUCTIONS = [
   "EXPULSION NARRATIVE : Si un personnage quitte la scène, le retirer de 'charactersInScene' immédiatement.",
   'IDENTITÉ DES PERSONNAGES : Utilisez UNIQUEMENT le PRÉNOM pour les handles @. Excluez préfixes et noms de famille.',
   VISUAL_CONSISTENCY_PRIORITY,
+  SCENE_CONSOLIDATION_RULES,
+  "VARIATION DE PLAN OBLIGATOIRE : Si 'continueFromPrevious' est true, vous DEVEZ changer de 'shotType' par rapport à la scène précédente (ex: passer de MEDIUM à CLOSEUP).",
   "🌍 WORLD STATE SNAPSHOT : Pour chaque scène, vous DEVEZ fournir un 'worldStateSnapshot' qui récapitule la vérité absolue actuelle du décor et des personnages.",
   "📈 GESTION DES INTRIGUES : Mettez à jour 'importance' (1-10) et 'maturity' (0-100) pour chaque 'unresolvedThread'. Une maturité élevée (80+) annonce une résolution imminente.",
   "🏁 HARDENED CONCLUSION (SCÈNE FINALE) : La dernière scène (preset: 'conclusion') DOIT être dense (min. 25-35 mots), comporter au moins 3 phrases, et inclure impérativement une réflexion finale ou une menace suggérée pour maintenir l'engagement."
@@ -613,11 +617,11 @@ export function buildSeriesOutputFormat(isFinalEpisode: boolean): string {
       },
       "visualStateLock": {
         "mustPersist": ["écharpe rouge", "@Sarah blessure main"],
-        "forbiddenChanges": ["pas de soleil", "garder les vêtements intacts"]
+        "forbiddenChanges": ["pas de soleil"]
       },
-      "frameAnchor": { "referenceSceneId": "scene-1", "similarityMode": "strict" },
-      "animationPrompt": "Instructions pour le sujet...",
-      "cameraAction": [{ "type": "zoom-in", "intensity": "high" }, { "type": "shake", "intensity": "low" }],
+      "frameAnchor": { "referenceSceneId": "scene-1", "similarityMode": "soft" },
+      "animationPrompt": "Mouvement fluide et expressif...",
+      "cameraAction": [{ "type": "zoom-in", "intensity": "high" }],
       "preset": "hook",
       "scenePurpose": { "function": "reveal" },
       "sceneDelta": { 

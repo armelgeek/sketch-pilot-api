@@ -371,7 +371,7 @@ export class VideoScriptGenerator {
       this.llmService.generateContent(
         pass1.user,
         pass1.system,
-        'text/plain',
+        'application/json',
         encodedBridge ? [encodedBridge] : undefined
       )
     )
@@ -380,8 +380,22 @@ export class VideoScriptGenerator {
       throw new Error('[VideoScriptGen] Pass 1 failed: LLM returned empty narration')
     }
 
+    // Attempt to parse if it's supposed to be atomic frames (for Series)
+    let validatedNarration = narrationText
+    if (this.promptManager.getType() === 'series') {
+      try {
+        const parsedArr = this.parseJsonResponse(narrationText)
+        if (Array.isArray(parsedArr)) {
+          // Join for legacy word count validation, but keep JSON for Pass 2
+          validatedNarration = parsedArr.join(' ')
+        }
+      } catch {
+        console.warn('[VideoScriptGen] Failed to parse Pass 1 narration as atomic frames, using raw text.')
+      }
+    }
+
     // Pass 1 Validation & Optional Retry
-    let validation = this.promptManager.validateNarrationPass(narrationText, options, pass1.targetWords)
+    let validation = this.promptManager.validateNarrationPass(validatedNarration, options, pass1.targetWords)
     if (onProgress) await onProgress(7, 'Studio: Validating narration flow...')
 
     console.log(

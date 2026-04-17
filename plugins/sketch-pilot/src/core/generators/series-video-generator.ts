@@ -220,26 +220,24 @@ function cliffhangerBridgeInstruction(
   if (episodeNumber <= 1 || (!ch && !lastScene)) return ''
 
   let prompt =
-    "\n\n🆘 TRANSITION VS CAMERA ACTION (STRICT) : \n- TRANSITION : Changement de scène. 'shake', 'static', 'breathing' ne sont PAS des transitions.\n- CAMERA ACTION : Mouvement DANS la scène. 'shake' est une CAMERA ACTION.\nSi vous voulez une secousse, utilisez 'cameraAction': 'shake' et 'transition': 'none'.\n\n⚠️ PONT NARRATIF OBLIGATOIRE :"
+    "\n\n🎨 HARMONIE CINÉMATOGRAPHIQUE : \n- TRANSITION : Changement de scène.\n- CAMERA ACTION : Mouvement DANS la scène.\nCombinez-les pour créer du rythme et de l'impact.\n\n🔗 CONTINUITÉ NARRATIVE FLUIDE :"
 
   if (lastScene) {
-    prompt += `\nL'épisode précédent s'est arrêté EXACTEMENT sur cette scène : "${lastScene.summary || lastScene.imagePrompt}"`
-    if (lastScene.locationId)
-      prompt += `\nLieu de reprise OBLIGATOIRE : "${lastScene.locationId}" (Vous DEVEZ démarrer ici).`
+    prompt += `\nL'épisode précédent s'est achevé sur cette scène : "${lastScene.summary || lastScene.imagePrompt}"`
+    if (lastScene.locationId) prompt += `\nReprise de l'action à : "${lastScene.locationId}".`
     if (lastScene.persistentDecorTokens?.length > 0) {
-      prompt += `\nAmbiance & Lumière à maintenir : ${lastScene.persistentDecorTokens.join(', ')}`
+      prompt += `\nAmbiance & Lumière héritées : ${lastScene.persistentDecorTokens.join(', ')}`
     }
 
-    prompt += `\n🆘 ANTI-SAUT TEMPOREL (CRITICAL) : Interdiction absolue de commencer par 'Mais alors qu'ils discutaient', 'Quelques heures plus tard', ou toute ellipse. Vous reprenez au MÊME ENDROIT, à la MÊME SECONDE.`
-    prompt += `\n- HÉRITAGE TECHNIQUE [S1] (CLONAGE) : La Scène 1 DOIT être l'héritière technique de l'épisode précédent :`
-    prompt += `\n    * locationId : "${lastScene.locationId}" (Utilisez cet ID EXACT)`
+    prompt += `\n🚀 ÉLAN NARRATIF : Favorisez la continuité immédiate, mais autorisez le mouvement et l'action In Media Res. Évitez les ellipses trop longues, mais privilégiez le rythme.`
+    prompt += `\n- HÉRITAGE TECHNIQUE [S1] (FLUIDITÉ) : La Scène 1 est l'héritière directe de l'épisode précédent :`
+    prompt += `\n    * locationId : "${lastScene.locationId}"`
     prompt += `\n    * charactersInScene : [${(lastScene.charactersInScene || []).join(', ')}]`
-    prompt += `\n    * persistentDecorTokens : [${(lastScene.persistentDecorTokens || []).join(', ')}]`
     prompt += `\n    * shotType : "${lastScene.shotType || 'WIDE'}"`
-    prompt += `\n- ECHO DU DERNIER SOUFFLE : L'épisode précédent s'est achevé sur : "${lastScene.narration}".`
-    prompt += `\n  ⚠️ LA PREMIÈRE PHRASE DE SCÈNE 1 DOIT RÉPONDRE DIRECTEMENT À CES MOTS (Action immediate ou Ressenti sensoriel).`
-    prompt += `\n- RÉACTION VISCÉRALE : Lars (ou le perso actuel) doit être dans le MÊME état émotionnel (Peur, Choc, Détermination).`
-    prompt += `\n⚠️ IMAGE : La Scène 1 réutilisera PHYSIQUEMENT l'image finale. Votre description d'image DOIT être identique à la finale précédente.`
+    prompt += `\n- ECHO DU DERNIER SOUFFLE : L'épisode précédent s'est terminé par : "${lastScene.narration}".`
+    prompt += `\n  🎬 REPRISE ÉNERGIQUE : La première phrase de la Scène 1 doit capter l'élan de ces mots (Action ou émotion vive).`
+    prompt += `\n- SYNC ÉMOTIONNELLE : Les personnages conservent l'intensité de leur dernier état (Peur, Choc, Détermination).`
+    prompt += `\n🖼️ ALIGNEMENT VISUEL : La Scène 1 s'appuie sur l'état final précédent pour assurer une immersion immédiate.`
   }
 
   if (ch) {
@@ -522,7 +520,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
     return {
       pass1: {
         system,
-        user: `${missionBlock}${ctx.forcedCorrection ? `🚨 MISSION CORRECTIVE : ${ctx.forcedCorrection}\n\n` : ''}DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga.'}\nCible : ${target} mots.`,
+        user: `${missionBlock}${ctx.forcedCorrection ? `🚨 MISSION CORRECTIVE : ${ctx.forcedCorrection}\n\n` : ''}DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga.'}\nCible : Générez un tableau de frames atomiques capturant l'essence de l'action.`,
         targetWords: target
       }
     }
@@ -632,7 +630,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
         sceneCountRange: range
       },
       effectiveSpec
-    )}\n\n${bridgeContext}\n\nNARRATION ÉPISODE ${this.seriesContext.episodeNumber} (JSON) :\n---\n${validatedNarration}\n---\n\nTÂCHE : Découpe en scènes JSON valides. SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise.\n\n${buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)}\n\n⚠️ RAPPEL REGISTRE : Privilégiez les lieux existants du REGISTRE DES LIEUX. Si vous créez @LieuID-Nouveau, décrivez-le impérativement dans seriesMetadata.newLocations.
+    )}\n\n${bridgeContext}\n\nFRAMES ATOMIQUES ÉPISODE ${this.seriesContext.episodeNumber} (JSON) :\n---\n${validatedNarration}\n---\n\nTÂCHE : Enrichissez chaque frame atomique ci-dessus en une scène JSON complète. 🚨 RÈGLE D'OR : 1 frame = 1 scène. Le champ 'narration' de chaque scène doit reprendre exactement la frame correspondante. SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise.\n\n${buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)}\n\n⚠️ RAPPEL REGISTRE : Privilégiez les lieux existants du REGISTRE DES LIEUX. Si vous créez @LieuID-Nouveau, décrivez-le impérativement dans seriesMetadata.newLocations.
 `
   }
 
