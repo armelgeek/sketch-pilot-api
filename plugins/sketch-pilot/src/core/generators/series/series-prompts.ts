@@ -7,7 +7,7 @@
  * Versioning: bump PROMPT_VERSION on any structural change.
  */
 
-export const PROMPT_VERSION = 'v14.1'
+export const PROMPT_VERSION = 'v15.0'
 
 // ─── Visual Consistency Hierarchy ─────────────────────────────────────────────
 
@@ -501,10 +501,10 @@ export const PASS2_SCENE_INSTRUCTIONS = [
   'IMAGE PROMPT (PROSE VISUELLE COURTE) : `imagePrompt` DOIT être une phrase fluide et concise (max 20-25 mots). L\'accent DOIT être mis sur le LIEU et le SUJET principal. Exemple : "Sarah devant la vieille bibliothèque en bois sombre, éclairage à la bougie vacillante, atmosphère de mystère médiéval."',
   'RÈGLE DE PROJECTION (SÉMANTIQUE) : Ne découpez le beat en plusieurs scènes QUE si la SITUATION change radicalement (Changement de LIEU, PUNCTUATION majeure, entrée/sortie de perso).',
   'DÉCLENCHEUR DE SHOT (TRIGGER) : Un simple mouvement physique (marcher, parler) ne justifie PAS un nouveau shot. Ne créez un nouveau shot que pour un changement de POINT DE VUE ou de FOCUS nécessaire.',
-  "GARDE DE PURETÉ DE STYLE (V14.1) : Interdiction absolue de mélanger les styles. Si le projet est 'CINEMATIC 3D', ne générez AUCUNE ligne de dessin, croquis ou élément 2D (Sauf mention explicite dans `imagePrompt`).",
-  "FIDÉLITÉ AU MODÈLE (STRICT) : Chaque personnage DOIT respecter scrupuleusement le style défini dans son `IDENTITY` registry. Un personnage défini comme '3D Render' ne doit JAMAIS apparaître comme un dessin en 2D.",
-  'LOCK DE LUMINANCE : Les objets magiques ou sources de lumière (puits, pierres, écrans) doivent garder EXACTEMENT la même couleur et intensité entre le plan large et le gros plan.',
-  "ANIMATION vs SPLIT (MICRO-ÉVOLUTION) : Les changements de luminosité (ex: l'objet se met à briller) DOIVENT être gérés dans `animationPrompt`. NE PAS créer de nouvelle scène pour ces micro-changes.",
+  "LOI DE CONSOLIDATION RADICALE (V15.0) : Interdiction formelle de découper une scène pour un changement interne (Yeux qui s'allument, livre qui brille, apparition d'accessoire comme des mains d'ombre). Si le LIEU et l'ANGLE sont identiques, REGROUPEZ tout dans une seule scène et utilisez `animationPrompt` pour décrire la séquence d'évolution interne.",
+  "FIDÉLITÉ ABSOLUE AU MODÈLE : Chaque personnage DOIT respecter scrupuleusement le style de son `IDENTITY`. Un perso défini comme '3D Render' ne peut JAMAIS apparaître en dessin 2D.",
+  "PERSISTANCE DES ACCESSOIRES : Tout objet introduit (ex: mains d'ombres, livre incandescent) DOIT être maintenu dans les scènes suivantes du même lieu, avec la même intensité lumineuse/couleur (accent color).",
+  "ANIMATION vs SPLIT (STRICT) : Les changements de luminosité ou de petits mouvements sont l'affaire de `animationPrompt`. NE PAS créer de nouvelle image pour cela.",
   "PARTITION SYNCHRONISÉE : La narration de chaque scène DOIT commencer précisément au mot qui déclenche le nouveau visuel. AUCUN décalage entre le texte parlé et l'action montrée.",
   'DETTE PHYSIQUE (STRICT) : Vérifiez `visualEvolution` avant CHAQUE imagePrompt. Si un personnage est blessé, sale ou mouillé, cette mention DOIT être la première directive visuelle de sa description dans la scène.',
   "STABILITÉ ÉMOTIONNELLE : Les personnages ne doivent pas changer d'humeur radicalement entre deux scènes sans explication narrative. Utilisez `emotionalTokens` pour assurer une courbe cohérente.",
