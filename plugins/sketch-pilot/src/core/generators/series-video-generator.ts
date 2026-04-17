@@ -293,6 +293,11 @@ export class SeriesVideoGenerator extends VideoGenerator {
     if (!this.seriesContext.visualRegistry) {
       this.seriesContext.visualRegistry = createVisualRegistry()
     }
+    // Sync style guide from context to registry
+    if (this.seriesContext.videoGenre) this.seriesContext.visualRegistry.style.style = this.seriesContext.videoGenre
+    if (this.seriesContext.colorPalette)
+      this.seriesContext.visualRegistry.style.colorGrading = this.seriesContext.colorPalette
+    if (this.seriesContext.cameraStyle) this.seriesContext.visualRegistry.style.camera = this.seriesContext.cameraStyle
     //console.log('[CONTEXTUAL_SERIE_CONTEXT_CONTEXT]', seriesContext)
     // Automatic final episode detection
     const instructions = [
