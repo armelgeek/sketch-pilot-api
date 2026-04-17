@@ -1,0 +1,6 @@
+export * from './analysis.service'
+export * from './face-tracking.service'
+export * from './synchronizer.service'
+export * from './video-assembler.service'
+export * from './ass-caption.service'
+export * from './animated-caption.renderer'

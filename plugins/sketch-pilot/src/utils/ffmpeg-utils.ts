@@ -59,3 +59,27 @@ export async function hasAudio(filePath: string): Promise<boolean> {
     ffprobe.on('error', () => resolve(false))
   })
 }
+
+/**
+ * Extracts audio from a video file.
+ */
+export async function extractAudio(videoPath: string, audioPath: string): Promise<void> {
+  await runFfmpeg(['-i', videoPath, '-vn', '-acodec', 'libmp3lame', '-y', audioPath])
+}
+
+/**
+ * Extracts frames from a video file at a specific interval.
+ */
+export async function extractFrames(
+  videoPath: string,
+  framesDir: string,
+  fps: number = 1,
+  pattern: string = 'frame_%04d.jpg'
+): Promise<void> {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  if (!fs.existsSync(framesDir)) {
+    fs.mkdirSync(framesDir, { recursive: true })
+  }
+  await runFfmpeg(['-i', videoPath, '-vf', `fps=${fps}`, '-y', path.join(framesDir, pattern)])
+}
