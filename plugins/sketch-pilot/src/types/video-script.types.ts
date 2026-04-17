@@ -533,11 +533,11 @@ export const enrichedSceneSchema = z.object({
       'Logical position of this scene in the world (e.g. "at the foot of the mountains", "north of the village")'
     ),
   emotionalTokens: z
-    .record(z.array(z.string()))
+    .preprocess((val) => val ?? {}, z.record(z.array(z.string())))
     .default({})
     .describe('Map of character @Name to their specific emotional keywords (e.g. {"@Marek": ["Angry"]})'),
   interactions: z
-    .record(z.any())
+    .preprocess((val) => val ?? {}, z.record(z.any()))
     .default({})
     .describe('Dynamic tension between character pairs (e.g. {"@Alexandre-@Marek": "Suspicion"})'),
   composition: z
@@ -565,7 +565,7 @@ export const enrichedSceneSchema = z.object({
     })
     .default({ shotType: 'MEDIUM', layout: 'SINGLE' }),
   visualEvolution: z
-    .record(z.any())
+    .preprocess((val) => val ?? {}, z.record(z.any()))
     .default({})
     .describe(
       'Physical changes for characters/entities (e.g. {"@Alexandre": "Cicatrice au front", "@Marek": "Vêtements brûlés"})'
@@ -612,17 +612,17 @@ export const enrichedSceneSchema = z.object({
   frameAnchor: z
     .object({
       referenceSceneId: z.string().optional(),
-      similarityMode: z.enum(['strict', 'soft']).default('strict')
+      similarityMode: z.enum(['strict', 'soft']).default('soft')
     })
     .optional(),
   weatherState: z.string().optional().describe('Current weather/climate (e.g. "Orage violent", "Brume épaisse")'),
   timeOfDay: z.string().optional().describe('Current time (e.g. "Minuit", "Aube", "Crépuscule")'),
   relationshipMap: z
-    .record(z.any())
+    .preprocess((val) => val ?? {}, z.record(z.any()))
     .default({})
     .describe('Social status changes (e.g. {"@Alexandre": {"@Sarah": "Trahison", "@Marek": "Alliance"}})'),
   assetEvolution: z
-    .record(z.any())
+    .preprocess((val) => val ?? {}, z.record(z.any()))
     .default({})
     .describe('Physical changes for key objects (e.g. {"Épée": "Brisée", "Grimoire": "Brûlé"})'),
   colorPalette: z.string().optional().describe('Global color grading (e.g. "Sépia", "Néons froids")'),

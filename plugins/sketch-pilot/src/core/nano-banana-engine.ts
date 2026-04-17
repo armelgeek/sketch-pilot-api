@@ -446,9 +446,8 @@ export class NanoBananaEngine {
       scene.locationId && scene.locationId !== 'default'
         ? SeriesVideoGenerator.normalizeId(scene.locationId)
         : 'default'
-    console.log('[LOCATION ID]', locationId)
     if (!this.locationAnchors.has(locationId)) {
-      this.locationAnchors.set(locationId, new AnchorEngine({ reanchorThreshold: 4, maxChainLength: 8 }))
+      this.locationAnchors.set(locationId, new AnchorEngine({ reanchorThreshold: 8, maxChainLength: 12 }))
     }
     const anchorEngine = this.locationAnchors.get(locationId)!
 
@@ -628,6 +627,14 @@ export class NanoBananaEngine {
         }
 
         if (anchorEngine) {
+          // [V49] Character Detail Lock: Register this result as a named anchor for all characters present.
+          // This ensures a high-detail Close-up becomes a persistent reference for the character.
+          const charsInScene = scene.charactersInScene || []
+          for (const charId of charsInScene) {
+            const name = SeriesVideoGenerator.normalizeId(charId.replace(/^@/, ''))
+            anchorEngine.registerNamedAnchor(name, b64, scene.id)
+          }
+
           // If no base anchor exists yet, this is our absolute reference for this location
           if (!anchorEngine.getState().baseAnchor) {
             anchorEngine.registerBaseAnchor(b64, scene.id)

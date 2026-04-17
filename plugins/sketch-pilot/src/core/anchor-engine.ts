@@ -49,6 +49,7 @@ export interface CoherenceState {
  */
 export class AnchorEngine {
   private state: CoherenceState
+  private namedAnchors: Map<string, Anchor> = new Map()
 
   constructor(options: { maxChainLength?: number; reanchorThreshold?: number } = {}) {
     this.state = {
@@ -106,6 +107,23 @@ export class AnchorEngine {
   }
 
   /**
+   * Registers a named anchor (e.g. for a character or specific location part).
+   * These anchors persist across chain resets until overwritten.
+   */
+  public registerNamedAnchor(name: string, url: string, id: string = 'named'): void {
+    if (!url) return
+    console.log(`[AnchorEngine] 🏷️  Registering NAMED Anchor [${name}]: ${id}`)
+    this.namedAnchors.set(name, { id, url, type: 'coupled' })
+  }
+
+  public getNamedAnchors(): { url: string; name: string }[] {
+    return Array.from(this.namedAnchors.entries()).map(([name, anchor]) => ({
+      url: anchor.url,
+      name: `IDENTITY:${name}`
+    }))
+  }
+
+  /**
    * Returns the current chain "pressure" as a percentage (0-100).
    */
   public getChainPressure(): number {
@@ -129,6 +147,9 @@ export class AnchorEngine {
 
     // Rule: Always anchor to the stable base
     anchors.push({ url: this.state.baseAnchor.url, name: 'BASE_ANCHOR' })
+
+    // Rule 2: Named identity anchors (Characters/Assets)
+    this.getNamedAnchors().forEach((a) => anchors.push(a))
 
     if (this.state.lastGeneratedAnchor) {
       const isReanchorStep = this.state.chainCount > 0 && this.state.chainCount % this.state.reanchorThreshold === 0

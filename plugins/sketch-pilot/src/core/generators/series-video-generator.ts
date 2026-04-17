@@ -202,6 +202,7 @@ export interface SeriesContext {
     level?: number
     type?: 'build' | 'sustain' | 'spike' | 'release'
   }
+  language?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -529,6 +530,9 @@ export class SeriesVideoGenerator extends VideoGenerator {
   // ─── Pass 2: Structuring system prompt ─────────────────────────────────────
 
   protected buildStructuringSystemPrompt(options: VideoGenerationOptions): string {
+    if (options.language) {
+      this.seriesContext.language = options.language
+    }
     const spec = this.getEffectiveSpec(options)
 
     const sceneInstructions = this.seriesContext.tiktokViral
@@ -630,7 +634,18 @@ export class SeriesVideoGenerator extends VideoGenerator {
         sceneCountRange: range
       },
       effectiveSpec
-    )}\n\n${bridgeContext}\n\nFRAMES ATOMIQUES ÉPISODE ${this.seriesContext.episodeNumber} (JSON) :\n---\n${validatedNarration}\n---\n\nTÂCHE : Enrichissez chaque frame atomique ci-dessus en une scène JSON complète. 🚨 RÈGLE D'OR : 1 frame = 1 scène. Le champ 'narration' de chaque scène doit reprendre exactement la frame correspondante. SEQUEL MODE ACTIVE : Scene 1 MUST be a sequel reprise.\n\n${buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)}\n\n⚠️ RAPPEL REGISTRE : Privilégiez les lieux existants du REGISTRE DES LIEUX. Si vous créez @LieuID-Nouveau, décrivez-le impérativement dans seriesMetadata.newLocations.
+    )}\n\n${bridgeContext}\n\nBEATS NARRATIFS ÉPISODE ${this.seriesContext.episodeNumber} (JSON) :
+---
+${validatedNarration}
+---
+
+TÂCHE : Projetez visuellement chaque beat narratif ci-dessus en scènes (shots).
+🎬 DÉCLENCHEURS DE SHOT : Ne créez un nouveau shot que pour un changement RADICAL (Lieu, POV, Entrée/Sortie). Un mouvement simple (marcher, parler) DOIT rester dans la même scène. 
+⚠️ NARRATION : Découpez le texte verbatim. Le premier mot de chaque scène doit correspondre au basculement visuel.
+
+${buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)}
+
+⚠️ RAPPEL REGISTRE : Privilégiez les lieux existants du REGISTRE DES LIEUX. Si vous créez @LieuID-Nouveau, décrivez-le impérativement dans seriesMetadata.newLocations.
 `
   }
 
@@ -773,6 +788,7 @@ ${instructions.join('\n')}
       hasLocationReference,
       previousScene: (memory as any)?.previousScene,
       loreUpdates: (this.seriesContext as any).loreUpdates,
+      language: this.seriesContext.language,
       roadmapNarrativeHints: (this.seriesContext as any).roadmap?.narrativeHints,
       visualRegistry: this.seriesContext.visualRegistry
     })
@@ -1519,7 +1535,9 @@ ${instructions.join('\n')}
             loc.originSceneId = scene.id
             loc.originEpisode = currentEp
           }
-          if (scene.imageUrl && (!loc.thumbnailUrl || scene.isEstablishingShot)) {
+          const isEstablishing =
+            scene.isEstablishingShot || scene.shotType === 'ESTABLISHING' || scene.shotType === 'WIDE'
+          if (scene.imageUrl && (!loc.thumbnailUrl || isEstablishing)) {
             loc.thumbnailUrl = scene.imageUrl
             loc.referenceSceneId = scene.id
             loc.referenceEpisode = currentEp
@@ -1549,7 +1567,8 @@ ${instructions.join('\n')}
         const char = registries.characters[name]
         const charEvol = evolutions.character[name]
         if (char && charEvol) SeriesVideoGenerator.promoteCharacterStatus(char, charEvol, scene.id, currentEp)
-        if (char && scene.imageUrl && (!char.thumbnailUrl || char.isNew)) {
+        const isCloseUp = scene.shotType === 'CLOSEUP' || scene.shotType === 'EXTREME_CLOSEUP'
+        if (char && scene.imageUrl && (!char.thumbnailUrl || char.isNew || isCloseUp)) {
           char.thumbnailUrl = scene.imageUrl
           char.referenceSceneId = scene.id
           char.referenceEpisode = currentEp

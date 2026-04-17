@@ -23,7 +23,7 @@
 
 import type { EnrichedScene } from '../../../types/video-script.types'
 import { findInRegistry, mergeEvolution, normalizeId, type EvolutionState } from './series-registry.utils'
-import { buildConsistencyPrompt } from './visual-engine'
+import { applyVisualAnchors, buildConsistencyPrompt } from './visual-engine'
 import type { VisualRegistry } from './visual-registry'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ export interface ImagePromptContext {
   loreUpdates?: string[]
   roadmapNarrativeHints?: string[]
   visualRegistry?: VisualRegistry
+  language?: string
 }
 
 export interface ImagePromptResult {
@@ -64,39 +65,99 @@ export interface ImagePromptResult {
 
 // ─── Shot Map ─────────────────────────────────────────────────────────────────
 
-const SHOT_MAP: Record<string, string> = {
-  CLOSEUP: 'CLOSE-UP SHOT: Focus on face and expression.',
-  MEDIUM: 'MEDIUM SHOT: Character from waist up, showing some environment.',
-  WIDE: 'WIDE SHOT: Full body and environment, character in context.',
-  ESTABLISHING: 'ESTABLISHING SHOT: Extreme wide view to set the location.',
-  PANORAMIC: 'PANORAMIC VIEW: Ultra-wide cinematic view.',
-  POV: 'POV SHOT: Seen through the eyes of the character.',
-  OVERSHOULDER: 'OVER-THE-SHOULDER SHOT: Looking at subject over another character shoulder.'
+const LOCALES: Record<string, any> = {
+  fr: {
+    shot: {
+      CLOSEUP: 'Un plan rapproché',
+      MEDIUM: 'Un plan moyen',
+      WIDE: 'Un plan large',
+      ESTABLISHING: 'Un plan d’ensemble',
+      PANORAMIC: 'Une vue panoramique',
+      POV: 'Une vue subjective',
+      OVERSHOULDER: 'Un plan par-dessus l’épaule'
+    },
+    setting: {
+      in: 'dans le décor de',
+      captured: 'capturé',
+      at: 'à',
+      under: 'sous',
+      suspended: 'un moment suspendu',
+      precisely: 'situé précisément'
+    },
+    details: 'On distingue clairement',
+    emotions: (chars: string) => `On peut lire l'émotion sur les visages de ${chars}.`,
+    evolution: (name: string, traits: string) => `${name} présente ${traits}`,
+    asset: (name: string, state: string) => `${name} est ${state}`,
+    bridge: {
+      follows: 'Cet instant fait suite à :',
+      inherited: 'On retrouve la même lumière héritée de l’instant précédent.',
+      aligned: "Le style et l'atmosphère respectent l'alignement narratif établi.",
+      fluid: 'La transition est fluide et organique.',
+      contrast: "L'angle de vue varie pour offrir une nouvelle perspective."
+    },
+    art: {
+      palette: (p: string) => `L’ensemble est baigné par une palette colorimétrique ${p}.`,
+      motifs: (m: string) => `On remarque des motifs symboliques tels que ${m} présents de manière subtile.`,
+      style: (s: string) => `Le style visuel est caractérisé par une technique ${s}.`
+    },
+    layout: {
+      polyptych: 'La composition est un polyptyque montrant plusieurs personnages.',
+      split: 'L’écran est divisé pour séparer les personnages.'
+    }
+  },
+  en: {
+    shot: {
+      CLOSEUP: 'A close-up shot',
+      MEDIUM: 'A medium shot',
+      WIDE: 'A wide shot',
+      ESTABLISHING: 'An establishing shot',
+      PANORAMIC: 'A panoramic view',
+      POV: 'A point-of-view shot',
+      OVERSHOULDER: 'An over-the-shoulder shot'
+    },
+    setting: {
+      in: 'in',
+      captured: 'captured',
+      at: 'at',
+      under: 'under',
+      suspended: 'a suspended moment',
+      precisely: 'located precisely'
+    },
+    details: 'One can clearly see',
+    emotions: (chars: string) => `Emotion is visible on the faces of ${chars}.`,
+    evolution: (name: string, traits: string) => `${name} features ${traits}`,
+    asset: (name: string, state: string) => `${name} is ${state}`,
+    bridge: {
+      follows: 'This moment follows:',
+      inherited: 'The lighting is inherited from the previous moment.',
+      aligned: 'The style and atmosphere respect the established narrative alignment.',
+      fluid: 'The transition is fluid and organic.',
+      contrast: 'The viewing angle varies to provide a new perspective.'
+    },
+    art: {
+      palette: (p: string) => `The entire scene is bathed in a ${p} color palette.`,
+      motifs: (m: string) => `Symbolic motifs such as ${m} are subtly present.`,
+      style: (s: string) => `The visual style is characterized by a ${s} technique.`
+    },
+    layout: {
+      polyptych: 'The composition is a polyptych showing multiple characters.',
+      split: 'The screen is split to separate characters.'
+    }
+  }
+}
+
+function getLocale(language?: string) {
+  const code = (language || 'fr').split('-')[0].toLowerCase()
+  return LOCALES[code] || LOCALES.en // Fallback to English for better AI compatibility
 }
 
 // ─── Stage Builders ───────────────────────────────────────────────────────────
 
-function buildShotDirective(scene: EnrichedScene): string {
-  const comp = (scene as any).projections?.composition || scene.composition || { shotType: 'MEDIUM' }
-  let directive = SHOT_MAP[comp.shotType || 'MEDIUM'] || SHOT_MAP.MEDIUM
-
-  if (comp.foregroundAnchor) directive += ` Foreground: ${comp.foregroundAnchor} (blurry dirty frame).`
-  if (comp.lightingMood) directive += ` Lighting/Mood: ${comp.lightingMood}.`
-  if (comp.focusTarget) directive += ` Focus on ${comp.focusTarget}.`
-
-  return directive
-}
-
-function buildAtmosphere(ctx: ImagePromptContext): string {
-  const time = ctx.timeOfDay || ''
-  const weather = ctx.weatherState || ''
-  if (!time && !weather) return ''
-  return `Atmosphère : ${time}${time && weather ? ', ' : ''}${weather}.`
-}
-
-function buildDecorTokens(scene: EnrichedScene): string {
+function buildDecorTokens(scene: EnrichedScene, language?: string): string {
   if (!scene.persistentDecorTokens?.length) return ''
-  return `PERSISTENT ELEMENTS: ${scene.persistentDecorTokens.join(', ')}.`
+  const t = getLocale(language)
+  const and = t.details.includes('distinct') ? ' et ' : ' and '
+  return `${t.details} ${scene.persistentDecorTokens.join(and)} ${t.setting.in.includes('décor') ? 'dans l’environnement' : 'in the environment'}.`
 }
 
 function getEvolutionString(data: any): string {
@@ -110,6 +171,7 @@ function buildEvolutionState(ctx: ImagePromptContext, activeCharacters: string[]
   const evolution = mergeEvolution(ctx.visualEvolution || {}, ctx.scene.visualEvolution || {})
   const assetState = mergeEvolution(ctx.assetEvolution || {}, ctx.scene.assetEvolution || {})
   const parts: string[] = []
+  const t = getLocale(ctx.language)
 
   // Characters in scene + Global Identity Locks
   for (const name of activeCharacters) {
@@ -125,7 +187,7 @@ function buildEvolutionState(ctx: ImagePromptContext, activeCharacters: string[]
       if (s) traits.push(s)
     }
 
-    if (traits.length) parts.push(`${name} [${traits.join(', ')}]`)
+    if (traits.length) parts.push(t.evolution(name, traits.join(', ')))
   }
 
   // Assets referenced in the subject
@@ -138,82 +200,31 @@ function buildEvolutionState(ctx: ImagePromptContext, activeCharacters: string[]
   for (const [assetName, evolutionData] of Object.entries(assetState)) {
     if (subject.includes(assetName.toLowerCase()) || subject.includes(normalizeId(assetName))) {
       const s = getEvolutionString(evolutionData)
-      if (s) parts.push(`${assetName} (${s})`)
+      if (s) parts.push(t.asset(assetName, s))
     }
   }
 
-  return parts.length ? `État de Simulation : ${parts.join('; ')}.` : ''
+  return parts.length ? `${parts.join('. ')}.` : ''
 }
 
-function buildSocialContext(ctx: ImagePromptContext, scene: EnrichedScene): string {
-  const parts: string[] = []
-
-  const relationships = ctx.relationshipMap || {}
-  if (Object.keys(relationships).length > 0) {
-    const relStr = Object.entries(relationships)
-      .map(([char, targets]) =>
-        Object.entries(targets)
-          .map(([target, rel]) => `${char} → ${target} : ${rel}`)
-          .join(', ')
-      )
-      .join('. ')
-    if (relStr) parts.push(`Interaction : ${relStr}.`)
-  }
-
-  if (scene.interactions && Object.keys(scene.interactions).length > 0) {
-    const interactions = Object.entries(scene.interactions)
-      .map(([pair, tension]) => `${pair} : ${tension}`)
-      .join(', ')
-    parts.push(`Dynamique : ${interactions}.`)
-  }
-
-  return parts.join(' ')
-}
-
-function buildEmotions(scene: EnrichedScene): string {
+function buildEmotions(scene: EnrichedScene, language?: string): string {
   if (!scene.emotionalTokens || Object.keys(scene.emotionalTokens).length === 0) return ''
+  const t = getLocale(language)
   const emotions = Object.entries(scene.emotionalTokens)
-    .map(([charId, tokens]) => `${charId} est ${(tokens as string[]).join(', ')}`)
+    .map(([charId, tokens]) => {
+      const joined = (tokens as string[]).join(t.details.includes('distinct') ? ' et ' : ' and ')
+      return `${charId} ${t.setting.in.includes('décor') ? 'qui semble' : 'who seems'} ${joined}`
+    })
     .join(', ')
-  return `Expressions : ${emotions}.`
-}
-
-function buildSpatialContext(
-  ctx: ImagePromptContext,
-  effectiveLocationId: string | undefined
-): { text: string; locationMasterUrl: string | undefined } {
-  let locationMasterUrl: string | undefined
-  let text = ''
-
-  if (ctx.scene.spatialAnchor) {
-    text += `[ANCRE SPATIALE: ${ctx.scene.spatialAnchor}] `
-  }
-
-  if (effectiveLocationId) {
-    const loc = findInRegistry(ctx.locationRegistry, effectiveLocationId)
-    locationMasterUrl = (loc as any)?.thumbnailUrl
-
-    if (loc) {
-      const referenceMark = ctx.hasLocationReference ? 'REFERENCE VISUELLE ACTIVE' : 'RÉFÉRENCE TEXTUELLE'
-      const locDesc = (loc as any).description || (loc as any).atmosphere || ''
-      const showFullDesc = !locationMasterUrl
-
-      text += `LIEU : ${normalizeId(effectiveLocationId)} (${referenceMark}). `
-      if (showFullDesc) text += `${locDesc.trim()}. `
-      if (locationMasterUrl) {
-        text += `✨ CONTINUITÉ ATMOSPHÉRIQUE : Capturez l'essence de ${effectiveLocationId} en vous basant sur l'image de référence, tout en restant ouvert à l'évolution de la scène. `
-      }
-    }
-  }
-
-  return { text, locationMasterUrl }
+  return t.emotions(emotions)
 }
 
 function buildContinuityBridge(
   ctx: ImagePromptContext,
   isFirstScene: boolean,
   referenceImageUrl: string | undefined,
-  previousScene: any
+  previousScene: any,
+  language?: string
 ): { text: string; updatedReferenceImageUrl: string | undefined } {
   if (!previousScene) return { text: '', updatedReferenceImageUrl: referenceImageUrl }
 
@@ -222,59 +233,62 @@ function buildContinuityBridge(
 
   if (!isSequelBridge && !isInternalSequence) return { text: '', updatedReferenceImageUrl: referenceImageUrl }
 
+  const t = getLocale(language)
   let updatedRef = referenceImageUrl
   if (isInternalSequence && previousScene.imageUrl) {
     updatedRef = previousScene.imageUrl
   }
 
-  let text = `CONTINUATION DIRECTE : ${previousScene.summary || previousScene.imagePrompt}. `
+  let text = `${t.bridge.follows} ${previousScene.summary || previousScene.imagePrompt}. `
 
   if (previousScene.persistentDecorTokens?.length > 0) {
-    const label = isSequelBridge ? 'épisode précédent' : 'scène précédente'
-    text += `Lumière héritée de la ${label}: ${previousScene.persistentDecorTokens.join(', ')}. `
+    text += `${t.bridge.inherited} `
   }
 
-  const refLabel = isSequelBridge ? 'Sequel Bridge (DYNAMIQUE)' : `Scene ${previousScene.id}`
-  const fidelityInstruction = isSequelBridge
-    ? "🌟 ALIGNEMENT NARRATIF : L'image de référence est votre guide pour l'atmosphère et les détails clés. "
-    : '🌊 FLUIDITÉ VISUELLE : Priorité au mouvement et à la vie. Maintenez la cohérence des éléments majeurs tout en autorisant le décor à respirer. '
+  const fidelityInstruction = isSequelBridge ? t.bridge.aligned : t.bridge.fluid
 
   // v12 Update: Visual Contrast Injection
   const sameLocation = ctx.scene.locationId && ctx.scene.locationId === previousScene.locationId
-  const contrastTip =
-    isInternalSequence && sameLocation
-      ? "🌓 CONTRASTE DE SÉQUENCE : Puisque nous sommes dans le même lieu, variez l'échelle ou l'angle pour éviter la redondance visuelle. "
-      : ''
+  const contrastTip = isInternalSequence && sameLocation ? t.bridge.contrast : ''
 
-  text += `Reference (${refLabel}). ${fidelityInstruction}${contrastTip}TRANSITION FLUIDE. `
+  text += `${fidelityInstruction}${contrastTip} `
 
   return { text, updatedReferenceImageUrl: updatedRef }
 }
 
 function buildSubject(scene: EnrichedScene): string {
+  // Use imagePrompt as priority, fallback to a truncated summary
   const desc = (scene as any).projections?.visualDescription || scene.imagePrompt || scene.summary || ''
-  return `VISUAL : ${desc.trim()}`
+  const cleanDesc = desc.trim()
+
+  // If it falls back to summary, we might want to truncate if it's too narrative
+  if (!scene.imagePrompt && cleanDesc.length > 150) {
+    return `${cleanDesc.slice(0, 150)}...`
+  }
+  return cleanDesc
 }
 
 function buildArtDirection(ctx: ImagePromptContext, scene: EnrichedScene): string {
   const palette = ctx.colorPalette
   const motifs = [...(ctx.symbolicMotifs || []), ...(scene.symbolicMotifs || [])]
   const camStyle = ctx.cameraStyle
+  const t = getLocale(ctx.language)
 
   if (!palette && motifs.length === 0 && !camStyle) return ''
 
   let style = ''
-  if (palette) style += `Color Palette: ${palette}. `
-  if (motifs.length > 0) style += `Symbolic Motifs: ${motifs.join(', ')}. `
-  if (camStyle) style += `Camera Technique: ${camStyle}. `
+  if (palette) style += `${t.art.palette(palette)} `
+  if (motifs.length > 0) style += `${t.art.motifs(motifs.join(', '))} `
+  if (camStyle) style += `${t.art.style(camStyle)} `
 
-  return `Direction Artistique : ${style}`
+  return style
 }
 
-function buildLayout(scene: EnrichedScene): string {
+function buildLayout(scene: EnrichedScene, language?: string): string {
   const layout = (scene as any).projections?.composition?.layout || scene.composition?.layout || 'SINGLE'
-  if (layout === 'MONTAGE') return 'COMPOSITION : polyptych / multi-panels separating characters.'
-  if (layout === 'SPLIT' || layout === 'DIAGONAL') return 'COMPOSITION : split-screen separating characters.'
+  const t = getLocale(language)
+  if (layout === 'MONTAGE') return t.layout.polyptych
+  if (layout === 'SPLIT' || layout === 'DIAGONAL') return t.layout.split
   return ''
 }
 
@@ -321,77 +335,94 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
 
   const isFirstScene = scene.sceneNumber === 1 || scene.id === 'scene-1' || scene.id === '1'
   const sequelBridgeUrl = isFirstScene && episodeNumber > 1 ? ctx.lastEpisodeFinalImage : undefined
-
   const previousScene = isFirstScene ? ctx.lastEpisodeFinalScene : ctx.previousScene
-
-  // Fallback: reuse previous locationId if scene doesn't declare one
   const effectiveLocationId = scene.locationId || previousScene?.locationId
 
-  // Active characters (normalized set for fast lookup)
+  // Active characters
   const activeCharacters = new Set((scene.charactersInScene || []).map((id: string) => normalizeId(id).toLowerCase()))
   const activeCharacterNames = Array.from(activeCharacters)
 
-  // ─── Build all stages ────────────────────────────────────────────────────────
+  // ─── Build all components ───────────────────────────────────────────────────
 
-  const shotDirective = buildShotDirective(scene)
-  const atmosphere = buildAtmosphere(ctx)
-  const decorTokens = buildDecorTokens(scene)
-  const evolutionState = buildEvolutionState(ctx, activeCharacterNames as string[])
-  const socialContext = buildSocialContext(ctx, scene)
-  const emotions = buildEmotions(scene)
-  const { text: spatialText, locationMasterUrl } = buildSpatialContext(ctx, effectiveLocationId)
-  const subject = buildSubject(scene)
-  const artDirection = buildArtDirection(ctx, scene)
-  const layout = buildLayout(scene)
-  const loreContext = buildLoreContext(ctx)
+  const t = getLocale(ctx.language)
+  const shot = t.shot[scene.composition?.shotType || 'MEDIUM'] || t.shot.MEDIUM
+  const time = ctx.timeOfDay || ''
+  const weather = ctx.weatherState || ''
+  const subject = (scene as any).projections?.visualDescription || scene.imagePrompt || scene.summary || ''
+  const locationName = effectiveLocationId ? normalizeId(effectiveLocationId) : ''
 
-  // ─── Visual Consistency Engine Pipeline ─────────────────────────────────────
-  let visualEnginePrompt = ''
-  if (ctx.visualRegistry) {
-    visualEnginePrompt = buildConsistencyPrompt(ctx.visualRegistry, scene, previousScene)
+  // 1. Setting the Stage (Shot + Location + Atmosphere + Anchor)
+  // Weave these into a single descriptive sentence
+  let opening = `${shot}`
+  if (locationName) {
+    const isFrench = (ctx.language || 'fr').startsWith('fr')
+    const isInternal = !isFirstScene && scene.continueFromPrevious && scene.locationId === previousScene?.locationId
+
+    if (isInternal) {
+      const stillLabel = isFrench ? 'Toujours dans le même décor de' : 'Still in the same setting of'
+      opening += ` ${stillLabel} ${locationName}`
+    } else {
+      const captureLabel = isFrench ? 'Capturé dans' : 'Captured in'
+      const settingLabel = isFrench ? 'le décor de' : 'the setting of'
+      opening += ` ${captureLabel} ${settingLabel} ${locationName}`
+    }
+  }
+  if (scene.spatialAnchor) opening += `, ${t.setting.precisely} ${scene.spatialAnchor}`
+  if (time || weather) {
+    opening += ` ${t.setting.at} ${time || t.setting.suspended}`
+    if (weather) opening += ` ${t.setting.under} ${weather}`
+  }
+  opening += '. '
+
+  // 2. Character & Emotional Layer
+  const evolutions = buildEvolutionState(ctx, activeCharacterNames as string[])
+  const emotions = buildEmotions(scene, ctx.language)
+  const charactersPart = [evolutions, emotions].filter(Boolean).join(' ')
+
+  // 3. Narrative & Visual Context
+  const bridge = buildContinuityBridge(ctx, isFirstScene, sequelBridgeUrl, previousScene, ctx.language).text
+  const artDir = buildArtDirection(ctx, scene)
+  const decor = buildDecorTokens(scene, ctx.language)
+
+  // 4. Assemble final Integrated Paragraph
+  let finalPrompt = `${opening}${charactersPart ? `${charactersPart} ` : ''}${subject.trim()}`
+  if (!finalPrompt.endsWith('.')) finalPrompt += '.'
+
+  if (bridge || decor || artDir) {
+    finalPrompt += ` ${[bridge, decor, artDir].filter(Boolean).join(' ')}`
   }
 
-  // Continuity bridge (updates referenceImageUrl for internal sequences)
-  const { text: bridgeText, updatedReferenceImageUrl: referenceImageUrl } = buildContinuityBridge(
-    ctx,
-    isFirstScene,
-    sequelBridgeUrl,
-    previousScene
+  // 4. Identity Locking (Character & Asset Anchor Engine)
+  finalPrompt = applyVisualAnchors(
+    finalPrompt,
+    { character: characterRegistry, asset: assetRegistry },
+    ctx.hasReferenceImages
   )
 
-  // Assemble in semantic order
-  const parts = [
-    layout,
-    artDirection,
-    shotDirective,
-    atmosphere,
-    decorTokens,
-    evolutionState,
-    socialContext,
-    emotions,
-    spatialText,
-    bridgeText,
-    loreContext,
-    visualEnginePrompt,
-    subject
-  ].filter(Boolean)
+  // 5. Visual Consistency Engine (Technical suffix stays separate as it is a guide)
+  if (ctx.visualRegistry) {
+    const consistency = buildConsistencyPrompt(ctx.visualRegistry, scene, ctx.language)
+    if (consistency) finalPrompt += ` ${consistency}`
+  }
 
-  let paragraph = parts.join(' ')
-
-  // Sanitize inactive characters (strict @handle removal only)
-  paragraph = sanitizeInactiveCharacters(paragraph, activeCharacters as Set<string>, characterRegistry)
+  // Sanitize
+  finalPrompt = sanitizeInactiveCharacters(finalPrompt, activeCharacters as Set<string>, characterRegistry)
 
   // ─── Build reference images ──────────────────────────────────────────────────
 
   const allReferenceImages: (string | { name?: string; data: string })[] = []
   const characterSheets: { name: string; appearance: { description: string }; role: string }[] = []
 
-  // 1. Primary continuity reference (sequel bridge or internal sequence)
-  if (referenceImageUrl) {
-    allReferenceImages.push(referenceImageUrl)
-  }
+  const { updatedReferenceImageUrl: referenceImageUrl } = buildContinuityBridge(
+    ctx,
+    isFirstScene,
+    sequelBridgeUrl,
+    previousScene,
+    ctx.language
+  )
 
-  // 2. Character thumbnails + metadata sheets
+  if (referenceImageUrl) allReferenceImages.push(referenceImageUrl)
+
   for (const normalizedName of activeCharacterNames) {
     const char = findInRegistry(characterRegistry, normalizedName as string) as any
     if (char) {
@@ -404,23 +435,24 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
     }
   }
 
-  // 3. Asset thumbnails (if referenced in the final prompt)
-  const lowerParagraph = paragraph.toLowerCase()
+  const lowerPrompt = finalPrompt.toLowerCase()
   for (const name of Object.keys(assetRegistry)) {
-    if (lowerParagraph.includes(name.toLowerCase())) {
+    if (lowerPrompt.includes(name.toLowerCase())) {
       const asset = findInRegistry(assetRegistry, name) as any
       if (asset?.thumbnailUrl) allReferenceImages.push({ name, data: asset.thumbnailUrl })
     }
   }
 
-  // 4. Location master as background anchor (only if no continuity reference available)
+  const locationMasterUrl = effectiveLocationId
+    ? (findInRegistry(locationRegistry, effectiveLocationId) as any)?.thumbnailUrl
+    : undefined
   if (!referenceImageUrl && locationMasterUrl) {
     allReferenceImages.push({ name: 'Location Reference', data: locationMasterUrl })
   }
 
   return {
     sceneId: scene.id,
-    prompt: paragraph,
+    prompt: finalPrompt,
     referenceImage: referenceImageUrl,
     referenceImages: allReferenceImages,
     characterSheets,

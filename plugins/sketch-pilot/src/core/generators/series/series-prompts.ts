@@ -7,7 +7,7 @@
  * Versioning: bump PROMPT_VERSION on any structural change.
  */
 
-export const PROMPT_VERSION = 'v11.0'
+export const PROMPT_VERSION = 'v14.0'
 
 // ─── Visual Consistency Hierarchy ─────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ export const VISUAL_CONSISTENCY_PRIORITY = `
 3. visualDelta = ÉVOLUTION NARRATIVE (Mouvements, actions et changements d'états).
 4. imagePrompt = VIE DE LA SÉQUENCE (Priorité à l'expression et au dynamisme).
 
-🚀 RÈGLE DE FLUIDITÉ : Favorisez le mouvement et la vie de la scène. La cohérence visuelle doit servir le récit, pas le figer. Un léger drift est acceptable s'il apporte du dynamisme.
+🚀 RÈGLE DE FLUIDITÉ : Privilégiez le mouvement et l'évolution naturelle. La cohérence visuelle est un guide, pas une prison. Autorisez un drift créatif pour favoriser le dynamisme et la variété des plans.
 
 🎭 RYTHME VISUEL ET VARIATION (ANTI-REDOUTANCE) :
 - Si une séquence se déroule dans le MÊME lieu (@locationId), vous DEVEZ alterner les échelles de plan (shotType) à chaque scène.
@@ -37,23 +37,16 @@ export const SCENE_CONSOLIDATION_RULES = `
    - L'angle de vue doit changer du tout au tout (nouvel ancrage).
 `
 
-// ─── Atomic Narration Rules (Frame-Atomic) ────────────────────────────────────
+export const NARRATIVE_BEAT_RULES = `
+🏗️ NORMES DE NARRATION PAR BEATS (SEQUENCE-READY) :
+1. 📖 BEAT NARRATIF : 1 bloc de texte = 1 unité dramatique cohérente (ex: un échange, une découverte).
+2. 🎬 DÉCOMPOSITION VISUELLE : Chaque beat pourra être décomposé en PLUSIEURS scènes (coupes caméra) pour dynamiser le rendu.
+3. 👁️ INTENTION VISUELLE : Décrivez l'action de façon à ce qu'elle suggère naturellement des changements d'angle (ex: "X parle, Y réagit avec effroi").
+4. 🧱 DENSITÉ : Un beat peut faire 10 à 40 mots selon l'importance du moment. Plus le beat est riche émotionnellement, plus il mérite de découpages (shots).
 
-export const ATOMIC_NARRATION_RULES = `
-🏗️ NORMES DE NARRATION ATOMIQUE (FRAME-READY) :
-1. 🎬 IDÉE UNIQUE : 1 phrase = 1 moment observable Unique = 1 scène.
-2. 🚫 INTERDICTION DE MÉLANGE : Ne mélangez JAMAIS action + émotion + interprétation dans la même phrase.
-3. 👁️ PRIORITÉ VISUELLE : Décrivez ce qu'on VOIT avant ce qu'on COMPREND.
-4. 🧱 DÉCOUPAGE CINÉMATIQUE : Ne fragmentez pas l'action en micro-mouvements (ex: "il lève le pied", "il pose le pied"). Chaque frame doit représenter une intention narrative ou un changement de focus visuel significatif.
-5. ⚖️ DENSITÉ NARRATIVE : Si une série de petits gestes forme une seule action cohérente (ex: "Alaric s'assoit et soupire"), gardez-les dans une seule frame dense. Splittez uniquement pour marquer un impact fort ou un changement de plan (WIDE -> CLOSEUP).
-
-Types de phrases recommandés (1 ligne = 1 scène) :
-• VISUAL : "La pièce est plongée dans le noir, seule une bougie vacille sur la table."
-• ACTION : "Alaric s'approche du coffre avec une hésitation palpable dans ses gestes."
-• IMPACT : "Une lueur émeraude jaillit du cadenas, révélant les runes sacrées."
-• RÉACTION : "Il détourne le regard, ébloui par la puissance brute de l'artefact."
-
-🚫 ANTI-DETAIL : Évitez de raconter "comment" il bouge chaque doigt. Racontez ce qu'il "fait" de façon cinématographique.
+Exemple de beat unique : 
+"Alaric s'approche du trône avec hésitation. Il pose la main sur l'accoudoir froid. Soudain, les runes s'illuminent d'un bleu électrique."
+-> Ce beat pourra générer 3 scènes : WIDE (approche), MEDIUM (la main), CLOSEUP (réaction/runes).
 `
 
 export const NARRATION_LAYER_RULES = `
@@ -252,6 +245,8 @@ CHAMPS OBLIGATOIRES : 'scenePurpose', 'sceneDelta', 'tensionState' (0-10) et 'mo
    - Personnages : @Nom (ex: @Sarah).
    - Lieux : snake_case sans '@' (ex: antique_shop).
 4. INFRACTION = RETRY : Toute hallucination ou violation de format entraînera un échec de la génération.
+5. FRAME ANCHOR (STRICT) : 'frameAnchor.similarityMode' DOIT être uniquement 'strict' ou 'soft'.
+6. OBJECTS ONLY : Les champs 'interactions', 'relationshipMap', 'emotionalTokens' et 'visualEvolution' ne doivent JAMAIS être 'null'. Utilisez un objet vide {} au minimum.
 `
 
 export const SPATIAL_ANCHORING_RULES = `
@@ -340,21 +335,21 @@ export function buildPass1SystemPrompt(p: Pass1SystemPromptParams): string {
 
   return `Tu es l'Auteur Saga Engine v11.0.
 
-MISSION : Générer l'épisode N° ${p.episodeNumber} sous forme de NARRATION ATOMIQUE.
+MISSION : Générer l'épisode N° ${p.episodeNumber} sous forme de BEATS NARRATIFS.
 
 ---
 
-### ARCHITECTURE DE PRODUCTION (v11.0)
+### ARCHITECTURE DE PRODUCTION (v12.0)
 Générez UNIQUEMENT un tableau JSON de chaînes de caractères.
-Chaque chaîne est une "frame atomique" (une action, un focus visuel).
-Exemple : [ "Phrase 1", "Phrase 2", "Phrase 3" ]
+Chaque chaîne est un "beat narratif" (un bloc de récit cohérent).
+Exemple : [ "Beat 1", "Beat 2", "Beat 3" ]
 
 ---
 
 ### RÈGLES CRITIQUES
-- **Atomicité Absolue**: 1 phrase = 1 scène future. Ne faites pas de paragraphes.
+- **Beats Cohérents**: Chaque bloc doit former une unité dramatique.
 - **Action Directe**: Pas de fioritures narratives, restez sur le visuel et l'action immédiate.
-- **Causalité**: Chaque phrase doit être la suite logique et chronologique de la précédente.
+- **Causalité**: Chaque beat doit être la suite logique et chronologique du précédent.
 
 ---
 
@@ -396,35 +391,16 @@ ${p.threadsInstruction || ''}
 
 ---
 
-### FORMAT DE SORTIE (JSON STRICT)
-Retournez UNIQUEMENT un tableau JSON de type string[].
-${tiktokRules}
 ${p.tiktokViral ? GOLDEN_TIKTOK_RULES : GOLDEN_NARRATION_RULES(authorizedCharacters, authorizedLocations)}`
 }
 
-// ─── Shared Narrative Rule Blocks ─────────────────────────────────────────────
-
-export const NARRATIVE_RIGOR_RULES = `
-🏗️ PRINCIPES DE FLUIDITÉ NARRATIVE :
-1. TRANSITION FLUIDE : Favorisez la continuité, mais privilégiez le rythme. Les ellipses narratives sont encouragées si elles servent l'intensité de la séquence.
-2. DÉFINITION DES MENACES : Précisez la nature des dangers pour ancrer l'action.
-3. ÉNERGIE DES CONFLITS : L'action doit être viscérale. Concentrez-vous sur l'impact et le mouvement immédiat.
-4. RYTHME ÉMOTIONNEL : Les personnages réagissent avec intensité. Ne bridez pas leur expressivité pour la simple logique.
-
-🏗️ LOGIQUE DE SIMULATION (MONDE VIVANT) :
-1. PERSISTANCE ÉVOLUTIVE : Le monde change avec l'action. Si un objet est détruit, c'est une nouvelle opportunité visuelle.
-2. CAUSALITÉ ORGANIQUE : Les actions laissent des traces, mais le récit avance toujours.
-3. MÉMOIRE VISUELLE : Maintenez les repères iconiques, mais autorisez le décor à vivre (fumée, débris, lumière changeante).
-4. AUDIT DE RYTHME : Chaque scène doit apporter une pulsation nouvelle au récit.
-`
-
 export const GOLDEN_NARRATION_RULES = (authorizedCharacters: string, authorizedLocations: string) => `
 RÈGLES D'OR DE NARRATION :
-• NARRATION ATOMIQUE : 1 phrase = 1 moment présent. Utilisez un tableau JSON [ "Action 1", "Action 2" ].
+• BEATS NARRATIFS : Proposez des blocs de texte cohérents. Utilisez un tableau JSON [ "Beat 1", "Beat 2" ].
 • ACTION PURE : Bannissez les intros du type "Il était une fois" ou les conclusions explicatives.
 • IDENTITÉ @HANDLE (STRICT) : Utilisez uniquement les handles du registre canon.
-• RYTHME CHRONOLOGIQUE : Chaque ligne du tableau doit faire avancer le temps. Interdiction de revenir en arrière dans la même passe.
-${ATOMIC_NARRATION_RULES}
+• RYTHME CHRONOLOGIQUE : Chaque ligne du tableau doit faire avancer le temps.
+${NARRATIVE_BEAT_RULES}
 `
 
 // ─── Pass 2 System Prompt Builder ─────────────────────────────────────────────
@@ -522,24 +498,32 @@ STRATÉGIE NARRATIVE (LAYER) : ${p.narrationLayer ? JSON.stringify(p.narrationLa
 }
 
 export const PASS2_SCENE_INSTRUCTIONS = [
-  'IMAGE PROMPT (PROSE CINÉMATOGRAPHIQUE) : `imagePrompt` DOIT être une phrase unique structurée ainsi : "[TYPE DE PLAN] depuis [ANGLE CAMÉRA], [SUJET + POSITION PRÉCISE], [LUMIÈRE], [ATMOSPHÈRE], [DÉTAIL VISUEL CLÉ]." Exemple : "Plan rapproché depuis le bas, Sarah accroupie au centre du cadre, éclairage néon bleu froid sur le visage, brume industrielle en arrière-plan, main posée sur une vitre brisée."',
-  'ARCHITECTURE v11.0 : Chaque scène doit être un objet plat. Ne créez PAS de sous-objets "story" ou "projections".',
-  "RÈGLE D'ENRICHISSEMENT (STRICT) : Transformez CHAQUE phrase atomique reçue en une scène complète. Le champ `narration` de la scène DOIT être la phrase atomique telle quelle. 1 Phrase = 1 Scène. 🎬 VARIATION : Changez d'échelle (shotType) ou d'angle à chaque scène pour dynamiser le récit. 🚨 ANTI-DÉTAIL : Si une frame est trop insignifiante, enrichissez-la visuellement pour lui donner du poids.",
+  'IMAGE PROMPT (PROSE VISUELLE COURTE) : `imagePrompt` DOIT être une phrase fluide et concise (max 20-25 mots). L\'accent DOIT être mis sur le LIEU et le SUJET principal. Exemple : "Sarah devant la vieille bibliothèque en bois sombre, éclairage à la bougie vacillante, atmosphère de mystère médiéval."',
+  'RÈGLE DE PROJECTION (SÉMANTIQUE) : Ne découpez le beat en plusieurs scènes QUE si la SITUATION change radicalement (Changement de LIEU, PUNCTUATION majeure, entrée/sortie de perso).',
+  'DÉCLENCHEUR DE SHOT (TRIGGER) : Un simple mouvement physique (marcher, parler) ne justifie PAS un nouveau shot. Ne créez un nouveau shot que pour un changement de POINT DE VUE ou de FOCUS nécessaire.',
+  "GARDE DE PURETÉ DE STYLE (V14.0) : Interdiction absolue de mélanger les styles. Si le projet est 'CINEMATIC 3D', ne générez AUCUNE ligne de dessin ou élément 2D (croquis). Le style de la première scène est la LOI.",
+  'LOCK DE LUMINANCE : Les objets magiques ou sources de lumière (puits, pierres, écrans) doivent garder EXACTEMENT la même couleur et intensité entre le plan large et le gros plan.',
+  "ANIMATION vs SPLIT (MICRO-ÉVOLUTION) : Les changements de luminosité (ex: l'objet se met à briller) DOIVENT être gérés dans `animationPrompt`. NE PAS créer de nouvelle scène pour ces micro-changements.",
+  "PARTITION SYNCHRONISÉE : La narration de chaque scène DOIT commencer précisément au mot qui déclenche le nouveau visuel. AUCUN décalage entre le texte parlé et l'action montrée.",
+  'DETTE PHYSIQUE (STRICT) : Vérifiez `visualEvolution` avant CHAQUE imagePrompt. Si un personnage est blessé, sale ou mouillé, cette mention DOIT être la première directive visuelle de sa description dans la scène.',
+  "STABILITÉ ÉMOTIONNELLE : Les personnages ne doivent pas changer d'humeur radicalement entre deux scènes sans explication narrative. Utilisez `emotionalTokens` pour assurer une courbe cohérente.",
+  'LOGIQUE SPATIALE & ANTI-TÉLÉPORTATION : Interdiction de changer de lieu sans une transition logique (ellipse, personnage qui sort, trajet). Si le lieu change, précisez la transition dans `summary`.',
+  "GARDE ANTI-RÉSURRECTION : Vérifiez la liste 'PERSONNAGES MORTS'. Toute mention d'un mort en tant que personnage vivant entraînera un rejet critique.",
   'SIMULATION PATCH (STRICT) : Si un objet change ou un personnage est blessé, documente-le EXCLUSIVEMENT dans simulationPatch.locks.',
-  "STYLE VISUEL (GOLDEN STANDARD) : Favorisez un style descriptif et intense. Exemple : 'Marguerite seule dans une bibliothèque silencieuse, entourée de livres et de tapisseries anciennes, regard intense et concentré.'",
+  "STYLE VISUEL (GOLDEN STANDARD) : Favorisez un style direct et épuré. Ne gardez que l'essentiel narratif visuel.",
   'INVENTAIRE ACTIF : Tout changement physique persistant DOIT être patché pour être propagé.',
   "TEASING PRÉCIS : 'nextEpisodeTease' doit contenir un nom propre et un enjeu concret.",
   "MANDAT DE JUSTIFICATION : Remplir le champ 'justification' pour CHAQUE scène.",
   "LORE GUARD : Tout fait nouveau introduit dans l'épisode DOIT être consigné dans 'loreUpdates'.",
   "FIL CONDUCTEUR : Chaque épisode DOIT faire progresser l'un des 'unresolvedThreads'.",
   "STABILITÉ GÉOGRAPHIQUE : Réutilisez les lieux du registre. Chaque scène DOIT avoir un 'locationId' valide.",
+  "FRAME ANCHOR : 'frameAnchor.similarityMode' accepte UNIQUEMENT ['strict', 'soft']. 'strict' pour une identité visuelle identique, 'soft' pour une variation stylistique.",
+  "OBJECT SAFETY : Interdiction formelle d'assigner 'null' à un champ Record (ex: interactions, relationshipMap). Utilisez toujours {} si vide.",
   "ENREGISTREMENT NOUVEAUX LIEUX : Tout lieu absent du registre DOIT être dans 'seriesMetadata.newLocations'.",
-  "ACCUMULATION VISUELLE : Chaque 'imagePrompt' DOIT commencer par '@VisualState: [Résumé Scène N-1]'.",
   "EXPULSION NARRATIVE : Si un personnage quitte la scène, le retirer de 'charactersInScene' immédiatement.",
   'IDENTITÉ DES PERSONNAGES : Utilisez UNIQUEMENT le PRÉNOM pour les handles @. Excluez préfixes et noms de famille.',
   VISUAL_CONSISTENCY_PRIORITY,
   SCENE_CONSOLIDATION_RULES,
-  "VARIATION DE PLAN OBLIGATOIRE : Si 'continueFromPrevious' est true, vous DEVEZ changer de 'shotType' par rapport à la scène précédente (ex: passer de MEDIUM à CLOSEUP).",
   "🌍 WORLD STATE SNAPSHOT : Pour chaque scène, vous DEVEZ fournir un 'worldStateSnapshot' qui récapitule la vérité absolue actuelle du décor et des personnages.",
   "📈 GESTION DES INTRIGUES : Mettez à jour 'importance' (1-10) et 'maturity' (0-100) pour chaque 'unresolvedThread'. Une maturité élevée (80+) annonce une résolution imminente.",
   "🏁 HARDENED CONCLUSION (SCÈNE FINALE) : La dernière scène (preset: 'conclusion') DOIT être dense (min. 25-35 mots), comporter au moins 3 phrases, et inclure impérativement une réflexion finale ou une menace suggérée pour maintenir l'engagement."
