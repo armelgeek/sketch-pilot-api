@@ -5,13 +5,11 @@ import { registerLocationVisual } from './series/location-consistency'
 
 import { buildImagePrompt as buildImagePromptExternal } from './series/series-image-prompt.builder'
 import {
-  buildCliffhangerBridgeInstruction,
-  buildPass1SystemPrompt,
-  buildPass2SystemContext,
-  buildSeriesOutputFormat,
-  CINEMATOGRAPHIC_GUARDS,
-  PASS2_SCENE_INSTRUCTIONS,
-  TIKTOK_VIRAL_SCENE_INSTRUCTIONS
+  buildPass0SystemPrompt,
+  buildPass1EpisodePlanPrompt,
+  buildPass2SystemPrompt,
+  buildPass3SystemPrompt,
+  buildSeriesOutputFormat
 } from './series/series-prompts'
 import {
   ContinuityDebtManager,
@@ -215,6 +213,8 @@ export interface SeriesContext {
     vector: 'forward' | 'backward' | 'locked'
   }
   language?: string
+  seriesNarrativeArc?: any
+  episodePlan?: any
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -409,6 +409,46 @@ export class SeriesVideoGenerator extends VideoGenerator {
     return buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)
   }
 
+  // ─── Pass 0: Global Series Arc ──────────────────────────────────────────────
+
+  public async generateSeriesArc(topic: string, llmService: any): Promise<any> {
+    console.log(`[SeriesVideoGenerator] Pass 0: Generating Global Series Arc for "${topic}"...`)
+    const prompt = buildPass0SystemPrompt({
+      seriesTopic: topic,
+      episodeCount: this.seriesContext.totalEpisodes || 10,
+      characterRegistry: this.seriesContext.characterRegistry || {},
+      locationRegistry: this.seriesContext.locationRegistry || {},
+      globalContext: this.seriesContext.globalContext
+    })
+
+    const json = await llmService.generateContent(
+      `Planifiez une saga épique basée sur : ${topic}`,
+      prompt,
+      'application/json'
+    )
+    return JSON.parse(json)
+  }
+
+  // ─── Pass 1: Episode Planning ───────────────────────────────────────────────
+
+  public async generateEpisodePlan(seriesArc: any, llmService: any): Promise<any> {
+    console.log(`[SeriesVideoGenerator] Pass 1: Generating Episode Plan for Ep ${this.seriesContext.episodeNumber}...`)
+    const prompt = buildPass1EpisodePlanPrompt({
+      episodeNumber: this.seriesContext.episodeNumber,
+      seriesArc: JSON.stringify(seriesArc),
+      characterRegistry: this.seriesContext.characterRegistry || {},
+      locationRegistry: this.seriesContext.locationRegistry || {},
+      lastEpisodeSummary: this.seriesContext.lastEpisodeSummary
+    })
+
+    const json = await llmService.generateContent(
+      `Concevez le plan structurel de l'épisode ${this.seriesContext.episodeNumber}`,
+      prompt,
+      'application/json'
+    )
+    return JSON.parse(json)
+  }
+
   // ─── Narrative Overrides ────────────────────────────────────────────────────
 
   protected validateNarrativeCoherence(scenes: any[]): string[] {
@@ -509,35 +549,13 @@ export class SeriesVideoGenerator extends VideoGenerator {
       ? `\n\nÉLÉMENTS STRICTEMENT INTERDITS DANS CET UNIVERS :\n${forbiddenElements.join(', ')}`
       : ''
 
-    const system = buildPass1SystemPrompt({
+    const system = buildPass2SystemPrompt({
       episodeNumber: ctx.episodeNumber,
-      totalEpisodes: ctx.totalEpisodes,
-      isFinalEpisode: ctx.isFinalEpisode,
-      narrativeInstructions: this.narrativeInstructions,
-      globalContext: ctx.globalContext,
-      previousEpisodesContext: ctx.previousEpisodesContext,
+      episodePlan: JSON.stringify((ctx as any).episodePlan || {}),
+      seriesArc: JSON.stringify((ctx as any).seriesNarrativeArc || {}),
+      lastEpisodeSummary: ctx.lastEpisodeSummary,
       characterRegistry: ctx.characterRegistry || {},
       locationRegistry: ctx.locationRegistry || {},
-      assetRegistry: ctx.assetRegistry || {},
-      worldStateSnapshot: ctx.worldStateSnapshot,
-      visualEvolution: ctx.visualEvolution,
-      assetEvolution: ctx.assetEvolution,
-      lastEpisodeSummary: ctx.lastEpisodeSummary,
-      bridgeInstruction: buildCliffhangerBridgeInstruction(
-        ctx.lastCliffhanger,
-        ctx.episodeNumber,
-        ctx.lastEpisodeFinalScene
-      ),
-      threadsInstruction,
-      seedingInstruction,
-      closedStakesInstruction,
-      deadCharactersInstruction: deadCharacters ? `\n\nPERSONNAGES MORTS (ANTI-RÉSURRECTION) :\n${deadCharacters}` : '',
-      forbiddenInstruction,
-      normalizeId: SeriesVideoGenerator.normalizeId,
-      tiktokViral: ctx.tiktokViral,
-      tensionState: ctx.tensionState,
-      acting: ctx.acting,
-      momentum: ctx.momentum,
       artisticStyle: ctx.artisticStyle
     })
 
@@ -556,47 +574,13 @@ export class SeriesVideoGenerator extends VideoGenerator {
     if (options.language) {
       this.seriesContext.language = options.language
     }
-    const spec = this.getEffectiveSpec(options)
 
-    const sceneInstructions = this.seriesContext.tiktokViral
-      ? TIKTOK_VIRAL_SCENE_INSTRUCTIONS
-      : PASS2_SCENE_INSTRUCTIONS
-
-    const seriesSpec: VideoTypeSpecification = {
-      ...spec,
-      task: `${spec.task}\n\n${sceneInstructions.join('\n')}\n\n${CINEMATOGRAPHIC_GUARDS}`,
-      context: buildPass2SystemContext({
-        episodeNumber: this.seriesContext.episodeNumber,
-        isFinalEpisode: this.seriesContext.isFinalEpisode,
-        narrativeInstructions: this.narrativeInstructions,
-        lastCliffhanger: this.seriesContext.lastCliffhanger,
-        nextEpisodeTease: this.seriesContext.nextEpisodeTease,
-        unresolvedThreads: this.seriesContext.unresolvedThreads || [],
-        continuityDebts: this.seriesContext.continuityDebts || [],
-        lastEpisodeFinalScene: this.seriesContext.lastEpisodeFinalScene,
-        lastEpisodeFinalImage: this.seriesContext.lastEpisodeFinalImage,
-        characterRegistry: this.seriesContext.characterRegistry || {},
-        locationRegistry: this.seriesContext.locationRegistry || {},
-        assetRegistry: this.seriesContext.assetRegistry || {},
-        globalContext: this.seriesContext.globalContext || '',
-        normalizeId: SeriesVideoGenerator.normalizeId,
-        tiktokViral: this.seriesContext.tiktokViral,
-        worldStateSnapshot: this.seriesContext.worldStateSnapshot,
-        narrationLayer: this.seriesContext.narrationLayer,
-        acting: this.seriesContext.acting,
-        momentum: this.seriesContext.momentum,
-        artisticStyle: this.seriesContext.artisticStyle
-      }),
-      instructions: [
-        ...(spec.instructions || []),
-        'RÈGLE DE SOUDURE : Les premières secondes DOIVENT résoudre le cliffhanger précédent.',
-        "SONDAGE ÉMOTIONNEL : Chaque scène DOIT obligatoirement avoir des 'emotionalTokens' pour les personnages présents (min. 2 jetons par perso) ET une description d'expression faciale intense dans 'imagePrompt'.",
-        "STABILITÉ VISUELLE : Utilisez 'visualEvolution' and 'assetEvolution' pour traquer les changements permanents (ex: 'destroyed', 'scarred').",
-        'LOGO GUARD : INTERDICTION de mentionner des marques ou logos.'
-      ]
-    }
-
-    return this.buildSystemInstructions(seriesSpec) || 'Structurez cet épisode de série.'
+    return buildPass3SystemPrompt({
+      episodeNumber: this.seriesContext.episodeNumber,
+      characterRegistry: this.seriesContext.characterRegistry || {},
+      locationRegistry: this.seriesContext.locationRegistry || {},
+      artisticStyle: this.seriesContext.artisticStyle
+    })
   }
 
   // ─── Pass 2: Structuring user prompt ───────────────────────────────────────
@@ -614,10 +598,15 @@ export class SeriesVideoGenerator extends VideoGenerator {
     let range = computeSceneCountRange(duration)
 
     if (
-      this.seriesContext.tiktokViral && // Force aggressive scene count for TikTok (4-7 scenes regardless of duration if < 60s)
+      this.seriesContext.tiktokViral && // Scale TikTok density relative to duration
       duration <= 60
     ) {
-      range = { min: 4, max: 7, ideal: 6 }
+      if (duration >= 25 && duration <= 35) {
+        range = { min: 4, max: 4, ideal: 4 }
+      } else {
+        const tiktokIdeal = Math.max(3, Math.min(6, Math.floor(duration / 6)))
+        range = { min: 3, max: tiktokIdeal + 1, ideal: tiktokIdeal }
+      }
     }
 
     let effectiveSpec = spec
@@ -652,9 +641,13 @@ export class SeriesVideoGenerator extends VideoGenerator {
 
     try {
       const parsed = JSON.parse(validatedNarration)
-      if (parsed.visualSegments) {
+      if (parsed.atomicFrames) {
+        narrationDisplay = parsed.atomicFrames.map((f: any) => f.narration).join('\n\n')
+        segmentationContext = `\n\n🎯 SÉQUENCE ATOMIQUE (v19.0) :\nL'étape de scriptage a identifié les unités intentionnelles suivantes. CHAQUE frame ci-dessous DOIT correspondre à EXACTEMENT une scène (shot) dans votre sortie :\n${JSON.stringify(parsed.atomicFrames, null, 2)}\n\n⚠️ RÈGLE D'OR (v19.1) :\n1. Ne modifiez PAS la narration des frames.\n2. Enrichissez chaque frame avec les détails techniques (shotType, acting, momentum, simulationPatch).\n3. Respectez scrupuleusement le découpage établi.`
+      } else if (parsed.visualSegments) {
+        // Fallback legacy
         narrationDisplay = parsed.fullNarration
-        segmentationContext = `\n\n🎯 SEGMENTATION VISUELLE 5D (v18.2) :\nL'étape de scriptage a identifié les blocs visuellement cohérents basés sur 5 dimensions (Sujet, Lieu, Moment, Lumière, Action). Vous devez impérativement respecter ce découpage :\n${JSON.stringify(parsed.visualSegments, null, 2)}\n\n⚠️ RÈGLE D'OR (v18.3) :\n1. Un même shot DOIT couvrir l'intégralité des phrases d'un segment 5D.\n2. Vous DEVEZ utiliser le 'imagePrompt' synthétisé dans le segment comme Base DNA pour les scènes correspondantes.\n3. Ne créez une nouvelle scène (shot) que pour le passage au segment suivant.`
+        segmentationContext = `\n\n🎯 SEGMENTATION VISUELLE 5D (v18.2) :\n${JSON.stringify(parsed.visualSegments, null, 2)}`
       }
     } catch {
       // Logic fallback pour texte brut
@@ -680,7 +673,7 @@ ${narrationDisplay}
 
 TÂCHE : Projetez visuellement la narration ci-dessus en scènes (shots).
 🎬 DÉCLENCHEURS DE SHOT : Ne créez un nouveau shot que pour un changement RADICAL (Lieu, POV, Entrée/Sortie).
-⚠️ SUJETS VISUELS : Référez-vous à la SEGMENTATION VISUELLE (v18.0) ci-dessus pour regrouper les phrases par sujet concret.
+⚠️ DENSITÉ : Visez une durée moyenne de 5-7s par shot. Fusionnez les micro-actions dans une seule frame si elles sont continues.
 
 ${buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)}
 

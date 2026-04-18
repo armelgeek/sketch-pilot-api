@@ -197,6 +197,24 @@ export class VideoScriptGenerator {
   ): Promise<CompleteVideoScript> {
     console.log(`[VideoScriptGen] Generating script for topic: "${topic}"`)
 
+    const isHighQuality = options.qualityMode === 'high-quality'
+    const isSeries = this.promptManager.getType() === 'series'
+
+    // ─── Pass 0 & 1: Planning (Series High-Quality Only) ───────────────────
+    if (isSeries && isHighQuality) {
+      const seriesGen = this.promptManager as any
+      if (!seriesGen.seriesContext.seriesNarrativeArc) {
+        if (onProgress) await onProgress(2, 'Studio: Designing global series arc...')
+        seriesGen.seriesContext.seriesNarrativeArc = await seriesGen.generateSeriesArc(topic, this.llmService)
+      }
+
+      if (onProgress) await onProgress(4, 'Studio: Planning episode structure...')
+      seriesGen.seriesContext.episodePlan = await seriesGen.generateEpisodePlan(
+        seriesGen.seriesContext.seriesNarrativeArc,
+        this.llmService
+      )
+    }
+
     const baseScript = await this.generateVideoStructure(topic, options, onProgress)
     console.log('BASSE SCRIPT', baseScript)
     if (onProgress) await onProgress(10, 'Studio: Script structure finalized. Building visuals...')
@@ -388,7 +406,37 @@ export class VideoScriptGenerator {
     if (this.promptManager.getType() === 'series') {
       try {
         parsedPass1 = this.parseJsonResponse(narrationText)
-        if (parsedPass1 && typeof parsedPass1 === 'object' && parsedPass1.fullNarration) {
+        if (parsedPass1 && typeof parsedPass1 === 'object' && parsedPass1.atomicFrames) {
+          // New v19.0 logic: use the whole JSON but extract narration for word count validation
+          validatedNarration = narrationText
+          const totalNarration = parsedPass1.atomicFrames.map((f: any) => f.narration).join(' ')
+          const frameCount = parsedPass1.atomicFrames.length
+          console.log(`[VideoScriptGen] Pass 1: Atomic Sequence detected (${frameCount} frames).`)
+
+          // Special override for validation: we want to validate the EXTRACTED narration words
+          const narrationValidation = this.promptManager.validateNarrationPass(
+            totalNarration,
+            options,
+            pass1.targetWords
+          )
+          console.log(
+            `[VideoScriptGen] Pass 1 Content Validation: ${narrationValidation.ok ? 'OK' : 'TOO SHORT'} (${narrationValidation.actualWords}/${narrationValidation.targetWords} words)`
+          )
+        } else if (
+          parsedPass1 &&
+          typeof parsedPass1 === 'object' &&
+          (parsedPass1.sequences || parsedPass1.atomicFrames)
+        ) {
+          const frames = parsedPass1.sequences
+            ? parsedPass1.sequences.flatMap((s: any) => s.atoms)
+            : parsedPass1.atomicFrames
+
+          validatedNarration = frames.map((f: any) => f.narration).join(' ')
+          visualSegments = frames
+          console.log(
+            `[VideoScriptGen] Pass 1: Atomic ${parsedPass1.sequences ? 'Sequences' : 'Frames'} detected (${parsedPass1.sequences?.length || 0} sequences, ${frames.length} frames).`
+          )
+        } else if (parsedPass1 && typeof parsedPass1 === 'object' && parsedPass1.fullNarration) {
           validatedNarration = parsedPass1.fullNarration
           visualSegments = parsedPass1.visualSegments
           console.log(`[VideoScriptGen] Pass 1: Semantic Segmentation detected (${visualSegments?.length} segments).`)
@@ -599,16 +647,35 @@ export class VideoScriptGenerator {
     }
 
     finalScript.scenes = allScenes
-    finalScript.fullNarration = narrationText
+
+    // In legacy/unified mode, we use the raw narrationText.
+    // In structured mode (Series), we no longer use a global fullNarration.
+    if (this.promptManager.getType() !== 'series') {
+      finalScript.fullNarration = narrationText
+    }
+
     finalScript.totalWordCount = actualWords
     finalScript.sceneCount = allScenes.length
+
+    // Apply Cinematic Guards to ensure variety and metadata sync
+    finalScript.scenes = this.applyCinematicGuards(allScenes)
 
     // ─── POST-STRUCTURING INTEGRITY ─────────────────────────────────────────
 
     // 1. Fix fullNarration drift (locked narration rule enforcement)
-    const { script: fixedScript, driftFixed, driftWords } = this.promptManager.fixFullNarrationDrift(finalScript)
-    if (driftFixed) {
-      console.log(`[VideoScriptGen] Fixed fullNarration drift (${driftWords} words corrected)`)
+    // For series, we skip this drift fix because the scenes ARE the source of truth.
+    let fixedScript = finalScript
+    let driftFixed = false
+    let driftWords = 0
+
+    if (this.promptManager.getType() !== 'series') {
+      const result = this.promptManager.fixFullNarrationDrift(finalScript)
+      fixedScript = result.script
+      driftFixed = result.driftFixed
+      driftWords = result.driftWords
+      if (driftFixed) {
+        console.log(`[VideoScriptGen] Fixed fullNarration drift (${driftWords} words corrected)`)
+      }
     }
 
     // 2. Scene-level validation & Micro-corrections (Fix v5)
@@ -737,8 +804,35 @@ export class VideoScriptGenerator {
     return chunks
   }
 
+  private cleanRawScript(parsed: any): any {
+    if (!parsed || typeof parsed !== 'object') return parsed
+
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => this.cleanRawScript(item))
+    }
+
+    const cleaned: any = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (key === 'imagePrompt' && typeof value === 'string') {
+        // Strip stringified JSON: Mouvement : {"type":"..."}
+        cleaned[key] = value
+          .replaceAll(/Mouvement\s*:\s*\{[\s\S]*?\}/gi, '')
+          .replaceAll(/\.\s+\./g, '.')
+          .trim()
+      } else if (key === 'locationId' && typeof value === 'string') {
+        // Strip forbidden @ prefix
+        cleaned[key] = value.replace(/^@/, '')
+      } else if (typeof value === 'object' && value !== null) {
+        cleaned[key] = this.cleanRawScript(value)
+      } else {
+        cleaned[key] = value
+      }
+    }
+    return cleaned
+  }
+
   private parseJsonResponse(text: string): any {
-    if (typeof text === 'object') return text
+    if (typeof text === 'object') return this.cleanRawScript(text)
 
     let cleaned = (text as string)
       .replaceAll(/```json\n?|\n?```/g, '')
@@ -748,13 +842,15 @@ export class VideoScriptGenerator {
       .trim()
 
     try {
-      return JSON.parse(cleaned)
+      const parsed = JSON.parse(cleaned)
+      return this.cleanRawScript(parsed)
     } catch {
       // Step 1: Try to extract a JSON block using regex
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         try {
-          return JSON.parse(jsonMatch[0])
+          const parsed = JSON.parse(jsonMatch[0])
+          return this.cleanRawScript(parsed)
         } catch {
           cleaned = jsonMatch[0]
         }
@@ -763,7 +859,8 @@ export class VideoScriptGenerator {
       // Step 2: Attempt to repair truncated JSON (common at end of long generation)
       try {
         const repaired = this.repairJson(cleaned)
-        return JSON.parse(repaired)
+        const parsed = JSON.parse(repaired)
+        return this.cleanRawScript(parsed)
       } catch (repairError: any) {
         throw new Error(`JSON parsing failed (Repair also failed): ${repairError.message}`)
       }
@@ -843,7 +940,7 @@ export class VideoScriptGenerator {
     // Map pacing to tension for the VideoAssembler
     scenes.forEach((scene) => {
       if (!(scene as any).tension) {
-        ;(scene as any).tension = this.pacingToTension(scene.pacing || 'medium')
+        ;(scene as any).tension = this.pacingToTension(String(scene.pacing || 'medium'))
       }
     })
 
@@ -995,16 +1092,16 @@ export class VideoScriptGenerator {
         const end = start + fallbackDurations[index]
         scene.timeRange = { start, end }
       }
-      cursor = scene.timeRange.end
+      cursor = scene.timeRange?.end ?? cursor
     })
 
     // Rescale if outside bounds
     const lastScene = scenes.at(-1)
-    const total = lastScene ? lastScene.timeRange.end : 0
+    const total = lastScene?.timeRange?.end ?? 0
 
     if (Math.abs(total - options.duration) > 0.1) {
       const desired = options.duration
-      const currentDurations = scenes.map((s) => s.timeRange.end - s.timeRange.start)
+      const currentDurations = scenes.map((s) => (s.timeRange?.end ?? 0) - (s.timeRange?.start ?? 0))
       const scaled = this.buildWeightedDurations(
         scenes.length,
         desired + (scenes.length - 1) * overlap,
@@ -1062,7 +1159,10 @@ export class VideoScriptGenerator {
       }
     }
 
-    if (diff !== 0) clamped[clamped.length - 1] += diff
+    if (diff !== 0) {
+      const lastIdx = clamped.length - 1
+      clamped[lastIdx] = Math.max(minScene, clamped[lastIdx] + diff)
+    }
     return clamped
   }
 
@@ -1185,5 +1285,53 @@ export class VideoScriptGenerator {
     }
 
     return lines.join('\n')
+  }
+
+  /**
+   * Programmatic guard to ensure variety and sync between descriptions and metadata.
+   */
+  private applyCinematicGuards(scenes: EnrichedScene[]): EnrichedScene[] {
+    return scenes.map((scene, index) => {
+      const prompt = (scene.imagePrompt || '').toLowerCase()
+
+      // 1. Keyword-based override (Sync metadata with text intent)
+      if (scene.composition) {
+        if (
+          prompt.includes('gros plan') ||
+          prompt.includes('plan serré') ||
+          prompt.includes('close-up') ||
+          prompt.includes('close up') ||
+          prompt.includes('plan rapproché')
+        ) {
+          scene.composition.shotType = 'CLOSEUP'
+        } else if (
+          prompt.includes('plan large') ||
+          prompt.includes('vue panoramique') ||
+          prompt.includes('panoramique') ||
+          prompt.includes('wide shot')
+        ) {
+          scene.composition.shotType = 'WIDE'
+        } else if (prompt.includes('plan moyen') || prompt.includes('medium shot')) {
+          scene.composition.shotType = 'MEDIUM'
+        }
+      }
+
+      // 2. Forced Variety (Anti-Monotony in same location)
+      if (index > 0 && scene.composition) {
+        const prev = scenes[index - 1]
+        if (prev.composition?.shotType === scene.composition?.shotType && prev.locationId === scene.locationId) {
+          // If we repeat the same shot in the same location, force a change
+          if (scene.composition.shotType === 'MEDIUM') {
+            scene.composition.shotType = 'CLOSEUP' // Focus on detail
+          } else if (scene.composition.shotType === 'CLOSEUP') {
+            scene.composition.shotType = 'WIDE' // Reset perspective
+          } else if (scene.composition.shotType === 'WIDE') {
+            scene.composition.shotType = 'MEDIUM' // Step into interaction
+          }
+        }
+      }
+
+      return scene
+    })
   }
 }

@@ -1,3 +1,9 @@
+// AnchorEngineV2.ts
+
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
+
 export interface Anchor {
   id: string
   url: string
@@ -6,12 +12,42 @@ export interface Anchor {
 
 export type AnchorMode = 'STRUCTURE_ONLY' | 'STRUCTURE_PLUS_EVOLUTION'
 
+export type MutationLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH'
+
+export type SceneIntent = 'STATIC' | 'ACTION' | 'REVEAL' | 'TRANSITION' | 'EMOTIONAL_BEAT'
+
+export type CameraFraming =
+  | 'WIDE'
+  | 'MEDIUM'
+  | 'CLOSE_UP'
+  | 'EXTREME_CLOSE_UP'
+  | 'DYNAMIC_ANGLE'
+  | 'POV'
+  | 'OVER_THE_SHOULDER'
+  | 'LOW_ANGLE'
+  | 'HIGH_ANGLE'
+  | 'BIRD_EYE'
+
+// ─────────────────────────────────────────────────────────────
+// STATES
+// ─────────────────────────────────────────────────────────────
+
 export interface DynamicState {
-  positions?: string[]
+  // CURRENT STATE (dominant)
+  currentPosition?: string
+  currentAction?: string
+  emotionalTone?: string
+
+  // VISUAL CONTROL
+  cameraShift?: string
+  framing?: CameraFraming
+  sceneIntent?: SceneIntent
+  mutationLevel?: MutationLevel
+  framingContinuity?: boolean // If true, framing MUST be preserved from previous
+
+  // HISTORY (weakly influential)
   changes?: string[]
   damages?: string[]
-  cameraShift?: string
-  emotionalTone?: string
 }
 
 export interface BaseState {
@@ -42,11 +78,10 @@ export interface CoherenceState {
   worldState?: WorldState
 }
 
-/**
- * AnchorEngine implements the "Coherence System" described in the visual guide.
- * It manages "mini-chains" and "re-anchoring" to ensure sufficient visual coherence
- * while preventing cumulative drift in image generation.
- */
+// ─────────────────────────────────────────────────────────────
+// ENGINE
+// ─────────────────────────────────────────────────────────────
+
 export class AnchorEngine {
   private state: CoherenceState
   private namedAnchors: Map<string, Anchor> = new Map()
@@ -60,126 +95,115 @@ export class AnchorEngine {
     }
   }
 
+  // ─────────────────────────────────────────
+
   public setMode(mode: AnchorMode): void {
-    console.log(`[AnchorEngine] 🧩 Switching mode to: ${mode}`)
     this.state.mode = mode
   }
 
-  /**
-   * Sets the stable base anchor. This image will be used as a primary structural reference.
-   * Promotion of a "Human Choice" variant often sets it as the new Base Anchor.
-   */
   public registerBaseAnchor(url: string, id: string = 'base-anchor'): void {
-    if (!url) {
-      console.error('[AnchorEngine] ❌ Error: Cannot register base anchor without a valid URL.')
-      return
-    }
-    console.log(`[AnchorEngine] ⚓ Registering NEW Base Anchor: ${id}`)
+    if (!url) return
+
     this.state.baseAnchor = { id, url, type: 'base' }
     this.state.chainCount = 0
     this.state.lastGeneratedAnchor = undefined
+
     this.state.worldState = {
       stableAnchor: url,
       dynamicState: {}
     }
   }
 
-  /**
-   * Dynamically updates the configuration limits.
-   */
-  public setConfig(options: { maxChainLength?: number; reanchorThreshold?: number }): void {
-    if (options.maxChainLength !== undefined) {
-      if (options.maxChainLength < 1) {
-        console.error('[AnchorEngine] ❌ Error: maxChainLength must be at least 1')
-        return
-      }
-      console.log(`[AnchorEngine] ⚙️  Updating maxChainLength: ${options.maxChainLength}`)
-      this.state.maxChainLength = options.maxChainLength
-    }
-    if (options.reanchorThreshold !== undefined) {
-      if (options.reanchorThreshold < 1) {
-        console.error('[AnchorEngine] ❌ Error: reanchorThreshold must be at least 1')
-        return
-      }
-      console.log(`[AnchorEngine] ⚙️  Updating reanchorThreshold: ${options.reanchorThreshold}`)
-      this.state.reanchorThreshold = options.reanchorThreshold
-    }
-  }
-
-  /**
-   * Registers a named anchor (e.g. for a character or specific location part).
-   * These anchors persist across chain resets until overwritten.
-   */
-  public registerNamedAnchor(name: string, url: string, id: string = 'named'): void {
+  public registerNamedAnchor(name: string, url: string, id: string = name): void {
     if (!url) return
-    console.log(`[AnchorEngine] 🏷️  Registering NAMED Anchor [${name}]: ${id}`)
     this.namedAnchors.set(name, { id, url, type: 'coupled' })
   }
 
-  public getNamedAnchors(): { url: string; name: string }[] {
-    return Array.from(this.namedAnchors.entries()).map(([name, anchor]) => ({
-      url: anchor.url,
+  public hasNamedAnchor(name: string): boolean {
+    return this.namedAnchors.has(name)
+  }
+
+  private getNamedAnchors() {
+    return Array.from(this.namedAnchors.entries()).map(([name, a]) => ({
+      url: a.url,
       name: `IDENTITY:${name}`
     }))
   }
 
-  /**
-   * Returns the current chain "pressure" as a percentage (0-100).
-   */
   public getChainPressure(): number {
     return Math.min(100, (this.state.chainCount / this.state.maxChainLength) * 100)
   }
 
-  /**
-   * Resolves the set of reference images to use for the next scene generation.
-   * Following the "Visual Chaining" rules:
-   * 1. Always use BASE_ANCHOR for global structure.
-   * 2. Use PREVIOUS_SCENE for progressive chaining.
-   * 3. Trigger RE-ANCHOR coupling every N steps (resetting the chain).
-   */
+  // ─────────────────────────────────────────
+  // 🔥 CORE FIX: SMART ANCHOR SELECTION
+  // ─────────────────────────────────────────
+
   public getNextAnchors(): { url: string; name: string }[] {
     const anchors: { url: string; name: string }[] = []
+    const pressure = this.getChainPressure()
+    const ds = this.state.worldState?.dynamicState
 
-    if (!this.state.baseAnchor) {
-      console.error('[AnchorEngine] ⚠️  Warning: getNextAnchors() called without a base anchor.')
-      return []
+    if (!this.state.baseAnchor) return []
+
+    // 1. BASE ANCHOR (Adaptive weight)
+    // We always keep the base anchor as a reference to prevent total visual drift,
+    // but we label it as 'STYLE_REFERENCE' at high pressure to allow for compositional creativity.
+    const baseWeight = ds?.mutationLevel === 'HIGH' ? 50 : 85
+    if (pressure < baseWeight) {
+      anchors.push({ url: this.state.baseAnchor.url, name: 'BASE_ANCHOR_STRICT' })
+    } else {
+      anchors.push({ url: this.state.baseAnchor.url, name: 'BASE_STYLE_REFERENCE' })
     }
 
-    // Rule: Always anchor to the stable base
-    anchors.push({ url: this.state.baseAnchor.url, name: 'BASE_ANCHOR' })
-
-    // Rule 2: Named identity anchors (Characters/Assets)
+    // 2. IDENTITIES (Always coupled)
     this.getNamedAnchors().forEach((a) => anchors.push(a))
 
-    if (this.state.lastGeneratedAnchor) {
-      const isReanchorStep = this.state.chainCount > 0 && this.state.chainCount % this.state.reanchorThreshold === 0
+    // 3. PROGRESSIVE CONTINUITY
+    const last = this.state.lastGeneratedAnchor
 
-      if (isReanchorStep) {
-        // Re-anchor coupling: Base + latest result
-        console.log(`[AnchorEngine] 🔄 RE-ANCHOR: Coupling Base with Scene ${this.state.lastGeneratedAnchor.id}`)
-        anchors.push({ url: this.state.lastGeneratedAnchor.url, name: 'REANCHOR_COUPLING' })
+    if (last) {
+      if (this.isReanchorStep()) {
+        anchors.push({ url: last.url, name: 'REANCHOR_COUPLING' })
+      } else if (ds?.sceneIntent === 'REVEAL') {
+        // For REVEAL, we use a weak coupling to avoid sticking too much to previous frame
+        anchors.push({ url: last.url, name: 'PREVIOUS_WEAK' })
+      } else if (pressure < 30) {
+        anchors.push({ url: last.url, name: 'PREVIOUS_STRONG' })
+      } else if (pressure < 70) {
+        anchors.push({ url: last.url, name: 'PREVIOUS_MEDIUM' })
       } else {
-        // Normal progressive chain: Previous -> Next
-        anchors.push({ url: this.state.lastGeneratedAnchor.url, name: 'PREVIOUS_SCENE' })
+        anchors.push({ url: last.url, name: 'PREVIOUS_WEAK' })
       }
     }
 
     return anchors
   }
 
-  /**
-   * Registers a narrative "Delta" to evolve the dynamic state.
-   */
+  // ─────────────────────────────────────────
+  // 🧠 STATE UPDATE (NO MORE MICRO CHANGE BUG)
+  // ─────────────────────────────────────────
+
   public registerDelta(delta: DynamicState, base?: BaseState, lock?: StateLock): void {
     if (!this.state.worldState) return
 
-    console.log('[AnchorEngine] ⚡ Registering Delta + V4 States:', { delta, base, lock })
+    const prev = this.state.worldState.dynamicState
+
     this.state.worldState.dynamicState = {
-      ...this.state.worldState.dynamicState,
-      ...delta,
-      positions: [...new Set([...(this.state.worldState.dynamicState.positions || []), ...(delta.positions || [])])],
-      changes: [...new Set([...(this.state.worldState.dynamicState.changes || []), ...(delta.changes || [])])],
-      damages: [...new Set([...(this.state.worldState.dynamicState.damages || []), ...(delta.damages || [])])]
+      ...prev,
+
+      // overwrite = vérité actuelle
+      currentPosition: delta.currentPosition ?? prev.currentPosition,
+      currentAction: delta.currentAction ?? prev.currentAction,
+      emotionalTone: delta.emotionalTone ?? prev.emotionalTone,
+      cameraShift: delta.cameraShift ?? prev.cameraShift,
+      framing: delta.framing ?? prev.framing,
+      sceneIntent: delta.sceneIntent ?? prev.sceneIntent,
+      mutationLevel: delta.mutationLevel ?? prev.mutationLevel,
+      framingContinuity: delta.framingContinuity ?? prev.framingContinuity,
+
+      // historique limité (Semantic DNA)
+      changes: [...new Set([...(prev.changes || []), ...(delta.changes || [])])].slice(-3),
+      damages: [...new Set([...(prev.damages || []), ...(delta.damages || [])])].slice(-3)
     }
 
     if (base) {
@@ -198,113 +222,145 @@ export class AnchorEngine {
     if (lock) {
       this.state.worldState.stateLock = {
         ...this.state.worldState.stateLock,
-        ...lock,
-        mustPersist: [
-          ...new Set([...(this.state.worldState.stateLock?.mustPersist || []), ...(lock.mustPersist || [])])
-        ],
-        forbiddenChanges: [
-          ...new Set([...(this.state.worldState.stateLock?.forbiddenChanges || []), ...(lock.forbiddenChanges || [])])
-        ]
+        ...lock
       }
     }
   }
 
-  /**
-   * Generates technical hints for the image generator based on current WorldState.
-   */
+  // ─────────────────────────────────────────
+  // 🎬 CINEMATIC PROMPT ENGINE
+  // ─────────────────────────────────────────
+
   public getEvolutionHints(): string {
     if (!this.state.worldState || this.state.mode === 'STRUCTURE_ONLY') return ''
 
-    const ws = this.state.worldState
-    const ds = ws.dynamicState
-    const bs = ws.baseState
-    const sl = ws.stateLock
+    const { dynamicState: ds, baseState: bs, stateLock: sl } = this.state.worldState
+
     const hints: string[] = []
 
-    // 1. Base State (Stable Truth)
-    if (bs?.lighting) hints.push(`LIGHTING: ${bs.lighting}`)
-    if (bs?.atmosphere) hints.push(`ATMOSPHERE: ${bs.atmosphere}`)
-    if (bs?.persistentElements?.length) hints.push(`STABLE TRUTH: ${bs.persistentElements.join(', ')}`)
+    hints.push('--- 🎬 CINEMATIC ANCHOR ENGINE V3 ---')
+    hints.push('PRIORITY HIERARCHY:')
+    hints.push('1. [CRITICAL] STATE LOCKS & INVARIANTS')
+    hints.push('2. [DOMINANT] CURRENT SCENE REALITY')
+    hints.push('3. [BASE] GLOBAL ENVIRONMENT')
+    hints.push('4. [CONTEXT] SEMANTIC HISTORY')
 
-    // 2. Dynamic Delta (Evolution)
-    if (ds.changes?.length) hints.push(`EVOLUTION: ${ds.changes.join(', ')}`)
-    if (ds.damages?.length) hints.push(`DAMAGES: ${ds.damages.join(', ')}`)
-    if (ds.positions?.length) hints.push(`POSITIONS: ${ds.positions.join(', ')}`)
-    if (ds.cameraShift) hints.push(`CAMERA: ${ds.cameraShift}`)
-    if (ds.emotionalTone) hints.push(`TONE: ${ds.emotionalTone}`)
-
-    // 3. State Lock (Anti-Hallucination)
+    // ─── 1. LOCKS ───────────────────────────────────────────
     if (sl?.mustPersist?.length || sl?.forbiddenChanges?.length) {
-      hints.push('\n🔒 CONTINUITY LOCKS (CRITICAL) :')
-      if (sl?.mustPersist?.length) {
-        sl.mustPersist.forEach((p) => hints.push(`- NE CHANGE PAS : ${p}`))
-      }
-      if (sl?.forbiddenChanges?.length) {
-        sl.forbiddenChanges.forEach((f) => hints.push(`- INTERDICTION DE : ${f}`))
-      }
+      hints.push('\n🔒 LOCKS (DO NOT DEVIATE):')
+      sl.mustPersist?.forEach((p) => hints.push(`✅ PERSIST: ${p}`))
+      sl.forbiddenChanges?.forEach((f) => hints.push(`🚫 FORBIDDEN: ${f}`))
     }
 
-    return hints.length > 0
-      ? `\n\n--- 🛡️ VISUAL COHERENCE SYSTEM (V4) ---\n${hints.join('\n')}\nRule: Follow LOCKS strictly. Prioritize TRUTH over mutation.`
-      : ''
+    // ─── 2. DOMINANT CURRENT STATE ──────────────────────────
+    hints.push('\n👁️ CURRENT DOMINANT REALITY:')
+    if (ds.currentPosition) hints.push(`📍 POSITION: ${ds.currentPosition}`)
+    if (ds.currentAction) hints.push(`🏃 ACTION: ${ds.currentAction}`)
+    if (ds.emotionalTone) hints.push(`🎭 TONE: ${ds.emotionalTone}`)
+
+    // ─── 3. MUTATION & FRAMING ──────────────────────────────
+    hints.push('\n🎥 CINEMATOGRAPHY:')
+    if (ds.framing) {
+      const framingInfo = ds.framingContinuity ? `(KEEP SCALE: ${ds.framing})` : `(SET SCALE: ${ds.framing})`
+      hints.push(`📐 FRAMING: ${ds.framing} ${framingInfo}`)
+    }
+    if (ds.cameraShift) hints.push(`🎥 CAMERA MOTION: ${ds.cameraShift}`)
+
+    // Mutation specific directives
+    switch (ds.mutationLevel) {
+      case 'HIGH':
+        hints.push('⚡ MUTATION [HIGH]: Radical change allowed. Break previous composition. New angle/perspective.')
+        break
+      case 'MEDIUM':
+        hints.push('🔄 MUTATION [MEDIUM]: Noticeable evolution. Move subjects, change lighting details.')
+        break
+      case 'LOW':
+        hints.push(
+          '⚖️ MUTATION [LOW]: High consistency required. Maintain background assets, textures, lighting and overall composition. Anti-drift active.'
+        )
+        break
+      case 'NONE':
+        hints.push(
+          '🔒 MUTATION [NONE]: Absolute visual freeze. Background and secondary elements MUST remain identical to references. No morphing allowed.'
+        )
+        break
+    }
+
+    // ─── 4. BASE STATE ────────────────────────────────────
+    hints.push('\n🌍 AMBIENT CONTEXT:')
+    if (bs?.lighting) hints.push(`💡 LIGHTING: ${bs.lighting}`)
+    if (bs?.atmosphere) hints.push(`🌫️ ATMOSPHERE: ${bs.atmosphere}`)
+    if (bs?.persistentElements?.length) {
+      hints.push(`🗿 ENVIRONMENT: ${bs.persistentElements.join(', ')}`)
+    }
+
+    // ─── 5. SEMANTIC HISTORY (Anti-Drift) ─────────────────
+    if (ds.changes?.length || ds.damages?.length) {
+      hints.push('\n📜 RECENT EVOLUTIONS (DO NOT REPEAT):')
+      ds.changes?.forEach((c) => hints.push(`- Change: ${c}`))
+      ds.damages?.forEach((d) => hints.push(`- Damage/Impact: ${d}`))
+    }
+
+    return `\n${hints.join('\n')}\n--- END ENGINE SIGNAL ---`
   }
 
-  /**
-   * Records the result of a generation to update the progressive chain.
-   */
-  public registerGenerationResult(url: string, sceneId: string): void {
-    if (!this.state.baseAnchor) {
-      console.error('[AnchorEngine] ❌ Error: Cannot register generation result without a base anchor.')
-      return
-    }
+  // ─────────────────────────────────────────
+  // 🎞️ AUTO SHOT PLANNER (OPTIONAL)
+  // ─────────────────────────────────────────
 
-    if (!url) {
-      console.error(`[AnchorEngine] ❌ Error: Invalid URL for scene ${sceneId}`)
-      return
+  public suggestNextShot(): Partial<DynamicState> {
+    const pressure = this.getChainPressure()
+    const cycle = Math.floor(this.state.chainCount % 4)
+
+    // Cinematic Cycle: Wide -> Medium -> Close -> Dynamic/Extreme
+    switch (cycle) {
+      case 0:
+        return { framing: 'WIDE', mutationLevel: 'MEDIUM', sceneIntent: 'STATIC' }
+      case 1:
+        return { framing: 'MEDIUM', mutationLevel: 'LOW', sceneIntent: 'ACTION' }
+      case 2:
+        return { framing: 'CLOSE_UP', mutationLevel: 'LOW', sceneIntent: 'EMOTIONAL_BEAT' }
+      case 3:
+      default:
+        return {
+          framing: pressure > 60 ? 'EXTREME_CLOSE_UP' : 'DYNAMIC_ANGLE',
+          mutationLevel: 'HIGH',
+          sceneIntent: 'REVEAL'
+        }
     }
+  }
+
+  // ─────────────────────────────────────────
+
+  public registerGenerationResult(url: string, sceneId: string): void {
+    if (!this.state.baseAnchor || !url) return
 
     this.state.lastGeneratedAnchor = { id: sceneId, url, type: 'progressive' }
     this.state.chainCount++
 
-    // Prevent extreme drift by resetting chain if it exceeds maxChainLength
     if (this.state.chainCount >= this.state.maxChainLength) {
-      console.log(
-        `[AnchorEngine] ⚠️ Chain length limit reached (${this.state.maxChainLength}). Resetting chain to Base.`
-      )
-      this.state.chainCount = 0
-      this.state.lastGeneratedAnchor = undefined
+      this.resetChain()
     }
   }
 
-  /**
-   * Force a chain reset (manual re-anchor).
-   */
   public resetChain(): void {
-    if (this.state.chainCount === 0 && !this.state.lastGeneratedAnchor) {
-      console.warn('[AnchorEngine] ⚠️  resetChain() called on already empty chain.')
-      return
-    }
-    console.log(`[AnchorEngine] 🧹 Manual chain reset (Chain count was: ${this.state.chainCount}).`)
     this.state.chainCount = 0
     this.state.lastGeneratedAnchor = undefined
+    this.compressState()
   }
 
-  /**
-   * Promotes a "best" variant to become the new Base Anchor for the next mini-chains.
-   * This is the "Human Selection" control layer.
-   */
+  private compressState() {
+    const ds = this.state.worldState?.dynamicState
+    if (!ds) return
+
+    ds.changes = ds.changes?.slice(-2)
+    ds.damages = ds.damages?.slice(-2)
+  }
+
   public promoteToBase(url: string, sceneId: string): void {
-    if (!url) {
-      console.error('[AnchorEngine] ❌ Error: Cannot promote to base without a valid URL.')
-      return
-    }
-    console.log(`[AnchorEngine] 🏆 Promoting ${sceneId} to BASE ANCHOR.`)
     this.registerBaseAnchor(url, sceneId)
   }
 
-  /**
-   * Returns true if the current state would trigger a re-anchor coupling.
-   */
   public isReanchorStep(): boolean {
     return this.state.chainCount > 0 && this.state.chainCount % this.state.reanchorThreshold === 0
   }

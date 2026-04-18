@@ -112,9 +112,10 @@ export const SeriesHallucinationSentinel = {
       }
 
       // 5. Visual State Lock (Physical-Only Enforcement)
-      if (scene.simulationPatch.worldPatch?.locks) {
+      const locks = scene.simulationPatch?.worldPatch?.locks || []
+      if (locks.length > 0) {
         const abstractKeywords = ['secret', 'vérité', 'destinée', 'amour', 'peur', 'mystère', 'aura', 'force']
-        for (const item of scene.simulationPatch.worldPatch.locks) {
+        for (const item of locks) {
           if (abstractKeywords.some((k) => item.toLowerCase().includes(k))) {
             issues.push({
               type: 'technical',

@@ -465,6 +465,8 @@ export const enrichedSceneSchema = z.object({
   metadata: z.record(z.any()).optional(),
 
   // Runtime fields
+  timeRange: timeRangeSchema.optional(),
+  pacing: z.union([z.number(), z.string()]).optional(),
   imageUrl: z.string().optional(),
   audioUrl: z.string().optional(),
   thumbnailUrl: z.string().url().optional().describe('URL to the generated thumbnail for this scene'),
@@ -572,11 +574,22 @@ export const enrichedSceneSchema = z.object({
     ),
   visualDelta: z
     .object({
-      changes: z.array(z.string()).optional(), // What moved or changed
-      damages: z.array(z.string()).optional(), // Environmental wear/tear
-      positions: z.array(z.string()).optional(), // Character spatial anchoring
-      cameraShift: z.string().optional(), // Camera movement hints
-      emotionalTone: z.string().optional() // Mood shift
+      // Dominant State
+      currentPosition: z.string().optional(),
+      currentAction: z.string().optional(),
+      mutationLevel: z.enum(['NONE', 'LOW', 'MEDIUM', 'HIGH']).optional(),
+
+      // Cinematic Framing
+      framing: z.string().optional(),
+      sceneIntent: z.enum(['STATIC', 'ACTION', 'REVEAL', 'TRANSITION', 'EMOTIONAL_BEAT']).optional(),
+      framingContinuity: z.boolean().optional(),
+
+      // Legacy/Detailed history
+      changes: z.array(z.string()).optional(),
+      damages: z.array(z.string()).optional(),
+      positions: z.array(z.string()).optional(), // Backwards compatibility
+      cameraShift: z.string().optional(),
+      emotionalTone: z.string().optional()
     })
     .optional(),
   worldStateSnapshot: z
@@ -713,9 +726,8 @@ export const completeVideoScriptSchema = z.object({
   emotionalArc: z.array(z.string()).optional().describe('A list of emotional stages or narrative beats for the video'),
   fullNarration: z
     .string()
-    .describe(
-      'The complete, unbroken narration script text. MUST be generated FIRST before breaking it down into scenes.'
-    ),
+    .describe('The complete narration script text. (Optional in v19.0, can be derived from scenes)')
+    .optional(),
   type: z.string().optional().describe('Generator type (standalone, series, quotes)'),
   totalDuration: z.number().min(1),
   sceneCount: z.number().int().positive(),
@@ -919,7 +931,7 @@ export const transcriptionConfigSchema = z.object({
 export type TranscriptionConfig = z.infer<typeof transcriptionConfigSchema>
 
 /** Minimum duration of a single scene in seconds. */
-export const MIN_SCENE_DURATION = 3
+export const MIN_SCENE_DURATION = 5
 
 /**
  * Scene count configuration for a video duration.
@@ -937,24 +949,42 @@ export interface SceneCountRange {
  */
 export function computeSceneCountRange(durationSeconds: number): SceneCountRange {
   // Smoothly scaling seconds per scene (SPS)
-  // v12 Update: Increased SPS to reduce fragmentation and redundancy
-  // Short videos: 12-15s/scene
-  // Long videos: 25-30s/scene
+  // v12.1 Update: Significantly increased SPS for short videos to prevent over-fragmentation
+  // and micro-hallucinations (hallucinations visuelles dues à une densité trop élevée).
   let sps = 25
-  if (durationSeconds <= 45) sps = 12
+  if (durationSeconds <= 35)
+    sps = 7.5 // Was 12/15 -> For 30s, 30/7.5 = 4 scènes
+  else if (durationSeconds <= 45) sps = 12
   else if (durationSeconds <= 90) sps = 18
   else if (durationSeconds <= 180) sps = 22
-  else sps = 30 // Slower scaling for long videos to keep scene count manageable
+  else sps = 30
 
   let ideal = Math.max(2, Math.round(durationSeconds / sps))
 
-  // Hard cap at 30 scenes for cost/token efficiency (user request Fix v8-token-saver)
-  if (ideal > 30) ideal = 30
+  // Precision range for short videos
+  if (durationSeconds >= 25 && durationSeconds <= 35) {
+    return {
+      min: 4,
+      max: 4,
+      ideal: 4
+    }
+  }
+
+  if (durationSeconds <= 45) {
+    return {
+      min: Math.max(2, ideal - 1),
+      max: ideal + 1,
+      ideal
+    }
+  }
+
+  // Hard cap at 25 scenes for better narrative focus (was 30)
+  if (ideal > 25) ideal = 25
 
   // Use a tighter range to force LLM toward the ideal
   return {
-    min: Math.max(2, Math.round(ideal * 0.8)),
-    max: ideal,
+    min: Math.max(2, Math.round(ideal * 0.7)),
+    max: Math.max(ideal, Math.round(durationSeconds / MIN_SCENE_DURATION)),
     ideal
   }
 }

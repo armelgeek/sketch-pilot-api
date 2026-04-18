@@ -3,21 +3,59 @@ import { z } from 'zod'
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 const CliffhangerTypeSchema = z.enum(['revelation', 'peril', 'choice', 'betrayal', 'unknown'])
+const AtomTypeSchema = z.enum(['hook', 'build', 'pivot', 'reveal', 'close'])
 
-export const VisualSegmentSchema = z.object({
-  subject: z.string().describe("Sujet : qui/quoi est au centre de l'image (personnage, objet, focus)"),
-  location: z.string().describe('Lieu : cadre spatial précis (caverne, village, intérieur labo...)'),
-  timeOfDay: z.string().describe('Moment : phase temporelle (nuit, aube, crépuscule, midi...)'),
-  lighting: z.string().describe('Lumière : ambiance lumineuse et source (froid bleuté, néons, clair de lune...)'),
-  action: z.string().describe("Action : mouvement ou état dynamique (statique, pulse, s'effondre...)"),
-  imagePrompt: z.string().describe('Prompt Synthétisé : Description visuelle consolidée du bloc 5D (Base DNA)'),
-  logicJustification: z.string().describe('Justification algorithmique du découpage (ex: Changement Lieu + Lumière)'),
-  sentences: z.array(z.string()).describe('Phrases de la narration appartenant à ce bloc 5D fixe')
+export const AtomicFrameSchema = z.object({
+  sceneNumber: z.number(),
+  atomType: AtomTypeSchema.describe("Type intentionnel de l'atome (hook, build, pivot, reveal, close)"),
+  narration: z.string().describe('Narration percutante et immersive pour ce segment'),
+  visualPrompt: z.string().describe('Description visuelle riche et évocatrice (40-60 mots)'),
+  locationId: z.string().describe('ID du lieu (ex: @Labo, @Cuisine)'),
+  characters: z.array(z.string()).describe('Handles des personnages présents (ex: ["@Alexandre"])'),
+  pacingHint: z.string().optional().describe('Indication de rythme (ex: lent, saccadé, crescendo)'),
+  logicJustification: z.string().optional().describe('Justification du découpage (ex: Changement Lieu + Lumière)')
+})
+
+export const SequenceSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  purpose: z.string().describe('Objectif de la séquence (ex: Le Problème, La Solution)'),
+  atoms: z.array(AtomicFrameSchema).min(1)
+})
+
+export const SeriesArcSchema = z.object({
+  seriesTitle: z.string(),
+  globalSynopsis: z.string(),
+  episodes: z
+    .array(
+      z.object({
+        episodeNumber: z.number(),
+        mainConflict: z.string(),
+        keyPlotPoint: z.string(),
+        cliffhangerIntent: z.string()
+      })
+    )
+    .min(3),
+  unresolvedThreads: z.array(z.string()).optional()
+})
+
+export const EpisodePlanSchema = z.object({
+  episodeNumber: z.number(),
+  title: z.string(),
+  sections: z
+    .array(
+      z.object({
+        title: z.string(),
+        intent: z.string().describe('Intention narrative pour cette section'),
+        estimatedAtoms: z.number().optional()
+      })
+    )
+    .min(1),
+  cliffhangerIntent: z.string().optional()
 })
 
 export const Pass1OutputSchema = z.object({
-  fullNarration: z.string().min(100),
-  visualSegments: z.array(VisualSegmentSchema).min(1),
+  sequences: z.array(SequenceSchema).min(1),
   analysis: z
     .object({
       thematicArch: z.string().optional(),
@@ -262,6 +300,7 @@ export const ContinuityAnalysisSchema = z.object({
 })
 
 export const SeriesMetadataSchema = z.object({
+  seriesNarrativeArc: z.string().optional().describe('Arc narratif global de la série (Passe 0)'),
   episodeSummary: z.string().default(''),
   cliffhanger: TypedCliffhangerSchema.optional(),
   characterContinuity: z
@@ -317,10 +356,7 @@ export const LLMScriptOutputSchema = z.object({
       z.record(z.string()).transform((r) => Object.values(r))
     ])
     .default([]),
-  fullNarration: z
-    .string()
-    .min(100, 'Full narration is too short. Provide a more detailed and immersive script.')
-    .optional(),
+  // REMOVED v19.0: fullNarration is now distributed across scenes
   scenes: z.array(SceneSchema).min(1, 'At least one scene is required')
 })
 

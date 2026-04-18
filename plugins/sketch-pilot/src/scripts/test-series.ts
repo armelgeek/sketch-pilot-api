@@ -58,7 +58,8 @@ async function runRealSeriesTest() {
     const options = videoGenerationOptionsSchema.parse({
       duration: 15, // Very short for verification
       aspectRatio: '16:9',
-      language: 'french'
+      language: 'french',
+      qualityMode: 'high-quality'
     })
 
     const script = await scriptGenerator.generateCompleteScript(

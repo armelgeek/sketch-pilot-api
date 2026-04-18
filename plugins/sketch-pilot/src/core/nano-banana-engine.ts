@@ -627,12 +627,19 @@ export class NanoBananaEngine {
         }
 
         if (anchorEngine) {
-          // [V49] Character Detail Lock: Register this result as a named anchor for all characters present.
-          // This ensures a high-detail Close-up becomes a persistent reference for the character.
+          // [V49] Character Detail Lock: Register this result as a named anchor for characters.
+          // We only update the anchor if we don't have one yet or if it's a re-anchor step (high quality).
           const charsInScene = scene.charactersInScene || []
+          const isReanchor = anchorEngine.isReanchorStep()
+
           for (const charId of charsInScene) {
             const name = SeriesVideoGenerator.normalizeId(charId.replace(/^@/, ''))
-            anchorEngine.registerNamedAnchor(name, b64, scene.id)
+            const hasAnchor = anchorEngine.hasNamedAnchor(name)
+
+            if (!hasAnchor || isReanchor) {
+              console.info(`[NanoBanana] 🔒 IDENTITY LOCK: ${name} (Scene ${scene.id})`)
+              anchorEngine.registerNamedAnchor(name, b64, scene.id)
+            }
           }
 
           // If no base anchor exists yet, this is our absolute reference for this location
