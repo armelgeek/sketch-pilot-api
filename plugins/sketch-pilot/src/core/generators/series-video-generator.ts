@@ -142,6 +142,7 @@ export interface SeriesContext {
       locks?: Record<string, string>
     }
   >
+  artisticStyle?: string // Style DNA immuable de la série (ex: "Stick figure", "Watercolor")
   assetRegistry: Record<
     string,
     {
@@ -201,6 +202,17 @@ export interface SeriesContext {
     residue: number
     level?: number
     type?: 'build' | 'sustain' | 'spike' | 'release'
+  }
+  // v17.0 Living Engine
+  acting?: {
+    physicalIntent: string
+    microExpression: string
+    energyLevel: 'low' | 'medium' | 'high' | 'explosive'
+    bodyDynamics: 'stable' | 'tension' | 'unstable' | 'release'
+  }
+  momentum?: {
+    type: 'increasing' | 'unstable' | 'breaking' | 'release'
+    vector: 'forward' | 'backward' | 'locked'
   }
   language?: string
 }
@@ -294,6 +306,9 @@ export class SeriesVideoGenerator extends VideoGenerator {
       this.seriesContext.visualRegistry = createVisualRegistry()
     }
     // Sync style guide from context to registry
+    if (!this.seriesContext.artisticStyle && this.seriesContext.videoGenre) {
+      this.seriesContext.artisticStyle = this.seriesContext.videoGenre
+    }
     if (this.seriesContext.videoGenre) this.seriesContext.visualRegistry.style.style = this.seriesContext.videoGenre
     if (this.seriesContext.colorPalette)
       this.seriesContext.visualRegistry.style.colorGrading = this.seriesContext.colorPalette
@@ -520,7 +535,10 @@ export class SeriesVideoGenerator extends VideoGenerator {
       forbiddenInstruction,
       normalizeId: SeriesVideoGenerator.normalizeId,
       tiktokViral: ctx.tiktokViral,
-      tensionState: ctx.tensionState
+      tensionState: ctx.tensionState,
+      acting: ctx.acting,
+      momentum: ctx.momentum,
+      artisticStyle: ctx.artisticStyle
     })
 
     return {
@@ -564,7 +582,10 @@ export class SeriesVideoGenerator extends VideoGenerator {
         normalizeId: SeriesVideoGenerator.normalizeId,
         tiktokViral: this.seriesContext.tiktokViral,
         worldStateSnapshot: this.seriesContext.worldStateSnapshot,
-        narrationLayer: this.seriesContext.narrationLayer
+        narrationLayer: this.seriesContext.narrationLayer,
+        acting: this.seriesContext.acting,
+        momentum: this.seriesContext.momentum,
+        artisticStyle: this.seriesContext.artisticStyle
       }),
       instructions: [
         ...(spec.instructions || []),
@@ -626,6 +647,19 @@ export class SeriesVideoGenerator extends VideoGenerator {
       ? `\n\n📌 ANCRAGE VISUEL PRÉCÉDENT (FINALE ÉPISODE ${this.seriesContext.episodeNumber - 1}) :\nImagePrompt de la dernière scène : "${lastPrompt}"\nLA SCÈNE 1 DOIT ÊTRE LA CONTINUATION DIRECTE DE CET ÉTAT VISUEL.`
       : ''
 
+    let narrationDisplay = validatedNarration
+    let segmentationContext = ''
+
+    try {
+      const parsed = JSON.parse(validatedNarration)
+      if (parsed.visualSegments) {
+        narrationDisplay = parsed.fullNarration
+        segmentationContext = `\n\n🎯 SEGMENTATION VISUELLE 5D (v18.2) :\nL'étape de scriptage a identifié les blocs visuellement cohérents basés sur 5 dimensions (Sujet, Lieu, Moment, Lumière, Action). Vous devez impérativement respecter ce découpage :\n${JSON.stringify(parsed.visualSegments, null, 2)}\n\n⚠️ RÈGLE D'OR (v18.3) :\n1. Un même shot DOIT couvrir l'intégralité des phrases d'un segment 5D.\n2. Vous DEVEZ utiliser le 'imagePrompt' synthétisé dans le segment comme Base DNA pour les scènes correspondantes.\n3. Ne créez une nouvelle scène (shot) que pour le passage au segment suivant.`
+      }
+    } catch {
+      // Logic fallback pour texte brut
+    }
+
     return `${this.buildUserData(
       {
         subject: topic,
@@ -639,14 +673,14 @@ export class SeriesVideoGenerator extends VideoGenerator {
         sceneCountRange: range
       },
       effectiveSpec
-    )}\n\n${bridgeContext}\n\nBEATS NARRATIFS ÉPISODE ${this.seriesContext.episodeNumber} (JSON) :
+    )}\n\n${bridgeContext}${segmentationContext}\n\nNARRATION COMPLÈTE ÉPISODE ${this.seriesContext.episodeNumber} :
 ---
-${validatedNarration}
+${narrationDisplay}
 ---
 
-TÂCHE : Projetez visuellement chaque beat narratif ci-dessus en scènes (shots).
-🎬 DÉCLENCHEURS DE SHOT : Ne créez un nouveau shot que pour un changement RADICAL (Lieu, POV, Entrée/Sortie). Un mouvement simple (marcher, parler) DOIT rester dans la même scène. 
-⚠️ NARRATION : Découpez le texte verbatim. Le premier mot de chaque scène doit correspondre au basculement visuel.
+TÂCHE : Projetez visuellement la narration ci-dessus en scènes (shots).
+🎬 DÉCLENCHEURS DE SHOT : Ne créez un nouveau shot que pour un changement RADICAL (Lieu, POV, Entrée/Sortie).
+⚠️ SUJETS VISUELS : Référez-vous à la SEGMENTATION VISUELLE (v18.0) ci-dessus pour regrouper les phrases par sujet concret.
 
 ${buildSeriesOutputFormat(!!this.seriesContext.isFinalEpisode)}
 

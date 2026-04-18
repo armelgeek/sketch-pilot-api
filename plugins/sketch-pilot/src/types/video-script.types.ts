@@ -628,6 +628,8 @@ export const enrichedSceneSchema = z.object({
   colorPalette: z.string().optional().describe('Global color grading (e.g. "Sépia", "Néons froids")'),
   symbolicMotifs: z.array(z.string()).default([]).describe('Recurring symbols/motifs in this scene'),
   cameraStyle: z.string().optional().describe('Global camera language (e.g. "Handheld", "Static")'),
+  // v18.1 Semantic Segmentation
+  visualSubject: z.string().optional().describe('Concrete visual subject of the scene grouping multiple narrations'),
   // Polyptych fields
   polyptychGroupId: z.string().optional().describe('ID of the group sharing a single multi-panel image'),
   panelIndex: z.number().optional().describe('0-based index of the panel to extract from the polyptych image'),

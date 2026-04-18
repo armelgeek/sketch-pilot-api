@@ -212,6 +212,18 @@ export class VideoRepository {
         sceneDelta: scene.sceneDelta,
         scenePurpose: scene.scenePurpose,
         tensionState: scene.tensionState,
+
+        // v17.0 Living Engine
+        acting: scene.acting,
+        momentum: scene.momentum,
+
+        // v17.5 Sequence Engine
+        sequenceId: scene.sequenceId,
+        sequenceProgress: scene.sequenceProgress,
+
+        // v18.1 Semantic Segmentation
+        visualSubject: scene.visualSubject,
+
         metadata: { ...scene },
         createdAt: new Date(),
         updatedAt: new Date()
@@ -261,6 +273,18 @@ export class VideoRepository {
       sceneDelta: scene.sceneDelta,
       scenePurpose: scene.scenePurpose,
       tensionState: scene.tensionState,
+
+      // v17.0 Living Engine
+      acting: scene.acting,
+      momentum: scene.momentum,
+
+      // v17.5 Sequence Engine
+      sequenceId: scene.sequenceId,
+      sequenceProgress: scene.sequenceProgress,
+
+      // v18.1 Semantic Segmentation
+      visualSubject: scene.visualSubject,
+
       metadata: { ...scene },
       updatedAt: new Date()
     }

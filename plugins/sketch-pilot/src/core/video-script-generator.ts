@@ -380,17 +380,24 @@ export class VideoScriptGenerator {
       throw new Error('[VideoScriptGen] Pass 1 failed: LLM returned empty narration')
     }
 
-    // Attempt to parse if it's supposed to be atomic frames (for Series)
+    // Attempt to parse if it's supposed to be structured (for Series v18.0)
     let validatedNarration = narrationText
+    let visualSegments: any[] | undefined = undefined
+    let parsedPass1: any = undefined
+
     if (this.promptManager.getType() === 'series') {
       try {
-        const parsedArr = this.parseJsonResponse(narrationText)
-        if (Array.isArray(parsedArr)) {
-          // Join for legacy word count validation, but keep JSON for Pass 2
-          validatedNarration = parsedArr.join(' ')
+        parsedPass1 = this.parseJsonResponse(narrationText)
+        if (parsedPass1 && typeof parsedPass1 === 'object' && parsedPass1.fullNarration) {
+          validatedNarration = parsedPass1.fullNarration
+          visualSegments = parsedPass1.visualSegments
+          console.log(`[VideoScriptGen] Pass 1: Semantic Segmentation detected (${visualSegments?.length} segments).`)
+        } else if (Array.isArray(parsedPass1)) {
+          // Fallback legacy array of beats
+          validatedNarration = parsedPass1.join(' ')
         }
       } catch {
-        console.warn('[VideoScriptGen] Failed to parse Pass 1 narration as atomic frames, using raw text.')
+        console.warn('[VideoScriptGen] Failed to parse Pass 1 narration as structured JSON, using raw text.')
       }
     }
 
@@ -463,7 +470,12 @@ export class VideoScriptGenerator {
           }
         : undefined
 
-      const p2 = this.promptManager.buildPass2Prompts(chunkText, topic, options, chunkContext)
+      const p2 = this.promptManager.buildPass2Prompts(
+        visualSegments ? JSON.stringify(parsedPass1) : chunkText,
+        topic,
+        options,
+        chunkContext
+      )
 
       const MAX_P2_RETRIES = isHighQuality ? 2 : 1
       let chunkResult: any = null

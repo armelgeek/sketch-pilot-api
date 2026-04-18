@@ -1,4 +1,5 @@
 import type { SeriesContext } from '../series-video-generator'
+import { SequenceEngine } from './sequence-engine'
 import { normalizeId } from './series-registry.utils'
 import type { LLMScriptOutput } from './series-script.schema'
 
@@ -143,11 +144,21 @@ export const SeriesHallucinationSentinel = {
       }
 
       // 10. Information Novelty Check (v9.0)
-      const currentDelta = scene.sceneDelta?.toLowerCase()
+      const currentDeltaRaw = scene.sceneDelta
+      const currentDelta =
+        typeof currentDeltaRaw === 'string'
+          ? currentDeltaRaw.toLowerCase()
+          : (currentDeltaRaw as any)?.newInformation?.toLowerCase() || ''
+
       if (currentDelta) {
         const previousScenes = script.scenes.slice(0, script.scenes.indexOf(scene))
         for (const prev of previousScenes) {
-          const prevDelta = prev.sceneDelta?.toLowerCase()
+          const prevDeltaRaw = prev.sceneDelta
+          const prevDelta =
+            typeof prevDeltaRaw === 'string'
+              ? prevDeltaRaw.toLowerCase()
+              : (prevDeltaRaw as any)?.newInformation?.toLowerCase() || ''
+
           if (prevDelta === currentDelta) {
             issues.push({
               type: 'logic',
@@ -202,6 +213,18 @@ export const SeriesHallucinationSentinel = {
       }
     }
 
+    // 6. Sequence Engine Audit (v17.5)
+    const sequenceAudit = SequenceEngine.auditSequences(script.scenes)
+    if (!sequenceAudit.isValid) {
+      for (const msg of sequenceAudit.issues) {
+        issues.push({
+          type: 'logic',
+          severity: 'error',
+          message: msg
+        })
+      }
+    }
+
     return {
       isValid: !issues.some((i) => i.severity === 'error'),
       issues
@@ -235,6 +258,11 @@ ${warningBlock.length > 0 ? `Alertes mineures :\n${warningBlock}` : ''}
 TÂCHE : Corrigez IMMÉDIATEMENT ces erreurs dans le JSON. 
 RÈGLE D'OR : Ne mentionnez JAMAIS de personnages ou de lieux qui ne sont pas dans le registre reçu.
 Si vous avez créé un nouveau lieu ou personnage, vous DEVEZ l'avoir enregistré dans 'seriesMetadata.newCharacters' ou 'seriesMetadata.newLocations'.
+
+💡 RÈGLES DE SÉQUENCE (DIRECTOR ENGINE) :
+- Respectez la progression Shot Type : Setup (Large) -> Tension (Medium) -> Emotion (Serré).
+- Gardez les deltas narratifs majeurs pour la fin de la séquence.
+- VISUAL DNA : Citez obligatoirement les éléments de décor clés (ancres) de la première scène dans TOUS les prompts d'images de la séquence.
 `.trim()
   }
 }

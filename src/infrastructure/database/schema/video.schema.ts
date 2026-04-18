@@ -101,6 +101,17 @@ export const videoScenes = pgTable('video_scenes', {
   scenePurpose: jsonb('scene_purpose').$type<any>(),
   tensionState: jsonb('tension_state').$type<any>(),
 
+  // v17.0 Living Engine
+  acting: jsonb('acting').$type<any>(),
+  momentum: jsonb('momentum').$type<any>(),
+
+  // v17.5 Sequence Engine
+  sequenceId: text('sequence_id'),
+  sequenceProgress: integer('sequence_progress'),
+
+  // v18.1 Semantic Segmentation
+  visualSubject: text('visual_subject'),
+
   metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()

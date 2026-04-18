@@ -4,6 +4,28 @@ import { z } from 'zod'
 
 const CliffhangerTypeSchema = z.enum(['revelation', 'peril', 'choice', 'betrayal', 'unknown'])
 
+export const VisualSegmentSchema = z.object({
+  subject: z.string().describe("Sujet : qui/quoi est au centre de l'image (personnage, objet, focus)"),
+  location: z.string().describe('Lieu : cadre spatial précis (caverne, village, intérieur labo...)'),
+  timeOfDay: z.string().describe('Moment : phase temporelle (nuit, aube, crépuscule, midi...)'),
+  lighting: z.string().describe('Lumière : ambiance lumineuse et source (froid bleuté, néons, clair de lune...)'),
+  action: z.string().describe("Action : mouvement ou état dynamique (statique, pulse, s'effondre...)"),
+  imagePrompt: z.string().describe('Prompt Synthétisé : Description visuelle consolidée du bloc 5D (Base DNA)'),
+  logicJustification: z.string().describe('Justification algorithmique du découpage (ex: Changement Lieu + Lumière)'),
+  sentences: z.array(z.string()).describe('Phrases de la narration appartenant à ce bloc 5D fixe')
+})
+
+export const Pass1OutputSchema = z.object({
+  fullNarration: z.string().min(100),
+  visualSegments: z.array(VisualSegmentSchema).min(1),
+  analysis: z
+    .object({
+      thematicArch: z.string().optional(),
+      visualVarietyScore: z.number().min(0).max(10).optional()
+    })
+    .optional()
+})
+
 const TypedCliffhangerSchema = z.object({
   type: CliffhangerTypeSchema,
   description: z.string().min(1),
@@ -85,6 +107,18 @@ const TransitionSchema = z.enum([
   'diagbr'
 ])
 
+export const ActingSchema = z.object({
+  physicalIntent: z.string().describe('Concrete physical action or intention'),
+  microExpression: z.string().describe('Facial micro-expression'),
+  energyLevel: z.enum(['low', 'medium', 'high', 'explosive']),
+  bodyDynamics: z.enum(['stable', 'tension', 'unstable', 'release'])
+})
+
+export const MomentumSchema = z.object({
+  type: z.enum(['increasing', 'unstable', 'breaking', 'release']),
+  vector: z.enum(['forward', 'backward', 'locked'])
+})
+
 // ─── Layered Architecture v9.0 ───────────────────────────────────────────────
 
 const SceneStoryLayerSchema = z.object({
@@ -148,19 +182,31 @@ const SceneSimulationLayerSchema = z.object({
 export const SceneSchema = z.object({
   id: z.string(),
   sceneNumber: z.number(),
+  sequenceId: z.string().optional().describe('ID grouping scenes into a continuous sequence'),
+  sequenceProgress: z
+    .number()
+    .optional()
+    .describe('Step number within the sequence (1: setup, 2: tension, 3: action, 4: emotion)'),
+  shotType: z
+    .enum(['CLOSEUP', 'EXTREME_CLOSEUP', 'MEDIUM', 'WIDE', 'ESTABLISHING', 'PANORAMIC', 'POV', 'OVERSHOULDER'])
+    .optional(),
 
   // Story (Flattened)
   scenePurpose: z
-    .string()
-    .transform((val) => {
-      const lower = val.toLowerCase()
-      if (['reveal', 'escalate', 'misdirect', 'stabilize', 'collapse'].includes(lower)) return lower as any
-      if (['build', 'tension', 'suspense'].includes(lower)) return 'escalate' as const
-      if (['resolution', 'end', 'final'].includes(lower)) return 'stabilize' as const
-      return 'reveal' as const
-    })
-    .describe('reveal | escalate | misdirect | stabilize | collapse'),
-  sceneDelta: z.string().min(1).describe('New information or causal change introduced by this scene'),
+    .union([z.string().min(1), z.object({ function: z.string() })])
+    .describe(
+      'Brief sentence explaining why this scene is necessary for the plot (reveal, escalate, setup, twist, etc.)'
+    ),
+
+  sceneDelta: z
+    .union([
+      z.string().min(1),
+      z.object({
+        newInformation: z.string().min(1),
+        consequence: z.string().min(1)
+      })
+    ])
+    .describe('New information or causal change introduced by this scene'),
 
   // Projections (Flattened)
   imagePrompt: z.string().min(1).describe('Telegraphic description of the visual scene'),
@@ -183,6 +229,10 @@ export const SceneSchema = z.object({
       type: z.enum(['build', 'sustain', 'spike', 'release'])
     })
     .optional(),
+
+  // v17.0 Living Engine
+  acting: ActingSchema.optional(),
+  momentum: MomentumSchema.optional(),
 
   // Simulation Update (Keep root but clean up)
   simulationPatch: SceneSimulationLayerSchema,
@@ -260,7 +310,17 @@ export const SeriesMetadataSchema = z.object({
 
 export const LLMScriptOutputSchema = z.object({
   seriesMetadata: SeriesMetadataSchema,
-  titles: z.array(z.string()).default([]),
+  titles: z
+    .union([
+      z.array(z.string()),
+      z.string().transform((s) => [s]),
+      z.record(z.string()).transform((r) => Object.values(r))
+    ])
+    .default([]),
+  fullNarration: z
+    .string()
+    .min(100, 'Full narration is too short. Provide a more detailed and immersive script.')
+    .optional(),
   scenes: z.array(SceneSchema).min(1, 'At least one scene is required')
 })
 

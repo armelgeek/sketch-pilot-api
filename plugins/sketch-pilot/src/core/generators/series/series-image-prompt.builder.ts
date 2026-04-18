@@ -52,6 +52,7 @@ export interface ImagePromptContext {
   roadmapNarrativeHints?: string[]
   visualRegistry?: VisualRegistry
   language?: string
+  artisticStyle?: string // Style DNA immuable
 }
 
 export interface ImagePromptResult {
@@ -386,6 +387,15 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
 
   // 4. Assemble final Integrated Paragraph
   let finalPrompt = `${opening}${charactersPart ? `${charactersPart} ` : ''}${subject.trim()}`
+
+  // v18.4: Style DNA Injection
+  if (ctx.artisticStyle) {
+    const stylePrefix = ctx.artisticStyle.trim()
+    if (!finalPrompt.toLowerCase().includes(stylePrefix.toLowerCase())) {
+      finalPrompt = `${stylePrefix}, ${finalPrompt}`
+    }
+  }
+
   if (!finalPrompt.endsWith('.')) finalPrompt += '.'
 
   if (bridge || decor || artDir) {
