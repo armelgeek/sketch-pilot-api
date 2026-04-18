@@ -50,4 +50,6 @@ export interface VideoTypeSpecification {
   patternInterrupts?: string[]
   antiBoringRules?: string[]
   conclusionRules?: string[]
+  /** Cinematic style block (lens, grade, grain, palette) prefixed on all prompts */
+  styleFingerprint?: string | string[]
 }

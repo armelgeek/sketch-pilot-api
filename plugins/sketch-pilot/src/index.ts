@@ -1,4 +1,11 @@
 // Types
+export * from './core/agents/screenwriter.agent'
+export * from './core/agents/director.agent'
+export * from './core/agents/producer.agent'
+export * from './core/vimax/VimaxCameraTreeDirector'
+export * from './core/vimax/VimaxStoryboardArtist'
+export * from './core/vimax/VimaxShotDecomposer'
+export * from './core/vimax/VimaxNarrativeMemory'
 export * from './types/video-script.types'
 export * from './core/prompt-maker.types'
 

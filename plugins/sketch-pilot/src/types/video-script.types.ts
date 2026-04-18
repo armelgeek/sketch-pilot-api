@@ -646,7 +646,16 @@ export const enrichedSceneSchema = z.object({
   // Polyptych fields
   polyptychGroupId: z.string().optional().describe('ID of the group sharing a single multi-panel image'),
   panelIndex: z.number().optional().describe('0-based index of the panel to extract from the polyptych image'),
-  polyptychPrompt: z.string().optional().describe('The composite prompt used for the whole polyptych group')
+  polyptychPrompt: z.string().optional().describe('The composite prompt used for the whole polyptych group'),
+
+  // Vimax Cinema Engine Metadata
+  camIdx: z.number().optional().describe('Camera index for global spatial anchoring'),
+  ffDesc: z.string().optional().describe('First Frame description for continuity logic'),
+  lfDesc: z.string().optional().describe('Last Frame description for temporal chaining'),
+  motionDesc: z.string().optional().describe('Subject motion description for animation consistency'),
+  parentCamIdx: z.number().optional().describe('Parent Camera Index in the Vimax Camera Tree'),
+  parentShotIdx: z.number().optional().describe('Parent Shot Index for spatial identity inheritance'),
+  spatialReason: z.string().optional().describe('Logical cinematic reason for the camera hierarchy')
 })
 
 export type EnrichedScene = z.infer<typeof enrichedSceneSchema>
@@ -771,7 +780,8 @@ export const completeVideoScriptSchema = z.object({
               .optional()
               .describe('Brief context of how they reached this fate (e.g. "Abdomen transpercé par le Baron")'),
             isNew: z.boolean().optional(),
-            thumbnailUrl: z.string().url().optional()
+            thumbnailUrl: z.string().url().optional(),
+            visualDNA: z.string().optional().describe('Text-only appearance description (VisualDNA)')
           })
         )
         .optional()
@@ -782,7 +792,8 @@ export const completeVideoScriptSchema = z.object({
             description: z.string().optional(),
             atmosphere: z.string().optional(),
             isNew: z.boolean().optional(),
-            thumbnailUrl: z.string().url().optional()
+            thumbnailUrl: z.string().url().optional(),
+            visualDNA: z.string().optional().describe('Text-only environment description (LocationDNA)')
           })
         )
         .optional()

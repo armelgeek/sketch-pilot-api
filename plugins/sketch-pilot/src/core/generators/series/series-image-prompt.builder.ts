@@ -21,6 +21,7 @@
  *  11. Layout (montage, split-screen)
  */
 
+import { VisualDNAManager } from '../../visual-dna-manager'
 import type { EnrichedScene } from '../../../types/video-script.types'
 import { findInRegistry, mergeEvolution, normalizeId, type EvolutionState } from './series-registry.utils'
 import { applyVisualAnchors, buildConsistencyPrompt } from './visual-engine'
@@ -53,6 +54,7 @@ export interface ImagePromptContext {
   visualRegistry?: VisualRegistry
   language?: string
   artisticStyle?: string // Style DNA immuable
+  spec?: any // VideoTypeSpecification
 }
 
 export interface ImagePromptResult {
@@ -227,20 +229,32 @@ function buildContinuityBridge(
   previousScene: any,
   language?: string
 ): { text: string; updatedReferenceImageUrl: string | undefined } {
-  if (!previousScene) return { text: '', updatedReferenceImageUrl: referenceImageUrl }
+  const t = getLocale(language)
+  let text = ''
+
+  // [VIMAX] FF/LF Temporal Chaining: Inject Vimax continuity cues
+  if (ctx.scene.ffDesc) {
+    const ffLabel = (language || 'fr').startsWith('fr') ? 'État initial (FF) :' : 'Initial state (FF):'
+    text += `${ffLabel} ${ctx.scene.ffDesc}. `
+  }
+  if (ctx.scene.lfDesc) {
+    const lfLabel = (language || 'fr').startsWith('fr') ? 'État final (LF) :' : 'Final state (LF):'
+    text += `${lfLabel} ${ctx.scene.lfDesc}. `
+  }
+
+  if (!previousScene) return { text, updatedReferenceImageUrl: referenceImageUrl }
 
   const isSequelBridge = isFirstScene && ctx.episodeNumber > 1
   const isInternalSequence = !isFirstScene && ctx.scene.continueFromPrevious
 
-  if (!isSequelBridge && !isInternalSequence) return { text: '', updatedReferenceImageUrl: referenceImageUrl }
+  if (!isSequelBridge && !isInternalSequence) return { text, updatedReferenceImageUrl: referenceImageUrl }
 
-  const t = getLocale(language)
   let updatedRef = referenceImageUrl
   if (isInternalSequence && previousScene.imageUrl) {
     updatedRef = previousScene.imageUrl
   }
 
-  let text = `${t.bridge.follows} ${previousScene.summary || previousScene.imagePrompt}. `
+  text += `${t.bridge.follows} ${previousScene.summary || previousScene.imagePrompt}. `
 
   if (previousScene.persistentDecorTokens?.length > 0) {
     text += `${t.bridge.inherited} `
@@ -388,13 +402,7 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
   // 4. Assemble final Integrated Paragraph
   let finalPrompt = `${opening}${charactersPart ? `${charactersPart} ` : ''}${subject.trim()}`
 
-  // v18.4: Style DNA Injection
-  if (ctx.artisticStyle) {
-    const stylePrefix = ctx.artisticStyle.trim()
-    if (!finalPrompt.toLowerCase().includes(stylePrefix.toLowerCase())) {
-      finalPrompt = `${stylePrefix}, ${finalPrompt}`
-    }
-  }
+  // v18.4: Legacy Style DNA Injection removed, now handled by styleFingerprint in getEnrichedImagePrompt
 
   if (!finalPrompt.endsWith('.')) finalPrompt += '.'
 
@@ -414,6 +422,10 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
     const consistency = buildConsistencyPrompt(ctx.visualRegistry, scene, ctx.language)
     if (consistency) finalPrompt += ` ${consistency}`
   }
+
+  // v19.0: VisualDNA & Style Fingerprint Injection
+  const spec = (ctx as any).spec || (ctx as any).videoTypeSpecification
+  finalPrompt = VisualDNAManager.inject(finalPrompt, scene, characterRegistry, locationRegistry, spec)
 
   // Sanitize
   finalPrompt = sanitizeInactiveCharacters(finalPrompt, activeCharacters as Set<string>, characterRegistry)
@@ -456,8 +468,14 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
   const locationMasterUrl = effectiveLocationId
     ? (findInRegistry(locationRegistry, effectiveLocationId) as any)?.thumbnailUrl
     : undefined
-  if (!referenceImageUrl && locationMasterUrl) {
-    allReferenceImages.push({ name: 'Location Reference', data: locationMasterUrl })
+  if (locationMasterUrl) {
+    // [V19.1] PERSISTENT BACKGROUND: Always include the location reference to prevent drift,
+    // even if we have a continuity bridge image.
+    const hasBridge = !!referenceImageUrl
+    allReferenceImages.push({
+      name: hasBridge ? 'Original Location Reference' : 'Location Reference',
+      data: locationMasterUrl
+    })
   }
 
   return {

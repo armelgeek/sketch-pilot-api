@@ -14,6 +14,9 @@ import { PromptRepository } from '@/infrastructure/repositories/prompt.repositor
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { VideoRepository } from '@/infrastructure/repositories/video.repository'
 import { SeriesVideoGenerator } from '../../../../plugins/sketch-pilot/src/core/generators/series-video-generator'
+import { VimaxCharacterExtractor } from '../../../../plugins/sketch-pilot/src/core/vimax/VimaxCharacterExtractor'
+import { VimaxCharacterFusion } from '../../../../plugins/sketch-pilot/src/core/vimax/VimaxCharacterFusion'
+import { VimaxCharacterPortraitGenerator } from '../../../../plugins/sketch-pilot/src/core/vimax/VimaxCharacterPortraitGenerator'
 
 /* ---------------- TYPES ---------------- */
 
@@ -32,6 +35,9 @@ type SeriesBible = {
         signature: string
       }
       thumbnailUrl?: string
+      sideThumbnailUrl?: string
+      backThumbnailUrl?: string
+      modelId?: string
     }
   >
   locationRegistry: Record<
@@ -50,6 +56,8 @@ type SeriesBible = {
     title: string
     hook: string
   }[]
+  vimaxArc?: { intent: string; script: string }
+  episode1Plan?: any
 }
 
 type PrepareSeriesParams = {
@@ -65,19 +73,11 @@ type PrepareSeriesParams = {
   skipPortraits?: boolean
   aspectRatio?: string
   characterModelId?: string
+  styleSuffix?: string
+  userCharacterAnchors?: Record<string, string> // Map of @Handle -> URL/B64
 }
 
 /* ---------------- UTILS ---------------- */
-
-function safeJsonParse(text: string): SeriesBible {
-  try {
-    return JSON.parse(text)
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/)
-    if (!match) throw new Error('Invalid JSON response from LLM')
-    return JSON.parse(match[0])
-  }
-}
 
 /* ---------------- USE CASE ---------------- */
 
@@ -104,18 +104,44 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
     return normalized
   }
 
-  private mergeRegistries(existing: Record<string, any>, incoming: Record<string, any>): Record<string, any> {
-    const merged = { ...existing }
-    const normalizedIncoming = this.normalizeRegistry(incoming)
+  private async mergeRegistries(
+    existing: Record<string, any>,
+    incoming: Record<string, any>
+  ): Promise<Record<string, any>> {
+    const llmService = await this.videoGenerationService.getLlmService()
+    const fusion = new VimaxCharacterFusion(llmService)
 
-    for (const [key, value] of Object.entries(normalizedIncoming)) {
-      const existingItem = SeriesVideoGenerator.findInRegistry(merged, key)
+    // Convert to Vimax internal format for fusion
+    const sceneCharacters = Object.entries(incoming).map(([name, data], idx) => ({
+      index: idx,
+      identifier_in_scene: name,
+      static_features: data.description || '',
+      dynamic_features: data.dynamic_features || ''
+    }))
+
+    const merged = { ...existing }
+    const fusionResults = await fusion.mergeCharactersAcrossScenes([
+      {
+        idx: 0,
+        script: 'Merge existing bible with new brainstorming',
+        characters: sceneCharacters
+      }
+    ])
+
+    for (const result of fusionResults) {
+      const handle = result.identifier_in_event.replace(/^@/, '')
+      const existingItem = SeriesVideoGenerator.findInRegistry(merged, handle)
       if (existingItem) {
-        // Merge LLM refinement but keep existing portrait/identity
-        Object.assign(existingItem, value)
+        Object.assign(existingItem, {
+          description: result.static_features,
+          dynamic_features: result.dynamic_features
+        })
       } else {
-        // Add new discovered entity
-        merged[key] = value
+        merged[handle] = {
+          fullName: result.identifier_in_event,
+          description: result.static_features,
+          dynamic_features: result.dynamic_features
+        }
       }
     }
     return merged
@@ -134,6 +160,7 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
     }
 
     const llmService = await LLMServiceFactory.create(llmConfig)
+    const genre = params.videoGenre || 'À extrapoler'
 
     // 1. Resolve Spec
     const spec = params.promptId ? await this.promptService.resolveSpec(params.promptId) : null
@@ -160,20 +187,15 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
       specContext = `\n--- 📘 SPÉCIFICATION NARRATIVE SUR MESURE (${spec.name}) ---\n${sections.join('\n\n')}\n`
     }
 
-    // 1.7. Visual Style Models removed for pure image-anchoring experiment.
-
-    // 1.8. Explicit Style Guides removed.
-
     // 2. Resolve Saga Context (if extension)
     let extensionContext = ''
     let startEpisode = 1
-    let existingCharacters = ''
 
     if (params.seriesId) {
       const seriesData = await this.seriesRepository.getSeriesContext(params.seriesId)
       if (seriesData) {
         startEpisode = seriesData.lastEpisodeNumber + 1
-        existingCharacters = Object.entries(seriesData.characterRegistry)
+        const existingCharacters = Object.entries(seriesData.characterRegistry)
           .map(([name, data]) => `- ${name}: ${(data as any).description}`)
           .join('\n')
 
@@ -194,102 +216,54 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
       }
     }
 
-    /* ---------------- PROMPT V2 ---------------- */
+    // 3. Vimax Pass 0: Saga Planning via SeriesVideoGenerator
+    const idea = `${params.title}\n${params.description || ''}${specContext}${extensionContext}`
+    const dummyCtx = { seriesId: params.seriesId, userId: params.userId } as any
+    const generator = new SeriesVideoGenerator({ apiKey: process.env.OPENAI_API_KEY } as any, dummyCtx)
+    const seriesArc = await generator.generateSeriesArc(idea, llmService)
 
-    const systemPrompt = `
-Tu es un moteur de génération de séries automatisé.
-${params.seriesId ? 'INTERDICTION : Ne réinventez pas la série. Vous générez une EXTENSION de la roadmap existante.' : ''}
+    console.info('✅ Arc Generated:', `${seriesArc.bible.slice(0, 200)}...`)
+    console.info('📋 Roadmap:', seriesArc.roadmap.map((r: any) => `Ep ${r.episodeNumber}: ${r.title}`).join(', '))
 
-MISSION :
-Créer une Bible de série STRUCTURÉE, COHÉRENTE et EXPLOITABLE.
+    // 4. Vimax Character Extraction (Agentic)
+    const charExtractor = new VimaxCharacterExtractor(llmService)
+    const extractedChars = await charExtractor.extractCharacters(seriesArc.bible)
 
-RÈGLES :
-- JSON STRICT UNIQUEMENT
-- AUCUN texte hors JSON
-- FORMAT RESPECTÉ
-
-PROCESSUS :
-1. Génération
-2. Auto-validation + correction
-
-PERSONNAGES :
-- 3 à 5 personnages
-- FULL BODY SHOT obligatoire
-- cohérence visuelle totale
-- IDENTIFIANT UNIQUE OBLIGATOIRE : La clé du registre DOIT être un handle commençant par @ (ex: "@Victor").
-- LIEUX : Registre des lieux avec handle unique @ obligatoire (ex: "@Maison_Victor").
-
-LANGUE : ${params.language || 'fr'}
-${params.roadmapOnly ? 'MISSION SPECIFIQUE : RÉGÉNÉRER UNIQUEMENT LE PLANNING DES ÉPISODES (suggestedTitles et suggestedEpisodes). Gardez le même univers.' : ''}
-`
-
-    const epCount = params.totalEpisodes || 5
-    const genre = params.videoGenre || 'À extrapoler'
-
-    const userPrompt = `
-CONCEPT : "${params.title}"
-GENRE : "${genre}"
-NOMBRE D'ÉPISODES À GÉNÉRER : ${epCount}
-DESCRIPTION : ${params.description || 'À extrapoler'}
-${specContext}
-${extensionContext}
-
-FORMAT JSON :
-
-{
-  "globalContext": "string (Description globale de l'univers)",
-
-  "characterRegistry": {
-    "@Handle": {
-      "fullName": "Prénom Nom",
-      "description": "string",
-      "portraitPrompt": "FULL BODY SHOT...",
-      "visualIdentity": {
-        "age": "string",
-        "build": "string",
-        "colors": ["string"],
-        "signature": "string"
+    // 5. Programmatic Assembly
+    const characterRegistry: Record<string, any> = {}
+    for (const char of extractedChars) {
+      const handle = char.identifier_in_scene.replace(/^@/, '')
+      characterRegistry[handle] = {
+        fullName: char.identifier_in_scene,
+        description: '',
+        dynamic_features: '',
+        portraitPrompt: `A high-quality cinematic portrait of ${char.identifier_in_scene}`
       }
     }
-  },
 
-  "locationRegistry": {
-    "@LocationID": {
-      "name": "Nom du lieu",
-      "description": "Description visuelle DÉTAILLÉE servant de Master Background (matériaux, couleurs, éclairage, objets clés)"
+    const bible: SeriesBible = {
+      globalContext: seriesArc.bible,
+      characterRegistry,
+      locationRegistry: {}, // Locations can be extracted later JIT if needed, or we could add a VimaxLocationExtractor
+      videoGenre: genre,
+      totalEpisodes: seriesArc.totalEpisodes,
+      suggestedTitles: [],
+      suggestedEpisodes: seriesArc.roadmap.map((r: any) => ({
+        number: r.episodeNumber,
+        title: r.title,
+        hook: r.hook || ''
+      }))
     }
-  },
 
-  "videoGenre": "${genre}",
-  "totalEpisodes": ${params.seriesId ? 'Laissez le total actuel' : epCount},
-
-  "suggestedTitles": ["Titre Episode ${startEpisode}", "Titre Episode ${startEpisode + 1}", ...],
-
-  "suggestedEpisodes": [
-    { "number": ${startEpisode}, "title": "string", "hook": "string" },
-    { "number": ${startEpisode + 1}, "title": "string", "hook": "string" },
-    ...
-  ]
-}
-
-RÈGLES NARRATIVES ROADMAP :
-- JSON valide obligatoire
-- Générez EXACTEMENT ${epCount} épisodes dans "suggestedEpisodes" en commençant à l'épisode ${startEpisode}
-- Générez EXACTEMENT ${epCount} titres dans "suggestedTitles"
-- ${params.seriesId ? 'RÉUTILISEZ les personnages de la liste "PERSONNAGES ÉTABLIS" ci-dessus dans le registre. N\'en inventez de nouveaux que si nécessaire.' : '3 à 5 personnages dans "characterRegistry"'}
-- Le "hook" doit être une description précise, INTRIGANTE et ATMOSPHÉRIQUE du tournant narratif de l'épisode.
-- 🚨 INTERDICTION FORMELLE : Les hooks ne doivent PAS être des résumés secs (ex: "Le héros arrive"). 
-- 🎬 STYLE : Favorisez le "In Media Res", les dilemmes moraux ou les découvertes sensorielles (ex: "L'odeur de soufre sature l'air alors que Victor découvre...").
-`
-
-    const response = await llmService.generateContent(userPrompt, systemPrompt, 'application/json')
-
-    return safeJsonParse(response.replaceAll(/```json|```/g, '').trim())
+    return {
+      ...bible,
+      vimaxArc: seriesArc
+    }
   }
 
   /* ---------------- EXECUTE ---------------- */
 
-  async execute(params: PrepareSeriesParams) {
+  public async execute(params: PrepareSeriesParams) {
     try {
       const totalCost = CREDIT_COSTS.SAGA_PREPARATION
 
@@ -316,9 +290,8 @@ RÈGLES NARRATIVES ROADMAP :
           existingLocs = (current.locationRegistry as Record<string, any>) || {}
         }
       }
-
-      const characterRegistry = this.mergeRegistries(existingChars, parsed.characterRegistry || {})
-      const locationRegistry = this.mergeRegistries(existingLocs, parsed.locationRegistry || {})
+      const characterRegistry = await this.mergeRegistries(existingChars, parsed.characterRegistry || {})
+      const locationRegistry = await this.mergeRegistries(existingLocs, parsed.locationRegistry || {})
 
       const seriesData = {
         title: params.title,
@@ -333,6 +306,9 @@ RÈGLES NARRATIVES ROADMAP :
         thumbnailUrl: Object.values(characterRegistry || {})[0]?.thumbnailUrl,
         aspectRatio: params.aspectRatio || '9:16',
         characterModelId: params.characterModelId,
+        roadmap: {
+          arc: parsed.vimaxArc
+        },
         status: 'draft' as const
       }
 
@@ -391,24 +367,33 @@ RÈGLES NARRATIVES ROADMAP :
       }
 
       // 🔄 SAGA BIBLE MERGE: Fetch existing context if extension
-      let existingChars = {}
-      let existingLocs = {}
-      let seriesReferenceImage: string | undefined = undefined
+      let existingChars: Record<string, any> = {}
+      let existingLocs: Record<string, any> = {}
 
       if (params.seriesId) {
         const current = await this.seriesRepository.findById(params.seriesId)
         if (current) {
           existingChars = (current.characterRegistry as Record<string, any>) || {}
           existingLocs = (current.locationRegistry as Record<string, any>) || {}
-          seriesReferenceImage = current.thumbnailUrl || undefined
         }
       }
-
-      const characterRegistry = this.mergeRegistries(existingChars, parsed.characterRegistry || {})
-      const locationRegistry = this.mergeRegistries(existingLocs, parsed.locationRegistry || {})
+      const characterRegistry = await this.mergeRegistries(existingChars, parsed.characterRegistry || {})
+      const locationRegistry = await this.mergeRegistries(existingLocs, parsed.locationRegistry || {})
 
       // --- [V50] AUTOMATED CHARACTER PORTRAITS ---
       if (!params.skipPortraits && !params.roadmapOnly) {
+        // Inject user anchors into registry before generation
+        if (params.userCharacterAnchors) {
+          for (const [handle, url] of Object.entries(params.userCharacterAnchors)) {
+            const normalizedHandle = handle.replace(/^@/, '')
+            const charData = characterRegistry[normalizedHandle] || characterRegistry[handle]
+            if (charData) {
+              console.info(`[PrepareSeries] ⚓ AutoCameo: Anchoring ${handle} with user photo.`)
+              charData.thumbnailUrl = url
+            }
+          }
+        }
+
         const charactersToGenerate = Object.entries(characterRegistry).filter(
           ([, data]: [string, any]) => !data.thumbnailUrl
         )
@@ -419,6 +404,11 @@ RÈGLES NARRATIVES ROADMAP :
           const baseModelId = params.characterModelId || standardModels[0]?.id || 'default-model'
 
           let completedChars = 0
+          const imageService = await this.videoGenerationService.getImageService({
+            characterModelId: baseModelId
+          })
+          const portraitGenerator = new VimaxCharacterPortraitGenerator(imageService)
+
           for (const [name, data] of charactersToGenerate) {
             const charData = data as any
             try {
@@ -431,34 +421,69 @@ RÈGLES NARRATIVES ROADMAP :
                 }
               }
 
-              // Build a strong descriptive prompt for the portrait
               const portraitPrompt = charData.description || name
-              const imagePath = await this.videoGenerationService.generateCharacterImage({
-                prompt: portraitPrompt,
-                baseModelId,
-                // Inject series global thumbnail for style consistency if it exists
-                referenceImages: seriesReferenceImage ? [{ name: 'series-style', data: seriesReferenceImage }] : []
-              })
+              const modelSheet = await portraitGenerator.generateModelSheet(
+                name,
+                portraitPrompt,
+                params.styleSuffix || '',
+                () => {
+                  // Optional: emit sub-progress inside the stream if needed
+                },
+                charData.cameoPhotoUrl // [V52] AutoCameo
+              )
 
-              if (imagePath && fs.existsSync(imagePath)) {
-                // Upload to MinIO
-                const buffer = fs.readFileSync(imagePath)
-                const safeName = name.replaceAll(/\s+/g, '-').replaceAll(/[^\w-]/g, '')
-                const storagePath = `series/previews/characters/${safeName}-${Date.now()}.webp`
-                const url = await uploadBuffer(storagePath, buffer, 'image/webp')
+              // Upload all 3 views
+              const safeName = name.replaceAll(/\s+/g, '-').replaceAll(/[^\w-]/g, '')
+              const timestamp = Date.now()
 
-                charData.thumbnailUrl = url
-                console.info(`[PrepareSeries] ✓ Portrait generated for ${name}: ${url}`)
-
-                // Cleanup
-                fs.unlinkSync(imagePath)
+              // 1. Front
+              if (modelSheet.front.startsWith('http')) {
+                charData.thumbnailUrl = modelSheet.front
+                charData.visualDNA = `[AUTOCAMEO] Character must match reference: ${modelSheet.front}`
+              } else {
+                const frontBuffer = fs.readFileSync(modelSheet.front)
+                const frontUrl = await uploadBuffer(
+                  `series/previews/characters/${safeName}-front-${timestamp}.webp`,
+                  frontBuffer,
+                  'image/webp'
+                )
+                charData.thumbnailUrl = frontUrl
+                fs.unlinkSync(modelSheet.front)
               }
+
+              // 2. Side
+              const sideBuffer = fs.readFileSync(modelSheet.side)
+              const sideUrl = await uploadBuffer(
+                `series/previews/characters/${safeName}-side-${timestamp}.webp`,
+                sideBuffer,
+                'image/webp'
+              )
+              charData.sideThumbnailUrl = sideUrl
+              fs.unlinkSync(modelSheet.side)
+
+              // 3. Back
+              const backBuffer = fs.readFileSync(modelSheet.back)
+              const backUrl = await uploadBuffer(
+                `series/previews/characters/${safeName}-back-${timestamp}.webp`,
+                backBuffer,
+                'image/webp'
+              )
+              charData.backThumbnailUrl = backUrl
+              fs.unlinkSync(modelSheet.back)
+
+              charData.modelId = baseModelId
+              console.info(`[PrepareSeries] ✓ Model sheet generated for ${name}`)
             } catch (error) {
               console.error(`[PrepareSeries] ❌ Failed to generate portrait for ${name}:`, error)
             }
             completedChars++
           }
         }
+      }
+
+      // --- [V51] AUTOMATED LOCATION MASTERS ---
+      if (!params.roadmapOnly) {
+        Object.entries(locationRegistry).filter(([, data]: [string, any]) => !data.thumbnailUrl)
       }
 
       // Persist Draft
@@ -474,6 +499,9 @@ RÈGLES NARRATIVES ROADMAP :
         totalEpisodes: String(parsed.totalEpisodes),
         aspectRatio: params.aspectRatio || '9:16',
         characterModelId: params.characterModelId,
+        roadmap: {
+          arc: parsed.vimaxArc
+        },
         status: 'draft' as const
       }
 

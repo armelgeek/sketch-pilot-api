@@ -306,6 +306,62 @@ export class VideoGenerationService {
   }
 
   /**
+   * Generate a single location master image.
+   */
+  async generateLocationImage(input: {
+    prompt: string
+    videoId?: string
+    referenceImages?: { name?: string; data: string }[]
+  }): Promise<string> {
+    const { prompt, videoId, referenceImages = [] } = input
+    const engine = await this.buildEngine({}, videoId)
+    if (!engine) throw new Error('Failed to initialize location generation engine')
+
+    const tempDir = path.join(process.cwd(), 'uploads', 'temp', `loc-${Date.now()}`)
+    await fs.mkdir(tempDir, { recursive: true })
+
+    const filename = path.join(tempDir, 'location.webp')
+
+    // Create a minimal scene for the engine
+    const scene: any = {
+      id: 'loc-gen',
+      imagePrompt: `MASTER BACKGROUND ESTABLISHING SHOT: ${prompt}. focus on the environment, architecture, and lighting. NO CHARACTERS.`,
+      locationId: 'studio',
+      composition: { shotType: 'WIDE' }
+    }
+
+    const imageUrl = await engine.generateImage(
+      scene,
+      referenceImages.map((r) => ({ name: r.name || 'reference', data: r.data })),
+      filename,
+      true
+    )
+    return imageUrl
+  }
+
+  /**
+   * Expose the ImageService for direct portrait/master generation.
+   */
+  async getImageService(
+    options: Partial<VideoGenerationOptions> = {}
+  ): Promise<import('@sketch-pilot/services/image').ImageService> {
+    const engine = await this.buildEngine(options)
+    if (!engine) throw new Error('Failed to initialize engine for ImageService')
+    return await engine.getImageService()
+  }
+
+  /**
+   * Expose the LLMService for planning/fusion tasks.
+   */
+  async getLlmService(
+    options: Partial<VideoGenerationOptions> = {}
+  ): Promise<import('@sketch-pilot/services/llm').LLMService> {
+    const engine = await this.buildEngine(options)
+    if (!engine) throw new Error('Failed to initialize engine for LLMService')
+    return await engine.getLlmService()
+  }
+
+  /**
    * Robustly fetch an image as a Buffer.
    */
   private async fetchImageBuffer(urlOrPath: string): Promise<Buffer> {

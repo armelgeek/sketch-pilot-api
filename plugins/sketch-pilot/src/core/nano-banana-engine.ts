@@ -27,11 +27,12 @@ import {
 } from '../types/video-script.types'
 import { runFfmpeg } from '../utils/ffmpeg-utils'
 import { TaskQueue } from '../utils/task-queue'
-import { AnchorEngine } from './anchor-engine'
 import { SeriesVideoGenerator } from './generators/series-video-generator'
 import { VideoGeneratorFactory } from './generators/video-generator.factory'
 import { PolyptychEngine } from './polyptych-engine'
 import { VideoScriptGenerator } from './video-script-generator'
+import { VimaxEconomizerMode } from './vimax/VimaxPipelineEconomizer'
+import { VimaxVisualAuditor } from './vimax/VimaxVisualAuditor'
 import type { VideoGenerator, VideoGeneratorConfig } from './generators/video-generator.abstract'
 import type { SceneMemory } from './scene-memory'
 
@@ -48,9 +49,12 @@ export class NanoBananaEngine {
   private _animationService?: AnimationService
   private _imageService?: ImageService
   private _llmService?: LLMService
+  private _producerAgent?: any
+  private _directorAgent?: any
+  private _screenwriterAgent?: any
   private readonly outputDir: string
   private readonly projectLocationCache: Map<string, string> = new Map()
-  private readonly locationAnchors: Map<string, AnchorEngine> = new Map()
+  private readonly cameraAnchorCache: Map<string, string> = new Map() // cameraId -> imagePath
   private readonly characterDNA: Map<string, string> = new Map()
   private currentOptions: VideoGenerationOptions = videoGenerationOptionsSchema.parse({
     aspectRatio: '16:9',
@@ -134,7 +138,7 @@ export class NanoBananaEngine {
         this.imageConfig || {
           provider: this.currentImageProvider,
           apiKey: this.apiKey,
-          systemPrompt: this.systemPrompt
+          defaultQuality: 'medium'
         }
       )
     }
@@ -148,6 +152,30 @@ export class NanoBananaEngine {
       )
     }
     return this._llmService
+  }
+
+  async getProducerAgent(): Promise<any> {
+    if (!this._producerAgent) {
+      const { ProducerAgent } = await import('./agents/producer.agent')
+      this._producerAgent = new ProducerAgent(await this.getImageService(), (this.promptManager as any).seriesContext)
+    }
+    return this._producerAgent
+  }
+
+  async getDirectorAgent(): Promise<any> {
+    if (!this._directorAgent) {
+      const { DirectorAgent } = await import('./agents/director.agent')
+      this._directorAgent = new DirectorAgent(this.promptManager)
+    }
+    return this._directorAgent
+  }
+
+  async getScreenwriterAgent(): Promise<any> {
+    if (!this._screenwriterAgent) {
+      const { ScreenwriterAgent } = await import('./agents/screenwriter.agent')
+      this._screenwriterAgent = new ScreenwriterAgent(await this.getLlmService(), this.promptManager)
+    }
+    return this._screenwriterAgent
   }
 
   private async downloadAndEncodeImages(
@@ -413,6 +441,12 @@ export class NanoBananaEngine {
     memory?: SceneMemory,
     onProgress?: (p: number, m: string, meta?: any) => void
   ): Promise<void> {
+    // [VIMAX] Override imagePrompt with First Frame description if available
+    if ((scene as any).ffDesc) {
+      console.info(`[NanoBanana] 💎 VIMAX OVERRIDE: Using ffDesc as primary prompt for ${scene.id}`)
+      scene.imagePrompt = (scene as any).ffDesc
+    }
+
     const options = this.currentOptions
     const resolutionPreset = options.resolution || '720p'
     let baseHeight = 720
@@ -441,34 +475,12 @@ export class NanoBananaEngine {
 
     const effectiveRefs = [...referenceImages]
 
-    // --- VISUAL COHERENCE SYSTEM (AnchorEngine) ---
-    const locationId =
-      scene.locationId && scene.locationId !== 'default'
-        ? SeriesVideoGenerator.normalizeId(scene.locationId)
-        : 'default'
-    if (!this.locationAnchors.has(locationId)) {
-      this.locationAnchors.set(locationId, new AnchorEngine({ reanchorThreshold: 8, maxChainLength: 12 }))
-    }
-    const anchorEngine = this.locationAnchors.get(locationId)!
-
     /**
      * [V46 Experiment] Dynamic Location Reference:
-     * We no longer pre-warm the AnchorEngine from the projectLocationCache (Registry).
+     * We no longer pre-warm the legacy system from the projectLocationCache.
      * This forces the FIRST scene of EACH location in the current script to become
      * the new Base Anchor, ensuring the current generation flow defines the look.
      */
-    /*
-    if (this.projectLocationCache.has(locationId) && !anchorEngine.getState().baseAnchor) {
-      const baseImageData = this.projectLocationCache.get(locationId)!
-      anchorEngine.registerBaseAnchor(baseImageData, `base-${locationId}`)
-    }
-    */
-
-    // 2. Add anchors from the engine to generation references
-    const engineAnchors = anchorEngine.getNextAnchors()
-    for (const anchor of engineAnchors) {
-      effectiveRefs.push({ name: anchor.name, data: anchor.url })
-    }
 
     // --- VISUAL DNA & STYLE CONTINUITY ---
     const context = (this.promptManager as any).seriesContext
@@ -489,20 +501,21 @@ export class NanoBananaEngine {
       console.info(`[NanoBanana] 🧬 DNA: ${dnaInstruction}`)
     }
 
-    // [V4] Visual State Management: Register Base, Delta, and Locks
-    if ((scene as any).visualDelta || (scene as any).visualBaseState || (scene as any).visualStateLock) {
-      anchorEngine.registerDelta(
-        (scene as any).visualDelta || {},
-        (scene as any).visualBaseState,
-        (scene as any).visualStateLock
-      )
-    }
-    const evolutionHints = anchorEngine.getEvolutionHints()
-
     // Legacy Continuity Support (Previous Frame Chaining)
     if (scene.continueFromPrevious && lastSceneB64) {
       console.info(`[NanoBanana] 🔗 CONTINUITY: Adding previous scene as reference anchor.`)
       effectiveRefs.push({ name: 'PREVIOUS_SCENE_FRAME', data: lastSceneB64 })
+    }
+
+    // [VIMAX] Spatial Pillar: Use existing Camera Anchor for 0% Background Drift
+    const camIdStr = String((scene as any).camIdx ?? (scene as any).cameraId ?? '')
+    if (camIdStr && this.cameraAnchorCache.has(camIdStr)) {
+      const anchorPath = this.cameraAnchorCache.get(camIdStr)!
+      if (fs.existsSync(anchorPath)) {
+        console.info(`[NanoBanana] ⚓ SPATIAL PILLAR: Using locked anchor for camera ${camIdStr}`)
+        const anchorB64 = fs.readFileSync(anchorPath).toString('base64')
+        effectiveRefs.push({ name: 'SPATIAL_ANCHOR', data: anchorB64 })
+      }
     }
 
     // --- OPTIMIZATION: Physical Reuse or Polyptych existing asset ---
@@ -520,8 +533,8 @@ export class NanoBananaEngine {
         effectiveRefs.push({ name: 'ORIGINAL_SCENE', data: currentImageB64 })
       }
 
-      const shouldGenerateVariants = options.enableVariants && anchorEngine.isReanchorStep()
-      const variantCount = shouldGenerateVariants ? 3 : 1
+      const shouldGenerateVariants = false
+      const variantCount = 1
       const variantsDir = path.join(outputDir, 'variants')
 
       if (shouldGenerateVariants) {
@@ -549,8 +562,7 @@ export class NanoBananaEngine {
                 if (onProgress) onProgress(-1, statusMsg, { message: m })
               },
               dnaInstruction,
-              currentSeed,
-              evolutionHints
+              currentSeed
             )
             await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(currentTarget)
 
@@ -590,7 +602,7 @@ export class NanoBananaEngine {
       }
     }
 
-    // Store in location cache and update AnchorEngine chain
+    // Store in location cache for subsequent reuse
     if (fs.existsSync(imagePath)) {
       const b64 = fs.readFileSync(imagePath).toString('base64')
 
@@ -610,43 +622,69 @@ export class NanoBananaEngine {
             console.info(`[NanoBanana] 👑 REGISTRY PROMOTION: ${locId}`)
             loc.thumbnailUrl = b64 // Seed with B64 for immediate visual sync
           }
-        }
-      }
 
-      // 3. Register the result in the engine to advance the progressive chain
-      if (scene.locationId) {
-        const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
-        const anchorEngine = this.locationAnchors.get(locId)
-        const context = (this.promptManager as any).seriesContext
+          // [V49] Vision Audit Loop: Extract hard visual DNA from establishing shot
+          if (loc) {
+            const isEstablishing =
+              scene.composition?.shotType === 'WIDE' || scene.composition?.shotType === 'ESTABLISHING' || !loc.visualDNA
 
-        // [V48] Master Style Promotion: If this is the FIRST scene and no thumbnail exists,
-        // promote it as the absolute aesthetic truth for the entire series/episode.
-        if (context && !context.thumbnailUrl) {
-          console.info(`[NanoBanana] 🎨 MASTER STYLE PROMOTION: Setting global series DNA from first scene result.`)
-          context.thumbnailUrl = b64
-        }
-
-        if (anchorEngine) {
-          // [V49] Character Detail Lock: Register this result as a named anchor for characters.
-          // We only update the anchor if we don't have one yet or if it's a re-anchor step (high quality).
-          const charsInScene = scene.charactersInScene || []
-          const isReanchor = anchorEngine.isReanchorStep()
-
-          for (const charId of charsInScene) {
-            const name = SeriesVideoGenerator.normalizeId(charId.replace(/^@/, ''))
-            const hasAnchor = anchorEngine.hasNamedAnchor(name)
-
-            if (!hasAnchor || isReanchor) {
-              console.info(`[NanoBanana] 🔒 IDENTITY LOCK: ${name} (Scene ${scene.id})`)
-              anchorEngine.registerNamedAnchor(name, b64, scene.id)
+            if (isEstablishing) {
+              const producer = await this.getProducerAgent()
+              if ((this.promptManager as any).syncRegistriesFromVision) {
+                console.info(`[NanoBanana] 👁️  VISION AUDIT: Analyzing ${locId}...`)
+                const dna = await producer.performVisionAudit(imagePath, locId)
+                if (dna) {
+                  console.info(`[NanoBanana] ✅ VISION DNA EXTRACTED for ${locId}`)
+                  await producer.updateRegistry(locId, dna)
+                }
+              }
             }
           }
 
-          // If no base anchor exists yet, this is our absolute reference for this location
-          if (!anchorEngine.getState().baseAnchor) {
-            anchorEngine.registerBaseAnchor(b64, scene.id)
-          } else {
-            anchorEngine.registerGenerationResult(b64, scene.id)
+          // [V52] Spatial Anchoring: Lock background if cameraId is provided
+          const cameraId = (scene as any).cameraId || (scene as any).camIdx
+          // [VIMAX] Visual Audit: Score the generated frame
+          if (this.promptManager instanceof SeriesVideoGenerator) {
+            console.info(`[NanoBanana] 🔎 VIMAX VISUAL AUDIT: Scoring scene ${scene.id}...`)
+            const auditor = new VimaxVisualAuditor(await this.getLlmService())
+
+            // Collect references from the prompt manager (generator)
+            const generator = this.promptManager as SeriesVideoGenerator
+            const fullPrompt = await generator.buildImagePrompt(scene)
+            const references = (fullPrompt.referenceImages || []).map((r: any) => ({
+              name: r.name || 'Reference',
+              data: r.data
+            }))
+
+            const audit = await auditor.auditImages(scene.imagePrompt || scene.summary || '', references, [
+              { path: imagePath, b64 }
+            ])
+
+            console.info(`[NanoBanana] ⭐ AUDIT SCORE: ${audit.score}/100 | Acceptable: ${audit.isAcceptable}`)
+            if (!audit.isAcceptable) {
+              console.warn(`[NanoBanana] 🚨 AUDIT REJECTED: ${audit.reason}`)
+            }
+          }
+
+          if (
+            cameraId !== undefined &&
+            !this.cameraAnchorCache.has(String(cameraId)) &&
+            imagePath &&
+            fs.existsSync(imagePath)
+          ) {
+            console.info(`[NanoBanana] ⚓ LOCKING CAMERA ANCHOR: ${cameraId}`)
+            this.cameraAnchorCache.set(String(cameraId), imagePath)
+          }
+
+          // [VIMAX] Parent-Child Inheritance: Promote anchor to child if missing
+          if (scene.parentCamIdx !== undefined && this.cameraAnchorCache.has(String(scene.parentCamIdx))) {
+            const parentPath = this.cameraAnchorCache.get(String(scene.parentCamIdx))!
+            if (cameraId !== undefined && !this.cameraAnchorCache.has(String(cameraId))) {
+              console.info(
+                `[NanoBanana] 🌳 CAMERA TREE: Inheriting anchor from parent ${scene.parentCamIdx} for child ${cameraId}`
+              )
+              this.cameraAnchorCache.set(String(cameraId), parentPath)
+            }
           }
         }
       }
@@ -754,7 +792,87 @@ export class NanoBananaEngine {
       this.scriptGenerator = new VideoScriptGenerator(await this.getLlmService(), this.promptManager)
 
     try {
-      return await this.generationQueue.add(
+      // ──────────────────────────────────────────────────────────────────────
+      // [VIMAX] Pre-Script Passes: Run Pass 0 (Arc) + Pass 1 (Episodic Plan)
+      // for series episodes BEFORE the legacy LLM structuring pass.
+      // These passes inject structured context into seriesContext so the
+      // downstream script generator and enrichment pass can leverage it.
+      // ──────────────────────────────────────────────────────────────────────
+      if (this.promptManager instanceof SeriesVideoGenerator) {
+        const generator = this.promptManager as SeriesVideoGenerator
+        const ctx = generator.seriesContext
+        const llmService = await this.getLlmService()
+
+        // ALWAYS force 60s duration for series episodes as per user requirement
+        options.duration = 60
+
+        // Activate CINEMATIC economizer mode for series (enables all Vimax agents)
+        if (!(ctx as any).economizerMode) {
+          ;(ctx as any).economizerMode = VimaxEconomizerMode.CINEMATIC
+        }
+
+        // ── PASS 0: Global Arc (only on Episode 1 or if no arc yet) ─────────
+        // Use s.roadmap if it contains Vimax arc data from PrepareSeries
+        const roadmapData = ctx.roadmap as any
+        if (!ctx.seriesNarrativeArc && roadmapData?.arc?.script) {
+          console.info('[NanoBanana] 🌍 VIMAX: Reusing global arc from series roadmap.')
+          ctx.seriesNarrativeArc = roadmapData.arc
+
+          // Update context with the roadmap (User Pattern)
+          ctx.plannedEpisodes = roadmapData.arc.roadmap
+          ctx.totalEpisodes = roadmapData.arc.totalEpisodes
+          if (roadmapData.arc.roadmap?.[0]) {
+            ctx.currentEpisodePitch = roadmapData.arc.roadmap[0].summary
+          }
+        }
+
+        if (ctx.episodeNumber <= 1 && !ctx.seriesNarrativeArc) {
+          if (onProgress) await onProgress(5, 'step.vimax_pass0_arc')
+          console.info('[NanoBanana] 🌍 VIMAX PASS 0: Generating global series arc...')
+          const arc = await generator.generateSeriesArc(topic, llmService)
+          ctx.seriesNarrativeArc = arc
+
+          // Update context with the roadmap (User Pattern)
+          ctx.plannedEpisodes = arc.roadmap
+          ctx.totalEpisodes = arc.totalEpisodes
+          if (arc.roadmap?.[0]) {
+            ctx.currentEpisodePitch = arc.roadmap[0].summary
+          }
+          console.info(`[NanoBanana] ✅ VIMAX PASS 0: Arc generated — ${arc.roadmap?.length || 0} episodes planned.`)
+        }
+
+        // ── PASS 1a: Episode Plan (always) ────────────────────────────────────
+        // Check if PrepareSeries already generated the plan for the first episode
+        if (!ctx.episodePlan && ctx.episodeNumber === 1 && roadmapData?.episode1Plan) {
+          console.info('[NanoBanana] 📋 VIMAX: Reusing Episode 1 plan from preparation.')
+          ctx.episodePlan = roadmapData.episode1Plan
+        }
+
+        if (!ctx.episodePlan) {
+          if (onProgress) await onProgress(15, 'step.vimax_pass1_plan')
+          console.info(`[NanoBanana] 📋 VIMAX PASS 1a: Generating episode plan for Ep ${ctx.episodeNumber}...`)
+          const arc = ctx.seriesNarrativeArc || {
+            roadmap: [{ episodeNumber: ctx.episodeNumber, summary: topic, process: [] }]
+          }
+          const plan = await generator.generateEpisodePlan(arc, llmService)
+          ctx.episodePlan = plan
+          console.info(`[NanoBanana] ✅ VIMAX PASS 1a: Plan generated — ${plan.scenes?.length || 0} scenes.`)
+        }
+
+        // ── PASS 1b: Vimax Narration (always when plan exists) ────────────────
+        if (ctx.episodePlan && !(ctx as any)._vimaxNarrationDone) {
+          if (onProgress) await onProgress(25, 'step.vimax_pass1_narration')
+          console.info('[NanoBanana] ✍️ VIMAX PASS 1b: Generating Vimax narration...')
+          const narration = await generator.generateNarrationWithVimax(llmService)
+          ;(ctx as any)._vimaxNarration = narration
+          ;(ctx as any)._vimaxNarrationDone = true
+          // Inject into the topic so the legacy script generator uses it as context
+          topic = `${topic}\n\n[VIMAX_NARRATION]\n${narration}`
+          console.info(`[NanoBanana] ✅ VIMAX PASS 1b: Narration ready (${narration.length} chars).`)
+        }
+      }
+
+      const script = await this.generationQueue.add(
         () =>
           this.scriptGenerator.generateCompleteScript(topic, valid, async (p, m) => {
             // Keep original behavior if caller didn't scale,
@@ -764,6 +882,14 @@ export class NanoBananaEngine {
         `Script: ${topic}`,
         'llm'
       )
+
+      // [VIMAX] Pass 2: Visual Enrichment (Storyboard + Camera Tree)
+      if (this.promptManager instanceof SeriesVideoGenerator) {
+        if (onProgress) await onProgress(95, 'step.vimax_enrichment')
+        await this.promptManager.enrichScriptWithVimax(script, await this.getLlmService())
+      }
+
+      return script
     } catch (error) {
       if (this.isNetworkError(error) && this.currentLLMProvider === 'grok') {
         this.currentLLMProvider = 'haiku'
@@ -1242,7 +1368,7 @@ export class NanoBananaEngine {
           },
           `Scene ${i + 1}`,
           'image', // Standard image provider limit
-          locId // STRICT sequentiality per location for AnchorEngine
+          locId // STRICT sequentiality per location
         )
         sceneImagePromises.set(i, task)
 

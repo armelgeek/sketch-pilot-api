@@ -1,8 +1,11 @@
+import process from 'node:process'
 import { and, eq, notInArray } from 'drizzle-orm'
 import { IUseCase } from '@/domain/types'
 import { db } from '@/infrastructure/database/db'
 import { videos } from '@/infrastructure/database/schema'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
+import { SeriesVideoGenerator } from '../../../../plugins/sketch-pilot/src/core/generators/series-video-generator'
+import { LLMServiceFactory } from '../../../../plugins/sketch-pilot/src/services/llm'
 import { GenerateVideoUseCase } from '../video/generate-video.use-case'
 
 type GenerateNextEpisodeParams = {
@@ -73,6 +76,39 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
         topic = `Épisode ${nextEpisodeNumber}`
       }
 
+      // --- [Pass 1 to 2] Vimax Orchestration ---
+      const llmService = await LLMServiceFactory.create({
+        provider: 'openai',
+        apiKey: process.env.OPENAI_API_KEY || ''
+      })
+      const generator = new SeriesVideoGenerator({ apiKey: process.env.OPENAI_API_KEY } as any, latestContext)
+      const seriesArc = (series.roadmap as any)?.arc || { roadmap: latestContext.plannedEpisodes }
+
+      // --- PASS 1: EPISODE PLAN ---
+      console.info(`--- PASS 1: GÉNÉRATION DU PLAN POUR L'ÉPISODE ${latestContext.episodeNumber} ---`)
+      const episodePlan = await generator.generateEpisodePlan(seriesArc, llmService)
+      ;(latestContext as any).episodePlan = episodePlan
+      console.info("✅ Plan d'épisode généré:", episodePlan.scenes.map((s: any) => s.title).join(' -> '))
+      console.info('\n')
+
+      // --- PASS 1: NARRATION (SCREENPLAY) ---
+      console.info('--- PASS 1: RÉDACTION DU SCÉNARIO ---')
+      const script = await generator.generateNarrationWithVimax(llmService)
+      console.info('✅ Scénario rédigé (caractères):', script.length)
+      console.info('📄 Premiers 150 caractères:', `${script.slice(0, 150)}...`)
+      console.info('\n')
+
+      // --- PASS 2: VISUAL ENRICHMENT ---
+      console.info('--- PASS 2: ENRICHISSEMENT VISUEL (STORYBOARD & SHOTS VIMAX) ---')
+      const enrichedScript = await generator.enrichScriptWithVimax(
+        {
+          fullNarration: script,
+          scenes: episodePlan.scenes,
+          characters: [] // Character Extraction happens internally in actual flow
+        },
+        llmService
+      )
+
       console.info(`[GenerateNextEpisode] Starting episode ${nextEpisodeNumber} for series ${seriesId}: ${topic}`)
 
       const result = await this.generateVideoUseCase.execute({
@@ -84,8 +120,9 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
           type: 'series',
           title: displayTitle,
           episodeNumber: nextEpisodeNumber,
-          scriptOnly: true
-        } as any
+          scriptOnly: false // Proceed to full generation
+        } as any,
+        preGeneratedScript: enrichedScript
       })
 
       if (!result.success) {

@@ -13,6 +13,7 @@ type GenerateVideoParams = {
   planId?: string
   topic: string
   options?: Partial<VideoGenerationOptions>
+  preGeneratedScript?: any
 }
 
 type GenerateVideoResponse = {
@@ -63,7 +64,13 @@ const promptService = new PromptService(new PromptRepository())
 const seriesRepository = new SeriesRepository()
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
-  async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
+  async execute({
+    userId,
+    planId,
+    topic,
+    options = {},
+    preGeneratedScript
+  }: GenerateVideoParams): Promise<GenerateVideoResponse> {
     try {
       // 1. Resolve Spec from DB
       let spec = await promptService.resolveSpec(options.promptId)
@@ -195,7 +202,10 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         episodeNumber: spec?.seriesMetadata?.episodeNumber,
         options: { ...videoOptions, creditsUsed: totalCost },
         language: options.language || 'en',
-        creditsUsed: totalCost
+        creditsUsed: totalCost,
+        script: preGeneratedScript,
+        scenes: preGeneratedScript?.scenes,
+        status: preGeneratedScript ? 'script_generated' : 'queued'
       })
 
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })

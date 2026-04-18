@@ -54,7 +54,8 @@ export class SeriesController implements Routes {
                   promptId: z.string().optional(),
                   skipPortraits: z.boolean().optional(),
                   aspectRatio: z.string().optional(),
-                  roadmapOnly: z.boolean().optional()
+                  roadmapOnly: z.boolean().optional(),
+                  userCharacterAnchors: z.record(z.string()).optional()
                 })
               }
             }
@@ -135,7 +136,10 @@ export class SeriesController implements Routes {
           totalEpisodes,
           skipPortraits,
           roadmapOnly,
-          characterModelId
+          characterModelId,
+          userCharacterAnchors: c.req.query('userCharacterAnchors')
+            ? JSON.parse(c.req.query('userCharacterAnchors'))
+            : undefined
         })
 
         for await (const event of generator) {

@@ -155,10 +155,14 @@ export const SCENE_OBJECT_EXAMPLE = `
 {
   "id": "scene-1",
   "sceneNumber": 1,
+  "camIdx": 0,
   "atomType": "hook | build | pivot | reveal | close",
   "narration": "...",
   "locationId": "snake_case_id (SANS @)",
   "imagePrompt": "Description visuelle riche (40-60 mots). SANS JSON INTERNE.",
+  "ffDesc": "Instantané statique de la PREMIÈRE image (FF). Composition, posture fixe, décor immuable.",
+  "lfDesc": "Instantané statique de la DERNIÈRE image (LF). État final après le mouvement.",
+  "motionDesc": "Description du mouvement entre FF et LF (caméra et sujets).",
   "charactersInScene": ["@Handle"],
   "pacingHint": "lent | rapide | crescendo",
   "sceneDelta": "Information nouvelle cruciale apprise dans cette scène",
@@ -367,11 +371,13 @@ export function buildPass3SystemPrompt(p: Pass3Params): string {
   return `Tu es le Réalisateur Visuel (THE LIVING ENGINE v19.0).
 MISSION : Transformer les atomes narratifs en scènes cinématographiques riches.
 
-DIRECTIVES TECHNIQUES :
+DIRECTIVES TECHNIQUES VIMAX :
 1. DENSITÉ VISUELLE : Chaque imagePrompt doit être une peinture technique (40-60 mots).
-2. ACTING DYNAMIQUE : Précisez physicalIntent et microExpression.
-3. MOMENTUM : Définissez le vecteur de progression.
-4. NARRATIVE DELTA : Identifiez l'information cruciale et sa conséquence.
+2. CAMERA TREE : Assignez un camIdx à chaque scène. Réutilisez le MÊME camIdx si vous revenez à une position de caméra déjà établie dans l'épisode.
+3. FF/LF CONTINUITY : Décomposez chaque scène en ffDesc (Snaphot début), lfDesc (Snapshot fin) et motionDesc.
+4. ACTING DYNAMIQUE : Précisez physicalIntent et microExpression.
+5. MOMENTUM : Définissez le vecteur de progression.
+6. NARRATIVE DELTA : Identifiez l'information cruciale et sa conséquence.
 
 ${VISUAL_DNA_INTEGRITY}
 ${CINEMATOGRAPHIC_GUARDS}

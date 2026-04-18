@@ -1,16 +1,26 @@
+import { LLMServiceFactory, type LLMService } from '../../services/llm'
 import { computeSceneCountRange, type EnrichedScene, type VideoGenerationOptions } from '../../types/video-script.types'
+import { VimaxBestImageSelector } from '../vimax/VimaxBestImageSelector'
+
+import { VimaxCameraTreeDirector } from '../vimax/VimaxCameraTreeDirector'
+import { VimaxCharacterExtractor } from '../vimax/VimaxCharacterExtractor'
+import { VimaxCharacterFusion } from '../vimax/VimaxCharacterFusion'
+import { VimaxEventExtractor } from '../vimax/VimaxEventExtractor'
+import { VimaxNarrativeMemory } from '../vimax/VimaxNarrativeMemory'
+import { VimaxEconomizerMode, VimaxPipelineEconomizer } from '../vimax/VimaxPipelineEconomizer'
+import { VimaxReferenceSelector } from '../vimax/VimaxReferenceSelector'
+import { VimaxSagaCompressor } from '../vimax/VimaxSagaCompressor'
+import { VimaxSagaPlanner } from '../vimax/VimaxSagaPlanner'
+import { VimaxSceneExtractor } from '../vimax/VimaxSceneExtractor'
+import { VimaxScreenwriter } from '../vimax/VimaxScreenwriter'
+import { VimaxScriptEnhancer } from '../vimax/VimaxScriptEnhancer'
+import { VimaxShotDecomposer } from '../vimax/VimaxShotDecomposer'
+import { VimaxStoryboardArtist } from '../vimax/VimaxStoryboardArtist'
 import type { VideoTypeSpecification } from '../prompt-maker.types'
 import { registerCharacterVisual } from './series/character-consistency'
 import { registerLocationVisual } from './series/location-consistency'
-
 import { buildImagePrompt as buildImagePromptExternal } from './series/series-image-prompt.builder'
-import {
-  buildPass0SystemPrompt,
-  buildPass1EpisodePlanPrompt,
-  buildPass2SystemPrompt,
-  buildPass3SystemPrompt,
-  buildSeriesOutputFormat
-} from './series/series-prompts'
+import { buildPass3SystemPrompt, buildSeriesOutputFormat } from './series/series-prompts'
 import {
   ContinuityDebtManager,
   findInRegistry,
@@ -65,7 +75,7 @@ export interface ResolvedStake {
 export interface SeriesMetadata {
   episodeSummary: string
   cliffhanger: TypedCliffhanger
-  characterContinuity: Record<string, { description: string; isNew: boolean }>
+  characterContinuity: Record<string, { description: string; isNew: boolean; visualDNA?: string }>
   nextEpisodeTease: string
   unresolvedThreads: NarrativeThread[]
   assetEvolution?: Record<string, string>
@@ -110,6 +120,7 @@ export interface SeriesContext {
       modelId?: string
       portraitPrompt?: string
       thumbnailUrl?: string
+      visualDNA?: string
       referenceSceneId?: string
       referenceEpisode?: number
       firstMentionedSceneId?: string
@@ -137,6 +148,7 @@ export interface SeriesContext {
         baseState?: any
         stateLock?: any
       }
+      visualDNA?: string
       locks?: Record<string, string>
     }
   >
@@ -299,6 +311,23 @@ export class SeriesVideoGenerator extends VideoGenerator {
   public seriesContext: SeriesContext
   private narrativeInstructions: string[] = []
 
+  // Vimax Agents (Lazily Initialized)
+  private _memory?: VimaxNarrativeMemory
+  private _director?: VimaxCameraTreeDirector
+  private _storyboardArtist?: VimaxStoryboardArtist
+  private _decomposer?: VimaxShotDecomposer
+  private _referenceSelector?: VimaxReferenceSelector
+  private _characterExtractor?: VimaxCharacterExtractor
+  private _sagaPlanner?: VimaxSagaPlanner
+  private _characterFusion?: VimaxCharacterFusion
+  private _bestImageSelector?: VimaxBestImageSelector
+  private _sagaCompressor?: VimaxSagaCompressor
+  private _eventExtractor?: VimaxEventExtractor
+  private _sceneExtractor?: VimaxSceneExtractor
+  private _screenwriter?: VimaxScreenwriter
+  private _scriptEnhancer?: VimaxScriptEnhancer
+  private _llmService?: LLMService
+
   constructor(config: VideoGeneratorConfig, seriesContext: SeriesContext) {
     super(config)
     this.seriesContext = seriesContext
@@ -378,6 +407,79 @@ export class SeriesVideoGenerator extends VideoGenerator {
     this.narrativeInstructions = instructions
   }
 
+  private async getVimaxAgents(llmService: LLMService) {
+    const economizerMode = (this.seriesContext as any).economizerMode || VimaxEconomizerMode.DRAFT
+    const economizer = new VimaxPipelineEconomizer(economizerMode)
+    const required = economizer.getRequiredAgents()
+
+    const loadIfRequired = <T>(name: string, factory: () => T): T | undefined => {
+      if (required.includes('all') || required.includes(name)) {
+        return factory()
+      }
+      return undefined
+    }
+
+    if (!this._memory) this._memory = loadIfRequired('memory', () => new VimaxNarrativeMemory(llmService))
+    if (!this._director) this._director = loadIfRequired('director', () => new VimaxCameraTreeDirector(llmService))
+    if (!this._storyboardArtist)
+      this._storyboardArtist = loadIfRequired('storyboardArtist', () => new VimaxStoryboardArtist(llmService))
+    if (!this._decomposer) this._decomposer = loadIfRequired('decomposer', () => new VimaxShotDecomposer(llmService))
+    if (!this._referenceSelector)
+      this._referenceSelector = loadIfRequired('referenceSelector', () => new VimaxReferenceSelector(llmService))
+    if (!this._characterExtractor)
+      this._characterExtractor = loadIfRequired('characterExtractor', () => new VimaxCharacterExtractor(llmService))
+    if (!this._sagaPlanner) this._sagaPlanner = loadIfRequired('sagaPlanner', () => new VimaxSagaPlanner(llmService))
+    if (!this._characterFusion)
+      this._characterFusion = loadIfRequired('characterFusion', () => new VimaxCharacterFusion(llmService))
+    if (!this._bestImageSelector)
+      this._bestImageSelector = loadIfRequired('bestImageSelector', () => new VimaxBestImageSelector(llmService))
+    if (!this._sagaCompressor)
+      this._sagaCompressor = loadIfRequired('sagaCompressor', () => new VimaxSagaCompressor(llmService))
+    if (!this._eventExtractor)
+      this._eventExtractor = loadIfRequired('eventExtractor', () => new VimaxEventExtractor(llmService))
+    if (!this._sceneExtractor)
+      this._sceneExtractor = loadIfRequired('sceneExtractor', () => new VimaxSceneExtractor(llmService))
+    if (!this._screenwriter)
+      this._screenwriter = loadIfRequired('screenwriter', () => new VimaxScreenwriter(llmService))
+    if (!this._scriptEnhancer)
+      this._scriptEnhancer = loadIfRequired('scriptEnhancer', () => new VimaxScriptEnhancer(llmService))
+
+    return {
+      memory: this._memory!,
+      director: this._director!,
+      storyboardArtist: this._storyboardArtist!,
+      decomposer: this._decomposer!,
+      referenceSelector: this._referenceSelector!,
+      characterExtractor: this._characterExtractor!,
+      sagaPlanner: this._sagaPlanner!,
+      characterFusion: this._characterFusion!,
+      bestImageSelector: this._bestImageSelector!,
+      sagaCompressor: this._sagaCompressor!,
+      eventExtractor: this._eventExtractor!,
+      sceneExtractor: this._sceneExtractor!,
+      screenwriter: this._screenwriter!,
+      scriptEnhancer: this._scriptEnhancer!,
+      economizer
+    }
+  }
+
+  public async getLlmService(): Promise<LLMService> {
+    if (!this._llmService) {
+      // Fallback to factory if not set
+      this._llmService = await LLMServiceFactory.create({
+        provider: 'gemini', // Default
+        apiKey: (this.config as any).apiKey || '',
+        cacheSystemPrompt: true
+      })
+    }
+    return this._llmService
+  }
+
+  public async getMemory(llmService: LLMService): Promise<VimaxNarrativeMemory> {
+    if (!this._memory) this._memory = new VimaxNarrativeMemory(llmService)
+    return this._memory
+  }
+
   public getType(): string {
     return 'series'
   }
@@ -385,7 +487,7 @@ export class SeriesVideoGenerator extends VideoGenerator {
   /**
    * Hardcore Semantic Audit for Series
    */
-  public override auditScript(script: any): { isValid: boolean; issues: string[]; feedback?: string } {
+  public auditScript(script: any): { isValid: boolean; issues: string[]; feedback?: string } {
     console.info(
       `[SeriesVideoGenerator] 🛡️ Hallucination Sentinel: Auditing episode ${this.seriesContext.episodeNumber}...`
     )
@@ -403,6 +505,137 @@ export class SeriesVideoGenerator extends VideoGenerator {
     return { isValid: true, issues: [] }
   }
 
+  /**
+   * Vimax Enrichment Loop
+   * Enriches the script with Camera Tree grouping and FF/LF decomposition.
+   */
+  public async enrichScriptWithVimax(script: any, llmService: LLMService): Promise<any> {
+    console.info(`[SeriesVideoGenerator] 🎬 Vimax Visual Pass: Episode ${this.seriesContext.episodeNumber}...`)
+    const { director, storyboardArtist, decomposer, memory, economizer } = await this.getVimaxAgents(llmService)
+
+    const originalScenes: any[] = script.scenes || []
+    const epId = (i: number) => `ep${this.seriesContext.episodeNumber}_s${i}`
+
+    // ── DRAFT: Skip storyboard & camera tree, just re-id and fix imagePrompt ──
+    if (economizer.mode === VimaxEconomizerMode.DRAFT) {
+      console.info(`[SeriesVideoGenerator] ⚡ Economizer: DRAFT MODE - Skipping Storyboard & Camera Tree.`)
+      script.scenes = originalScenes.map((s: any, i: number) => ({
+        // Preserve ALL original fields (narration, locationId, transition, cameraAction,
+        // preset, continueFromPrevious, persistentDecorTokens, composition,
+        // visualEvolution, visualDelta, acting, momentum, tensionState, etc.)
+        ...s,
+        id: epId(i),
+        // imagePrompt already computed by LLM — only fallback to summary if missing
+        imagePrompt: s.imagePrompt || s.summary || s.narration || '',
+        ffDesc: s.imagePrompt || s.summary || s.narration || '',
+        variationType: 'small'
+      }))
+      return script
+    }
+
+    // 1. Storyboard Artist: Design the shot structure (ShotBriefDescription)
+    console.info(`[SeriesVideoGenerator] 🎨 Designing Storyboard...`)
+
+    // [V52] AutoCameo Hardware: Inject visualDNA from registry
+    const characters = (script.characters || []).map((c: any) => {
+      const charId = SeriesVideoGenerator.normalizeId(c.name)
+      const regChar = this.seriesContext.characterRegistry?.[c.name] || this.seriesContext.characterRegistry?.[charId]
+      if (regChar?.visualDNA) {
+        return { ...c, description: `${c.description || ''} ${regChar.visualDNA}`.trim() }
+      }
+      return c
+    })
+
+    // Use fullNarration first, fallback to narration per scene
+    const narrativeSource =
+      script.fullNarration || originalScenes.map((s: any) => s.narration || s.script || s.summary).join('\n')
+
+    const shotBriefs = await storyboardArtist!.designStoryboard(
+      narrativeSource,
+      characters,
+      this.seriesContext.videoGenre || ''
+    )
+
+    // 2. Shot Decomposer: Expand brief shots into full descriptions (FF/LF/Motion)
+    console.info(`[SeriesVideoGenerator] 🎞️ Decomposing ${shotBriefs.length} shots...`)
+    const shotDescriptions = await Promise.all(
+      shotBriefs.map((brief) => decomposer!.decomposeShot(brief.visualDesc, characters))
+    )
+
+    // 3. Camera Tree Director: Establish spatial hierarchy
+    console.info(`[SeriesVideoGenerator] 📡 Constructing Camera Tree...`)
+    const cameras = await director!.constructCameraTree(
+      shotBriefs.map((b) => ({ idx: b.camIdx, activeShotIdxs: [b.idx] })),
+      shotBriefs
+    )
+
+    // 4. Map back to script scenes
+    // ⚠️ Shot count from storyboard may differ from original scene count.
+    //    We iterate over originalScenes and match each to the closest shot.
+    //    Vimax visual data overrides ONLY image-related fields.
+    //    ALL narrative/DB fields (narration, locationId, transition, cameraAction,
+    //    preset, continueFromPrevious, persistentDecorTokens, composition,
+    //    visualEvolution, visualDelta, visualBaseState, visualStateLock,
+    //    frameAnchor, worldStateSnapshot, weatherState, timeOfDay, colorPalette,
+    //    cameraStyle, sceneDelta, scenePurpose, tensionState, acting, momentum,
+    //    sequenceId, sequenceProgress, visualSubject, sceneNumber, charactersInScene)
+    //    are PRESERVED from the original scene.
+    const mappedCount = Math.max(originalScenes.length, shotDescriptions.length)
+    script.scenes = Array.from({ length: mappedCount }, (_, i) => {
+      // For extra shots, duplicate the last original scene as skeleton
+      const originalScene = originalScenes[i] ?? { ...originalScenes.at(-1) }
+      // If storyboard produced fewer shots, reuse last description
+      const descIdx = Math.min(i, shotDescriptions.length - 1)
+      const briefIdx = Math.min(i, shotBriefs.length - 1)
+      const desc = shotDescriptions[descIdx]
+      const brief = shotBriefs[briefIdx] as any
+      const cam = cameras.find((c) => c.activeShotIdxs.includes(i))
+
+      return {
+        // ── 1. FULL original scene (all DB fields preserved) ────────────────
+        ...originalScene,
+        // ── 2. Vimax overrides (visual pipeline only) ───────────────────────
+        id: epId(i),
+        // imagePrompt: Vimax FF replaces LLM prompt for pixel-perfect consistency
+        imagePrompt: desc?.ffDesc || originalScene.imagePrompt || originalScene.summary || '',
+        ffDesc: desc?.ffDesc || null,
+        lfDesc: desc?.lfDesc || null,
+        motionDesc: desc?.motionDesc || null,
+        variationType: (desc as any)?.variationType || 'small',
+        // Camera spatial hierarchy
+        camIdx: brief?.camIdx ?? null,
+        audioDesc: brief?.audioDesc || originalScene.audioDesc || null,
+        parentCamIdx: cam?.parentCamIdx ?? null,
+        parentShotIdx: cam?.parentShotIdx ?? null,
+        spatialReason: cam?.reason ?? null
+      }
+    })
+
+    // 5. Update Narrative Memory
+    if (script.seriesMetadata?.episodeSummary) {
+      memory.addFact({
+        content: script.seriesMetadata.episodeSummary,
+        importance: 8,
+        episodeIndex: this.seriesContext.episodeNumber,
+        tags: ['summary']
+      })
+    }
+
+    return script
+  }
+
+  /**
+   * Vimax Production: Generate Highly Consistent Frames
+   */
+  public async generateFramesWithVimax(scene: any, llmService: LLMService): Promise<{ ff: string; lf?: string }> {
+    // In Vimax, this is where we'd generate candidates and use BestImageSelector.
+    // Sketch Pilot's NanoBananaEngine handles the generation, so we provide the prompts.
+    return {
+      ff: scene.ffDesc,
+      lf: scene.variationType === 'large' || scene.variationType === 'medium' ? scene.lfDesc : undefined
+    }
+  }
+
   // ─── Output Format ──────────────────────────────────────────────────────────
 
   protected getDefaultOutputFormat(): string {
@@ -411,42 +644,82 @@ export class SeriesVideoGenerator extends VideoGenerator {
 
   // ─── Pass 0: Global Series Arc ──────────────────────────────────────────────
 
-  public async generateSeriesArc(topic: string, llmService: any): Promise<any> {
-    console.log(`[SeriesVideoGenerator] Pass 0: Generating Global Series Arc for "${topic}"...`)
-    const prompt = buildPass0SystemPrompt({
-      seriesTopic: topic,
-      episodeCount: this.seriesContext.totalEpisodes || 10,
-      characterRegistry: this.seriesContext.characterRegistry || {},
-      locationRegistry: this.seriesContext.locationRegistry || {},
-      globalContext: this.seriesContext.globalContext
-    })
+  public async generateSeriesArc(topic: string, llmService: LLMService): Promise<any> {
+    console.log(`[SeriesVideoGenerator] Pass 0: Generating Global Series Arc for "${topic}" using Vimax Saga Brain...`)
+    const { sagaPlanner, eventExtractor } = await this.getVimaxAgents(llmService)
 
-    const json = await llmService.generateContent(
-      `Planifiez une saga épique basée sur : ${topic}`,
-      prompt,
-      'application/json'
-    )
-    return JSON.parse(json)
+    // 1. Intent-Routed Planning
+    const { intent, script: narrativeBible } = await sagaPlanner.planSaga(topic)
+    console.log(`[SeriesVideoGenerator] Vimax Intent: ${intent}`)
+
+    // 2. High-Fidelity Event Extraction
+    const events = await eventExtractor.extractEvents(narrativeBible)
+    console.log(`[SeriesVideoGenerator] Vimax Extracted ${events.length} causal events.`)
+
+    // 3. Narrative Compression & Roadmap Structuring
+    const roadmap = events.map((e) => ({
+      episodeNumber: e.index + 1,
+      title: e.description,
+      hook: e.processChain[0] || '',
+      summary: e.description,
+      process: e.processChain
+    }))
+
+    return {
+      intent,
+      bible: narrativeBible,
+      roadmap,
+      totalEpisodes: roadmap.length
+    }
   }
 
   // ─── Pass 1: Episode Planning ───────────────────────────────────────────────
 
-  public async generateEpisodePlan(seriesArc: any, llmService: any): Promise<any> {
-    console.log(`[SeriesVideoGenerator] Pass 1: Generating Episode Plan for Ep ${this.seriesContext.episodeNumber}...`)
-    const prompt = buildPass1EpisodePlanPrompt({
-      episodeNumber: this.seriesContext.episodeNumber,
-      seriesArc: JSON.stringify(seriesArc),
-      characterRegistry: this.seriesContext.characterRegistry || {},
-      locationRegistry: this.seriesContext.locationRegistry || {},
-      lastEpisodeSummary: this.seriesContext.lastEpisodeSummary
-    })
-
-    const json = await llmService.generateContent(
-      `Concevez le plan structurel de l'épisode ${this.seriesContext.episodeNumber}`,
-      prompt,
-      'application/json'
+  public async generateEpisodePlan(seriesArc: any, llmService: LLMService): Promise<any> {
+    console.log(
+      `[SeriesVideoGenerator] Pass 1: Generating Episode Plan for Ep ${this.seriesContext.episodeNumber} using Vimax...`
     )
-    return JSON.parse(json)
+    const { sceneExtractor } = await this.getVimaxAgents(llmService)
+
+    // Find the event in the roadmap and normalize it to the VimaxEvent shape
+    const rawEvent = (seriesArc.roadmap || []).find(
+      (r: any) => r.episodeNumber === this.seriesContext.episodeNumber
+    ) || {
+      description: this.seriesContext.currentEpisodePitch || 'Episode Plan',
+      processChain: []
+    }
+    // Normalize: roadmap entries use 'process', VimaxEvent uses 'processChain'
+    const event = {
+      index: rawEvent.episodeNumber ? rawEvent.episodeNumber - 1 : 0,
+      description: rawEvent.description || rawEvent.summary || '',
+      processChain: rawEvent.processChain || rawEvent.process || [],
+      isLast: false
+    }
+
+    // Extract scenes for this episode
+    const vimaxScenes = await sceneExtractor.extractScenes(event, [event.description, ...event.processChain])
+
+    return {
+      episodeNumber: this.seriesContext.episodeNumber,
+      scenes: vimaxScenes.map((s) => ({
+        id: `ep${this.seriesContext.episodeNumber}_s${s.idx}`,
+        title: s.environment.slugline,
+        summary: s.environment.description,
+        // `script` is the raw narrative text from VimaxSceneExtractor.
+        // Expose as `narration` so it matches enrichedSceneSchema and video_scenes DB schema.
+        narration: s.script || s.environment.description || '',
+        script: s.script,
+        // `environment.description` is the visual scene description — seed imagePrompt early.
+        imagePrompt: s.environment.description || '',
+        locationId: s.environment.slugline
+          ? s.environment.slugline
+              .toLowerCase()
+              .replaceAll(/[\s/\\]+/g, '_')
+              .replaceAll(/[^a-z0-9_]/g, '')
+          : undefined,
+        charactersInScene: s.characters.map((c) => c.identifierInScene)
+      }))
+    }
   }
 
   // ─── Narrative Overrides ────────────────────────────────────────────────────
@@ -471,101 +744,53 @@ export class SeriesVideoGenerator extends VideoGenerator {
   // ─── Pass 1: Narration ──────────────────────────────────────────────────────
 
   public buildTwoPassPrompts(topic: string, options: VideoGenerationOptions, targetWords?: number) {
-    const wps = this.getWordsPerSecond(options)
-    const duration = this.getEffectiveDuration(options)
-    const safetyFactor = this.getSafetyFactor(options)
-    const target = targetWords ?? Math.round(duration * wps * safetyFactor)
-
     const ctx = this.seriesContext
-
-    const missions: string[] = []
     const currentEp = ctx.episodeNumber
 
-    // Check unresolved threads for aging (Payoff Enforcement)
-    if (ctx.unresolvedThreads) {
-      for (const thread of ctx.unresolvedThreads) {
-        const age = currentEp - (thread.lastUpdatedEpisode || 1)
-        if (age >= 3 || (thread.mustResolveBy && currentEp >= thread.mustResolveBy)) {
-          missions.push(
-            `PAYOFF OBLIGATOIRE : ${thread.title} (Fil ouvert depuis l'épisode ${thread.lastUpdatedEpisode || 1}). Vous DEVEZ apporter une réponse claire et définitive ici.`
-          )
-        }
-      }
-    }
-
-    // Check resolved stakes for loop breaker (Repeated cliffhangers)
-    const cliffhangerCounts: Record<string, number> = {}
-    if (ctx.resolvedStakes) {
-      for (const stake of ctx.resolvedStakes) {
-        const desc = stake.title.toLowerCase()
-        if (desc.includes('englouti') || desc.includes('absorbé')) {
-          cliffhangerCounts.englouti = (cliffhangerCounts.englouti || 0) + 1
-        }
-        if (stake.mustResolveBy && currentEp >= stake.mustResolveBy) {
-          missions.push(
-            `SOUDURE OBLIGATOIRE : ${stake.title} (Cliffhanger de l'épisode ${stake.episodeNumber}). Vous DEVEZ expliquer comment cela finit dès la scène 1 ou 2.`
-          )
-        }
-      }
-    }
-
-    if (cliffhangerCounts.englouti >= 2) {
-      missions.push(
-        `ALERTE BOUCLE : Vance a déjà été englouti ${cliffhangerCounts.englouti} fois. INTERDICTION FORMELLE de réutiliser ce cliffhanger. Vous DEVEZ le sortir de là définitivement dans cet épisode.`
-      )
-    }
-
-    const missionBlock = missions.length
-      ? `🚨 MISSIONS OBLIGATOIRES (PRIORITÉ ABSOLUE) :\n${missions.map((m) => `- ${m}`).join('\n')}\n\n`
-      : ''
-
-    const threadsInstruction = ctx.unresolvedThreads?.length
-      ? `\n\nINTRIGUES SECONDAIRES EN COURS (à tisser subtilement, sans forcer) :\n${ctx.unresolvedThreads
-          .map((t: any) => {
-            if (typeof t === 'string') return `- [OPEN] ${t}`
-            return `- [${(t.status || 'OPEN').toUpperCase()}] ${t.title || 'Inconnu'}: ${t.description || 'Pas de description'}`
-          })
-          .join('\n')}\nCes questions doivent rester ouvertes — apportez des fragments de réponse, pas la résolution.`
-      : ''
-
-    const deadCharacters = Object.entries(ctx.characterRegistry || {})
-      .filter(([_, d]) => d.status === 'dead')
-      .map(([name, d]) => `- ${name} : mort à l'épisode ${d.deathEpisode}. Toute apparition est INTERDITE.`)
-      .join('\n')
-
-    const resolvedStakes = ctx.resolvedStakes || []
-    const closedStakesInstruction = resolvedStakes.length
-      ? `\n\nENJEUX DÉJÀ TRANCHÉS (ANTI-LOOPING) : Ces dilemmes sont FERMÉS et ne peuvent être réouverts :\n${resolvedStakes
-          .map((s) => `- "${s.title}" → ${s.resolution} (Épisode ${s.episodeNumber})`)
-          .join('\n')}`
-      : ''
-
-    const seedingInstruction = ctx.seedingHints?.length
-      ? `\n\n🚨 PRÉPARATION DES TWISTS FUTURS (SEEDING) :\n${ctx.seedingHints.join('\n')}\nSemez des indices subtils pour préparer ces événements sans les révéler totalement.`
-      : ''
-
-    const forbiddenElements = ctx.genreConstraints?.forbiddenElements || []
-    const forbiddenInstruction = forbiddenElements.length
-      ? `\n\nÉLÉMENTS STRICTEMENT INTERDITS DANS CET UNIVERS :\n${forbiddenElements.join(', ')}`
-      : ''
-
-    const system = buildPass2SystemPrompt({
-      episodeNumber: ctx.episodeNumber,
-      episodePlan: JSON.stringify((ctx as any).episodePlan || {}),
-      seriesArc: JSON.stringify((ctx as any).seriesNarrativeArc || {}),
-      lastEpisodeSummary: ctx.lastEpisodeSummary,
-      characterRegistry: ctx.characterRegistry || {},
-      locationRegistry: ctx.locationRegistry || {},
-      artisticStyle: ctx.artisticStyle
-    })
-
+    // The Pass 1 in Vimax logic is handled by VimaxScreenwriter
+    // We prepare the context for the screenwriter here.
     return {
       pass1: {
-        system,
-        user: `${missionBlock}${ctx.forcedCorrection ? `🚨 MISSION CORRECTIVE : ${ctx.forcedCorrection}\n\n` : ''}DÉTAILS DE L'ÉPISODE : ${topic || options.episodeSummary || 'Générez la suite logique de la saga.'}\nCible : Générez un tableau de frames atomiques capturant l'essence de l'action.`,
-        targetWords: target
+        system: `[Vimax Screenwriting Engine] Preparing Episode ${currentEp}...`,
+        user: `EXTRACT: ${(ctx as any).episodePlan?.scenes?.map((s: any) => s.summary).join('\n') || topic}`,
+        targetWords: targetWords || 180
       }
     }
+  }
+
+  /**
+   * Vimax Execution: Generate Narration
+   * Overrides the default multi-pass generation to use Vimax agents.
+   */
+  public async generateNarrationWithVimax(llmService: LLMService): Promise<string> {
+    console.log(`[SeriesVideoGenerator] 🖋️ Vimax Narration Pass: Episode ${this.seriesContext.episodeNumber}...`)
+    const { screenwriter, scriptEnhancer, economizer } = await this.getVimaxAgents(llmService)
+
+    const episodicPlan = (this.seriesContext as any).episodePlan
+    if (!episodicPlan) throw new Error('Episode plan missing before narration pass.')
+
+    // Build the richest possible scene context for the screenwriter.
+    // Priority: narration (full text) > script (raw Vimax text) > summary (brief intent)
+    const sceneContextLines = episodicPlan.scenes.map((s: any, i: number) => {
+      const text = s.narration || s.script || s.summary || `Scene ${i + 1}`
+      return `SCENE ${i + 1} [${s.locationId || s.title || 'unknown'}]: ${text}`
+    })
+
+    // 1. Expand Plan into Screenplay
+    const scriptLines = await screenwriter!.writeScript(
+      JSON.stringify(sceneContextLines),
+      `Target duration: 60 seconds. Strict word count: 180 words maximum. Ensure professional dramatic pacing.`
+    )
+    const script = scriptLines.join('\n\n')
+
+    // 2. Enhance Script (Sensory Hardening) - Skip if in Draft/Professional mode
+    if (economizer.shouldSkipEnhancement()) {
+      console.info(`[SeriesVideoGenerator] ⚡ Economizer: Skipping Sensory Enhancement Pass.`)
+      return script
+    }
+
+    const enhancedScript = await scriptEnhancer!.enhance(script)
+    return enhancedScript
   }
 
   // ─── Pass 2: Structuring system prompt ─────────────────────────────────────
@@ -822,17 +1047,50 @@ ${instructions.join('\n')}
       loreUpdates: (this.seriesContext as any).loreUpdates,
       language: this.seriesContext.language,
       roadmapNarrativeHints: (this.seriesContext as any).roadmap?.narrativeHints,
-      visualRegistry: this.seriesContext.visualRegistry
+      visualRegistry: this.seriesContext.visualRegistry,
+      spec: this.getEffectiveSpec({} as any)
     })
 
     const spec = this.getEffectiveSpec({} as any)
     const finalPrompt = this.getEnrichedImagePrompt(result.prompt, spec)
 
+    // [VIMAX] Intelligent Reference Pruning
+    const llm = await this.getLlmService()
+    const { referenceSelector } = await this.getVimaxAgents(llm)
+
+    // Build initial reference list
+    const allRefs = [
+      ...result.characterSheets.map((s) => ({ name: `@${s.name}`, data: (s as any).thumbnailUrl || '' })),
+      ...result.referenceImages
+    ]
+
+    let finalReferenceImages
+    if (referenceSelector) {
+      const prunedRefs = await referenceSelector.selectReferences(
+        scene,
+        allRefs.map((img: any) => ({
+          name: typeof img === 'object' ? img.name! : 'Previous Frame',
+          data: typeof img === 'object' ? img.data! : img,
+          description:
+            typeof img === 'object' && img.name?.startsWith('LOCATION:')
+              ? 'Location Master Image'
+              : 'Character / Context Reference'
+        }))
+      )
+      finalReferenceImages = prunedRefs.map((r) => ({ name: r.name, data: r.data }))
+    } else {
+      // Fallback to all references if selector is missing (e.g. DRAFT mode)
+      finalReferenceImages = allRefs.map((img: any) => ({
+        name: typeof img === 'object' ? img.name! : 'Context Image',
+        data: typeof img === 'object' ? img.data! : img
+      }))
+    }
+
     return {
       sceneId: result.sceneId,
       prompt: finalPrompt,
       referenceImage: result.referenceImage,
-      referenceImages: result.referenceImages,
+      referenceImages: finalReferenceImages,
       characterSheets: result.characterSheets,
       reuseReferenceImage: result.reuseReferenceImage
     }
@@ -1144,9 +1402,33 @@ ${instructions.join('\n')}
    * syncRegistriesFromVision (Saga V6 FOUNDATION)
    * Entry point for aligning registries with actual generated frames.
    */
-  public async syncRegistriesFromVision(analysis: any) {
-    // This will be called by the pipeline after vision-based analysis
-    // Implementation will involve merging 'hard' visual facts into character/location descriptions
+  public async syncRegistriesFromVision(analysis: {
+    locations?: Record<string, string>
+    characters?: Record<string, string>
+  }) {
+    console.info(`[SeriesGenerator] 👁️  Syncing registries from Vision Analysis...`)
+
+    if (analysis.locations) {
+      for (const [locId, dna] of Object.entries(analysis.locations)) {
+        const id = normalizeId(locId)
+        const loc = findInRegistry(this.seriesContext.locationRegistry || {}, id)
+        if (loc) {
+          console.info(`[SeriesGenerator] 📍 Location DNA updated for ${id}`)
+          loc.visualDNA = dna
+        }
+      }
+    }
+
+    if (analysis.characters) {
+      for (const [charId, dna] of Object.entries(analysis.characters)) {
+        const id = normalizeId(charId)
+        const char = findInRegistry(this.seriesContext.characterRegistry || {}, id)
+        if (char) {
+          console.info(`[SeriesGenerator] 👤 Character DNA updated for ${id}`)
+          char.visualDNA = dna
+        }
+      }
+    }
   }
 
   // ─── Registry Helpers ───────────────────────────────────────────────────────

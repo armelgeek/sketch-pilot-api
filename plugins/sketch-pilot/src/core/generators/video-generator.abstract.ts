@@ -784,6 +784,17 @@ ${mandatoryRules.join('\n')}
   protected getEnrichedImagePrompt(basePrompt: string, spec: VideoTypeSpecification): string {
     let finalPrompt = basePrompt.trim()
 
+    // 1. Prefix with Style Fingerprint if available
+    if (spec.styleFingerprint) {
+      const fingerprints = Array.isArray(spec.styleFingerprint)
+        ? spec.styleFingerprint.join(', ')
+        : spec.styleFingerprint
+
+      if (!finalPrompt.toLowerCase().includes(fingerprints.toLowerCase().slice(0, 20))) {
+        finalPrompt = `${fingerprints}, ${finalPrompt}`
+      }
+    }
+
     // Apply style rules from spec
     const styleRules = [...(spec.visualRules || []), ...(spec.styleRules || [])]
 
