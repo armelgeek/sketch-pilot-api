@@ -1058,7 +1058,10 @@ export class VideosController implements Routes {
             }
           }
         } catch (error) {
-          console.warn(`[VideosController] ⚠ Could not remove job ${video.jobId} from queue (it may be locked):`, error)
+          console.warn(
+            `[VideosController] ⚠ Could not remove job ${video.jobId} from queue (it may be locked):`,
+            error
+          )
         }
 
         // 1. Refund credits if any were used

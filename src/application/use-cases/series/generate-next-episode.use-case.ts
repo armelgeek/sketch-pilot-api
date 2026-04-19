@@ -1,4 +1,6 @@
+import { VimaxOrchestrator } from '@sketch-pilot/core/vimax/VimaxOrchestrator'
 import { and, eq, notInArray } from 'drizzle-orm'
+import { SagaEvolutionService } from '@/application/services/saga-evolution.service'
 import { IUseCase } from '@/domain/types'
 import { db } from '@/infrastructure/database/db'
 import { videos } from '@/infrastructure/database/schema'
@@ -23,6 +25,7 @@ type GenerateNextEpisodeResponse = {
 export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodeParams, GenerateNextEpisodeResponse> {
   private readonly seriesRepository = new SeriesRepository()
   private readonly generateVideoUseCase = new GenerateVideoUseCase()
+  private readonly evolutionService = new SagaEvolutionService()
 
   async execute({ userId, seriesId, planId }: GenerateNextEpisodeParams): Promise<GenerateNextEpisodeResponse> {
     try {
@@ -75,6 +78,10 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
 
       console.info(`[GenerateNextEpisode] Starting episode ${nextEpisodeNumber} for series ${seriesId}: ${topic}`)
 
+      // 🎭 VIMAX MULTI-PASS ORCHESTRATION
+      const orchestrator = await VimaxOrchestrator.create('openai')
+      const structuredScript = await orchestrator.generateEpisodeScript(topic, latestContext)
+
       const result = await this.generateVideoUseCase.execute({
         userId,
         planId,
@@ -83,13 +90,20 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
           seriesId,
           type: 'series',
           title: displayTitle,
-          episodeNumber: nextEpisodeNumber,
-          scriptOnly: true
-        } as any
+          episodeNumber: nextEpisodeNumber
+          // scriptOnly: true // Removed because we want to enqueue the actual generation now
+        } as any,
+        initialScript: structuredScript,
+        initialScenes: structuredScript.scenes
       })
 
       if (!result.success) {
         return { success: false, error: result.error }
+      }
+
+      // 🔄 SYNC SAGA EVOLUTION (Registries, Cliffhanger, etc.)
+      if (result.videoId) {
+        await this.evolutionService.syncContext(seriesId, result.videoId, structuredScript)
       }
 
       return {

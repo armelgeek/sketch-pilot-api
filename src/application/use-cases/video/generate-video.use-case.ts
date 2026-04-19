@@ -13,6 +13,8 @@ type GenerateVideoParams = {
   planId?: string
   topic: string
   options?: Partial<VideoGenerationOptions>
+  initialScript?: any
+  initialScenes?: any[]
 }
 
 type GenerateVideoResponse = {
@@ -27,7 +29,11 @@ type GenerateVideoResponse = {
 }
 
 /** Map VideoGenerationOptions to the flat VideoJobData.options shape. */
-function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any): VideoJobData['options'] {
+function toJobOptions(
+  options: Partial<VideoGenerationOptions>,
+  customSpec?: any,
+  hasInitialScript?: boolean
+): VideoJobData['options'] {
   return {
     duration: options.duration,
     sceneCount: options.sceneCount,
@@ -41,7 +47,8 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
 
     customSpec: customSpec || options.customSpec,
     scriptOnly: options.scriptOnly,
-    generateOnlyScenes: !options.scriptOnly, // Default to two-pass generation: Stop after scenes
+    generateFromScript: hasInitialScript || !!(options as any).generateFromScript,
+    generateOnlyScenes: !options.scriptOnly && !hasInitialScript, // Default to two-pass generation: Stop after scenes
     animationMode: options.animationMode,
     aspectRatio: options.aspectRatio,
     resolution: options.resolution,
@@ -63,7 +70,14 @@ const promptService = new PromptService(new PromptRepository())
 const seriesRepository = new SeriesRepository()
 
 export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, GenerateVideoResponse> {
-  async execute({ userId, planId, topic, options = {} }: GenerateVideoParams): Promise<GenerateVideoResponse> {
+  async execute({
+    userId,
+    planId,
+    topic,
+    options = {},
+    initialScript,
+    initialScenes
+  }: GenerateVideoParams): Promise<GenerateVideoResponse> {
     try {
       // 1. Resolve Spec from DB
       let spec = await promptService.resolveSpec(options.promptId)
@@ -195,7 +209,9 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         episodeNumber: spec?.seriesMetadata?.episodeNumber,
         options: { ...videoOptions, creditsUsed: totalCost },
         language: options.language || 'en',
-        creditsUsed: totalCost
+        creditsUsed: totalCost,
+        script: initialScript,
+        scenes: initialScenes
       })
 
       await videoRepository.updateStatus(videoId, { jobId, status: 'queued' })
@@ -216,7 +232,7 @@ export class GenerateVideoUseCase extends IUseCase<GenerateVideoParams, Generate
         topic,
         cost: totalCost,
         planLimit: planLimit === -1 ? 0 : planLimit, // planLimit needs to be a number
-        options: toJobOptions(videoOptions, spec)
+        options: toJobOptions(videoOptions, spec, !!initialScript)
       }
 
       const queue = getVideoQueue()
