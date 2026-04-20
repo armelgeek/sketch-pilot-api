@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import dotenv from 'dotenv'
 import { LessonStore } from '../core/lesson-store'
 import { VimaxBrain } from '../core/vimax-brain'
 
@@ -10,6 +11,8 @@ import { VimaxBrain } from '../core/vimax-brain'
 async function main() {
   const args = process.argv.slice(2)
   const command = args[0]
+
+  dotenv.config()
 
   // Récupération de la clé API depuis l'environnement
   const apiKey = process.env.OPENAI_API_KEY
