@@ -53,11 +53,12 @@ export abstract class VimaxBaseAgent {
     }
 
     const startTime = Date.now()
-    const raw = await this.llm.generateContent(prompt, system, mime)
+    const prunedPrompt = this.enforceTokenBudget(prompt)
+    const raw = await this.llm.generateContent(prunedPrompt, system, mime)
 
     this.metrics.durationMs += Date.now() - startTime
     this.metrics.calls++
-    this.metrics.estimatedTokens += Math.round((prompt.length + system.length + raw.length) / 4)
+    this.metrics.estimatedTokens += Math.round((prunedPrompt.length + system.length + raw.length) / 4)
 
     // Log direct pour debug
     if (process.env.DEBUG_LLM) {
@@ -141,5 +142,19 @@ export abstract class VimaxBaseAgent {
 
   getMetrics() {
     return { ...this.metrics }
+  }
+
+  /**
+   * Enforce un budget de tokens (caractères) sur le prompt.
+   * Si trop long, tronque intelligemment pour garder l'essentiel.
+   */
+  protected enforceTokenBudget(prompt: string, maxChars = 120000): string {
+    if (prompt.length <= maxChars) return prompt
+
+    console.warn(`[${this.constructor.name}] Prompt budget exceeded (${prompt.length} chars). Enforcing truncation...`)
+
+    // On garde le début (contexte récent/global) et la fin (directives de formatage)
+    const preserveSize = Math.floor(maxChars / 2.5)
+    return `${prompt.slice(0, preserveSize)}\n\n[... ÉLAGAGE BUDGET TOKEN (CONTRÔLE RIGUEUR) ...]\n\n${prompt.slice(-preserveSize)}`
   }
 }

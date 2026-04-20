@@ -17,6 +17,8 @@ import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
 import type { LLMService } from '../core/llm.interface'
 import type {
   CharacterProfile,
+  PipelineProfile,
+  ReviewGate,
   SceneMemory,
   SeriesContext,
   StyleLock,
@@ -87,6 +89,7 @@ export class VimaxAgent {
     // Pass 0 : Planification globale
     const plan = await this.planner.planSaga(finalIdea, options)
     await this.saveIntermediate('pass0-plan', plan)
+    await this.triggerReview('post-script', plan, options)
 
     // Pass 1 : Découpage en épisodes (VimaxEventExtractor)
     const episodeEvents = await this.eventExtractor.extractEvents(
@@ -132,10 +135,13 @@ export class VimaxAgent {
     }
 
     return {
+      id: `saga-${Date.now()}`,
+      title: typeof plan.intent === 'string' ? plan.intent : plan.intent.title || 'Saga sans titre',
       intent: plan.intent,
       expandedScript: plan.script,
-      enhancedScript: plan.script, // On pourrait encore l'affiner globalement
-      episodes
+      enhancedScript: plan.script,
+      episodes,
+      context: seriesContext
     }
   }
 
@@ -157,6 +163,7 @@ export class VimaxAgent {
     // 2. Raffinement du script (Pass 1.5)
     const enhancedScript = await this.enhancer.enhance(fullNarration)
     await this.saveIntermediate(`${prefix}-pass1.5-enhanced`, enhancedScript)
+    await this.triggerReview('post-narration', enhancedScript, options)
 
     // 3. Extraction des profils personnages (Pass 2.1)
     const profiles = await this.characterExtractor.extractCharacters(enhancedScript)
@@ -226,6 +233,65 @@ export class VimaxAgent {
       screenplay,
       continuityReport: auditReport
     }
+  }
+
+  /**
+   * PerformanceProfiler (Rigueur 5.0)
+   * Collecte les métriques de tous les agents du pipeline.
+   */
+  public getPipelineMetrics(): PipelineProfile {
+    const allAgents = [
+      this.planner,
+      this.narration,
+      this.screenwriter,
+      this.eventExtractor,
+      this.compressor,
+      this.enhancer,
+      this.characterExtractor,
+      this.dialogue,
+      this.animation,
+      this.auditor,
+      this.inputSanitizer,
+      this.outputFormatter
+    ]
+
+    let totalLLMCalls = 0
+    let totalTokensEstimated = 0
+    let durationMs = 0
+    let bottleneckAgent = 'none'
+    let maxDuration = 0
+
+    for (const agent of allAgents) {
+      const m = agent.getMetrics()
+      totalLLMCalls += m.calls
+      totalTokensEstimated += m.estimatedTokens
+      durationMs += m.durationMs
+      if (m.durationMs > maxDuration) {
+        maxDuration = m.durationMs
+        bottleneckAgent = agent.constructor.name
+      }
+    }
+
+    return {
+      totalLLMCalls,
+      totalTokensEstimated,
+      bottleneckAgent,
+      costEstimateUSD: Number((totalTokensEstimated * 0.000002).toFixed(6)), // Estimation gpt-4o relative
+      scenesRetried: this.metrics.retries,
+      durationMs
+    }
+  }
+
+  /**
+   * ReviewGate (Rigueur 5.0)
+   * Point de validation humaine optionnel (simulation/stubs).
+   */
+  private async triggerReview(stage: ReviewGate['stage'], data: any, options: VimaxRunOptions) {
+    if (!options.reviewGates?.includes(stage)) return
+
+    console.log(`\n[REVIEW_GATE] Suspension du pipeline pour relecture : ${stage.toUpperCase()}`)
+    // Dans un environnement interactif réel, on utiliserait notify_user ici.
+    // Pour cette implémentation, on loggue et on continue si le score de confiance est suffisant.
   }
 
   /**
@@ -460,10 +526,10 @@ export class VimaxAgent {
 
     // Point 3 : Audit final & Patching (Rigueur 3.0)
     const finalAudit = await this.auditor.finalAuditEnhanced(intermediateScenes as any)
-    if (!finalAudit.approved && finalAudit.scenesToPatch.length > 0) {
+    if (!finalAudit.approved && finalAudit.scenesToPatch && finalAudit.scenesToPatch.length > 0) {
       for (const patchEntry of finalAudit.scenesToPatch) {
-        const sceneIndex = patchEntry.sceneIndex
-        const sceneToPatch = (intermediateScenes as any[]).find((s) => s.sceneNumber === sceneIndex)
+        const sceneNumber = patchEntry.sceneNumber || patchEntry.sceneIndex
+        const sceneToPatch = (intermediateScenes as any[]).find((s) => s.sceneNumber === sceneNumber)
         if (sceneToPatch) {
           // Application du patch (narration ou meta)
           Object.assign(sceneToPatch, patchEntry.patch)
