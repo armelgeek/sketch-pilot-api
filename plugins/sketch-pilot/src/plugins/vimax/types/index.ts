@@ -158,7 +158,7 @@ export interface SeriesContext {
   locationRegistry?: Record<string, LocationState>
   tensionCurve?: number[]
   lastEpisodeSummary?: string
-  lastEpisodeBridge?: string
+  lastEpisodeBridge?: EpisodeBridge
   previousEpisodes?: any[]
   seriesBible?: SeriesBible | string
   intent?: SagaIntent | string
@@ -187,6 +187,7 @@ export interface VimaxEpisode {
   characterProfiles: CharacterProfile[]
   continuityReport?: ContinuityReport
   screenplay?: VimaxScreenplay
+  bridge?: EpisodeBridge
 }
 
 export interface VimaxScene {
@@ -323,7 +324,12 @@ export interface VimaxScreenplay {
 
 // Legacy exports
 export type SagaPlanInterface = SagaPlan
-export type EpisodeBridge = string
+export type EpisodeBridge = {
+  unresolvedCliffhanger: string
+  missingCharacters: string[]
+  activeObjects: string[]
+  worldState: Record<string, string>
+}
 
 // ─────────────────────────────────────────────
 // Prompt Learning System Types
@@ -363,6 +369,7 @@ export interface Lesson {
   failCount: number
   lastUpdated: number
   tags?: string[]
+  verified?: boolean
   parentLessonId?: string
   version?: string
   examples?: { input: string; output: string }[]
@@ -371,4 +378,26 @@ export interface Lesson {
 export interface LessonStore {
   lessons: Lesson[]
   globalDirectives: string[]
+}
+
+// ─────────────────────────────────────────────
+// Narrative Audit Types
+// ─────────────────────────────────────────────
+
+export interface NarrativeFeedbackItem {
+  issue: string
+  rationale: string
+  correction: string
+  example?: string
+  priority: 'low' | 'medium' | 'high'
+  processed?: boolean
+}
+
+export interface NarrativeAuditReport {
+  seriesId: string
+  globallyCoherent: boolean
+  score: number // 0-100
+  feedbacks: NarrativeFeedbackItem[]
+  themesAnalyzed: string[]
+  characterArcsAnalysis: string
 }

@@ -188,7 +188,7 @@
       "confidence": 0.8,
       "successCount": 6,
       "failCount": 0,
-      "tags": ["@Banane", "@Poire", "#Métropole", "action"],
+      "tags": ["dramatic", "#Métropole", "action"],
       "lastUpdated": 1776703552918
     },
     {
@@ -210,7 +210,7 @@
       "confidence": 0.8,
       "successCount": 1,
       "failCount": 0,
-      "tags": ["@Banane", "@Poire", "#Global"],
+      "tags": ["idents", "#Global"],
       "lastUpdated": 1776703552916
     },
     {
@@ -256,6 +256,51 @@
       "failCount": 0,
       "tags": ["#Global"],
       "lastUpdated": 1776703552917
+    },
+    {
+      "directive": "Assurer une progression narrative fluide et réaliste en évitant les bonds temporels ou relationnels extrêmes (ex: rencontre vers mariage) sans épisodes de transition.",
+      "category": "continuity",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Le public décroche si l'évolution des personnages est trop rapide. Chaque changement majeur de statut ou de relation doit être préparé par un développement graduel.",
+      "tags": ["pacing", "realism", "#Global"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776710133000,
+      "id": "lesson-human-1776710133000"
+    },
+    {
+      "id": "lesson-audit-1776714492513",
+      "agentName": "Global",
+      "directive": "Éviter les clichés liés aux rencontres entre opposés en introduisant des motivations complexes et originales pour les personnages. Renverser les rôles ou enrichir le développement des protagonistes pour garantir une originalité narrative.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776714492513,
+      "tags": ["narrative", "audit", "high"]
+    },
+    {
+      "id": "lesson-audit-1776715558319",
+      "agentName": "Global",
+      "directive": "Évitez les clichés de la rencontre entre opposés en inversant les rôles ou en ajoutant des motivations complexes aux personnages. Le protagoniste doit avoir une raison sincère et nuancée pour interagir avec l'antagoniste, afin d'enrichir l'originalité de l'histoire.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776715558319,
+      "tags": ["narrative", "audit", "high"]
+    },
+    {
+      "id": "lesson-audit-1776716001921",
+      "agentName": "Global",
+      "directive": "Développez la profondeur émotionnelle des personnages en explorant leurs motivations et luttes internes. Intégrez des éléments narratifs tels que des flashbacks pour illustrer les événements marquants de leur passé et les raisons qui les poussent à agir dans l'histoire.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776716001921,
+      "tags": ["narrative", "audit", "medium"]
     }
   ],
   "globalDirectives": [

@@ -159,6 +159,24 @@ export class LessonStore {
   }
 
   /**
+   * Valide une leçon manuellement (Consolidation humaine).
+   * Une leçon validée est protégée de l'élagage et a une confiance maximale.
+   */
+  async validateLesson(id: string): Promise<boolean> {
+    const lesson = this.getLessonById(id)
+    if (!lesson) return false
+
+    lesson.verified = true
+    lesson.confidence = 1
+    // On booste le successCount pour asseoir son autorité darwiniste
+    lesson.successCount += 100
+    lesson.lastUpdated = Date.now()
+
+    await this.save()
+    return true
+  }
+
+  /**
    * Supprime une leçon.
    */
   async deleteLesson(id: string): Promise<void> {

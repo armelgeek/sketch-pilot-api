@@ -109,6 +109,50 @@ ${bibleContext}
   }
 
   /**
+   * Étend une saga existante en générant une suite cohérente.
+   */
+  async extendSaga(existingPlan: SagaPlan, additionalCount: number, options: VimaxRunOptions = {}): Promise<SagaPlan> {
+    const previousScript =
+      typeof existingPlan.intent === 'string' ? existingPlan.script : (existingPlan as any).script || ''
+
+    const previousEpisodes = existingPlan.episodes
+      .map((ep, i) => `[ÉPISODE ${ep.episodeNumber}] ${ep.summary || ep.eventDescription}`)
+      .join('\n')
+
+    const intent = existingPlan.intent
+    const bibleContext = this.getBibleContext({ seriesBible: options.seriesContext?.seriesBible })
+
+    const prompt = `
+[MISSION : EXTENSION DE SAGA - PARTIE 2]
+Voici le script et le résumé des épisodes précédents d'une saga. 
+Ta mission est de générer une SUITE cohérente (Arc 2) de EXACTEMENT ${additionalCount} nouveaux épisodes.
+
+[RAPPEL DU CONTEXTE PRÉCÉDENT]
+${previousScript}
+
+[RAPPEL DES ÉPISODES PRÉCÉDENTS]
+${previousEpisodes}
+
+Génère un script de suite et le plan des ${additionalCount} nouveaux épisodes. 
+Assure-toi que les personnages conservent leurs identifiants @PascalCase et que l'intrigue suit logiquement le cliffhanger ou la situation finale du dernier épisode.
+
+Réponds uniquement en JSON.
+`.trim()
+
+    const expanded = await this.generateStructured<{ planned_script: string; episodes: any[] }>(
+      prompt,
+      this.getSpecializedSystem(intent, bibleContext),
+      { planned_script: '', episodes: [] }
+    )
+
+    return {
+      intent,
+      script: expanded.data.planned_script,
+      episodes: expanded.data.episodes
+    }
+  }
+
+  /**
    * Génère un imagePrompt cinématique à partir d'un segment de narration.
    * Utilise un 'anchor' (état visuel de la scène précédente) pour garantir la continuité spatiale et lumineuse.
    */

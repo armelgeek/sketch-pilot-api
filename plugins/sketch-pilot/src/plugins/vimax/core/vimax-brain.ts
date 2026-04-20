@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import { VimaxPromptRefinery } from '../agents/vimax-prompt-refinery.agent'
 import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
 import { VimaxVisionAuditor } from '../agents/vimax-vision-auditor.agent'
-import type { LearningEpisode, Lesson } from '../types'
+import type { LearningEpisode, Lesson, NarrativeFeedbackItem } from '../types'
 import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
 
@@ -18,6 +18,7 @@ export class VimaxBrain {
   private sagaSentinel: VimaxSagaSentinel
   private store: LessonStore
   private maxTokensPerCycle: number = 50000 // Défaut : 50k tokens par cycle (~0.15$)
+  private seriesId?: string
 
   constructor(
     private llm: LLMService,
@@ -30,6 +31,13 @@ export class VimaxBrain {
     if (options?.maxTokensPerCycle) {
       this.maxTokensPerCycle = options.maxTokensPerCycle
     }
+  }
+
+  public setSeriesId(id: string) {
+    this.seriesId = id
+    this.refinery.setSeriesId(id)
+    this.visionAuditor.setSeriesId(id)
+    this.sagaSentinel.setSeriesId(id)
   }
 
   /**
@@ -400,6 +408,51 @@ export class VimaxBrain {
   }
 
   /**
+   * Convertit un feedback d'audit narratif en une leçon pour le store.
+   * On reformule le feedback pour enlever le contexte spécifique à la saga.
+   */
+  async registerLessonFromFeedback(feedback: NarrativeFeedbackItem): Promise<Lesson> {
+    console.log(`[VimaxBrain] Reformulation globale du feedback : "${feedback.issue}"...`)
+
+    const reformulationPrompt = `
+Tu es un Architecte Narratif. Reçois un feedback de critique et reformule-le en une **Directive de Rigueur Globale**.
+Règles :
+1. Supprime TOUT contexte personnel (noms de personnages commençant par @, lieux spécifiques, événements précis).
+2. Extrais le principe narratif universel sous-jacent (ex: au lieu de "@Clara doit être plus méfiante", utilise "Le protagoniste doit montrer une méfiance initiale organique face aux inconnus").
+3. Garde un ton impératif et actionnable.
+4. Si un exemple est nécessaire, utilise des termes génériques (ex: 'le protagoniste', 'l'antagoniste', 'le lieu de tension').
+
+Feedback Original :
+- Problème : ${feedback.issue}
+- Justification : ${feedback.rationale}
+- Correction suggérée : ${feedback.correction}
+${feedback.example ? `- Exemple spécifique : ${feedback.example}` : ''}
+
+Réponds uniquement avec la directive reformulée.
+`.trim()
+
+    const globalDirective = await this.llm.generateContent(
+      reformulationPrompt,
+      'Tu es un expert en distillation de principes narratifs universels.'
+    )
+
+    const lesson: Lesson = {
+      id: `lesson-audit-${Date.now()}`,
+      agentName: 'Global',
+      directive: globalDirective.trim(),
+      category: 'logic',
+      confidence: 0.9,
+      successCount: 1,
+      failCount: 0,
+      lastUpdated: Date.now(),
+      tags: ['narrative', 'audit', feedback.priority]
+    }
+
+    await this.store.addLesson(lesson)
+    return lesson
+  }
+
+  /**
    * Nettoyage et fusion du store pour éviter le surpoids.
    */
   async consolidate(): Promise<void> {
@@ -474,7 +527,14 @@ export class VimaxBrain {
           lesson.confidence = lesson.successCount / total
         }
 
-        await store.addLesson(lesson)
+        // DARWINISME : Validation Automatique (Auto-Verification)
+        // Si une leçon est extrêmement stable sur un échantillon significatif, elle devient vérifiée.
+        if (total >= 10 && lesson.confidence >= 0.95 && !lesson.verified) {
+          console.log(`[VimaxBrain] Auto-Validating stable lesson: ${lesson.id}`)
+          await store.validateLesson(lesson.id)
+        } else {
+          await store.addLesson(lesson)
+        }
       }
     }
 
@@ -490,6 +550,8 @@ export class VimaxBrain {
     const all = store.getAllLessons()
 
     for (const lesson of all) {
+      if (lesson.verified) continue // On ne touche pas aux leçons validées par l'humain
+
       const total = lesson.successCount + lesson.failCount
       // Si une leçon échoue trop souvent après un rodage (ex: > 40% d'échec sur 10+ runs)
       if (total >= 10 && lesson.failCount / total > 0.4) {

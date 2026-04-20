@@ -13,6 +13,7 @@ import { VimaxSagaPlanner } from '../agents/vimax-saga-planner.agent'
 import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
 import { VimaxScreenwriter } from '../agents/vimax-screenwriter.agent'
 import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
+import { VimaxUniversalCriticAgent } from '../agents/vimax-universal-critic.agent'
 import { VimaxBrain } from '../core/vimax-brain'
 import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
 import type { LLMService } from '../core/llm.interface'
@@ -49,6 +50,7 @@ export class VimaxAgent {
   private auditor: VimaxContinuityAuditor
   private inputSanitizer: VimaxInputSanitizerAgent
   private outputFormatter: VimaxOutputFormatterAgent
+  private critic: VimaxUniversalCriticAgent
   private brain: VimaxBrain
 
   private metrics = {
@@ -72,6 +74,7 @@ export class VimaxAgent {
     this.auditor = new VimaxContinuityAuditor(llm)
     this.inputSanitizer = new VimaxInputSanitizerAgent(llm)
     this.outputFormatter = new VimaxOutputFormatterAgent(llm)
+    this.critic = new VimaxUniversalCriticAgent(llm)
     this.brain = new VimaxBrain(llm)
   }
 
@@ -135,6 +138,61 @@ export class VimaxAgent {
   }
 
   /**
+   * Étend une saga existante avec de nouveaux épisodes.
+   */
+  async extendSaga(seriesId: string, additionalCount = 4): Promise<void> {
+    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
+    const planPath = path.join(sagaDir, 'plan.json')
+
+    if (!(await fs.stat(planPath).catch(() => null))) {
+      throw new Error(`Plan non trouvé pour la saga ${seriesId}`)
+    }
+
+    const sagaPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+    this.getAllAgents().forEach((a) => a.setSeriesId(seriesId))
+
+    console.log(`[VimaxAgent] Extension de la saga ${seriesId} (+${additionalCount} épisodes)...`)
+
+    // 1. Génération de la suite via le planner
+    const extension = await this.planner.extendSaga(sagaPlan.plan, additionalCount, sagaPlan.options)
+
+    // 2. Extraction des nouveaux événements
+    const newEvents = await this.eventExtractor.extractEvents(
+      extension.script,
+      'series',
+      sagaPlan.options.targetDuration,
+      sagaPlan.options.maxScenes,
+      additionalCount
+    )
+
+    // 3. Mise à jour du plan global
+    const lastEpisodeNumber = sagaPlan.plan.episodes.length
+    const lastEventIndex = sagaPlan.episodeEvents.length
+
+    // On ajuste les numéros d'épisodes et d'événements
+    const adjustedEpisodes = extension.episodes.map((ep) => ({
+      ...ep,
+      episodeNumber: ep.episodeNumber + lastEpisodeNumber
+    }))
+
+    const adjustedEvents = (newEvents as any[]).map((ev) => ({
+      ...ev,
+      index: ev.index + lastEventIndex
+    }))
+
+    // Fusion
+    sagaPlan.plan.episodes.push(...adjustedEpisodes)
+    sagaPlan.episodeEvents.push(...adjustedEvents)
+
+    // On concatène aussi le script pour garder une trace complète (optionnel)
+    sagaPlan.plan.script += `\n\n[ARC 2]\n${extension.script}`
+
+    // Sauvegarde
+    await fs.writeFile(planPath, JSON.stringify(sagaPlan, null, 2), 'utf8')
+    console.log(`✅ Saga étendue ! Total épisodes : ${sagaPlan.plan.episodes.length}`)
+  }
+
+  /**
    * Génération d'un épisode unique à partir d'un plan existant.
    */
   async runSingleEpisode(seriesId: string, episodeIndex: number): Promise<VimaxEpisode> {
@@ -174,11 +232,121 @@ export class VimaxAgent {
       seriesContext.previousEpisodes?.push({ narration: epData.narration, summary: epData.summary })
     }
 
+    if (filteredFiles.length > 0) {
+      const lastFile = filteredFiles.at(-1)!
+      const lastEpData = JSON.parse(await fs.readFile(path.join(sagaDir, lastFile), 'utf8'))
+      seriesContext.lastEpisodeBridge = lastEpData.bridge
+    }
+
     const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options)
 
     await fs.writeFile(path.join(sagaDir, `episode-${episodeIndex}.json`), JSON.stringify(episode, null, 2), 'utf8')
 
     return episode
+  }
+
+  /**
+   * Applique une correction issue d'un audit à un élément du pipeline.
+   */
+  async refineItemFromFeedback(type: string, data: any, feedback: any): Promise<any> {
+    const seriesId = this.planner.getSeriesId() || 'pending'
+    this.getAllAgents().forEach((a) => a.setSeriesId(seriesId))
+
+    console.log(`[VimaxAgent] Raffinement de ${type} via feedback : "${feedback.issue}"...`)
+
+    const instruction = `
+[MISSION : RAFFINEMENT SUITE À AUDIT]
+L'audit a identifié le problème suivant : "${feedback.issue}".
+Raison : ${feedback.rationale}
+Correction à appliquer : ${feedback.correction}
+${feedback.example ? `Exemple de mise en œuvre : ${feedback.example}` : ''}
+
+Consigne : Mets à jour l'objet fourni pour intégrer cette correction. 
+Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
+`.trim()
+
+    let refined: any
+    switch (type) {
+      case 'plan':
+        refined = await this.planner.generateStructured(
+          `Objet à raffiner : ${JSON.stringify(data)}\n\n${instruction}`,
+          'Tu es un expert en planification narrative. Applique la correction demandée au plan de la saga.',
+          data // On utilise l'objet d'origine comme fallback structurel
+        )
+        break
+      case 'episode':
+        refined = await this.screenwriter.generateStructured(
+          `Objet à raffiner : ${JSON.stringify(data)}\n\n${instruction}`,
+          "Tu es un expert Script Doctor. Applique la correction demandée au script de l'épisode.",
+          data
+        )
+        break
+      // On peut ajouter d'autres types ici
+      default:
+        throw new Error(`Raffinement non supporté pour le type : ${type}`)
+    }
+
+    return refined.data
+  }
+
+  /**
+   * Audit d'un élément spécifique du pipeline (plan, épisode, scène, etc.)
+   */
+  async auditItem(
+    type: string,
+    data: any,
+    options: { id?: string; sagaDir?: string; seriesId?: string } = {}
+  ): Promise<any> {
+    const seriesId = options.seriesId || this.planner.getSeriesId() || 'pending'
+    this.getAllAgents().forEach((a) => a.setSeriesId(seriesId))
+
+    console.log(`[VimaxAgent] Audit ${type} pour ${seriesId}...`)
+
+    let audit: any
+    switch (type) {
+      case 'plan':
+        audit = await this.critic.auditSagaPlan(data)
+        break
+      case 'episode':
+        audit = await this.critic.auditEpisode(data)
+        break
+      case 'scene':
+        audit = await this.critic.auditScene(data.narration, data.sceneNumber)
+        break
+      case 'image':
+        audit = await this.critic.auditVisual('image', data.prompt, data.context)
+        break
+      case 'animation':
+        audit = await this.critic.auditVisual('animation', data.prompt, data.context)
+        break
+      default:
+        throw new Error(`Type d'audit inconnu : ${type}`)
+    }
+
+    // Persistance si un sagaDir est fourni
+    if (options.sagaDir && options.id) {
+      const auditPath = path.join(options.sagaDir, `audit-${type}-${options.id}.json`)
+      await fs.mkdir(path.dirname(auditPath), { recursive: true })
+      await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
+      console.log(`✅ Audit ${type} persisté : ${auditPath}`)
+    }
+
+    return audit
+  }
+
+  /**
+   * Audit narratif complet d'une saga.
+   */
+  async auditSagaNarrative(seriesId: string): Promise<any> {
+    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
+    const planPath = path.join(sagaDir, 'plan.json')
+
+    if (!(await fs.stat(planPath).catch(() => null))) {
+      throw new Error(`Plan non trouvé pour la saga ${seriesId}`)
+    }
+
+    const sagaPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+    return this.auditItem('plan', sagaPlan, { id: 'initial', sagaDir })
   }
 
   /**
@@ -264,8 +432,11 @@ export class VimaxAgent {
     )
 
     // Bridge pour l'épisode suivant
-    const lastNarration = scenes.at(-1).narration
-    const bridge = await this.compressor.extractEpisodeBridge(lastNarration)
+    let bridge: any
+    if (scenes.length > 0) {
+      const lastNarration = scenes.at(-1)!.narration
+      bridge = await this.compressor.extractEpisodeBridge(lastNarration)
+    }
 
     return {
       id: `${this.planner.getSeriesId()}-ep${index + 1}`,
@@ -273,6 +444,7 @@ export class VimaxAgent {
       summary: fullNarration.slice(0, 200),
       narration: fullNarration,
       scenes,
+      bridge,
       characterProfiles: profiles,
       eventIndex: index,
       eventDescription: event.description,
@@ -293,6 +465,7 @@ export class VimaxAgent {
     targetDuration?: number,
     maxScenes?: number
   ): Promise<VimaxScene[]> {
+    if (sceneEvents.length === 0) return []
     const intermediateScenes: any[] = []
     const sceneMemories: SceneMemory[] = []
     const tensionCurve = continuity.tension.buildCurve(sceneEvents.length, context.intent || 'narrative')
@@ -404,6 +577,7 @@ export class VimaxAgent {
       this.auditor,
       this.inputSanitizer,
       this.outputFormatter,
+      this.critic,
       this.brain
     ].filter(Boolean)
   }

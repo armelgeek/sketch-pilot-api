@@ -148,7 +148,7 @@ export abstract class VimaxBaseAgent {
   /**
    * Génére du contenu structuré avec retry automatique en cas d'échec de parsing.
    */
-  protected async generateStructured<T>(
+  public async generateStructured<T>(
     prompt: string,
     system: string,
     fallback: T,
