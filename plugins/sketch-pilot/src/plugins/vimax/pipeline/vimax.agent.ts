@@ -82,12 +82,25 @@ export class VimaxAgent {
     return this.brain
   }
 
+  public setBrainMode(mode: 'stable' | 'all') {
+    this.getAllAgents().forEach((a) => {
+      if (typeof a.setBrainMode === 'function') {
+        a.setBrainMode(mode)
+      }
+    })
+  }
+
   /**
    * Planification uniquement : Génère le script global et le découpage en épisodes.
    */
   async planSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<string> {
     const seriesId = options.seriesId || `series-${Date.now()}`
-    this.getAllAgents().forEach((a) => a.setSeriesId(seriesId))
+    const mode = options.brainMode || 'all'
+
+    this.getAllAgents().forEach((a) => {
+      a.setSeriesId(seriesId)
+      a.setBrainMode(mode)
+    })
 
     const analysis = await this.inputSanitizer.analyze(basicIdea)
     if (!analysis.isViable) {
@@ -210,7 +223,12 @@ export class VimaxAgent {
       throw new Error(`Épisode ${episodeIndex} non trouvé dans le plan de la saga ${seriesId}`)
     }
 
-    this.getAllAgents().forEach((a) => a.setSeriesId(seriesId))
+    const mode = sagaPlan.options?.brainMode || 'all'
+
+    this.getAllAgents().forEach((a) => {
+      a.setSeriesId(seriesId)
+      a.setBrainMode(mode)
+    })
 
     const seriesContext: SeriesContext = {
       ...sagaPlan.options.seriesContext,

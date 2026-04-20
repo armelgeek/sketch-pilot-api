@@ -11,6 +11,7 @@ import type { LLMService } from './llm.interface'
 
 export abstract class VimaxBaseAgent {
   protected seriesId?: string
+  protected brainMode: 'stable' | 'all' = 'all'
   protected metrics = {
     calls: 0,
     estimatedTokens: 0,
@@ -28,6 +29,10 @@ export abstract class VimaxBaseAgent {
 
   public setSeriesId(id: string) {
     this.seriesId = id
+  }
+
+  public setBrainMode(mode: 'stable' | 'all') {
+    this.brainMode = mode
   }
 
   public getSeriesId(): string | undefined {
@@ -78,10 +83,10 @@ export abstract class VimaxBaseAgent {
     await store.load()
 
     const promptTags = this.extractContextTags(prunedPrompt)
-    const learnedDirectives = store.formatDirectives(this.constructor.name, promptTags)
+    const learnedDirectives = store.formatDirectives(this.constructor.name, promptTags, this.brainMode)
 
     // Pour l'analyse post-saga, on récupère les IDs des leçons appliquées
-    const contextRelevant = store.getLessonsFor(this.constructor.name, promptTags)
+    const contextRelevant = store.getLessonsFor(this.constructor.name, promptTags, this.brainMode)
     const appliedLessonIds = contextRelevant.map((l) => l.id)
 
     const finalSystem = learnedDirectives ? `${system}\n\n${learnedDirectives}` : system

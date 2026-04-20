@@ -276,6 +276,7 @@ export interface VimaxRunOptions {
   colorPalette?: string[]
   seriesId?: string
   reviewGates?: ReviewGate['stage'][]
+  brainMode?: 'stable' | 'all'
 }
 
 export interface SceneRoleRegistry {
@@ -376,6 +377,7 @@ export interface Lesson {
 }
 
 export interface LessonStore {
+  version: string
   lessons: Lesson[]
   globalDirectives: string[]
 }

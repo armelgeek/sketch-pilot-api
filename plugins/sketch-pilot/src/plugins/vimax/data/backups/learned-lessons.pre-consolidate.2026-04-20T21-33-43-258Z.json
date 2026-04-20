@@ -1,0 +1,58 @@
+{
+  "lessons": [
+    {
+      "directive": "Adoptez une narration concise et percutante, intégrant des détails atmosphériques riches et évitant les répétitions d'actions.",
+      "category": "logic",
+      "confidence": 1,
+      "id": "trend-1776720502677-0",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776720502677
+    },
+    {
+      "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant suspense et trahison.",
+      "category": "logic",
+      "confidence": 1,
+      "id": "trend-1776720502677-1",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776720502677
+    },
+    {
+      "directive": "Instaurer une montée dramatique et émotionnelle progressive, en évitant les bonds temporels extrêmes et les confrontations directes immédiates.",
+      "category": "logic",
+      "confidence": 0.9,
+      "id": "trend-1776720502677-2",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776720502677
+    },
+    {
+      "directive": "Structurer les confrontations émotionnelles avec une progression où les personnages passent de la négation à l'acceptation, culminant dans un silence lourd.",
+      "category": "logic",
+      "confidence": 0.9,
+      "id": "trend-1776720502677-3",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776720502677
+    },
+    {
+      "directive": "Organiser les thèmes centraux du récit autour d'une idée forte et cohérente, assurant que chaque élément de l'histoire renforce cette notion.",
+      "category": "logic",
+      "confidence": 0.9,
+      "id": "trend-1776720502677-4",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776720502677
+    }
+  ],
+  "globalDirectives": [
+    "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+    "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+  ]
+}

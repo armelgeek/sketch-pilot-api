@@ -38,10 +38,13 @@ async function main() {
   const store = LessonStore.getInstance()
   await store.load()
 
+  const { VimaxAgent } = await import('../pipeline/vimax.agent')
+  const agent = new VimaxAgent(llm)
+
   switch (command) {
-    case 'stats':
+    case 'stats': {
       const allLessons = store.getAllLessons()
-      console.log('\n=== VIMAX BRAIN STATS (v3.2) ===')
+      console.log('\n=== VIMAX BRAIN STATS (v3.6) ===')
       console.log(`Intelligence totale : ${allLessons.length} leçons`)
 
       allLessons.forEach((l) => {
@@ -52,8 +55,9 @@ async function main() {
         if (tags) console.log(tags)
       })
       break
+    }
 
-    case 'analytics':
+    case 'analytics': {
       const stats = await brain.getPerformanceStats()
       console.log('\n=== VIMAX QUALITY ANALYTICS ===')
       console.log(`Moyenne Globale : ${stats.totalAvg}/100`)
@@ -65,8 +69,9 @@ async function main() {
         console.log(`${trend} [${id.slice(0, 15)}...] Avg: ${s.avg}/100 (${s.count} épisodes)`)
       })
       break
+    }
 
-    case 'learn':
+    case 'learn': {
       const seriesId = args[1]
       console.log(
         `[Brain] Lancement d'un cycle d'apprentissage / renforcement${seriesId ? ` pour ${seriesId}` : ''}...`
@@ -74,8 +79,9 @@ async function main() {
       const newCount = await brain.autonomousLearning({ seriesId })
       console.log(`✅ Cycle terminé. ${newCount} épisodes traités (apprentissage ou renforcement).`)
       break
+    }
 
-    case 'episodes':
+    case 'episodes': {
       const filterSeriesId = args[1]
       let episodes = await (brain as any).loadEpisodes()
 
@@ -92,13 +98,25 @@ async function main() {
         console.log(`${statusIcon} [${e.agentName}] ${e.id}${score}`)
       })
       break
+    }
 
     case 'consolidate':
       await brain.consolidateLessons()
       console.log('✅ Consolidation terminée. Votre cerveau Vimax est maintenant plus léger et plus précis.')
       break
 
-    case 'inspect':
+    case 'rollback':
+      await brain.rollbackLessons()
+      console.log('✅ Restauration du dernier état stable effectuée.')
+      break
+
+    case 'upgrade': {
+      const newVer = args[1] || '1.1.0'
+      await brain.upgradeBrain(newVer)
+      break
+    }
+
+    case 'inspect': {
       const epIdToInspect = args[1]
       if (!epIdToInspect) {
         console.error('❌ Episode ID requis : inspect <epId>')
@@ -108,8 +126,6 @@ async function main() {
       console.log(`\n🔎 Recherche des prompts pour l'épisode : ${epIdToInspect}...`)
       try {
         const promptDir = path.join(process.cwd(), 'vimax-logs', 'prompts')
-
-        // Vérifier si le dossier existe
         try {
           await fs.access(promptDir)
         } catch {
@@ -134,6 +150,7 @@ async function main() {
         console.error("❌ Erreur lors de l'inspection :", error)
       }
       break
+    }
 
     case 'show': {
       const epIdToShow = args[1]
@@ -162,29 +179,52 @@ async function main() {
       break
     }
 
-    case 'audit': {
-      const sagaId = args[1]
-      if (!sagaId) {
-        console.error('❌ Saga ID requis : audit <seriesId>')
+    case 'audit-item': {
+      const [sagaId, type, id] = args.slice(1)
+      if (!sagaId || !type) {
+        console.error('❌ Usage : audit-item <sagaId> <type> [id]')
+        console.error('   Types : plan, episode, scene, image, animation')
         process.exit(1)
       }
-      console.log(`🔎 Lancement d'un audit qualitatif complet pour la saga : ${sagaId}...`)
-      // On force un cycle learn sur cette saga, ce qui déclenchera la phase 0 (Auto-Audit)
-      await brain.autonomousLearning({ seriesId: sagaId })
-      console.log(`✅ Audit terminé. Consultez 'analytics' ou 'episodes' pour les résultats.`)
+
+      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
+      let data: any
+      try {
+        if (type === 'plan') {
+          data = JSON.parse(await fs.readFile(path.join(sagaDir, 'plan.json'), 'utf8'))
+        } else if (type === 'episode') {
+          const finalId = id || 'current'
+          data = JSON.parse(await fs.readFile(path.join(sagaDir, `episode-${finalId}.json`), 'utf8'))
+        } else {
+          console.error(`❌ Type ${type} nécessite une implémentation de chargement spécifique.`)
+          process.exit(1)
+        }
+      } catch (error: any) {
+        console.error(`❌ Erreur de chargement des données pour audit : ${error.message}`)
+        process.exit(1)
+      }
+
+      const audit = await agent.auditItem(type, data, { id: id || 'current', sagaDir, seriesId: sagaId })
+      displayAudit(id || sagaId, type, audit)
       break
     }
 
     case 'audit-plan': {
       const sagaId = args[1]
       if (!sagaId) {
-        console.error('❌ Saga ID requis : audit-plan <sagaId>')
+        console.error('❌ Usage : audit-plan <sagaId>')
         process.exit(1)
       }
-      const { VimaxAgent } = await import('../pipeline/vimax.agent')
-      const agent = new VimaxAgent(llm)
-      const audit = await agent.auditSagaNarrative(sagaId)
-      displayAudit(sagaId, 'plan', audit)
+
+      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
+      try {
+        const data = JSON.parse(await fs.readFile(path.join(sagaDir, 'plan.json'), 'utf8'))
+        const audit = await agent.auditItem('plan', data, { id: 'initial', sagaDir, seriesId: sagaId })
+        displayAudit(sagaId, 'plan', audit)
+      } catch (error: any) {
+        console.error(`❌ Erreur de chargement du plan pour audit : ${error.message}`)
+        process.exit(1)
+      }
       break
     }
 
@@ -193,27 +233,17 @@ async function main() {
       const message = msgParts.join(' ')
       if (!sagaId || !type || !message) {
         console.error('❌ Usage : feedback <sagaId> <type> <message>')
-        console.error('   Exemple : feedback series-123 plan "Ajoute plus de suspense"')
         process.exit(1)
       }
 
       const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
       const auditPath = path.join(sagaDir, `audit-${type}-manual.json`)
 
-      let audit: any = {
-        score: 0,
-        globallyCoherent: true,
-        characterArcsAnalysis: 'Feedback manuel utilisateur',
-        themesAnalyzed: [],
-        feedbacks: []
-      }
-
+      let audit: any = { score: 0, globallyCoherent: true, feedbacks: [] }
       try {
         const raw = await fs.readFile(auditPath, 'utf8')
         audit = JSON.parse(raw)
-      } catch {
-        // Nouveau fichier audit manuel
-      }
+      } catch {}
 
       const newItem: NarrativeFeedbackItem = {
         issue: message,
@@ -228,85 +258,23 @@ async function main() {
       await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
 
       console.log(`✅ Feedback manuel enregistré pour ${type} (${sagaId}) !`)
-      console.log(`📌 Action suivante possible :`)
-      console.log(`   - Appliquer : npm run vimax:apply-feedback -- ${sagaId} ${type} manual ${audit.feedbacks.length}`)
-      console.log(`   - Apprendre : npm run vimax:learn-audit -- ${sagaId} ${type} manual ${audit.feedbacks.length}`)
-      break
-    }
-
-    case 'audit-item': {
-      const [sagaId, type, id] = args.slice(1)
-      if (!sagaId || !type) {
-        console.error('❌ Usage : audit-item <sagaId> <type> [id]')
-        console.error('   Types : plan, episode, scene, image, animation')
-        process.exit(1)
-      }
-
-      const { VimaxAgent } = await import('../pipeline/vimax.agent')
-      const agent = new VimaxAgent(llm)
-      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
-
-      let data: any
-      try {
-        if (type === 'plan') {
-          data = JSON.parse(await fs.readFile(path.join(sagaDir, 'plan.json'), 'utf8'))
-        } else if (type === 'episode') {
-          data = JSON.parse(await fs.readFile(path.join(sagaDir, `episode-${id}.json`), 'utf8'))
-        } else {
-          // Pour les types atomiques (image, animation, scene), on cherche dans les fichiers intermédiaires
-          // ou l'épisode si disponible. Pour l'instant on limite aux gros blocs.
-          console.error(`❌ Type ${type} nécessite une implémentation de chargement spécifique.`)
-          process.exit(1)
-        }
-      } catch (error: any) {
-        console.error(`❌ Erreur de chargement des données pour audit : ${error.message}`)
-        process.exit(1)
-      }
-
-      const audit = await agent.auditItem(type, data, { id: id || 'current', sagaDir, seriesId: sagaId })
-      displayAudit(id || sagaId, type, audit)
-      break
-    }
-
-    case 'audit-show': {
-      const [sagaId, type, id] = args.slice(1)
-      if (!sagaId || !type) {
-        console.error('❌ Usage : audit-show <sagaId> <type> [id]')
-        process.exit(1)
-      }
-
-      // Correction : Fallback intelligent pour l'ID
-      const finalId = id || (type === 'plan' ? 'initial' : 'current')
-      const auditPath = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId, `audit-${type}-${finalId}.json`)
-      try {
-        const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
-        displayAudit(id || sagaId, type, audit)
-      } catch {
-        console.error(`❌ Impossible de trouver l'audit : ${auditPath}`)
-      }
       break
     }
 
     case 'apply-feedback': {
       let [sagaId, type, id, feedbackIndexStr] = args.slice(1)
-
-      // Si le 3ème argument est un nombre, c'est l'index, et l'id doit être déduit
       if (!isNaN(parseInt(id)) && feedbackIndexStr === undefined) {
         feedbackIndexStr = id
         id = type === 'plan' ? 'initial' : 'current'
       }
-
       const feedbackIndex = parseInt(feedbackIndexStr)
       if (!sagaId || !type || !id || isNaN(feedbackIndex)) {
         console.error('❌ Usage : apply-feedback <sagaId> <type> [id] <feedbackIndex>')
         process.exit(1)
       }
 
-      const { VimaxAgent } = await import('../pipeline/vimax.agent')
-      const agent = new VimaxAgent(llm)
       const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
       const auditPath = path.join(sagaDir, `audit-${type}-${id}.json`)
-
       let filePath: string
       if (type === 'plan') filePath = path.join(sagaDir, 'plan.json')
       else if (type === 'episode') filePath = path.join(sagaDir, `episode-${id}.json`)
@@ -319,24 +287,16 @@ async function main() {
         const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
         const feedback = audit.feedbacks[feedbackIndex - 1]
         const originalData = JSON.parse(await fs.readFile(filePath, 'utf8'))
-
         if (!feedback) {
           console.error(`❌ Feedback ${feedbackIndex} non trouvé.`)
           process.exit(1)
         }
-
         const refined = await agent.refineItemFromFeedback(type, originalData, feedback)
-
-        // Marquer comme traité dans l'audit
         feedback.processed = true
         await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
-
-        // Sauvegarde de la nouvelle version (on garde un backup .old)
         await fs.copyFile(filePath, `${filePath}.old`)
         await fs.writeFile(filePath, JSON.stringify(refined, null, 2), 'utf8')
-
         console.log(`✅ ${type.toUpperCase()} mis à jour avec succès via le feedback ${feedbackIndex} !`)
-        console.log(`📂 Original sauvegardé dans ${path.basename(filePath)}.old`)
       } catch (error: any) {
         console.error(`❌ Erreur lors du raffinement : ${error.message}`)
       }
@@ -345,17 +305,13 @@ async function main() {
 
     case 'learn-audit': {
       let [sagaId, type, id, feedbackIndexStr] = args.slice(1)
-
-      // Si le 3ème argument est un nombre, c'est l'index, et l'id doit être déduit
       if (!isNaN(parseInt(id)) && feedbackIndexStr === undefined) {
         feedbackIndexStr = id
         id = type === 'plan' ? 'initial' : 'current'
       }
-
       const feedbackIndex = parseInt(feedbackIndexStr)
       if (!sagaId || !type || !id || isNaN(feedbackIndex)) {
         console.error('❌ Usage : learn-audit <sagaId> <type> [id] <feedbackIndex>')
-        console.error('   Exemple : learn-audit series-123 plan 1')
         process.exit(1)
       }
 
@@ -363,80 +319,118 @@ async function main() {
       try {
         const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
         const feedback = audit.feedbacks[feedbackIndex - 1]
-
         if (!feedback) {
-          console.error(`❌ Feedback ${feedbackIndex} non trouvé dans l'audit de ${sagaId}.`)
+          console.error(`❌ Feedback ${feedbackIndex} non trouvé.`)
           process.exit(1)
         }
-
         console.log(`🧠 Apprentissage du feedback : "${feedback.issue}"...`)
         const lesson = await brain.registerLessonFromFeedback(feedback)
-
-        // Marquer comme traité dans l'audit
         feedback.processed = true
         await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
-
         console.log(`✅ Leçon enregistrée avec succès ! (ID: ${lesson.id})`)
       } catch (error: any) {
-        console.error(`❌ Impossible de lire l'audit pour ${sagaId} : ${error.message}`)
+        console.error(`❌ Erreur : ${error.message}`)
       }
       break
     }
 
-    case 'continue-plan': {
-      const sagaId = args[1]
-      const count = parseInt(args[2] || '4')
-      if (!sagaId) {
-        console.error('❌ Saga ID requis : continue-plan <sagaId> [count]')
+    case 'validate-lesson': {
+      const lessonId = args[1]
+      if (!lessonId) {
+        console.error('❌ Usage : validate-lesson <lessonId>')
         process.exit(1)
       }
-      const { VimaxAgent } = await import('../pipeline/vimax.agent')
-      const agent = new VimaxAgent(llm)
-      await agent.extendSaga(sagaId, count)
+      const success = await store.promoteLesson(lessonId)
+      if (success) console.log(`✅ Leçon ${lessonId} validée et promue vers le Cortex.`)
+      else console.error(`❌ Leçon ${lessonId} non trouvée dans l'Hippocampe.`)
+      break
+    }
+
+    case 'lessons': {
+      const allLessons = store.getAllLessons()
+      console.log('\n=== VIMAX BRAIN LESSONS ===')
+      allLessons.forEach((l) => {
+        const type = l.verified ? ' [CORTEX]' : ' [HIPPOCAMPE]'
+        console.log(
+          `- [${l.id}] [${l.agentName}]${type} : ${l.directive.slice(0, 80)}${l.directive.length > 80 ? '...' : ''}`
+        )
+      })
+      break
+    }
+
+    case 'delete-lesson': {
+      const lessonId = args[1]
+      if (!lessonId) {
+        console.error('❌ Usage : delete-lesson <lessonId>')
+        process.exit(1)
+      }
+      await store.deleteLesson(lessonId)
+      console.log(`✅ Leçon ${lessonId} supprimée.`)
+      break
+    }
+
+    case 'refine-lesson': {
+      const [lessonId, ...msgParts] = args.slice(1)
+      const feedback = msgParts.join(' ')
+      if (!lessonId || !feedback) {
+        console.error('❌ Usage : refine-lesson <lessonId> <feedback>')
+        process.exit(1)
+      }
+      const lesson = await brain.refineLesson(lessonId, feedback)
+      console.log(`✅ Leçon ${lessonId} raffinée avec succès !`)
+      console.log(`Nouvelle directive : ${lesson.directive}`)
+      break
+    }
+
+    case 'audit-show': {
+      const [sagaId, type, id] = args.slice(1)
+      if (!sagaId || !type) {
+        console.error('❌ Usage : audit-show <sagaId> <type> [id]')
+        process.exit(1)
+      }
+      const finalId = id || (type === 'plan' ? 'initial' : 'current')
+      const auditPath = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId, `audit-${type}-${finalId}.json`)
+      try {
+        const raw = await fs.readFile(auditPath, 'utf8')
+        const audit = JSON.parse(raw)
+        displayAudit(finalId, type, audit)
+      } catch (error: any) {
+        console.error(`❌ Audit non trouvé : ${error.message}`)
+      }
       break
     }
 
     case 'plan': {
-      let idea: string
-      let count: number | undefined
-
-      const lastArg = args.at(-1)
-      if (lastArg && args.length > 2 && !isNaN(parseInt(lastArg))) {
-        count = parseInt(lastArg)
-        idea = args.slice(1, -1).join(' ')
-      } else {
-        idea = args.slice(1).join(' ')
-      }
-
+      const idea = args[1]
+      const count = parseInt(args[2] || '4')
+      const isProd = args.includes('--prod')
       if (!idea) {
-        console.error('❌ Idée requise : plan <votre idée> [nb_épisodes]')
+        console.error('❌ Usage : plan <idee> [count] [--prod]')
         process.exit(1)
       }
 
-      const { VimaxAgent } = await import('../pipeline/vimax.agent')
-      const agent = new VimaxAgent(llm)
-      console.log(`[VimaxAgent] Planification de la saga : "${idea}"...`)
-      if (count) console.log(`📈 Cible : ${count} épisodes.`)
-
-      const seriesId = await agent.planSaga(idea, { targetEpisodeCount: count })
-      console.log(`✅ Saga planifiée ! ID : ${seriesId}`)
-      console.log(`Utilisez 'episode ${seriesId} 1' pour générer le premier épisode.`)
+      console.log(`🎬 Planification de la saga (Mode: ${isProd ? 'STABLE' : 'EXPÉRIIMENTAL'})...`)
+      const seriesId = await agent.planSaga(idea, {
+        targetEpisodeCount: count,
+        brainMode: isProd ? 'stable' : 'all'
+      })
+      console.log(`✅ Projet créé avec succès ! ID : ${seriesId}`)
       break
     }
 
     case 'episode': {
-      const [seriesId, indexStr] = args.slice(1)
-      const index = parseInt(indexStr)
-      if (!seriesId || isNaN(index)) {
-        console.error('❌ Usage : episode <seriesId> <index>')
+      const sagaId = args[1]
+      const n = parseInt(args[2])
+      const isProd = args.includes('--prod')
+      if (!sagaId || isNaN(n)) {
+        console.error('❌ Usage : episode <sagaId> <num> [--prod]')
         process.exit(1)
       }
-      const { VimaxAgent } = await import('../pipeline/vimax.agent')
-      const agent = new VimaxAgent(llm)
-      console.log(`[VimaxAgent] Génération de l'épisode ${index} pour la saga ${seriesId}...`)
-      const episode = await agent.runSingleEpisode(seriesId, index)
-      console.log(`✅ Épisode ${index} généré : ${episode.id}`)
-      console.log(`Narration : ${episode.summary}...`)
+
+      console.log(`🎬 Génération épisode ${n} pour ${sagaId} (Mode: ${isProd ? 'STABLE' : 'EXPÉRIIMENTAL'})...`)
+      if (isProd) agent.setBrainMode('stable')
+      const episode = await agent.runSingleEpisode(sagaId, n)
+      console.log(`✅ Épisode ${n} généré : ${episode.summary}`)
       break
     }
 
@@ -461,43 +455,6 @@ async function main() {
       break
     }
 
-    case 'lessons': {
-      const lessons = await brain.getAllLessons()
-      console.log(`\n📚 BIBLIOTHÈQUE DES LEÇONS (${lessons.length}) :`)
-      lessons.forEach((l, i) => {
-        const status = l.verified ? '✅' : '🧠'
-        console.log(`[${i + 1}] ID: ${l.id} ${status}`)
-        console.log(`    Directive: ${l.directive}`)
-        console.log(`    Tags: ${l.tags?.join(', ')} | Confiance: ${l.confidence}`)
-        console.log('---')
-      })
-      break
-    }
-
-    case 'refine-lesson': {
-      const lessonId = args[1]
-      const feedback = args.slice(2).join(' ')
-      if (!lessonId || !feedback) {
-        console.error('❌ Usage : refine-lesson <lessonId> <feedback>')
-        process.exit(1)
-      }
-      const refined = await brain.refineLesson(lessonId, feedback)
-      console.log(`✅ Leçon ${lessonId} raffinée avec succès !`)
-      console.log(`📢 Nouvelle directive : ${refined.directive}`)
-      break
-    }
-
-    case 'delete-lesson': {
-      const lessonId = args[1]
-      if (!lessonId) {
-        console.error('❌ Usage : delete-lesson <lessonId>')
-        process.exit(1)
-      }
-      await brain.deleteLesson(lessonId)
-      console.log(`🗑️ Leçon ${lessonId} supprimée.`)
-      break
-    }
-
     case 'view': {
       const sagaId = args[1]
       if (!sagaId) {
@@ -506,66 +463,65 @@ async function main() {
       }
       const sagaPath = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
       const planPath = path.join(sagaPath, 'plan.json')
-
       try {
         const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
         console.log(`\n=== VUE DÉTAILLÉE : ${sagaId} ===`)
         console.log(`💡 Idée : ${plan.basicIdea}`)
-        console.log(`🎯 Intent : ${plan.plan.intent.tone || plan.plan.intent}`)
-        console.log(`\n🎞️ ÉPISODES PRÉVUS :`)
-
+        console.log(`\n🎞️ ÉPISODES :`)
         for (let i = 0; i < plan.episodeEvents.length; i++) {
-          const event = plan.episodeEvents[i]
           const epFilePath = path.join(sagaPath, `episode-${i + 1}.json`)
-          let status = '⏳ [Planifié]'
-          let details = ''
-
+          let status = '⏳'
           try {
-            const epData = JSON.parse(await fs.readFile(epFilePath, 'utf8'))
-            status = '✅ [Généré]'
-            details = `\n    └─ ID : ${epData.id}\n    └─ Résumé : ${epData.summary.slice(0, 100)}...\n    └─ Scènes : ${epData.scenes.length}`
+            await fs.access(epFilePath)
+            status = '✅'
           } catch {}
-
-          console.log(`${i + 1}. ${status} ${event.description.slice(0, 60)}...${details}`)
+          console.log(`${i + 1}. ${status} ${plan.episodeEvents[i].description.slice(0, 60)}...`)
         }
       } catch (error: any) {
-        console.error(`❌ Impossible de lire la saga ${sagaId} : ${error.message}`)
+        console.error(`❌ Erreur : ${error.message}`)
       }
+      break
+    }
+
+    case 'continue-plan': {
+      const sagaId = args[1]
+      const count = parseInt(args[2] || '4')
+      if (!sagaId) {
+        console.error('❌ Usage : continue-plan <sagaId> [count]')
+        process.exit(1)
+      }
+      await agent.extendSaga(sagaId, count)
       break
     }
 
     case 'help':
     default:
       console.log(`
-=== 🧠 VIMAX BRAIN TOOL ===
+=== 🧠 VIMAX BRAIN TOOL v3.6 ===
 Usage: brain-tool.ts <command> [args]
 
 Commands:
-  lessons             Liste toutes les leçons du cerveau Vimax
-  refine-lesson <id> <fb> Raffine une leçon avec un nouveau feedback
+  plan <idée> [nb] [--prod]     Planifie une saga
+  episode <id> <n> [--prod]    Génère un épisode
+  continue-plan <id> [nb]      Ajoute des épisodes à une saga
+  
+  audit-item <id> <type> [num] Analyse un élément (plan, episode)
+  feedback <id> <type> <msg>    Enregistre un feedback manuel utilisateur
+  apply-feedback <id> <type> <idx> Applique la correction via l'IA
+  learn-audit <id> <type> <idx> Transforme un feedback en leçon (Hippocampe)
+  
+  lessons             Liste toutes les leçons
+  validate-lesson <id> Promeut une leçon Hippocampe -> Cortex
   delete-lesson <id>  Supprime définitivement une leçon
   
-  audit-plan <id>     Audit narratif du plan (type=plan, id=initial)
-  audit-item <sagaId> <type> [id] - Relance un audit complet (coûte des tokens)
-  audit-show <sagaId> <type> [id] - Affiche un audit existant (gratuit)
-    
-  learn-audit <sagaId> <type> [id] <index>
-    Extrait un feedback de l'audit et l'enregistre comme leçon globale.
-    
-  apply-feedback <sagaId> <type> [id] <index>  
-    Applique la correction suggérée par un feedback à l'objet original.
-    
-  plan <idée> [nb]     Planifie une saga avec cible d'épisodes
-  episode <id> <n>    Génère l'épisode numéro n pour la saga id
-  feedback <sagaId> <type> <msg> Enregistre un feedback manuel sur un plan/épisode
-  consolidate         Consolide et fusionne les leçons pour éviter le surpoids (Anti-Bloat)
-  continue-plan <id>  Ajoute des épisodes (extension) à une saga existante
+  consolidate                  Fusionne Hippocampe -> Cortex
+  rollback                     Rollback vers le dernier état stable
+  upgrade <ver>                Baseline de production scellée
   
-  sagas               Liste toutes les séries/sagas de production
+  sagas               Liste toutes les séries/sagas
   view <id>           Affiche l'état d'avancement d'une saga
-  episodes [idSaga]   Liste les épisodes générés (Learning)
-  show <epId>         Détails complets d'un épisode
-  inspect <epId>      Prompts réels envoyés au LLM
+  stats               Statistiques globales du cerveau
+  inspect <epId>      Prompts réels envoyés au LLM (Debug)
       `)
       break
   }
@@ -574,18 +530,14 @@ Commands:
 function displayAudit(target: string, type: string, audit: any) {
   console.log(`\n=== 🎭 AUDIT ${type.toUpperCase()} : ${target} ===`)
   console.log(`📊 Score Global : ${audit.score}/100`)
-  console.log(`✅ Cohérence : ${audit.globallyCoherent ? 'OUI' : 'NON'}`)
-  console.log(`\n🧐 ANALYSE :\n${audit.characterArcsAnalysis}`)
-  console.log(`\n💡 THEMES : ${audit.themesAnalyzed.join(', ')}`)
-
-  console.log(`\n👉 FEEDBACKS (${audit.feedbacks.length}) :`)
-  audit.feedbacks.forEach((f: any, i: number) => {
-    const priorityIcon = f.priority === 'high' ? '🔴' : f.priority === 'medium' ? '🟡' : '🔵'
-    const statusText = f.processed ? ' ✅ [TRAITÉ]' : ''
-    console.log(`\n${i + 1}. ${priorityIcon} ${f.issue}${statusText}`)
-    console.log(`   Problème : ${f.rationale}`)
-    console.log(`   Correction : ${f.correction}`)
-    if (f.example) console.log(`   Exemple : ${f.example}`)
+  console.log(`\n👉 FEEDBACKS (${audit.feedbacks?.length || 0}) :`)
+  audit.feedbacks?.forEach((f: any, i: number) => {
+    const priorityIcon = f.priority === 'high' ? '🔴' : '🔵'
+    console.log(`${i + 1}. ${priorityIcon} ${f.issue.toUpperCase()}`)
+    console.log(`   💡 Rationale: ${f.rationale}`)
+    console.log(`   ✅ Correction: ${f.correction}`)
+    if (f.example) console.log(`   📝 Exemple: ${f.example}`)
+    console.log('')
   })
 }
 

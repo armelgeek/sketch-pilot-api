@@ -1,0 +1,48 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "directive": "Adoptez une narration concise et percutante tout en organisant les thèmes centraux autour d'une idée forte, évitant les répétitions et assurant la cohérence des motivations des personnages.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776721099401-0",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776721099401
+      },
+      {
+        "directive": "Instaurer une montée dramatique et émotionnelle progressive, en structurant les confrontations pour permettre une évolution des personnages de la négation à l'acceptation.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776721099401-1",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776721099401
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.5.1"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "id": "lesson-audit-1776721435822",
+        "agentName": "Global",
+        "directive": "Le protagoniste doit apparaître comme une menace dès les premières interactions pour établir une tension palpable.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776721435822,
+        "tags": ["narrative", "audit", "high"]
+      }
+    ],
+    "globalDirectives": []
+  }
+}

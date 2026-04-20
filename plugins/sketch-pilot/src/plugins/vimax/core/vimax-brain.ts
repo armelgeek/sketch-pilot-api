@@ -40,6 +40,12 @@ export class VimaxBrain {
     this.sagaSentinel.setSeriesId(id)
   }
 
+  public setBrainMode(mode: 'stable' | 'all') {
+    this.refinery.setBrainMode(mode)
+    this.visionAuditor.setBrainMode(mode)
+    this.sagaSentinel.setBrainMode(mode)
+  }
+
   /**
    * Pipeline d'apprentissage autonome (Shadow Loop).
    * Analyse les derniers épisodes et met à jour le store.
@@ -513,14 +519,22 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
 
   /**
    * Consolide la bibliothèque de leçons (Anti-bloat).
-   * Utilise le PromptRefinery pour fusionner sémantiquement les directives.
+   * Double-Buffer Logic : Fusionne l'Hippocampe (Learning) dans le Cortex (Stable).
    */
   async consolidateLessons(): Promise<void> {
     await this.store.load()
-    const allLessons = this.store.getAllLessons()
+
+    const stable = this.store.getStableLessons()
+    const learning = this.store.getLearningLessons()
+    const allLessons = [...stable, ...learning]
+
     if (allLessons.length === 0) return
 
-    console.log(`[VimaxBrain] Consolidation de ${allLessons.length} leçons en cours (Cortex Loop)...`)
+    console.log(`[VimaxBrain] Consolidation Cortex (${stable.length}) + Hippocampe (${learning.length}) en cours...`)
+
+    // On crée un snapshot de sécurité (Bundle complet)
+    const backupPath = await this.store.createSnapshot('pre-consolidate')
+    console.log(`[VimaxBrain] Snapshot de sécurité créé : ${path.basename(backupPath)}`)
 
     // On utilise la consolidation thématique pour un nettoyage de masse
     const consolidated = await this.refinery.thematicConsolidate(allLessons)
@@ -529,25 +543,48 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
       `[VimaxBrain] Consolidation terminée : ${allLessons.length} -> ${consolidated.length} leçons distillées.`
     )
 
-    // On préserve les leçons validées manuellement par l'humain (Sacrées)
+    // On préserve les leçons validées manuellement (Sacrées)
     const verified = allLessons.filter((l) => l.verified)
 
-    // On purge le store actuel pour les leçons d'agent ou Global (Anti-bloat physique)
-    for (const l of allLessons) {
-      await this.store.deleteLesson(l.id)
-    }
-
-    // On ré-injecte les leçons vérifiées (Priorité Haute)
-    for (const l of verified) {
-      await this.store.addLesson({ ...l, confidence: 1 })
-    }
-
-    // On injecte les nouvelles leçons distillées
+    // On prépare le nouveau set pour le Cortex
+    // (On pourrait faire un merge plus fin, mais ici on remplace par la distillation LLM)
+    const newStableSet = [...verified]
     for (const l of consolidated) {
-      await this.store.addLesson(l)
+      // On évite les doublons avec les verified
+      if (!newStableSet.some((v) => v.directive === l.directive)) {
+        newStableSet.push(l)
+      }
     }
 
-    console.log(`[VimaxBrain] Bibliothèque purgée et optimisée : ${verified.length + consolidated.length} directives.`)
+    // Mise à jour du CORTEX
+    await this.store.replaceStableLessons(newStableSet)
+
+    // Purge de l'HIPPOCAMPE
+    await this.store.clearLearning()
+
+    // On incrémente la version du Brain automatiquement
+    const newVer = await this.store.incrementVersion()
+    console.log(`[VimaxBrain] Vimax Brain v${newVer} distillé et stabilisé. 🚀`)
+  }
+
+  /**
+   * Revient à la version précédente de la bibliothèque (Rollback).
+   */
+  async rollbackLessons(): Promise<boolean> {
+    const success = await this.store.restoreLastSnapshot()
+    if (success) {
+      console.log('✅ Rollback effectué. La bibliothèque a été restaurée à son état précédent.')
+    } else {
+      console.error('❌ Impossible de trouver un snapshot pour le rollback.')
+    }
+    return success
+  }
+
+  /**
+   * Upgrage la version du Brain et crée une baseline de production.
+   */
+  async upgradeBrain(newVersion: string): Promise<void> {
+    await this.store.upgrade(newVersion)
   }
 
   /**

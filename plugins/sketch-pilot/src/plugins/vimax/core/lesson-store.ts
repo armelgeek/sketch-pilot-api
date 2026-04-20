@@ -4,30 +4,23 @@ import type { LessonStore as ILessonStore, Lesson } from '../types'
 
 /**
  * LessonStore
- * Gère la persistence et le versionnage des leçons apprises par les agents.
+ * Gère une architecture Double-Buffer pour le Vimax Brain :
+ * 1. Cortex (vimax-brain.json) : ADN stabilisé, versionné, immuable hors consolidation.
+ * 2. Hippocampe (vimax-learning.json) : Buffer d'apprentissage actif pour les retours récents.
  */
 export class LessonStore {
   private static instance: LessonStore
   private storePath: string
-  private data: ILessonStore = { lessons: [], globalDirectives: [] }
+  private learningPath: string
+  private data: ILessonStore = { version: '1.0.0', lessons: [], globalDirectives: [] }
+  private learningData: ILessonStore = { version: '1.0.0', lessons: [], globalDirectives: [] }
 
   private constructor() {
-    // Résolution de chemin robuste compatible ESM/TSX
     const root = process.cwd()
-    const pluginPath = path.join(
-      root,
-      'plugins',
-      'sketch-pilot',
-      'src',
-      'plugins',
-      'vimax',
-      'data',
-      'learned-lessons.json'
-    )
-    const localPath = path.join(root, 'src', 'plugins', 'vimax', 'data', 'learned-lessons.json')
+    const dataDir = path.join(root, 'plugins', 'sketch-pilot', 'src', 'plugins', 'vimax', 'data')
 
-    // On privilégie le chemin complet si on est à la racine du repo, sinon on utilise le chemin local
-    this.storePath = pluginPath
+    this.storePath = path.join(dataDir, 'vimax-brain.json')
+    this.learningPath = path.join(dataDir, 'vimax-learning.json')
   }
 
   public static getInstance(): LessonStore {
@@ -38,36 +31,131 @@ export class LessonStore {
   }
 
   /**
-   * Charge les leçons depuis le disque.
+   * Charge les leçons (Cortex + Hippocampe) depuis le disque.
    */
   async load(): Promise<void> {
     try {
       await fs.mkdir(path.dirname(this.storePath), { recursive: true })
-      const raw = await fs.readFile(this.storePath, 'utf8')
-      this.data = JSON.parse(raw)
-    } catch {
-      this.data = { lessons: [], globalDirectives: [] }
+
+      // MIGRATION Legacy
+      const legacyPath = this.storePath.replace('vimax-brain.json', 'learned-lessons.json')
+      try {
+        await fs.access(this.storePath)
+      } catch {
+        try {
+          await fs.access(legacyPath)
+          console.log(`[LessonStore] Migration détectée : learned-lessons.json -> vimax-brain.json`)
+          await fs.copyFile(legacyPath, this.storePath)
+          await fs.rename(legacyPath, `${legacyPath}.migrated`)
+        } catch {
+          // Aucun fichier legacy
+        }
+      }
+
+      // Load CORTEX (Prod)
+      try {
+        const raw = await fs.readFile(this.storePath, 'utf8')
+        this.data = JSON.parse(raw)
+      } catch {
+        this.data = { version: '1.0.0', lessons: [], globalDirectives: [] }
+      }
+
+      // Load HIPPOCAMPUS (Learning Buffer)
+      try {
+        const rawL = await fs.readFile(this.learningPath, 'utf8')
+        this.learningData = JSON.parse(rawL)
+      } catch {
+        this.learningData = { version: '1.0.0', lessons: [], globalDirectives: [] }
+      }
+
+      // Initialisation de la version si manquante
+      if (!this.data.version) {
+        this.data.version = '1.0.0'
+        await this.save()
+      }
+    } catch (error) {
+      console.error('[LessonStore] Erreur lors du chargement des stores:', error)
     }
   }
 
   /**
-   * Sauvegarde les leçons sur le disque.
+   * Sauvegarde les deux stores sur le disque de manière atomique.
    */
   async save(): Promise<void> {
-    await fs.writeFile(this.storePath, JSON.stringify(this.data, null, 2), 'utf8')
+    // Save Cortex
+    const tmpPath = `${this.storePath}.tmp`
+    await fs.writeFile(tmpPath, JSON.stringify(this.data, null, 2), 'utf8')
+    await fs.rename(tmpPath, this.storePath)
+
+    // Save Hippocampus
+    const tmpLPath = `${this.learningPath}.tmp`
+    await fs.writeFile(tmpLPath, JSON.stringify(this.learningData, null, 2), 'utf8')
+    await fs.rename(tmpLPath, this.learningPath)
   }
 
   /**
-   * Récupère les leçons pertinentes pour un agent spécifique avec filtrage optionnel par tags.
+   * Crée un snapshot des deux stores.
    */
-  getLessonsFor(agentName: string, tags: string[] = []): Lesson[] {
-    const lessons = this.data.lessons.filter((l) => l.agentName === agentName || l.agentName === 'Global')
+  async createSnapshot(label: string = 'auto'): Promise<string> {
+    const backupDir = path.join(path.dirname(this.storePath), 'backups')
+    await fs.mkdir(backupDir, { recursive: true })
+
+    const timestamp = new Date().toISOString().replaceAll(/[:.]/g, '-')
+    const backupName = `vimax-brain.${label}.${timestamp}.json`
+    const backupPath = path.join(backupDir, backupName)
+
+    const bundle = { cortex: this.data, hippocampus: this.learningData }
+    await fs.writeFile(backupPath, JSON.stringify(bundle, null, 2), 'utf8')
+
+    return backupPath
+  }
+
+  /**
+   * Restaure le dernier snapshot (Cortex + Hippocampe).
+   */
+  async restoreLastSnapshot(): Promise<boolean> {
+    const backupDir = path.join(path.dirname(this.storePath), 'backups')
+    try {
+      const files = await fs.readdir(backupDir)
+      const snapshots = files
+        .filter((f) => f.startsWith('vimax-brain.'))
+        .sort()
+        .reverse()
+
+      if (snapshots.length === 0) return false
+
+      const lastSnapshot = path.join(backupDir, snapshots[0])
+      const raw = await fs.readFile(lastSnapshot, 'utf8')
+      const bundle = JSON.parse(raw)
+
+      this.data = bundle.cortex
+      this.learningData = bundle.hippocampus
+
+      await this.save()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Récupère les leçons pour un agent spécifique.
+   * @param mode 'stable' (Cortex uniquement) ou 'all' (Cortex + Hippocampe)
+   */
+  getLessonsFor(agentName: string, tags: string[] = [], mode: 'stable' | 'all' = 'all'): Lesson[] {
+    const prodLessons = (this.data.lessons || []).filter((l) => l.agentName === agentName || l.agentName === 'Global')
+
+    let lessons = [...prodLessons]
+
+    if (mode === 'all') {
+      const learningLessons = (this.learningData.lessons || []).filter(
+        (l) => l.agentName === agentName || l.agentName === 'Global'
+      )
+      lessons = [...lessons, ...learningLessons]
+    }
 
     if (tags.length > 0) {
-      // On privilégie les leçons qui correspondent aux tags (Smart Semantic Retrieval)
       const taggedLessons = lessons.filter((l) => l.tags?.some((t) => tags.includes(t)))
-      // Si on a des leçons tagguées, on les renvoie, sinon on renvoie tout ce qui concerne l'agent
-      // (On pourrait aussi faire un merge avec une priorité)
       if (taggedLessons.length > 0) return taggedLessons
     }
 
@@ -75,56 +163,112 @@ export class LessonStore {
   }
 
   /**
-   * Récupère les leçons globales qui matchent certains tags.
+   * Promeut une leçon de l'Hippocampe vers le Cortex (Validation Manuelle).
    */
-  getGlobalLessonsByTags(tags: string[]): Lesson[] {
-    if (tags.length === 0) return []
-    return this.data.lessons.filter((l) => l.agentName === 'Global' && l.tags?.some((tag) => tags.includes(tag)))
+  async promoteLesson(id: string): Promise<boolean> {
+    const lessonIndex = this.learningData.lessons.findIndex((l) => l.id === id)
+    if (lessonIndex === -1) return false
+
+    const [lesson] = this.learningData.lessons.splice(lessonIndex, 1)
+
+    // On s'assure qu'elle est vérifiée et stabilisée
+    lesson.verified = true
+    lesson.confidence = 1
+    if (lesson.successCount < 100) lesson.successCount += 100
+
+    this.data.lessons.push(lesson)
+    await this.save()
+    console.log(`[LessonStore] Leçon ${id} promue vers le Cortex ! 🚀`)
+    return true
   }
 
   /**
-   * Ajoute ou met à jour une leçon avec déduplication sémantique.
+   * Récupère toutes les leçons.
+   */
+  getAllLessons(mode: 'stable' | 'all' = 'all'): Lesson[] {
+    if (mode === 'stable') return [...this.data.lessons]
+    return [...this.data.lessons, ...this.learningData.lessons]
+  }
+
+  /**
+   * Récupère les leçons du Cortex uniquement (Stable)
+   */
+  getStableLessons(): Lesson[] {
+    return [...this.data.lessons]
+  }
+
+  /**
+   * Récupère les leçons de l'Hippocampe uniquement (Buffer)
+   */
+  getLearningLessons(): Lesson[] {
+    return [...this.learningData.lessons]
+  }
+
+  /**
+   * Ajoute une leçon dans l'HIPPOCAMPE (Buffer d'apprentissage actif).
    */
   async addLesson(lesson: Lesson): Promise<void> {
-    const existingIndex = this.data.lessons.findIndex((l) => {
-      // Match par ID (Feedback humain ou update direct)
+    const existingIndex = this.learningData.lessons.findIndex((l) => {
       if (l.id === lesson.id) return true
-      // Match par Directive (Déduplication sémantique simple)
       return (
         l.agentName === lesson.agentName && l.directive.toLowerCase().trim() === lesson.directive.toLowerCase().trim()
       )
     })
 
     if (existingIndex >= 0) {
-      // Merge intelligence : On augmente les compteurs et on garde la confiance la plus haute
-      const existing = this.data.lessons[existingIndex]
-      this.data.lessons[existingIndex] = {
+      const existing = this.learningData.lessons[existingIndex]
+      this.learningData.lessons[existingIndex] = {
         ...existing,
         ...lesson,
-        successCount: existing.successCount + (lesson.successCount || 0),
-        failCount: existing.failCount + (lesson.failCount || 0),
-        confidence: Math.max(existing.confidence, lesson.confidence),
+        successCount: (existing.successCount || 0) + (lesson.successCount || 0),
+        failCount: (existing.failCount || 0) + (lesson.failCount || 0),
+        confidence: Math.max(existing.confidence || 0, lesson.confidence || 0),
         lastUpdated: Date.now()
       }
     } else {
-      this.data.lessons.push(lesson)
+      this.learningData.lessons.push({
+        ...lesson,
+        successCount: lesson.successCount || 1,
+        failCount: lesson.failCount || 0,
+        confidence: lesson.confidence || 0.5,
+        lastUpdated: Date.now()
+      })
     }
     await this.save()
   }
 
   /**
-   * Enregistre un succès pour une liste de leçons (Renforcement Darwiniste).
+   * Vide l'Hippocampe (après consolidation).
+   */
+  async clearLearning(): Promise<void> {
+    this.learningData.lessons = []
+    await this.save()
+  }
+
+  /**
+   * Remplace intégralement les leçons du CORTEX (pendant la consolidation).
+   */
+  async replaceStableLessons(lessons: Lesson[]): Promise<void> {
+    this.data.lessons = lessons
+    await this.save()
+  }
+
+  /**
+   * Enregistre un succès pour une liste de leçons.
    */
   async recordSuccess(lessonIds: string[]): Promise<void> {
     if (!lessonIds || lessonIds.length === 0) return
     let changed = false
-    this.data.lessons.forEach((l) => {
+
+    const all = [...this.data.lessons, ...this.learningData.lessons]
+    all.forEach((l) => {
       if (lessonIds.includes(l.id)) {
-        l.successCount++
+        l.successCount = (l.successCount || 0) + 1
         l.lastUpdated = Date.now()
         changed = true
       }
     })
+
     if (changed) await this.save()
   }
 
@@ -134,33 +278,29 @@ export class LessonStore {
   async recordFailure(lessonIds: string[]): Promise<void> {
     if (!lessonIds || lessonIds.length === 0) return
     let changed = false
-    this.data.lessons.forEach((l) => {
+
+    const all = [...this.data.lessons, ...this.learningData.lessons]
+    all.forEach((l) => {
       if (lessonIds.includes(l.id)) {
-        l.failCount++
+        l.failCount = (l.failCount || 0) + 1
         l.lastUpdated = Date.now()
         changed = true
       }
     })
+
     if (changed) await this.save()
   }
 
   /**
-   * Récupère une leçon par son ID.
+   * Récupère une leçon par son ID (dans les deux stores).
    */
   getLessonById(id: string): Lesson | undefined {
-    return this.data.lessons.find((l) => l.id === id)
-  }
-
-  /**
-   * Récupère toutes les leçons.
-   */
-  getAllLessons(): Lesson[] {
-    return [...this.data.lessons]
+    return this.data.lessons.find((l) => l.id === id) || this.learningData.lessons.find((l) => l.id === id)
   }
 
   /**
    * Valide une leçon manuellement (Consolidation humaine).
-   * Une leçon validée est protégée de l'élagage et a une confiance maximale.
+   * Une leçon validée a une confiance maximale et peut être déplacée vers le Cortex si souhaité.
    */
   async validateLesson(id: string): Promise<boolean> {
     const lesson = this.getLessonById(id)
@@ -168,8 +308,7 @@ export class LessonStore {
 
     lesson.verified = true
     lesson.confidence = 1
-    // On booste le successCount pour asseoir son autorité darwiniste
-    lesson.successCount += 100
+    lesson.successCount = (lesson.successCount || 0) + 100
     lesson.lastUpdated = Date.now()
 
     await this.save()
@@ -177,25 +316,44 @@ export class LessonStore {
   }
 
   /**
-   * Supprime une leçon.
+   * Supprime une leçon (des deux stores).
    */
   async deleteLesson(id: string): Promise<void> {
     this.data.lessons = this.data.lessons.filter((l) => l.id !== id)
+    this.learningData.lessons = this.learningData.lessons.filter((l) => l.id !== id)
     await this.save()
+  }
+
+  /**
+   * Upgrage la version du Brain et crée une baseline.
+   */
+  async upgrade(newVersion: string): Promise<void> {
+    const oldVersion = this.data.version
+    await this.createSnapshot(`baseline-v${oldVersion.replaceAll('.', '-')}`)
+
+    this.data.version = newVersion
+    await this.save()
+    console.log(`[LessonStore] Vimax Brain upgradé : v${oldVersion} -> v${newVersion} 💎`)
+  }
+
+  /**
+   * Incrémente automatiquement la version mineure (Patch).
+   */
+  async incrementVersion(): Promise<string> {
+    const parts = (this.data.version || '1.0.0').split('.')
+    if (parts.length === 3) {
+      parts[2] = (parseInt(parts[2]) + 1).toString()
+      this.data.version = parts.join('.')
+      await this.save()
+    }
+    return this.data.version
   }
 
   /**
    * Formate les leçons en directives pour un prompt système.
    */
-  formatDirectives(agentName: string, tags: string[] = []): string {
-    const lessons = this.getLessonsFor(agentName, tags)
-    return this.formatDirectivesFrom(lessons)
-  }
-
-  /**
-   * Formate une liste arbitraire de leçons.
-   */
-  formatDirectivesFrom(lessons: Lesson[]): string {
+  formatDirectives(agentName: string, tags: string[] = [], mode: 'stable' | 'all' = 'all'): string {
+    const lessons = this.getLessonsFor(agentName, tags, mode)
     if (lessons.length === 0) return ''
 
     return `

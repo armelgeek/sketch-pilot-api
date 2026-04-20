@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "lessons": [
+    {
+      "id": "lesson-audit-1776723090327",
+      "agentName": "Global",
+      "directive": "Augmentez la complexité de l'intrigue en intégrant des retournements de situation inattendus afin de maintenir le suspense et d'éviter la prévisibilité. Introduisez des personnages secondaires avec des intentions cachées pour enrichir le récit et surprendre le lecteur.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776723090327,
+      "tags": ["narrative", "audit", "high"]
+    }
+  ],
+  "globalDirectives": []
+}
