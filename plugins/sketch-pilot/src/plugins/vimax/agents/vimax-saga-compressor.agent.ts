@@ -10,36 +10,20 @@ import { VimaxBaseAgent } from '../core/vimax-base.agent'
 
 export class VimaxSagaCompressor extends VimaxBaseAgent {
   private getCompressionSystem(guardrails: string[] = []): string {
-    const guardrailDirective =
-      guardrails.length > 0
-        ? `\n[GARDE-FOU NARRATIF]\nTu DOIS impérativement préserver les entités et concepts suivants dans ta compression : ${guardrails.join(', ')}. Ne les élimine PAS, ils sont critiques pour la suite.`
-        : ''
+    const guardrailDirective = guardrails.length > 0 ? `\n[GARDE-FOU NARRATIF] : ${guardrails.join(', ')}.` : ''
 
     return `
 Tu es un assistant expert en compression de texte spécialisé dans le contenu littéraire.
 Condense l'extrait d'histoire fourni tout en préservant tous les éléments narratifs.${guardrailDirective}
-
-[Directives]
-1. Fidélité : Préserve tous les points d'intrigue majeurs, les rebondissements et les séquences d'événements clés.
-2. Personnages : Maintiens les actions des personnages et les beats de dialogue importants.
-3. Descriptions : Réduis les longues descriptions à leurs éléments les plus essentiels.
-4. Langage : Direct et concis. Élimine toutes les redondances.
-5. Format : Produis un paragraphe fluide — sans marqueurs, ni sauts de section.
 `.trim()
   }
 
   private getAggregationSystem(guardrails: string[] = []): string {
-    const guardrailDirective =
-      guardrails.length > 0
-        ? `\n[GARDE-FOU NARRATIF]\nTu DOIS préserver ces éléments clés lors de la fusion : ${guardrails.join(', ')}.`
-        : ''
+    const guardrailDirective = guardrails.length > 0 ? `\n[GARDE-FOU NARRATIF] : ${guardrails.join(', ')}.` : ''
 
     return `
 Tu es un assistant professionnel de traitement de texte spécialisé dans la fusion de fragments de texte séquentiels.
 Fusionne les morceaux séquentiels fournis en un récit cohérent.${guardrailDirective}
-Supprime les chevauchements et les répétitions redondantes entre les morceaux.
-Assure des transitions fluides entre les sections fusionnées.
-Produis un seul paragraphe fluide.
 `.trim()
   }
 
@@ -90,14 +74,7 @@ Compresse ce texte en suivant les directives.
    */
   async extractEpisodeBridge(lastEpisodeNarration: string): Promise<any> {
     const system = `
-Tu es un analyste narratif expert. Analyse cet épisode et extrais le pont de continuité (EpisodeBridge) en JSON :
-{
-  "unresolvedCliffhanger": "Question ou tension non résolue",
-  "missingCharacters": ["@Nom"],
-  "activeObjects": ["Objet important"],
-  "worldState": { "Clé": "Valeur d'état physique" }
-}
-Renvoie UNIQUEMENT du JSON valide.
+Tu es un analyste narratif expert. Analyse cet épisode et extrais le pont de continuité (EpisodeBridge) en JSON.
 `.trim()
 
     const raw = await this.generate(`<ÉPISODE>\n${lastEpisodeNarration}\n</ÉPISODE>`, system, 'application/json')

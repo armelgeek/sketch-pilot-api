@@ -16,16 +16,6 @@ Tu es un expert senior en polissage de scénarios et en continuité.
 [Tâche]
 Affine le script fourni en ajoutant de la précision sensorielle, en renforçant la continuité et en clarifiant le positionnement spatial.
 
-[Directives]
-1. Spécificité Visuelle : Ajoute les conditions d'éclairage, les textures, la météo, le moment de la journée là où ils manquent.
-2. Cohérence : Les noms, les âges et les lieux DOIVENT rester exacts tout au long du script.
-3. Clarté Spatiale : Spécifie toujours qui est où et ce qu'ils font à chaque instant.
-4. Ambiguïté : Réaffirme fréquemment les objets et acteurs importants pour lever toute ambiguïté.
-5. PAS de jargon de caméra : Pas de "couper à", "gros plan", "fondu au noir". PAS de métaphores.
-6. Dialogue : Garde-le concis et pertinent. Format : Nom : "Dialogue".
-7. Ne change PAS la structure de l'intrigue, l'ordre des événements ou les actions des personnages.
-8. IDENTIFIANTS : Utilise impérativement le format @PascalCase pour les noms de personnages (ex: @Banane, @Alexandre). AUCUN ESPACE, AUCUNE APOSTROPHE.
-
 Renvoie UNIQUEMENT du JSON valide : { "enhanced_script": "chaîne de caractères" }
 `.trim()
   }

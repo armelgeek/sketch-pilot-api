@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import { VimaxPromptRefinery } from '../agents/vimax-prompt-refinery.agent'
 import { VimaxVisionAuditor } from '../agents/vimax-vision-auditor.agent'
 import type { LearningEpisode, Lesson } from '../types'
@@ -36,7 +36,10 @@ export class VimaxBrain {
   async autonomousLearning(): Promise<number> {
     await this.store.load()
     const episodes = await this.loadEpisodes()
-    if (episodes.length === 0) return 0
+    if (episodes.length === 0) {
+      await this.cleanupOldEpisodes()
+      return 0
+    }
 
     // Filtre les échecs auto ou humains
     const failures = episodes.filter((ep) => ep.status === 'failure' || (ep.evaluation && !ep.evaluation.isValid))
@@ -64,7 +67,12 @@ export class VimaxBrain {
     if (this.checkBudgetExceeded()) return 0
 
     const newLessonPartials = await this.refinery.refine(updatedFailures)
-    return this.applyLessons(newLessonPartials, updatedFailures)
+    const count = await this.applyLessons(newLessonPartials, updatedFailures)
+
+    // Nettoyage après apprentissage
+    await this.cleanupOldEpisodes()
+
+    return count
   }
 
   private checkBudgetExceeded(): boolean {
@@ -219,15 +227,54 @@ export class VimaxBrain {
 
   private async loadEpisodes(): Promise<LearningEpisode[]> {
     const dir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+    return this.readEpisodesRecursively(dir)
+  }
+
+  private async readEpisodesRecursively(dir: string): Promise<LearningEpisode[]> {
     try {
-      const files = await fs.readdir(dir)
-      return Promise.all(
-        files
-          .filter((f) => f.endsWith('.json'))
-          .map(async (f) => JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')))
-      )
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      const results: LearningEpisode[] = []
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          const subResults = await this.readEpisodesRecursively(fullPath)
+          results.push(...subResults)
+        } else if (entry.isFile() && entry.name.endsWith('.json')) {
+          try {
+            const content = await fs.readFile(fullPath, 'utf8')
+            results.push(JSON.parse(content))
+          } catch (error) {
+            console.error(`[VimaxBrain] Error reading ${fullPath}:`, error)
+          }
+        }
+      }
+      return results
     } catch {
       return []
+    }
+  }
+
+  /**
+   * Supprime les épisodes trop vieux (ex: > 7 jours) pour économiser l'espace.
+   */
+  private async cleanupOldEpisodes(): Promise<void> {
+    const dir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+    const maxAgeMs = 7 * 24 * 60 * 60 * 1000 // 7 jours
+
+    try {
+      const files = await fs.readdir(dir)
+      const now = Date.now()
+
+      for (const file of files) {
+        const filePath = path.join(dir, file)
+        const stats = await fs.stat(filePath)
+        if (now - stats.mtimeMs > maxAgeMs) {
+          await fs.unlink(filePath)
+        }
+      }
+    } catch {
+      // Ignorer si le dossier n'existe pas encore
     }
   }
 }

@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import type { GenerationResult, LearningEpisode } from '../types'
 import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
@@ -10,6 +10,7 @@ import type { LLMService } from './llm.interface'
 // ─────────────────────────────────────────────
 
 export abstract class VimaxBaseAgent {
+  protected seriesId?: string
   protected metrics = {
     calls: 0,
     estimatedTokens: 0,
@@ -18,6 +19,10 @@ export abstract class VimaxBaseAgent {
   }
 
   constructor(protected readonly llm: LLMService) {}
+
+  public setSeriesId(id: string) {
+    this.seriesId = id
+  }
 
   /**
    * Parse une réponse JSON du LLM de façon sécurisée.
@@ -79,6 +84,7 @@ export abstract class VimaxBaseAgent {
     await this.recordEpisode({
       id: episodeId,
       agentName: this.constructor.name,
+      seriesId: this.seriesId,
       systemPrompt: system,
       userPrompt: prunedPrompt,
       response: raw,
@@ -99,7 +105,10 @@ export abstract class VimaxBaseAgent {
    */
   private async recordEpisode(episode: LearningEpisode): Promise<void> {
     try {
-      const episodesDir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+      let episodesDir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+      if (episode.seriesId) {
+        episodesDir = path.join(episodesDir, episode.seriesId)
+      }
       await fs.mkdir(episodesDir, { recursive: true })
       const filePath = path.join(episodesDir, `${episode.id}.json`)
       await fs.writeFile(filePath, JSON.stringify(episode, null, 2), 'utf8')

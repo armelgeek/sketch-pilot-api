@@ -271,6 +271,7 @@ export interface VimaxRunOptions {
   targetEpisodeCount?: number
   visualStyle?: string
   colorPalette?: string[]
+  seriesId?: string
   reviewGates?: ReviewGate['stage'][]
 }
 
@@ -329,6 +330,7 @@ export type EpisodeBridge = string
 export interface LearningEpisode {
   id: string
   agentName: string
+  seriesId?: string
   systemPrompt: string
   userPrompt: string
   response: string

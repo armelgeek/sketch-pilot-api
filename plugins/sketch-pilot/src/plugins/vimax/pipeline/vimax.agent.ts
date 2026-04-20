@@ -90,6 +90,9 @@ export class VimaxAgent {
     const finalIdea = analysis.enrichedIdea
 
     // Pass 0 : Planification globale
+    const seriesId = options.seriesId || `series-${Date.now()}`
+    this.getAllAgents().forEach((agent) => agent.setSeriesId(seriesId))
+
     const plan = await this.planner.planSaga(finalIdea, options)
     await this.saveIntermediate('pass0-plan', plan)
     await this.triggerReview('post-script', plan, options)
@@ -611,5 +614,23 @@ export class VimaxAgent {
     } catch (error) {
       console.warn(`[VimaxAgent] Échec de la sauvegarde intermédiaire "${name}":`, error)
     }
+  }
+
+  private getAllAgents(): any[] {
+    return [
+      this.planner,
+      this.narration,
+      this.screenwriter,
+      this.eventExtractor,
+      this.compressor,
+      this.enhancer,
+      this.characterExtractor,
+      this.dialogue,
+      this.animation,
+      this.auditor,
+      this.inputSanitizer,
+      this.outputFormatter,
+      this.brain
+    ].filter(Boolean)
   }
 }

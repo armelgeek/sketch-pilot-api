@@ -149,6 +149,26 @@
       "successCount": 0,
       "failCount": 0,
       "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-compressor-fidelity",
+      "agentName": "VimaxSagaCompressor",
+      "category": "logic",
+      "directive": "COMPRESSION NARRATIVE : Préserve les rebondissements clés et les beats de personnages. Élimine les redondances. Produis un paragraphe fluide sans marqueurs.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-enhancer-precision",
+      "agentName": "VimaxScriptEnhancer",
+      "category": "style",
+      "directive": "PRÉCISION SENSORIELLE : Ajoute éclairage, météo et textures. Supprime tout jargon de caméra. Clarifie la position spatiale de @Nom.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
     }
   ],
   "globalDirectives": [
