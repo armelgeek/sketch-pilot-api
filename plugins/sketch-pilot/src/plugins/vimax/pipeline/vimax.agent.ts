@@ -3,321 +3,233 @@ import path from 'node:path'
 import { VimaxAnimationAgent } from '../agents/vimax-animation.agent'
 import { VimaxCharacterExtractor } from '../agents/vimax-character-extractor.agent'
 
+import { VimaxContinuityAuditor } from '../agents/vimax-continuity-auditor.agent'
 import { VimaxDialogueAgent } from '../agents/vimax-dialogue.agent'
 import { VimaxEventExtractor } from '../agents/vimax-event-extractor.agent'
+import { VimaxInputSanitizerAgent } from '../agents/vimax-input-sanitizer.agent'
 import { VimaxNarrationAgent } from '../agents/vimax-narration.agent'
+import { VimaxOutputFormatterAgent } from '../agents/vimax-output-formatter.agent'
 import { VimaxSagaCompressor } from '../agents/vimax-saga-compressor.agent'
 import { VimaxSagaPlanner } from '../agents/vimax-saga-planner.agent'
 import { VimaxScreenwriter } from '../agents/vimax-screenwriter.agent'
 import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
+import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
 import type { LLMService } from '../core/llm.interface'
 import type {
   CharacterProfile,
-  SagaIntent,
+  SceneMemory,
   SeriesContext,
+  StyleLock,
   VimaxEpisode,
   VimaxEvent,
   VimaxRunOptions,
   VimaxScene,
   VimaxScreenplay,
-  VimaxSeries
+  VimaxSeries,
+  VisualAnchorState
 } from '../types'
 
 // ─────────────────────────────────────────────
-// VimaxAgent — Orchestrateur principal du pipeline
-//
-// Pipeline complet :
-//
-//   basicIdea
-//     → VimaxSagaPlanner              (routing + amplification)
-//     → VimaxScriptEnhancer           (précision sensorielle + spatiale)
-//     → VimaxEventExtractor [série]   (découpage en épisodes)
-//     → Par épisode event :
-//         VimaxSagaCompressor         (compression historique si nécessaire)
-//         VimaxNarrationAgent         (Pass 1 : narration brute épisode)
-//         VimaxCharacterExtractor     (profils visuels personnages)
-//         VimaxEventExtractor [épis.] (découpage narration en scènes)
-//         → Par scène event :
-//             VimaxNarrationAgent     (narration courte scène)
-//             VimaxSagaPlanner        (imagePrompt motion)
-//             VimaxScreenwriter       (métadonnées cinématiques)
-//         VimaxScreenwriter           (métadonnées épisode)
+// VimaxAgent
+// Chef d'orchestre du pipeline Vimax.
+// Gère l'enchaînement des passes et la persistence des logs.
 // ─────────────────────────────────────────────
 
 export class VimaxAgent {
-  protected readonly planner: VimaxSagaPlanner
-  protected readonly enhancer: VimaxScriptEnhancer
-  protected readonly extractor: VimaxEventExtractor
-  protected readonly characterExtractor: VimaxCharacterExtractor
-  protected readonly narration: VimaxNarrationAgent
-  protected readonly dialogue: VimaxDialogueAgent
-  protected readonly compressor: VimaxSagaCompressor
-  protected readonly screenwriter: VimaxScreenwriter
-  protected readonly animation: VimaxAnimationAgent
+  private planner: VimaxSagaPlanner
+  private narration: VimaxNarrationAgent
+  private screenwriter: VimaxScreenwriter
+  private eventExtractor: VimaxEventExtractor
+  private compressor: VimaxSagaCompressor
+  private enhancer: VimaxScriptEnhancer
+  private characterExtractor: VimaxCharacterExtractor
+  private dialogue: VimaxDialogueAgent
+  private animation: VimaxAnimationAgent
+  private auditor: VimaxContinuityAuditor
+  private inputSanitizer: VimaxInputSanitizerAgent
+  private outputFormatter: VimaxOutputFormatterAgent
 
-  constructor(protected readonly llm: LLMService) {
-    this.planner = new VimaxSagaPlanner(llm)
-    this.enhancer = new VimaxScriptEnhancer(llm)
-    this.extractor = new VimaxEventExtractor(llm)
-    this.characterExtractor = new VimaxCharacterExtractor(llm)
-    this.narration = new VimaxNarrationAgent(llm)
-    this.dialogue = new VimaxDialogueAgent(llm)
-    this.compressor = new VimaxSagaCompressor(llm)
-    this.screenwriter = new VimaxScreenwriter(llm)
-    this.animation = new VimaxAnimationAgent(llm)
+  private metrics = {
+    totalCalls: 0,
+    totalTokens: 0,
+    retries: 0,
+    startTime: Date.now()
   }
 
-  // ─── Public API ──────────────────────────────
+  constructor(llm: LLMService) {
+    this.planner = new VimaxSagaPlanner(llm)
+    this.narration = new VimaxNarrationAgent(llm)
+    this.screenwriter = new VimaxScreenwriter(llm)
+    this.eventExtractor = new VimaxEventExtractor(llm)
+    this.compressor = new VimaxSagaCompressor(llm)
+    this.enhancer = new VimaxScriptEnhancer(llm)
+    this.characterExtractor = new VimaxCharacterExtractor(llm)
+    this.dialogue = new VimaxDialogueAgent(llm)
+    this.animation = new VimaxAnimationAgent(llm)
+    this.auditor = new VimaxContinuityAuditor(llm)
+    this.inputSanitizer = new VimaxInputSanitizerAgent(llm)
+    this.outputFormatter = new VimaxOutputFormatterAgent(llm)
+  }
 
   /**
-   * Pipeline complet : idea → série complète d'épisodes structurés.
-   *
-   * @param basicIdea  L'idée brute (phrase, paragraphe, pitch)
-   * @param options    Contexte série + seuil de compression
+   * Pipeline Complet : De l'idée à la série d'épisodes développés.
    */
-  async runSeries(basicIdea: string, options: VimaxRunOptions = {}): Promise<VimaxSeries> {
-    const { seriesContext = {}, compressionThreshold = 3, targetDuration, maxScenes } = options
-    console.log(`[VimaxAgent] Durée cible : ${targetDuration ? `${targetDuration}s` : 'non spécifiée'}`)
-    console.log(`[VimaxAgent] Max Scènes : ${maxScenes ?? 'non spécifié'}`)
-
-    let intent: SagaIntent = options.intent || 'narrative'
-    let expandedScript = ''
-    let enhancedScript = ''
-    let seriesEvents: VimaxEvent[] = []
-
-    if (options.manualEpisodes && options.manualEpisodes.length > 0) {
-      console.log(`[VimaxAgent] Étape 1 : Manuel — Utilisation de ${options.manualEpisodes.length} épisodes demandés.`)
-      seriesEvents = options.manualEpisodes.map((desc, i) => ({
-        index: i,
-        description: desc,
-        processChain: [desc],
-        isLast: i === options.manualEpisodes!.length - 1
-      }))
-      expandedScript = options.manualEpisodes.join('\n\n')
-      enhancedScript = expandedScript
-    } else {
-      // Étape 1 — SagaPlanner : routing + amplification
-      console.log(`[VimaxAgent] Étape 1 : Planification de la saga...`)
-      const sagaPlan = await this.planner.planSaga(basicIdea, options)
-      console.log(`[VimaxAgent] Intent : ${sagaPlan.intent}`)
-      intent = sagaPlan.intent
-      expandedScript = sagaPlan.script
-      await this.saveIntermediate('pass0_plan', sagaPlan)
-
-      // Étape 2 — ScriptEnhancer : précision sensorielle + spatiale
-      console.log(`[VimaxAgent] Étape 2 : Enrichissement du script...`)
-      enhancedScript = await this.enhancer.enhance(expandedScript)
-      await this.saveIntermediate('pass1_enhanced', { script: enhancedScript })
-    }
-
-    seriesContext.intent = intent
-
-    // Nouveau — Découverte Globale des Personnages (Vision de la série entière)
-    console.log(`[VimaxAgent] Étape 2b : Découverte globale des personnages...`)
-    const globalCharacters = await this.characterExtractor.extractCharacters(enhancedScript)
-    console.log(`[VimaxAgent] ${globalCharacters.length} personnages identifiés pour la série.`)
-    seriesContext.characterProfiles = [...(seriesContext.characterProfiles || []), ...globalCharacters]
-    await this.saveIntermediate('pass1_global_characters', globalCharacters)
-
-    if (seriesEvents.length === 0) {
-      // Étape 3 — EventExtractor niveau série : découpe en épisodes
-      console.log(`[VimaxAgent] Étape 3 : Extraction des événements de la série...`)
-      seriesEvents = await this.extractor.extractEvents(
-        enhancedScript,
-        'series',
-        targetDuration,
-        maxScenes,
-        options.targetEpisodeCount
+  async runSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<VimaxSeries> {
+    // 0. Input Sanitation (Rigueur 5.0)
+    const analysis = await this.inputSanitizer.analyze(basicIdea)
+    if (!analysis.isViable) {
+      throw new Error(
+        `Idée non viable : ${analysis.issues.join(', ')}. Suggestions : ${analysis.suggestions.join(', ')}`
       )
-      console.log(`[VimaxAgent] Nombre d'épisodes détectés : ${seriesEvents.length}`)
-      await this.saveIntermediate('pass2_series_events', seriesEvents)
+    }
+    const finalIdea = analysis.enrichedIdea
+
+    // Pass 0 : Planification globale
+    const plan = await this.planner.planSaga(finalIdea, options)
+    await this.saveIntermediate('pass0-plan', plan)
+
+    // Pass 1 : Découpage en épisodes (VimaxEventExtractor)
+    const episodeEvents = await this.eventExtractor.extractEvents(
+      plan.script,
+      'series',
+      options.targetDuration,
+      options.maxScenes,
+      options.targetEpisodeCount
+    )
+    await this.saveIntermediate('pass1-episode-events', episodeEvents)
+
+    const episodes: VimaxEpisode[] = []
+    const seriesContext: SeriesContext = {
+      ...options.seriesContext,
+      intent: plan.intent,
+      previousEpisodes: []
     }
 
-    // Étape 4 — Par épisode
-    const episodes: VimaxEpisode[] = []
-    const episodeSummaries: string[] = []
+    let lastEpisodeBridge: VimaxAgent['compressor'] extends {
+      extractEpisodeBridge: (...args: any[]) => Promise<infer R>
+    }
+      ? R
+      : any = null
 
-    for (const event of seriesEvents) {
-      console.log(`\n🎬 [VimaxAgent] Génération de l'épisode ${event.index + 1}/${seriesEvents.length}...`)
-      console.log(`[VimaxAgent] Description : ${event.description}`)
-      // Compression automatique de l'historique si trop volumineux
-      const compressedHistory = await this.compressor.compressSeriesHistory(episodeSummaries, compressionThreshold)
-
-      const episodeContext: SeriesContext = {
-        ...seriesContext,
-        previousEpisodes: compressedHistory ? [compressedHistory] : []
+    for (const [i, event] of episodeEvents.entries()) {
+      // Pass the bridge to the next episode
+      if (lastEpisodeBridge) {
+        seriesContext.lastEpisodeBridge = lastEpisodeBridge
       }
 
-      // Répartition du budget pour cet épisode
-      const epTargetDuration = targetDuration ? targetDuration / seriesEvents.length : undefined
-      // Note: On passe maxScenes tel quel car l'utilisateur demande 8 scènes PAR épisode (instruction orale)
-      // mais techniquement maxScenes dans l'objet d'options est souvent un total.
-      // On va considérer que maxScenes dans runEpisode est le budget par épisode.
-      const episode = await this.runEpisode(event, episodeContext, epTargetDuration, maxScenes)
+      const episode = await this.runEpisode(event, i, seriesContext, options)
       episodes.push(episode)
 
-      // Capturer le "raccord" (la dernière narration de cet épisode) pour le suivant
-      const lastScene = episode.screenplay.scenes.at(-1)
-      seriesContext.lastEpisodeHook = lastScene ? lastScene.narration : undefined
+      // Update context for next episode
+      seriesContext.previousEpisodes?.push(episode.narration)
+      if (seriesContext.previousEpisodes!.length > (options.compressionThreshold || 3)) {
+        const compressed = await this.compressor.compress(seriesContext.previousEpisodes!.join('\n\n'))
+        seriesContext.previousEpisodes = [compressed]
+      }
 
-      // Accumule le résumé pour les épisodes suivants
-      episodeSummaries.push(episode.screenplay.seriesMetadata.episodeSummary)
+      // Extract bridge for next episode
+      lastEpisodeBridge = await this.compressor.extractEpisodeBridge(episode.narration)
     }
 
     return {
-      intent,
-      expandedScript,
-      enhancedScript,
+      intent: plan.intent,
+      expandedScript: plan.script,
+      enhancedScript: plan.script, // On pourrait encore l'affiner globalement
       episodes
     }
   }
 
   /**
-   * Génération incrémentale d'un épisode avec mise à jour automatique de la continuité.
-   * Cette méthode est le point d'entrée pour un flux "épisode par épisode".
-   *
-   * @param seriesEvent L'événement (pitch) de l'épisode à générer
-   * @param options     Options incluant le contexte actuel (bible, historique, etc.)
+   * Génère un épisode complet (Narration + Screenplay).
    */
-  async runNextEpisode(
-    seriesEvent: VimaxEvent,
-    options: VimaxRunOptions = {}
-  ): Promise<{ episode: VimaxEpisode; updatedContext: SeriesContext }> {
-    const { seriesContext = {}, targetDuration, maxScenes } = options
+  private async runEpisode(
+    event: VimaxEvent,
+    index: number,
+    context: SeriesContext,
+    options: VimaxRunOptions
+  ): Promise<VimaxEpisode> {
+    const prefix = `episode-${index + 1}`
 
-    console.log(`\n🚀 [VimaxAgent] Génération incrémentale : Épisode ${seriesEvent.index + 1}`)
-    console.log(`[VimaxAgent] Description : ${seriesEvent.description}`)
+    // 1. Narration complète de l'épisode (Pass 1)
+    const fullNarration = await this.narration.generateEpisodeNarration(event, context)
+    await this.saveIntermediate(`${prefix}-pass1-narration`, fullNarration)
 
-    // 1. Génération de l'épisode
-    const episode = await this.runEpisode(seriesEvent, seriesContext, targetDuration, maxScenes)
+    // 2. Raffinement du script (Pass 1.5)
+    const enhancedScript = await this.enhancer.enhance(fullNarration)
+    await this.saveIntermediate(`${prefix}-pass1.5-enhanced`, enhancedScript)
 
-    // 2. Évolution automatique du contexte (Continuité)
-    const { seriesMetadata } = episode.screenplay
-    const { episodeSummary, characterContinuity, locationContinuity } = seriesMetadata
+    // 3. Extraction des profils personnages (Pass 2.1)
+    const profiles = await this.characterExtractor.extractCharacters(enhancedScript)
+    await this.saveIntermediate(`${prefix}-pass2.1-profiles`, profiles)
 
-    const updatedContext: SeriesContext = {
-      ...seriesContext,
-      // Mise à jour de l'historique narratif
-      previousEpisodes: [...(seriesContext.previousEpisodes || []), episodeSummary],
-      // Capturer le "raccord" pour le prochain épisode incrémental
-      lastEpisodeHook: episode.screenplay.scenes.at(-1)?.narration,
-      // Mise à jour des registres de vérité (character/location registries)
-      characterRegistry: {
-        ...((seriesContext.characterRegistry as Record<string, unknown>) || {}),
-        ...characterContinuity
-      },
-      locationRegistry: {
-        ...((seriesContext.locationRegistry as Record<string, unknown>) || {}),
-        ...locationContinuity
-      },
-      // Préservation des profils visuels permanents pour le prochain épisode
-      characterProfiles: [
-        ...(seriesContext.characterProfiles || []),
-        ...episode.characterProfiles.filter(
-          (p) => !(seriesContext.characterProfiles || []).some((cp) => cp.identifier === p.identifier)
-        )
-      ]
+    // 4. Découpage en scènes (Pass 2.2)
+    const sceneEvents = await this.eventExtractor.extractEvents(
+      enhancedScript,
+      'episode',
+      options.targetDuration,
+      options.maxScenes
+    )
+    await this.saveIntermediate(`${prefix}-pass2.2-scene-events`, sceneEvents)
+
+    const continuity = new VimaxContinuityEngine()
+    if (context.lastEpisodeBridge) {
+      continuity.setBridge(context.lastEpisodeBridge)
     }
 
-    console.log(`[VimaxAgent] Continuité mise à jour pour le prochain épisode.`)
+    // StyleLock (Rigueur 5.0)
+    const styleLock: StyleLock = {
+      visualStyle: options.visualStyle || 'cinematic hyper-realistic animation',
+      colorPalette: options.colorPalette || ['deep blues', 'vibrant oranges'],
+      forbiddenTerms: ['cartoon', 'sketchy', 'amateur', 'blurry'],
+      mandatoryTerms: ['high resolution', '8k', 'volumetric lighting', 'cinematic grain']
+    }
+    this.planner.setStyleLock(styleLock)
 
-    return { episode, updatedContext }
-  }
-
-  /**
-   * Pipeline épisode uniquement depuis un event de série.
-   * Inclut : narration, extraction personnages, scènes complètes.
-   */
-  async runEpisode(
-    seriesEvent: VimaxEvent,
-    context: SeriesContext = {},
-    targetDuration?: number,
-    maxScenes?: number
-  ): Promise<VimaxEpisode> {
-    // Pass 1 — Narration brute de l'épisode
-    console.log(`   [Pass 1] Génération de la narration brute...`)
-    const episodeNarration = await this.narration.generateEpisodeNarration(
-      seriesEvent,
-      context,
-      targetDuration,
-      maxScenes
-    )
-    await this.saveIntermediate(`episode_${seriesEvent.index + 1}_pass1_narration`, { narration: episodeNarration })
-
-    // Extraction et fusion des profils visuels des personnages
-    console.log(`   [Pass 2] Extraction et fusion des personnages...`)
-    const localProfiles = await this.characterExtractor.extractCharacters(episodeNarration)
-
-    // Fusion : on garde les profils du contexte (globuax) et on ajoute/met à jour avec les locaux
-    const mergedProfiles = [
-      ...(context.characterProfiles || []),
-      ...localProfiles.filter((lp) => !(context.characterProfiles || []).some((cp) => cp.identifier === lp.identifier))
-    ]
-
-    const characterContext = this.characterExtractor.formatForPrompt(mergedProfiles)
-    console.log(`   [Pass 2] Personnages actifs : ${localProfiles.map((p) => p.identifier).join(', ')}`)
-    await this.saveIntermediate(`episode_${seriesEvent.index + 1}_pass2_characters`, mergedProfiles)
-
-    // Contexte enrichi avec les profils fusionnés
-    const enrichedContext: SeriesContext = { ...context, characterProfiles: mergedProfiles }
-
-    // Découpage de la narration en scènes
-    console.log(`   [Pass 2] Découpage en scènes...`)
-    const sceneEvents = await this.extractor.extractEvents(episodeNarration, 'episode', targetDuration, maxScenes)
-    console.log(`   [Pass 2] Nombre de scènes : ${sceneEvents.length}`)
-    await this.saveIntermediate(`episode_${seriesEvent.index + 1}_pass2_scene_events`, sceneEvents)
-
-    // Assemblage des scènes
-    console.log(`   [Pass 3] Assemblage des scènes complètes...`)
+    // 5. Génération individuelle des scènes (Pass 2.x - 3.x)
+    const charContext = this.characterExtractor.formatForPrompt(profiles)
     const scenes = await this.buildScenes(
       sceneEvents,
-      enrichedContext,
-      characterContext,
-      mergedProfiles,
-      targetDuration,
-      maxScenes
+      context,
+      charContext,
+      profiles,
+      continuity,
+      options.targetDuration,
+      options.maxScenes
     )
-    await this.saveIntermediate(`episode_${seriesEvent.index + 1}_pass3_scenes`, scenes)
 
-    // Métadonnées épisode (summary, cliffhanger, continuité)
-    console.log(`   [Pass 3] Génération des métadonnées de l'épisode...`)
-    const episodeMeta = await this.screenwriter.generateEpisodeMeta(scenes, enrichedContext)
-    await this.saveIntermediate(`episode_${seriesEvent.index + 1}_pass3_meta`, episodeMeta)
+    const screenplay: VimaxScreenplay = {
+      seriesMetadata: {
+        episodeSummary: enhancedScript.slice(0, 200),
+        cliffhanger: { type: 'unknown', description: 'Suspendu', audienceQuestion: 'Que va-t-il se passer ?' },
+        characterContinuity: {},
+        locationContinuity: {}
+      },
+      titles: [event.description],
+      scenes
+    }
 
-    const screenplay: VimaxScreenplay = { ...episodeMeta, scenes }
+    await this.saveIntermediate(`${prefix}-pass3-screenplay`, screenplay)
 
-    console.log(`   ✅ Épisode ${seriesEvent.index + 1} terminé.`)
+    // 6. Audit final de continuité (Rigueur 2.0)
+    const auditReport = await this.auditor.audit(scenes)
+    await this.saveIntermediate(`${prefix}-pass4-continuity-audit`, auditReport)
+
+    // 7. Formatage Final (Rigueur 5.0)
+    const formattedResult = await this.outputFormatter.format(screenplay)
+    await this.saveIntermediate(`${prefix}-pass5-formatted`, formattedResult)
 
     return {
-      eventIndex: seriesEvent.index,
-      eventDescription: seriesEvent.description,
-      narration: episodeNarration,
-      characterProfiles: mergedProfiles,
-      screenplay
+      eventIndex: index,
+      eventDescription: event.description,
+      narration: enhancedScript,
+      characterProfiles: profiles,
+      screenplay,
+      continuityReport: auditReport
     }
   }
 
   /**
-   * Pipeline depuis une narration déjà produite (bypass Pass 1 et SagaPlanner).
-   * Utile pour régénérer les scènes sans relancer toute la chaîne.
-   */
-  async runFromNarration(narration: string, context: SeriesContext = {}): Promise<VimaxScreenplay> {
-    const characterProfiles = await this.characterExtractor.extractCharacters(narration)
-    const characterContext = this.characterExtractor.formatForPrompt(characterProfiles)
-    const enrichedContext: SeriesContext = { ...context, characterProfiles }
-
-    const sceneEvents = await this.extractor.extractEvents(narration, 'episode')
-    const scenes = await this.buildScenes(sceneEvents, enrichedContext, characterContext, characterProfiles)
-    const episodeMeta = await this.screenwriter.generateEpisodeMeta(scenes, enrichedContext)
-
-    return { ...episodeMeta, scenes }
-  }
-
-  // ─── Private ─────────────────────────────────
-
-  /**
-   * Construit les scènes complètes depuis les events de scène.
-   *
+   * Construit les scènes une à une avec continuité.
    * Par event :
    *   1. Narration courte        (VimaxNarrationAgent)
    *   2. imagePrompt motion      (VimaxSagaPlanner) — profils personnages injectés
@@ -329,70 +241,243 @@ export class VimaxAgent {
     context: SeriesContext,
     characterContext: string,
     profiles: CharacterProfile[],
+    continuity: VimaxContinuityEngine,
     targetDuration?: number,
     maxScenes?: number
   ): Promise<VimaxScene[]> {
-    const intermediateScenes: any[] = []
-    let sceneCounter = 1
-    let lastImagePrompt = ''
+    const intermediateScenes: VimaxScene[] = []
+    const sceneMemories: SceneMemory[] = []
+    let lastVisualAnchor: VisualAnchorState | null = null
+
+    // Hardening 2.0 : Courbe de tension pré-calculée via le moteur
+    const tensionCurve = continuity.tension.buildCurve(sceneEvents.length, context.intent || 'narrative')
 
     for (let i = 0; i < sceneEvents.length; i++) {
       const event = sceneEvents[i]
       const isActuallyLast = i === sceneEvents.length - 1
 
-      // 1. Narration courte de la scène
-      const sceneNarration = await this.narration.generateSceneNarration(
-        event,
+      // Injection de la tension cible dans l'event
+      const eventWithTension = {
+        ...event,
+        description: `${event.description} [CIBLE TENSION: ${tensionCurve[i]}/10]`
+      }
+
+      // IntentDriftDetector — Rappel d'intention après la scène 2
+      const intent = context.intent || 'narrative'
+      const intentReminder =
+        i + 1 > 2
+          ? `[RAPPEL INTENT : ${intent.toUpperCase()}] Tu génères une scène de type "${intent}". Vérifie que cette scène respecte les codes de ce format.`
+          : ''
+
+      // SceneBudgetManager — Gestion du budget de contexte
+      // On compresse les mémoires anciennes pour éviter l'explosion de tokens
+      const effectiveMemories = sceneMemories.length > 3 ? sceneMemories.slice(-3) : sceneMemories
+
+      // 1. Narration courte de la scène (Pass 1) — avec MÉMOIRE 2.0 (Engine)
+      const continuityBlock = continuity.formatFullContinuityBlock()
+      const tensionBlock = continuity.tension.formatForPrompt(i + 1, sceneEvents.length, tensionCurve)
+
+      const narrationResult = await this.narration.generateSceneNarration(
+        eventWithTension,
         context,
-        targetDuration,
+        targetDuration ? `${Math.round(targetDuration / sceneEvents.length)} mots` : undefined,
         maxScenes,
-        isActuallyLast
+        isActuallyLast,
+        effectiveMemories,
+        i + 1,
+        sceneEvents.length,
+        continuityBlock,
+        tensionBlock,
+        intentReminder
       )
 
-      // 2. dialogue percutant (Pass 2.5) — avec timing relatif
-      const sceneDialogue = await this.dialogue.generateDialogue(sceneNarration, event.description, context)
+      let { narration, memory } = narrationResult
+
+      // Point 1 : Correction immédiate (Rigueur 3.0)
+      let validation = await this.auditor.validateAndCorrect(
+        narration,
+        sceneMemories,
+        continuity.characters.getCurrentStates()
+      )
+
+      let retryVal = 0
+      while (!validation.isValid && retryVal < 2) {
+        const retryResult = await this.narration.generateSceneNarration(
+          eventWithTension,
+          context,
+          undefined,
+          maxScenes,
+          isActuallyLast,
+          effectiveMemories,
+          i + 1,
+          sceneEvents.length,
+          `${continuityBlock}\n\n[RECTIFICATION REQUISE PAR LE SUPERVISEUR]\n${validation.issues.join('\n')}`,
+          tensionBlock,
+          intentReminder
+        )
+        narration = retryResult.narration
+        memory = retryResult.memory
+
+        validation = await this.auditor.validateAndCorrect(
+          narration,
+          sceneMemories,
+          continuity.characters.getCurrentStates()
+        )
+        retryVal++
+      }
+
+      if (validation.correctedNarration) {
+        narration = validation.correctedNarration
+      }
+
+      if (validation.correctedNarration) {
+        narration = validation.correctedNarration
+      }
+
+      // Verrouillage de la Narration ✅ (A partir d'ici, narration ne bouge plus)
+
+      // 2. dialogue percutant (Pass 2.5) — avec timing relatif et MÉMOIRE DE VOIX
+      let sceneDialogue = await this.dialogue.generateDialogue(
+        narration,
+        event.description,
+        context,
+        continuity.voices.getVoiceHistories()
+      )
 
       // 3. Animation et Acting (Pass 2.2)
-      const animMeta = await this.animation.generateAnimation(sceneNarration, event.description, sceneDialogue, context)
+      const animMeta = await this.animation.generateAnimation(narration, event.description, sceneDialogue, context)
 
       // 4. imagePrompt cinématique (Identifiants @Nom uniquement) + ANCHORING
       const characterList = (profiles || []).map((p) => `${p.identifier}`).join(', ')
-      const imagePrompt = await this.planner.generateImagePrompt(sceneNarration, characterList, lastImagePrompt)
-      lastImagePrompt = imagePrompt
+      const plannerResult = await this.planner.generateImagePrompt(
+        narration,
+        characterList,
+        lastVisualAnchor,
+        isActuallyLast
+      )
+      let imagePrompt = plannerResult.imagePrompt
+      const visualAnchor = plannerResult.visualAnchor
+      lastVisualAnchor = visualAnchor
 
       // 5. Métadonnées cinématiques
       const meta = await this.screenwriter.generateSceneMeta(
-        sceneNarration,
+        narration,
         event.description,
         imagePrompt,
-        sceneCounter,
+        i + 1,
+        sceneEvents.length,
         context,
         isActuallyLast
       )
 
-      intermediateScenes.push({
-        event,
-        sceneNumber: sceneCounter,
-        sceneNarration,
+      // POINT 3 : CrossLayerValidator (Rigueur 3.0) — Cohérence visuel/texte
+      const crossAudit = await this.auditor.crossLayerAudit(
+        narration,
+        imagePrompt,
+        meta.cameraAction,
+        sceneDialogue,
+        animMeta.animationPrompt
+      )
+      if (crossAudit.patches.imagePrompt) imagePrompt = crossAudit.patches.imagePrompt
+      if (crossAudit.patches.cameraAction) meta.cameraAction = crossAudit.patches.cameraAction
+      if (crossAudit.patches.dialogue) sceneDialogue = crossAudit.patches.dialogue
+      if (crossAudit.patches.animationPrompt) animMeta.animationPrompt = crossAudit.patches.animationPrompt
+
+      // Point 4 : SimulationPatchConsistency — Application forcée de l'état (Rigueur 3.0)
+      if (meta.simulationPatch) {
+        if (meta.simulationPatch.charactersPatch) {
+          // Conversion de Record<string, Partial<CharacterState>> en CharacterState[]
+          const newCharStates = Object.entries(meta.simulationPatch.charactersPatch).map(
+            ([id, patch]) =>
+              ({
+                identifier: id,
+                ...patch
+              }) as any
+          )
+          continuity.characters.update(newCharStates)
+        }
+        if (meta.simulationPatch.worldPatch) {
+          const newLocStates = Object.entries(meta.simulationPatch.worldPatch).map(
+            ([id, patch]) =>
+              ({
+                locationId: id,
+                ...patch
+              }) as any
+          )
+          continuity.locations.update(newLocStates)
+        }
+      }
+
+      // Mise à jour finale des trackers via le moteur (Legacy + Patch)
+      if (memory.role) continuity.roles.register(memory.role)
+      if (memory.plotContract) continuity.plots.update(memory.plotContract)
+      continuity.voices.update(sceneDialogue.map((d) => ({ character: d.character, text: d.text, acting: d.acting })))
+
+      const sceneToPush = {
+        sceneNumber: i + 1,
+        narration,
         sceneDialogue,
         animationPrompt: animMeta.animationPrompt,
         acting: animMeta.acting,
         imagePrompt,
         meta
-      })
-      sceneCounter++
+      } as any
+
+      // MetadataCompleteness & CulturalGuard (Rigueur 5.0)
+      const metaCheck = await this.auditor.validateMetadata(sceneToPush)
+      if (!metaCheck.isValid) {
+        console.warn(`[VimaxAgent] Scène ${i + 1} incomplète : ${metaCheck.issues.join(', ')}`)
+      }
+
+      // On s'assure que la mémoire poussée vers l'historique contient la narration et les états FINAUX
+      memory.summary = narration.slice(0, 100)
+      memory.lastAction = narration.split('.').at(-1)?.trim() || ''
+      memory.tensionLevel = tensionCurve[i]
+      sceneMemories.push(memory)
+
+      intermediateScenes.push({
+        sceneNumber: i + 1,
+        narration,
+        sceneDialogue,
+        animationPrompt: animMeta.animationPrompt,
+        acting: animMeta.acting,
+        imagePrompt,
+        meta
+      } as any)
+
+      // Point 2 : Audit de mi-parcours (Rigueur 3.0)
+      const midpoint = Math.floor(sceneEvents.length / 2)
+      if (i === midpoint && i > 0) {
+        const midpointReport = await this.auditor.midpointAudit(intermediateScenes as any, tensionCurve, [
+          continuity.plots.getContract()
+        ])
+        if (midpointReport.scenesToRegenerate.length > 0 || midpointReport.globalIssues.length > 0) {
+          // Log de l'audit de mi-parcours
+          await this.saveIntermediate(`episode-midpoint-audit`, midpointReport)
+        }
+      }
+    }
+
+    // Point 3 : Audit final & Patching (Rigueur 3.0)
+    const finalAudit = await this.auditor.finalAuditEnhanced(intermediateScenes as any)
+    if (!finalAudit.approved && finalAudit.scenesToPatch.length > 0) {
+      for (const patchEntry of finalAudit.scenesToPatch) {
+        const sceneIndex = patchEntry.sceneIndex
+        const sceneToPatch = (intermediateScenes as any[]).find((s) => s.sceneNumber === sceneIndex)
+        if (sceneToPatch) {
+          // Application du patch (narration ou meta)
+          Object.assign(sceneToPatch, patchEntry.patch)
+        }
+      }
     }
 
     // 5. Calcul précis de la Timeline (Raccord temporel)
-    const totalWords = intermediateScenes.reduce(
-      (acc, s) => acc + s.sceneNarration.split(/\s+/).filter(Boolean).length,
-      0
-    )
+    const totalWords = intermediateScenes.reduce((acc, s) => acc + s.narration.split(/\s+/).filter(Boolean).length, 0)
     const durationFactor = (targetDuration || 60) / (totalWords || 1)
 
     let currentTime = 0
-    return intermediateScenes.map((raw) => {
-      const sceneWords = raw.sceneNarration.split(/\s+/).filter(Boolean).length
+    return (intermediateScenes as any[]).map((raw) => {
+      const sceneWords = raw.narration.split(/\s+/).filter(Boolean).length
       const duration = Number((sceneWords * durationFactor).toFixed(2))
       const startTime = Number(currentTime.toFixed(2))
       currentTime += duration
@@ -400,19 +485,17 @@ export class VimaxAgent {
       return {
         id: `scene-${raw.sceneNumber}`,
         sceneNumber: raw.sceneNumber,
-        narration: raw.sceneNarration,
+        narration: raw.narration,
         imagePrompt: raw.imagePrompt,
-        dialogue: raw.sceneDialogue,
+        dialogue: raw.dialogue,
         duration,
         startTime,
         animationPrompt: raw.animationPrompt,
         acting: raw.acting,
         ...raw.meta
-      }
+      } as VimaxScene
     })
   }
-
-  // ─── Helpers ─────────────────────────────────
 
   /**
    * Sauvegarde les données intermédiaires dans vimax-logs/.
@@ -442,7 +525,7 @@ export class VimaxAgent {
 
       await fs.writeFile(textPath, textContent, 'utf8')
     } catch (error) {
-      console.error(`[VimaxAgent] Erreur lors de la sauvegarde de ${name}:`, error)
+      console.warn(`[VimaxAgent] Échec de la sauvegarde intermédiaire "${name}":`, error)
     }
   }
 }

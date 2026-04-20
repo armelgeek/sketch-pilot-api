@@ -11,32 +11,42 @@ import type { CharacterProfile } from '../types'
 export class VimaxCharacterExtractor extends VimaxBaseAgent {
   private getSystem(): string {
     return `
-[Rôle]
 Tu es un expert en analyse de scripts cinématographiques de haut niveau.
-
-[Tâche]
 Analyse le script fourni et extrais tous les profils visuels pertinents des personnages.
 
-[Directives]
-- IDENTIFIANT : Doit impérativement suivre le format @PascalCase (ex: @Alexandre, @DetectiveJames, @IaHolographique). 
-- AUCUN ESPACE, AUCUNE APOSTROPHE, AUCUN CARACTÈRE SPÉCIAL dans l'identifiant.
-- Groupe tous les noms se référant à la même entité sous un seul personnage unique.
-- Ignore les personnages d'arrière-plan ou la foule.
-- Si des caractéristiques manquent, conçois des traits visuels plausibles et vivants basés sur le contexte.
-- CARACTÉRISTIQUES STATIQUES : Apparence physique et traits immuables (ex: arête du nez haute, longs cheveux noirs, carrure trapue).
-- CARACTÉRISTIQUES DYNAMIQUES : Tenue, accessoires, éléments modifiables (ex: chemise en soie bleue, montre en argent).
-- HYBRIDE ANTHROPOMORPHISME : Pour les objets ou animaux (ex: @Banane, @Pomme), ils doivent impérativement avoir un CORPS HUMAIN complet (bras, jambes, torse, mains) et une TÊTE DE FRUIT. La tête du fruit doit posséder tous les traits d'un visage humain expressif (yeux, bouche, sourcils). Ils ne sont PAS des objets avec des membres fins, mais des corps humains surmontés d'un fruit.
-- NE PAS inclure la personnalité, les rôles ou les relations.
-- Les descriptions doivent être concrètes et visuelles : couleurs, formes spécifiques, matériaux.
+[IDENTIFIANTS]
+- Format OBLIGATOIRE : @PascalCase (ex: @Alexandre, @DetectiveJames, @IaHolographique).
+- AUCUN ESPACE, AUCUNE APOSTROPHE, AUCUN CARACTÈRE SPÉCIAL.
+- DÉDUPLICATION : Si plusieurs noms désignent le même personnage (ex: "Banane", "@Banane", "le fruit"), crée UNE SEULE entrée avec l'identifiant @PascalCase canonique.
 
+[PERSONNAGES HUMAINS]
+- STATIQUES (immuables) : morphologie, couleur de peau, couleur et texture des cheveux, structure du visage, taille, corpulence. Ces traits ne changent JAMAIS entre les scènes.
+- DYNAMIQUES (modifiables) : vêtements, accessoires, armes portées, état physique (blessure, maquillage). Ces traits peuvent changer entre les épisodes.
+
+[PERSONNAGES ANTHROPOMORPHES — RÈGLE CRITIQUE]
+Si le personnage est un objet ou animal (ex: @Banane, @Pomme) :
+- static_features DOIT inclure : "corps humain complet (bras musclés, jambes, torse large, mains à 5 doigts), tête en forme de [fruit] avec visage expressif (yeux, sourcils, bouche)".
+- dynamic_features : tenue vestimentaire humaine portée sur ce corps (ex: veste en cuir, jean, baskets).
+- INTERDIT : membres fins, corps de fruit entier, absence de jambes ou de bras.
+
+[EXCLUSIONS]
+- Ignore la foule et les personnages d'arriére-plan.
+- N'inclus PAS personnalité, rôle ou relations.
+
+[DIRECTIVES GÉNÉRALES]
+- LONGUEUR : static_features et dynamic_features : 1 à 2 phrases maximum, 20-40 mots chacune. Concis et visuellement précis.
+- Si des caractéristiques manquent, conçois des traits visuels plausibles et vivants basés sur le contexte.
+
+[FORMAT]
+- "index" : ordre d'apparition dans le script (0 = premier personnage mentionné).
 Renvoie UNIQUEMENT du JSON valide :
 {
   "characters": [
     {
       "index": 0,
       "identifier": "@Nom",
-      "static_features": "chaîne de caractères",
-      "dynamic_features": "chaîne de caractères"
+      "static_features": "Description immuable ici",
+      "dynamic_features": "Description modifiable ici"
     }
   ]
 }
@@ -55,24 +65,32 @@ Renvoie UNIQUEMENT du JSON valide :
 ${script}
 </SCRIPT>
 
-Extraits tous les profils visuels des personnages en suivant les directives.
+Extraits tous les profils visuels des personnages en suivant les directives strictes.
+Réponds uniquement en JSON.
 `.trim()
 
     const raw = await this.generate(prompt, this.getSystem(), 'application/json')
     const parsed = this.parseJSONSafe<{ characters: CharacterProfile[] }>(raw, { characters: [] })
 
-    // Normalisation post-extraction pour garantir la cohérence (ex: @GIDEON -> @Gideon)
-    return parsed.characters.map((char) => ({
+    // Normalisation post-extraction (indexation séquentielle et @PascalCase)
+    return parsed.characters.map((char, i) => ({
       ...char,
+      index: i,
       identifier: this.normalizeIdentifier(char.identifier)
     }))
   }
 
   /**
    * Formate les profils en string injectable dans un imagePrompt.
-   * Ex: "@Alexandre: tall, sharp jawline | charcoal grey suit"
+   * Ex: "@Alexandre: mâchoire carrée, cheveux noirs courts | costume anthracite, montre en argent"
    */
   formatForPrompt(profiles: CharacterProfile[]): string {
-    return profiles.map((p) => `${p.identifier}: ${p.static_features} | ${p.dynamic_features}`).join('\n')
+    return profiles
+      .filter((p) => p.static_features?.trim() || p.dynamic_features?.trim())
+      .map((p) => {
+        const parts = [p.static_features, p.dynamic_features].filter((f) => f?.trim())
+        return `${p.identifier}: ${parts.join(' | ')}`
+      })
+      .join('\n')
   }
 }

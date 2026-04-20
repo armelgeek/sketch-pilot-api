@@ -24,6 +24,7 @@ Affine le script fourni en ajoutant de la précision sensorielle, en renforçant
 5. PAS de jargon de caméra : Pas de "couper à", "gros plan", "fondu au noir". PAS de métaphores.
 6. Dialogue : Garde-le concis et pertinent. Format : Nom : "Dialogue".
 7. Ne change PAS la structure de l'intrigue, l'ordre des événements ou les actions des personnages.
+8. IDENTIFIANTS : Utilise impérativement le format @PascalCase pour les noms de personnages (ex: @Banane, @Alexandre). AUCUN ESPACE, AUCUNE APOSTROPHE.
 
 Renvoie UNIQUEMENT du JSON valide : { "enhanced_script": "chaîne de caractères" }
 `.trim()
@@ -46,6 +47,6 @@ Améliore ce script en suivant les directives.
 
     const raw = await this.generate(prompt, this.getSystem(), 'application/json')
     const parsed = this.parseJSONSafe<{ enhanced_script: string }>(raw, { enhanced_script: script })
-    return parsed.enhanced_script
+    return this.normalizeAllIdentifiers(parsed.enhanced_script)
   }
 }

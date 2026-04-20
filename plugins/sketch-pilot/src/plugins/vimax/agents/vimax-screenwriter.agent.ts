@@ -54,7 +54,7 @@ export class VimaxScreenwriter extends VimaxBaseAgent {
 - cameraAction.intensity: "low" | "medium" | "high"
 - tensionState.type: "build" | "sustain" | "spike" | "release"
 - tensionState.level: entier 1-10
-- pacing: entier 1-10
+- pacing: entier 1-10 (DOIT être corrélé à la tension : Tension 2 → Pacing 2, Tension 5 → Pacing 5, Tension 10 → Pacing 9)
 
 Renvoie UNIQUEMENT du JSON valide correspondant au schéma.
 `.trim()
@@ -90,20 +90,26 @@ Renvoie UNIQUEMENT du JSON valide :
     eventDescription: string,
     imagePrompt: string,
     sceneNumber: number,
+    totalScenes: number,
     context: SeriesContext = {},
     forceClimax = false
   ): Promise<Omit<VimaxScene, 'id' | 'sceneNumber' | 'narration' | 'imagePrompt' | 'duration' | 'startTime'>> {
-    const cameraRule = forceClimax
-      ? `[OBLIGATION] SCÈNE ${sceneNumber} : shake + slow-motion (high intensity)`
-      : `
-- SCÈNE 1 : handheld (low)
-- SCÈNE 2 : push-in (medium)
-- SCÈNE 3 : slow-zoom (low)
-- SCÈNE 4 : shake (medium)
-- SCÈNE 5 : shake + slow-motion (high)
-`.trim()
+    let cameraRule = ''
+
+    if (forceClimax || sceneNumber === totalScenes) {
+      cameraRule = `[OBLIGATION] SCÈNE ${sceneNumber} (FINALE) : shake + slow-motion (high intensity). Impact physique maximum.`
+    } else if (sceneNumber === 1) {
+      cameraRule = `SCÈNE 1 (INTRO) : handheld (low intensity). Pose l'ambiance.`
+    } else {
+      // Distribution dynamique des mouvements pour les scènes intermédiaires
+      const intermediateMoves = ['push-in', 'slow-zoom', 'shake', 'breathing', 'pan-right', 'pan-left']
+      const move = intermediateMoves[(sceneNumber - 1) % intermediateMoves.length]
+      const intensity = sceneNumber > totalScenes / 2 ? 'medium' : 'low'
+      cameraRule = `SCÈNE ${sceneNumber} : ${move} (${intensity} intensity).`
+    }
 
     const prompt = `
+
 <NARRATION>
 ${narration}
 </NARRATION>
@@ -152,8 +158,7 @@ Renvoie du JSON :
 }
 `.trim()
 
-    const raw = await this.generate(prompt, this.getSceneSystem(), 'application/json')
-    const parsed = this.parseJSONSafe<RawSceneMeta>(raw, {
+    const result = await this.generateStructured<RawSceneMeta>(prompt, this.getSceneSystem(), {
       scenePurpose: 'reveal',
       sceneDelta: '',
       charactersInScene: [],
@@ -171,6 +176,17 @@ Renvoie du JSON :
       tensionState: { level: 5, type: 'sustain' },
       simulationPatch: { worldPatch: {}, charactersPatch: {} }
     })
+
+    const parsed = result.data
+
+    // PacingDirector : Corrélation forcée entre tension et pacing
+    // T2 -> P2, T5 -> P5, T10 -> P9
+    const tension = parsed.tensionState.level
+    if (tension >= 9) {
+      parsed.pacing = 9
+    } else {
+      parsed.pacing = tension
+    }
 
     return {
       ...parsed,
@@ -200,8 +216,7 @@ ${JSON.stringify(context, null, 2)}
 Génère les métadonnées de l'épisode.
 `.trim()
 
-    const raw = await this.generate(prompt, this.getEpisodeSystem(), 'application/json')
-    const parsed = this.parseJSONSafe<RawScreenplayMeta>(raw, {
+    const result = await this.generateStructured<RawScreenplayMeta>(prompt, this.getEpisodeSystem(), {
       seriesMetadata: {
         episodeSummary: '',
         cliffhanger: { type: 'unknown', description: '', audienceQuestion: '' },
@@ -210,6 +225,8 @@ Génère les métadonnées de l'épisode.
       },
       titles: []
     })
+
+    const parsed = result.data
 
     // Normalisation des clés du dictionnaire characterContinuity
     const cleanCharacterContinuity: Record<string, any> = {}

@@ -159,6 +159,7 @@ export interface VimaxEpisode {
   narration: string
   characterProfiles: CharacterProfile[] // profils visuels extraits pour cet épisode
   screenplay: VimaxScreenplay
+  continuityReport?: ContinuityReport
 }
 
 // ─── Series ──────────────────────────────────
@@ -187,6 +188,7 @@ export interface SeriesContext {
   previousEpisodes?: string[] // résumés compressés des épisodes précédents
   characterProfiles?: CharacterProfile[] // profils visuels injectés dans imagePrompts
   lastEpisodeHook?: string // la toute dernière narration de l'épisode précédent
+  lastEpisodeBridge?: EpisodeBridge // Hardening 2.0
   intent?: SagaIntent
   [key: string]: unknown
 }
@@ -201,4 +203,168 @@ export interface VimaxRunOptions {
   manualEpisodes?: string[] // liste optionnelle de résumés d'épisodes (bypass le planning)
   intent?: SagaIntent // intention forcée (si manualEpisodes est présent)
   targetEpisodeCount?: number // nombre cible d'épisodes (ex: 5)
+  visualStyle?: string
+  colorPalette?: string[]
+}
+
+export interface SceneRoleRegistry {
+  usedRoles: string[] // ["Arrivée", "Hésitation", "Confrontation"]
+  availableRoles: string[] // rôles restants selon l'intent
+}
+
+export interface LocationState {
+  locationId: string
+  currentState: string // "intact" | "en feu" | "inondé" | "détruit"
+  modifications: string[] // ["porte arrachée", "fenêtre brisée"]
+  lastModifiedAtScene: number
+}
+
+export interface VisualAnchorState {
+  dominantLight: string // "lumière rouge intermittente"
+  cameraAxis: string // "légèrement en contre-plongée"
+  characterPositions: Record<string, string> // "@Banane: gauche cadre"
+  activeProps: string[] // ["clé USB rouge", "barre de fer"]
+}
+
+export interface CharacterState {
+  identifier: string // @Banane
+  physicalState: string // "blessé à l'épaule gauche"
+  lastKnownPosition: string // "derrière la caisse en métal"
+  emotionalState: string // "paniqué" | "résolu" | "inconscient"
+  lastModifiedAtScene: number
+}
+
+export interface TensionCurve {
+  sceneCount: number
+  curve: number[] // [2, 4, 5, 7, 10] pour 5 scènes
+  intent: SagaIntent // "dramatic" → courbe exponentielle, "viral" → spike immédiat
+}
+
+export interface PlotPromise {
+  description: string // "La bombe dans le couloir B"
+  introducedAtScene: number
+  mustResolveBy: number // scène limite
+  resolved: boolean
+}
+
+export interface PlotContract {
+  openPromises: PlotPromise[] // éléments introduits non résolus
+  closedPromises: PlotPromise[] // éléments résolus
+}
+
+export interface CharacterVoiceHistory {
+  identifier: string
+  lastLines: string[] // 2-3 dernières répliques
+  currentEmotionalState: string // synchronisé avec CharacterStateTracker
+  voiceSignature: string // "autoritaire et bref" | "sarcastique"
+}
+
+export interface EpisodeBridge {
+  unresolvedCliffhanger: string // "Qui a tué @Pomme ?"
+  missingCharacters: string[] // ["@Alexandre"] disparu depuis ep.2
+  activeObjects: string[] // ["la clé USB rouge"]
+  worldState: Record<string, string> // état global de l'univers
+}
+
+export interface SceneMemory {
+  sceneNumber: number
+  role: string // ex: "Arrivée", "Confrontation"
+  summary: string // narration compressée en 1 phrase
+  charactersPresent: string[] // @PascalCase
+  location: string
+  lastAction: string // dernière action accomplie
+  tensionLevel: number // 1-10
+
+  // Hardening 2.0
+  usedRoles?: string[]
+  locationStates?: LocationState[]
+  characterStates?: CharacterState[]
+  plotContract?: PlotContract
+  voiceHistories?: CharacterVoiceHistory[]
+}
+
+// ─── Reliability (RetryOrchestrator) ──────────
+
+export interface GenerationResult<T> {
+  data: T
+  confidence: 'high' | 'low' | 'fallback'
+  retryCount: number
+}
+
+export interface ContinuityReport {
+  contradictions: string[] // ["@Banane mort scène 3, vivant scène 4"]
+  missingResolutions: string[] // ["clé USB introduite scène 1, jamais résolue"]
+  toneBreaks: string[] // ["scène 3 comique, brise la tension de scène 2"]
+  approved: boolean
+}
+
+// ─── Correction Loop (Multi-Pass) ─────────────
+
+export interface SceneValidation {
+  isValid: boolean
+  issues: string[]
+  correctedNarration?: string
+}
+
+export interface MidpointAuditResult {
+  scenesToRegenerate: number[]
+  globalIssues: string[]
+}
+
+export interface FinalAuditResult {
+  approved: boolean
+  contradictions: string[]
+  scenesToPatch: { sceneIndex: number; patch: Partial<VimaxScene> }[]
+}
+
+export interface CrossLayerValidation {
+  narrationVsImage: boolean
+  narrationVsCamera: boolean
+  narrationVsDialogue: boolean
+  narrationVsAnimation: boolean
+  issues: string[]
+  patches: {
+    imagePrompt?: string
+    cameraAction?: any // Partial<CameraAction>
+    dialogue?: any[] // DialogueLine[]
+    animationPrompt?: string
+  }
+}
+
+export interface InputAnalysis {
+  isViable: boolean
+  issues: string[]
+  suggestions: string[]
+  enrichedIdea: string
+}
+
+export interface StyleLock {
+  visualStyle: string
+  colorPalette: string[]
+  forbiddenTerms: string[]
+  mandatoryTerms: string[]
+}
+
+export interface PipelineProfile {
+  totalLLMCalls: number
+  totalTokensEstimated: number
+  bottleneckAgent: string
+  costEstimateUSD: number
+  scenesRetried: number
+  durationMs: number
+}
+
+export interface FormattedOutput {
+  format: 'json' | 'srt' | 'xml' | 'csv'
+  scenes: any[]
+  totalDuration: number
+  characterIndex: Record<string, CharacterProfile>
+  locationIndex: Record<string, any>
+}
+
+export interface ReviewGate {
+  stage: 'post-script' | 'post-narration' | 'post-generation'
+  reviewRequired: boolean
+  autoApproveIfScore: number
+  humanFeedback?: string
 }

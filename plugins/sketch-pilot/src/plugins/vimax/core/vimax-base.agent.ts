@@ -1,3 +1,4 @@
+import type { GenerationResult } from '../types'
 import type { LLMService } from './llm.interface'
 
 // ─────────────────────────────────────────────
@@ -6,6 +7,13 @@ import type { LLMService } from './llm.interface'
 // ─────────────────────────────────────────────
 
 export abstract class VimaxBaseAgent {
+  protected metrics = {
+    calls: 0,
+    estimatedTokens: 0,
+    startTime: Date.now(),
+    durationMs: 0
+  }
+
   constructor(protected readonly llm: LLMService) {}
 
   /**
@@ -44,7 +52,12 @@ export abstract class VimaxBaseAgent {
       console.log(`\n[LLM CALL] system: ${system.slice(0, 100)}... prompt: ${prompt.slice(0, 100)}...`)
     }
 
+    const startTime = Date.now()
     const raw = await this.llm.generateContent(prompt, system, mime)
+
+    this.metrics.durationMs += Date.now() - startTime
+    this.metrics.calls++
+    this.metrics.estimatedTokens += Math.round((prompt.length + system.length + raw.length) / 4)
 
     // Log direct pour debug
     if (process.env.DEBUG_LLM) {
@@ -52,6 +65,46 @@ export abstract class VimaxBaseAgent {
     }
 
     return raw
+  }
+
+  /**
+   * Génére du contenu structuré avec retry automatique en cas d'échec de parsing.
+   */
+  protected async generateStructured<T>(
+    prompt: string,
+    system: string,
+    fallback: T,
+    maxRetries = 2
+  ): Promise<GenerationResult<T>> {
+    let retryCount = 0
+
+    while (retryCount <= maxRetries) {
+      try {
+        const raw = await this.generate(prompt, system, 'application/json')
+        const data = this.parseJSON<T>(raw)
+
+        // Si on arrive ici, le parsing a réussi
+        return {
+          data,
+          confidence: retryCount === 0 ? 'high' : 'low',
+          retryCount
+        }
+      } catch (error) {
+        if (process.env.DEBUG_LLM) {
+          console.warn(`[VimaxBaseAgent] Échec de parsing (tentative ${retryCount + 1}/${maxRetries + 1}):`, error)
+        }
+        retryCount++
+        if (retryCount <= maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 500 * retryCount))
+        }
+      }
+    }
+
+    return {
+      data: fallback,
+      confidence: 'fallback',
+      retryCount: maxRetries
+    }
   }
 
   /**
@@ -73,5 +126,20 @@ export abstract class VimaxBaseAgent {
 
     // Forcer le format @PascalCase : Première lettre majuscule, le reste minuscule
     return `@${base.charAt(0).toUpperCase()}${base.slice(1).toLowerCase()}`
+  }
+
+  /**
+   * Normalise tous les identifiants @Nom trouvés dans un texte.
+   */
+  protected normalizeAllIdentifiers(text: string): string {
+    if (!text) return text
+    // Regex pour trouver les @ suivis de caractères alphanumériques
+    return text.replaceAll(/@([a-z0-9]+)/gi, (match) => {
+      return this.normalizeIdentifier(match)
+    })
+  }
+
+  getMetrics() {
+    return { ...this.metrics }
   }
 }

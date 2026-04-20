@@ -1,5 +1,5 @@
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
-import type { SeriesContext, VimaxEvent } from '../types'
+import type { SceneMemory, SeriesContext, VimaxEvent } from '../types'
 
 // ─────────────────────────────────────────────
 // VimaxNarrationAgent (Pass 1)
@@ -11,125 +11,119 @@ import type { SeriesContext, VimaxEvent } from '../types'
 
 export class VimaxNarrationAgent extends VimaxBaseAgent {
   private getSystem(
-    context: SeriesContext,
-    mode: 'episode' | 'scene',
-    targetDuration?: number,
-    maxScenes?: number
+    mode: 'series' | 'episode',
+    wordCount?: string,
+    context: SeriesContext = {},
+    previousScenes: SceneMemory[] = [],
+    sceneNumber?: number,
+    totalScenes?: number,
+    intentReminder = ''
   ): string {
-    let wordCount = mode === 'episode' ? '120-150 mots' : '30-45 mots'
+    const defaultWordCount = mode === 'series' ? '300-500 mots' : '50-80 mots'
+    const finalWordCount = wordCount || defaultWordCount
+    const lengthGuide = `OBJECTIF : ${finalWordCount} pour ce segment.`
 
-    if (targetDuration) {
-      if (mode === 'episode') {
-        const target = Math.floor((targetDuration / 60) * 130)
-        wordCount = `${target - 20}-${target + 20} mots`
-      } else if (maxScenes) {
-        // Répartition par scène
-        const targetPerScene = Math.floor((targetDuration / maxScenes) * 2.2) // ~2.2 mots par seconde
-        wordCount = `${targetPerScene - 5}-${targetPerScene + 5} mots`
-      }
-    }
+    const granularity =
+      mode === 'series' ? 'arc narratif majeur (un épisode complet).' : 'beat de niveau scène (une scène unique).'
 
-    const lengthGuide = `OBJECTIF : ${wordCount} pour ce segment.`
+    const memoryBlock = mode === 'episode' ? this.getSceneMemoryBlock(previousScenes) : ''
+    const tensionProgression =
+      mode === 'episode' && totalScenes && sceneNumber
+        ? `
+[COURBE DE TENSION OBLIGATOIRE]
+- Scène ${sceneNumber}/${totalScenes}
+- Tension attendue : ${Math.round((sceneNumber / totalScenes) * 10)}/10
+- La tension DOIT augmenter progressivement vers la scène finale.
+`.trim()
+        : ''
 
     return `
-[RÔLE]
-Tu es un scénariste d'épisodes de classe mondiale, spécialisé dans les sagas cinématographiques à haute tension.
-Génère une NARRATION BRUTE pour l'événement fourni.
+Tu es un scénariste de sagas cinématographiques à haute tension.
+Génère une NARRATION BRUTE et percutante pour l'événement fourni.
 
-[RÉCAPITULATIF DES ÉPISODES PRÉCÉDENTS]
-${context.previousEpisodes?.join('\n\n') || 'Aucun épisode précédent.'}
+${intentReminder}
+
+[GRANULARITÉ]
+${granularity}
+
+[RÉCAPITULATIF DES ÉPISODES PRÉCÉDENTS — MAX 3 ÉPISODES]
+${context.previousEpisodes?.slice(-3).join('\n\n') || 'Aucun épisode précédent.'}
 
 ${this.getBibleContext(context)}
 
-[DIRECTIVES]
+${memoryBlock}
+
+${tensionProgression}
+
 [DIRECTIVES NARRATION]
-1. CONCISION : Max 2-3 phrases par segment.
-2. PAS DE RÉPÉTITION : Chaque scène doit faire progresser l'action. Ne répète PAS une action déjà accomplie (ex: si on monte dans le véhicule à la scène 1, on ne peut pas y monter à la scène 2).
-3. RÔLES DE SCÈNE : Attribue un rôle unique à chaque scène (ex: Arrivée, Hésitation, Menace visuelle, Action, Départ).
-4. CONTINUITÉ SPATIALE : Respecte la position des personnages et des objets d'une scène à l'autre.
-5. CAUSALITÉ VISUELLE : Montre la source du danger plutôt que de simplement la mentionner (ex: "Une poutre s'effondre" au lieu de "Un bruit sourd").
-6. DIALOGUE : Autorisé uniquement sous forme de courtes citations directes intégrées à l'action.
-8. IMPACT CLIMAX (SCÈNE 5) : La narration du climax DOIT impérativement décrire un IMPACT PHYSIQUE BRUTAL et ses effets sur les personnages : visages surexposés par un flash blanc, vêtements et corps projetés par le souffle, débris cinglants. INTERDICTION de finir sur du calme.
-9. DIALOGUE CINÉ : Favorise les répliques courtes et viscérales ("Regardez-moi !", "On tient !", "Pas maintenant !") au lieu de longs discours héroïques.
-9. ${lengthGuide}
+1. LONGUEUR : ${mode === 'series' ? 'Séquence complète' : '2-3 phrases maximum'}. ${lengthGuide}
+2. PAS DE RÉPÉTITION : Chaque segment doit faire progresser l'action. Ne répète PAS une action déjà accomplie.
+3. RÔLES DE SCÈNE : Attribue un rôle unique (ex: Arrivée, Hésitation, Révélation, Point de non-retour, Climax). NE RÉPÈTE PAS UN RÔLE DÉJÀ PRIS.
+4. CONTINUITÉ SPATIALE & PHYSIQUE (COHÉRENCE DURE) : Respecte strictement l'état des lieux (ex: si un mur est détruit à la scène 2, il est un tas de gravats à la scène 4) et l'état des personnages (ex: une blessure à l'épaule gauche rend le bras inutilisable pour les scènes suivantes).
+5. CAUSALITÉ VISUELLE : Montre la source du danger (ex: "Une poutre s'effondre" et non "Un bruit sourd").
+6. DIALOGUE : Maximum UNE citation directe par scène, intégrée à l'action.
+7. IDENTIFIANTS : Utilise IMPÉRATIVEMENT le format @PascalCase pour tous les personnages.
+8. PROMESSES NARRATIVES (RÉSOLUTION) : Tout élément introduit (ex: @Banane cache une clé USB rouge) DOIT avoir un impact ou une résolution d'ici la fin de l'épisode. Ne l'oublie PAS.
 
-[STYLE] - Phrases percutantes et courtes. - Détails atmosphériques riches. - Profondeur psychologique par le langage corporel. - FORMAT : Renvoie UNIQUEMENT du JSON valide : { "narration": "la narration avec [Cues] ici" }`.trim()
-  }
+[STYLE]
+- Phrases percutantes et courtes.
+- Détails atmosphériques riches (lumière, texture, météo).
+- Profondeur psychologique par le langage corporel.
 
-  // ─── Public API ────────────────────────────
-
-  /**
-   * Génère la narration complète d'un épisode depuis un event de série.
-   */
-  async generateEpisodeNarration(
-    event: VimaxEvent,
-    context: SeriesContext = {},
-    targetDuration?: number,
-    maxScenes?: number
-  ): Promise<string> {
-    return this._generate(event, context, 'episode', targetDuration, maxScenes)
-  }
-
-  /**
-   * Génère la narration courte d'une scène depuis un event de scène.
-   */
-  async generateSceneNarration(
-    event: VimaxEvent,
-    context: SeriesContext = {},
-    targetDuration?: number,
-    maxScenes?: number,
-    forceClimax = false
-  ): Promise<string> {
-    return this._generate(event, context, 'scene', targetDuration, maxScenes, forceClimax)
-  }
-
-  // ─── Private ───────────────────────────────
-
-  private async _generate(
-    event: VimaxEvent,
-    context: SeriesContext,
-    mode: 'episode' | 'scene',
-    targetDuration?: number,
-    maxScenes?: number,
-    forceClimax = false
-  ): Promise<string> {
-    const viralPrompt =
-      context.intent === 'viral'
-        ? `\n[STYLISATION VIRALE]\nL'intention est VIRALE (TikTok/Social). HOOK accrocheur, émotion exacerbée, et traite les objets parlants (ex: @Banane) avec un sérieux dramatique.`
-        : ''
-
-    const climaxWarning =
-      forceClimax || (mode === 'scene' && event.isLast)
-        ? `\n[ALERTE CLIMAX : IMPACT PHYSIQUE VISCÉRAL REQUIS]\nC'est la scène finale de l'épisode. La narration DOIT se conclure par un événement physique violent. 
-DÉTAILS REQUIS : 
-- Lumière blanche/rouge aveuglante (visages surexposés).
-- Souffle de l'explosion (vêtements et corps secoués).
-- Réaction physique immédiate (se protéger, tomber, être projeté).
-INTERDICTION de finir sur du calme.\n`
-        : ''
-
-    const prompt = `
-${viralPrompt}${climaxWarning}
-<CONTEXTE_SÉRIE>
-${event.description}
-</ÉVÉNEMENT>
-
-<CHAÎNE_DE_PROCESSUS>
-${event.processChain.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-</CHAÎNE_DE_PROCESSUS>
-
-Génère une narration percutante et cinématographique pour cet événement.
+[FORMAT]
+Renvoie UNIQUEMENT du JSON valide : { "narration": "la narration ici" }
 `.trim()
+  }
 
-    const system = this.getSystem(context, mode, targetDuration, maxScenes)
+  private getSceneMemoryBlock(previousScenes: SceneMemory[]): string {
+    if (!previousScenes.length) return ''
 
-    if (process.env.DEBUG_LLM) {
-      console.log(`\n[NARRATION_SYSTEM]\n${system}\n`)
-      console.log(`\n[NARRATION_PROMPT]\n${prompt}\n`)
-    }
+    const last = previousScenes.at(-1)!
 
-    const raw = await this.generate(prompt, system, 'application/json')
-    return this.parseJSONSafe<{ narration: string }>(raw, { narration: event.description }).narration
+    // 1. Rôles utilisés
+    const usedRoles = previousScenes.map((s) => s.role).join(', ')
+
+    // 2. État physique des lieux
+    const locStates =
+      last.locationStates
+        ?.map((l) => `- ${l.locationId} : ${l.currentState} (${l.modifications.join(', ')})`)
+        .join('\n') || 'Aucune modification.'
+
+    // 3. État des personnages
+    const charStates =
+      last.characterStates
+        ?.map(
+          (c) =>
+            `- ${c.identifier} : Position ${c.lastKnownPosition} | État ${c.physicalState} | Émotion ${c.emotionalState}`
+        )
+        .join('\n') || 'États standard.'
+
+    // 4. Contrat Narratif
+    const openPromises =
+      last.plotContract?.openPromises
+        .map((p) => `- ${p.description} (Introduit à ${p.introducedAtScene}, doit résoudre par ${p.mustResolveBy})`)
+        .join('\n') || 'Aucune promesse en cours.'
+
+    return `
+[MÉMOIRE DES SCÈNES PRÉCÉDENTES]
+- Rôles déjà utilisés : ${usedRoles}
+- Tension précédente : ${last.tensionLevel}/10
+- Dernière action : ${last.lastAction}
+
+[ÉTAT PHYSIQUE DE L'UNIVERS]
+${locStates}
+
+[ÉTAT DES PERSONNAGES]
+${charStates}
+
+[CONTRAT NARRATIF (PLOT CONTRACT)]
+${openPromises}
+
+[CONSIGNES DE CONTINUITÉ]
+- INTERDICTION de changer le lieu : "${last.location}" sans transition explicite.
+- INTERDICTION de guérir un personnage sans soins décrits.
+- INTERDICTION de réparer un objet détruit.
+`.trim()
   }
 
   private getBibleContext(context: SeriesContext): string {
@@ -139,8 +133,156 @@ Génère une narration percutante et cinématographique pour cet événement.
 [BIBLE DE LA SÉRIE - SPEC]
 - GENRE : ${b.genre}
 - TON : ${b.tone}
-- STYLE VISUEL : ${b.visualStyle} (Applique ce style à tous les éléments visuels décrits)
-- LOIS DE L'UNIVERS : ${b.universeLaws?.join(', ') || 'Standard'} (Respecte ces règles narratives et physiques)
+- STYLE VISUEL : ${b.visualStyle}
+- LOIS DE L'UNIVERS : ${b.universeLaws?.join(', ') || 'Standard'}
 `.trim()
+  }
+
+  // ─── Public API ────────────────────────────
+
+  async generateEpisodeNarration(
+    event: VimaxEvent,
+    context: SeriesContext = {},
+    targetDuration?: number,
+    maxScenes?: number
+  ): Promise<string> {
+    const raw = await this.generate(
+      `<ÉVÉNEMENT_D_ÉPISODE>\n${event.description}\n</ÉVÉNEMENT_D_ÉPISODE>`,
+      this.getSystem('series', '300-500 mots', context),
+      'application/json'
+    )
+
+    const parsed = this.parseJSONSafe<{ narration: string }>(raw, { narration: event.description })
+    return parsed.narration
+  }
+
+  /**
+   * Génère la narration d'une scène spécifique avec MÉMOIRE 2.0.
+   */
+  async generateSceneNarration(
+    event: VimaxEvent,
+    context: SeriesContext,
+    targetWordCount?: string,
+    maxScenes?: number,
+    isActuallyLast = false,
+    sceneMemories: SceneMemory[] = [],
+    sceneNumber?: number,
+    totalScenes?: number,
+    continuityBlock = '', // Hardening 2.0 (Engine)
+    tensionBlock = '', // Hardening 2.0 (Engine)
+    intentReminder = ''
+  ): Promise<{ narration: string; memory: SceneMemory }> {
+    const recentMemory =
+      sceneMemories.length > 0
+        ? `
+[MÉMOIRE NARRATIVE RÉCENTE]
+${sceneMemories
+  .slice(-3)
+  .map((m, i) => `- Scène ${sceneMemories.length - 2 + i}: ${m.summary}`)
+  .join('\n')}
+`.trim()
+        : "[PREMIÈRE SCÈNE DE L'ÉPISODE]"
+
+    const prompt = `
+${recentMemory}
+
+${continuityBlock}
+
+${tensionBlock}
+
+<EVENEMENT_CIBLE>
+${event.description}
+</EVENEMENT_CIBLE>
+
+Génère la narration de cette scène. 
+SI UN PERSONNAGE EST BLESSÉ OU UN LIEU MODIFIÉ DANS LE BLOC DE COHÉRENCE, TU DOIS LE REFLÉTER VISCÉRALEMENT DANS TA NARRATION.
+`.trim()
+
+    const system = this.getSystem(
+      'episode',
+      targetWordCount,
+      context,
+      sceneMemories,
+      sceneNumber,
+      totalScenes,
+      intentReminder
+    )
+    const raw = await this.generate(prompt, system, 'application/json')
+    const parsed = this.parseJSONSafe<{ narration: string; memory: SceneMemory }>(raw, {
+      narration: '',
+      memory: {
+        sceneNumber: sceneNumber || 0,
+        role: 'unknown',
+        summary: '',
+        charactersPresent: [],
+        location: 'unknown',
+        lastAction: '',
+        tensionLevel: 5
+      }
+    })
+
+    // S'assurer que le memory retourné contient l'index correct
+    parsed.memory.sceneNumber = sceneNumber || 0
+
+    return parsed
+  }
+
+  private async extractSceneMemory(
+    narration: string,
+    sceneNumber: number,
+    lastMemory?: SceneMemory
+  ): Promise<SceneMemory> {
+    const system = `
+Analyse cette narration et extrais les métadonnées de continuité en JSON :
+{
+  "sceneNumber": ${sceneNumber},
+  "role": "Rôle unique de la scène",
+  "summary": "Résumé en 1 phrase",
+  "charactersPresent": ["@PascalCase"],
+  "location": "Lieu de la scène",
+  "lastAction": "Dernière action accomplie",
+  "tensionLevel": 5,
+  "locationStates": [
+    {
+      "locationId": "Lieu ID",
+      "currentState": "État physique actuel",
+      "modifications": ["Ajout de modification visuelle"],
+      "lastModifiedAtScene": ${sceneNumber}
+    }
+  ],
+  "characterStates": [
+    {
+      "identifier": "@Nom",
+      "physicalState": "État physique (blessure, fatigue)",
+      "lastKnownPosition": "Position précise",
+      "emotionalState": "Émotion dominante",
+      "lastModifiedAtScene": ${sceneNumber}
+    }
+  ],
+  "plotContract": {
+    "openPromises": [],
+    "closedPromises": []
+  }
+}
+
+CONSIGNE : Si un état (lieu ou personnage) n'est pas mentionné, hérite de l'état précédent :
+${JSON.stringify(lastMemory || {}, null, 2)}
+`.trim()
+
+    const raw = await this.generate(
+      `<NARRATION>\n${narration}\n</NARRATION>\n\nExtrais la mémoire complète de cette scène.`,
+      system,
+      'application/json'
+    )
+
+    return this.parseJSONSafe<SceneMemory>(raw, {
+      sceneNumber,
+      role: 'Inconnue',
+      summary: narration.slice(0, 100),
+      charactersPresent: [],
+      location: 'unknown',
+      lastAction: '',
+      tensionLevel: 5
+    })
   }
 }

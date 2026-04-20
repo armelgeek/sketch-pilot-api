@@ -9,8 +9,6 @@ import type { VimaxEvent } from '../types'
 //   2. Niveau épisode — découpe une narration en beats de scènes
 // ─────────────────────────────────────────────
 
-const MAX_EVENTS = 20
-
 export class VimaxEventExtractor extends VimaxBaseAgent {
   private getSystem(
     mode: 'series' | 'episode',
@@ -18,52 +16,63 @@ export class VimaxEventExtractor extends VimaxBaseAgent {
     maxScenes?: number,
     targetEpisodeCount?: number
   ): string {
-    let beats = mode === 'series' ? '1-3 épisodes' : '4-8 beats par épisode'
+    const targetCount = targetEpisodeCount ?? maxScenes
+    let beats = ''
 
-    if (mode === 'series' && targetEpisodeCount) {
-      beats = `EXACTEMENT ${targetEpisodeCount} épisode(s) pour couvrir l'arc complet de l'histoire`
-    } else if (maxScenes) {
-      if (mode === 'series') {
-        const estimatedEps = maxScenes <= 5 ? 1 : Math.max(1, Math.floor(maxScenes / 3))
-        beats = `MAXIMUM EXACTEMENT ${estimatedEps} épisode(s) pour rester sous la barre des ${maxScenes} scènes au total`
-      } else {
-        beats = `MAXIMUM EXACTEMENT ${maxScenes} beats pour cet épisode`
-      }
+    if (targetCount) {
+      beats = `EXACTEMENT ${targetCount} ${mode === 'series' ? 'épisode(s)' : 'beat(s)'}`
     } else if (targetDuration) {
       if (mode === 'series') {
-        const estimatedEps = Math.max(1, Math.floor(targetDuration / 45)) // 1 ep par 45s
-        beats = `MAXIMUM ${estimatedEps} épisode(s) pour une durée totale de ${targetDuration}s`
+        const estimatedEps = Math.max(1, Math.floor(targetDuration / 45))
+        beats = `MAXIMUM ${estimatedEps} épisode(s) (basé sur ~45 secondes par épisode pour ${targetDuration}s)`
       } else {
-        const estimatedScenes = Math.max(4, Math.ceil(targetDuration / 6)) // ~6s par scène
-        beats = `MAXIMUM ${estimatedScenes} beats pour une durée de ${targetDuration}s`
+        const estimatedScenes = Math.max(4, Math.ceil(targetDuration / 6))
+        beats = `MAXIMUM ${estimatedScenes} beat(s) (basé sur ~6 secondes par scène pour ${targetDuration}s)`
       }
+    } else {
+      beats = mode === 'series' ? '1-3 épisodes' : '4-8 beats'
     }
+
+    const extractionScope = targetCount
+      ? `Extrais EXACTEMENT ${targetCount} événements séquentiels, en choisissant les plus importants dramatiquement. Ni plus, ni moins.`
+      : `Extrais TOUS les événements séquentiels distincts du texte.`
 
     const granularity =
       mode === 'series'
-        ? `arc narratif majeur (${beats}). Chaque événement = un épisode complet.`
-        : `beat de niveau scène (${beats}). Chaque événement = une scène.`
+        ? `arc narratif majeur. Chaque événement = un épisode complet.`
+        : `beat de niveau scène. Chaque événement = une scène.`
+
+    const countDirective = targetCount
+      ? `6. COMPTE : Tu DOIS extraire EXACTEMENT ${targetCount} événements. C'est une contrainte technique absolue.`
+      : `6. COMPTE : Extrais tous les événements narratifs distincts du texte, sans en inventer.`
 
     return `
-Tu es une IA d'Analyse Littéraire spécialisée dans la déconstruction narrative.
-Extraits le PROCHAIN événement séquentiel du texte fourni, en te basant sur les événements précédemment extraits.
-Granularité : ${granularity}
+      Tu es une IA d'Analyse Littéraire spécialisée dans la déconstruction narrative.
+      ${extractionScope}
+      Granularité : ${granularity} (${beats})
 
-[Directives]
-1. Concentre-toi sur les événements critiques pour l'intrigue ou le développement des personnages.
-2. Chaque événement doit être logiquement distinct des précédents.
-3. Unis plusieurs micro-actions liées sous un seul objectif dramatique.
-4. Fournis une processChain étape par étape de la façon dont l'événement se déroule.
-5. CONTINUITÉ : Chaque événement doit faire avancer l'histoire de quelques secondes.
-6. COMPTE DE SCÈNES : Tu DOIS extraire EXACTEMENT ${targetEpisodeCount || (maxScenes ? maxScenes : 'le nombre demandé')} événements. Ne mets "isLast: true" que lorsque tu as atteint ce nombre OU s'il est physiquement impossible de continuer sans répétition majeure.
+      [Directives]
+      1. Concentre-toi sur les événements critiques pour l'intrigue ou le développement des personnages.
+      2. Chaque événement doit être logiquement distinct des précédents.
+      3. Unis plusieurs micro-actions liées sous un seul objectif dramatique.
+      4. PROCESS CHAIN : 2 à 4 étapes maximum par événement. Chaque étape = une action concrète et distincte.
+      5. CONTINUITÉ : Chaque événement doit faire avancer l'histoire.
+      ${countDirective}
+      7. IDENTIFIANTS : Dans "description" et "processChain", utilise IMPÉRATIVEMENT le format @PascalCase pour tous les personnages (ex: @Banane, @Samuel). AUCUN ESPACE, AUCUNE APOSTROPHE.
+      8. DERNIER ÉVÉNEMENT : Le champ "isLast" doit être TRUE uniquement pour le DERNIER événement de la liste. Tous les autres doivent avoir "isLast": false.
 
-Renvoie UNIQUEMENT du JSON valide :
-{
-  "index": 0,
-  "description": "chaîne de caractères",
-  "processChain": ["étape 1", "étape 2"],
-  "isLast": false
-}
+      [FORMAT]
+      Renvoie UNIQUEMENT du JSON valide :
+      {
+        "events": [
+          {
+            "index": 0,
+            "description": "chaîne de caractères",
+            "processChain": ["étape 1", "étape 2"],
+            "isLast": false
+          }
+        ]
+      }
 `.trim()
   }
 
@@ -84,52 +93,32 @@ Renvoie UNIQUEMENT du JSON valide :
     maxScenes?: number,
     targetEpisodeCount?: number
   ): Promise<VimaxEvent[]> {
-    const events: VimaxEvent[] = []
-    let isLast = false
     const system = this.getSystem(mode, targetDuration, maxScenes, targetEpisodeCount)
 
-    // Ajustement de MAX_EVENTS si des contraintes sont fournies
-    let limit = MAX_EVENTS
-    if (maxScenes) {
-      if (mode === 'episode') {
-        limit = maxScenes
-      } else if (mode === 'series') {
-        limit = maxScenes <= 5 ? 1 : Math.max(1, Math.floor(maxScenes / 3))
-      }
-    } else if (targetDuration) {
-      if (mode === 'episode') {
-        limit = Math.max(5, Math.ceil(targetDuration / 5)) // Max 1 scène toutes les 5s
-      } else if (mode === 'series') {
-        limit = Math.max(1, Math.floor(targetDuration / 30)) // Max 1 épisode toutes les 30s
-      }
-    }
-
-    if (mode === 'series' && targetEpisodeCount) {
-      limit = targetEpisodeCount
-    }
-
-    while (!isLast && events.length < limit) {
-      const extractedSummary = events.map((e) => `Event ${e.index}: ${e.description}`).join('\n')
-
-      const prompt = `
+    const prompt = `
 <TEXTE>
 ${text}
 </TEXTE>
 
-<ÉVÉNEMENTS_EXTRAITS>
-${extractedSummary || 'Aucun pour le moment.'}
-</ÉVÉNEMENTS_EXTRAITS>
-
-Extraits le prochain événement.
+Extraits les événements demandés selon les directives strictes.
+Réponds uniquement avec le JSON demandé.
 `.trim()
 
-      const raw = await this.generate(prompt, system, 'application/json')
+    const result = await this.generateStructured<{ events: VimaxEvent[] }>(prompt, system, { events: [] })
+    const parsed = result.data
 
-      const event = this.parseJSONSafe<VimaxEvent | null>(raw, null)
-      if (!event) break
+    // Validation et post-processing (Problèmes 8 & 9)
+    const limit = targetEpisodeCount ?? maxScenes ?? parsed.events.length
+    const events = parsed.events.slice(0, limit).map((e, i) => ({
+      ...e,
+      index: i,
+      isLast: false // Reset initial
+    }))
 
-      events.push(event)
-      isLast = event.isLast
+    // Garantie de l'isLast sur le vrai dernier
+    const lastEvent = events.at(-1)
+    if (lastEvent) {
+      lastEvent.isLast = true
     }
 
     return events
