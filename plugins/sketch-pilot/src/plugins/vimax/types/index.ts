@@ -341,6 +341,8 @@ export interface LearningEpisode {
   status: 'pending' | 'success' | 'failure' | 'shadow_tested'
   appliedLessonIds?: string[]
   evaluation?: EvaluationReport
+  learningApplied?: boolean
+  narration?: string
 }
 
 export interface EvaluationReport {
@@ -348,7 +350,7 @@ export interface EvaluationReport {
   isValid: boolean
   issues: string[]
   critique?: string
-  source: 'auditor' | 'human' | 'system' | 'vision'
+  source: 'auditor' | 'human' | 'system' | 'vision' | 'saga-sentinel'
 }
 
 export interface Lesson {

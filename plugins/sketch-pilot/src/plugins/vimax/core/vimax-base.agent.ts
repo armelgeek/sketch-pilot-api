@@ -18,10 +18,24 @@ export abstract class VimaxBaseAgent {
     durationMs: 0
   }
 
+  protected lastPromptData = {
+    system: '',
+    user: '',
+    episodeId: ''
+  }
+
   constructor(protected readonly llm: LLMService) {}
 
   public setSeriesId(id: string) {
     this.seriesId = id
+  }
+
+  public getSeriesId(): string | undefined {
+    return this.seriesId
+  }
+
+  public getLastPromptData() {
+    return { ...this.lastPromptData }
   }
 
   /**
@@ -59,22 +73,28 @@ export abstract class VimaxBaseAgent {
     const startTime = Date.now()
     const prunedPrompt = this.enforceTokenBudget(prompt)
 
-    // Injection dynamique des leçons (Phase 4 & 14 - Semantic Injection)
+    // Injection dynamique des leçons (Semantic Diffusion)
     const store = LessonStore.getInstance()
     await store.load()
 
-    const agentLessons = store.getLessonsFor(this.constructor.name)
     const promptTags = this.extractContextTags(prunedPrompt)
-    const globalRelevant = store.getGlobalLessonsByTags(promptTags)
+    const learnedDirectives = store.formatDirectives(this.constructor.name, promptTags)
 
-    const allRelevant = [...agentLessons, ...globalRelevant]
-    const contextRelevant = this.selectRelevantLessons(prunedPrompt, allRelevant)
+    // Pour l'analyse post-saga, on récupère les IDs des leçons appliquées
+    const contextRelevant = store.getLessonsFor(this.constructor.name, promptTags)
     const appliedLessonIds = contextRelevant.map((l) => l.id)
-    const learnedDirectives = store.formatDirectivesFrom(contextRelevant)
+
     const finalSystem = learnedDirectives ? `${system}\n\n${learnedDirectives}` : system
 
     // Capture de l'épisode avant appel
     const episodeId = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+    // On stocke pour l'audit
+    this.lastPromptData = {
+      system: finalSystem,
+      user: prunedPrompt,
+      episodeId
+    }
 
     if (process.env.DEBUG_LLM) {
       console.log(`\n[LLM CALL] ${this.constructor.name} - ID: ${episodeId}`)
@@ -222,21 +242,8 @@ export abstract class VimaxBaseAgent {
     return `${prompt.slice(0, preserveSize)}\n\n[... ÉLAGAGE BUDGET TOKEN (CONTRÔLE RIGUEUR) ...]\n\n${prompt.slice(-preserveSize)}`
   }
 
-  /**
-   * Sélectionne les leçons les plus pertinentes par rapport au contexte du prompt (Phase 14).
-   */
   private selectRelevantLessons(prompt: string, lessons: any[]): any[] {
-    if (lessons.length === 0) return []
-
-    const lowerPrompt = prompt.toLowerCase()
-
-    return lessons.filter((lesson) => {
-      // 1. Toujours inclure si pas de tags (règle universelle)
-      if (!lesson.tags || lesson.tags.length === 0) return true
-
-      // 2. Inclure si un tag est mentionné dans le prompt (Keyword matching simple mais robuste)
-      return lesson.tags.some((tag: string) => lowerPrompt.includes(tag.toLowerCase()))
-    })
+    return lessons // Logic now handled by LessonStore.getLessonsFor
   }
 
   /**

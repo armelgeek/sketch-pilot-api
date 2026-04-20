@@ -47,22 +47,25 @@ Renvoie UNIQUEMENT du JSON valide :
    * @param targetDuration Optionnel : durée cible pour calibrer le nombre d'événements
    * @param maxScenes Optionnel : nombre maximum de scènes (prioritaire)
    * @param targetEpisodeCount Optionnel : nombre cible d'épisodes (mode series)
+   * @param correctionHint Optionnel : instructions pour corriger une incohérence structurelle
    */
   async extractEvents(
     text: string,
     mode: 'series' | 'episode' = 'series',
     targetDuration?: number,
     maxScenes?: number,
-    targetEpisodeCount?: number
+    targetEpisodeCount?: number,
+    correctionHint?: string
   ): Promise<VimaxEvent[]> {
     const system = this.getSystem(mode, targetDuration, maxScenes, targetEpisodeCount)
+    const correctionBlock = correctionHint ? `\n\n[INSTRUCTION DE CORRECTION DE STRUCTURE]\n${correctionHint}` : ''
 
     const prompt = `
 <TEXTE>
 ${text}
 </TEXTE>
 
-Extraits les événements demandés selon les directives strictes.
+Extraits les événements demandés selon les directives strictes.${correctionBlock}
 Réponds uniquement avec le JSON demandé.
 `.trim()
 

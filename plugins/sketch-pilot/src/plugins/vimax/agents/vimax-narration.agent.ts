@@ -41,6 +41,12 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
 Tu es un scénariste de sagas cinématographiques à haute tension.
 Génère une NARRATION BRUTE et percutante pour l'événement fourni.
 
+[CONTRAINTE DE LONGUEUR CRITIQUE]
+${lengthGuide}
+- TU DOIS ÊTRE CONCIS.
+- SI TU DÉPASSES LE NOMBRE DE MOTS DEMANDÉ, LA SÉRIE SERA ANNULÉE.
+- Évite les adjectifs inutiles. Concentre-toi sur l'action et le subtexte.
+
 ${intentReminder}
 
 [GRANULARITÉ]
@@ -126,11 +132,14 @@ ${openPromises}
     event: VimaxEvent,
     context: SeriesContext = {},
     targetDuration?: number,
-    maxScenes?: number
+    maxScenes?: number,
+    correctionHint?: string
   ): Promise<string> {
+    const correctionBlock = correctionHint ? `\n\n[INSTRUCTION DE CORRECTION]\n${correctionHint}` : ''
+
     const raw = await this.generate(
-      `<ÉVÉNEMENT_D_ÉPISODE>\n${event.description}\n</ÉVÉNEMENT_D_ÉPISODE>`,
-      this.getSystem('series', '300-500 mots', context),
+      `<ÉVÉNEMENT_D_ÉPISODE>\n${event.description}\n</ÉVÉNEMENT_D_ÉPISODE>${correctionBlock}`,
+      this.getSystem('series', undefined, context),
       'application/json'
     )
 
@@ -190,23 +199,26 @@ SI UN PERSONNAGE EST BLESSÉ OU UN LIEU MODIFIÉ DANS LE BLOC DE COHÉRENCE, TU 
       intentReminder
     )
     const raw = await this.generate(prompt, system, 'application/json')
-    const parsed = this.parseJSONSafe<{ narration: string; memory: SceneMemory }>(raw, {
-      narration: '',
-      memory: {
-        sceneNumber: sceneNumber || 0,
-        role: 'unknown',
-        summary: '',
-        charactersPresent: [],
-        location: 'unknown',
-        lastAction: '',
-        tensionLevel: 5
-      }
+    const parsedRaw = this.parseJSONSafe<{ narration: string; memory?: SceneMemory }>(raw, {
+      narration: event.description
     })
 
-    // S'assurer que le memory retourné contient l'index correct
-    parsed.memory.sceneNumber = sceneNumber || 0
+    const narration = parsedRaw.narration || event.description
+    const memory = parsedRaw.memory || {
+      sceneNumber: sceneNumber || 0,
+      role: 'unknown',
+      summary: narration.slice(0, 100),
+      charactersPresent: [],
+      location: 'unknown',
+      lastAction: '',
+      tensionLevel: 5
+    }
 
-    return parsed
+    // S'assurer que le memory retourné contient l'index correct et les states
+    memory.sceneNumber = sceneNumber || 0
+    if (!memory.summary) memory.summary = narration.slice(0, 100)
+
+    return { narration, memory }
   }
 
   private async extractSceneMemory(

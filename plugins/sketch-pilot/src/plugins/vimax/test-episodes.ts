@@ -33,7 +33,7 @@ async function main() {
 
     const agent = new VimaxAgent(new VimaxLLMAdapter(globalLLM))
 
-    const result = await agent.runSeries('Une pomme et une banane montent une start-up de jus de fruits bio.', {
+    const result = await agent.runSaga('Une pomme et une banane montent une start-up de jus de fruits bio.', {
       seriesContext: context,
       targetEpisodeCount: 5, // <-- FORCE 5 EPISODES
       targetDuration: 150, // 150s total => 30s per episode
@@ -44,7 +44,9 @@ async function main() {
     console.log(`🔹 Nombre d'épisodes générés : ${result.episodes.length}`)
 
     result.episodes.forEach((ep) => {
-      console.log(`📺 Épisode ${ep.eventIndex + 1}: ${ep.eventDescription} (${ep.screenplay.scenes.length} scènes)`)
+      console.log(
+        `📺 Épisode ${ep.eventIndex + 1}: ${ep.eventDescription} (${ep.screenplay?.scenes.length || 0} scènes)`
+      )
     })
   } catch (error: any) {
     console.error('❌ Erreur:', error.message || error)

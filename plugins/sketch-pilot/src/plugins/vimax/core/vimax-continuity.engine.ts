@@ -84,7 +84,7 @@ export class LocationTracker {
     return Array.from(this.states.values())
       .map(
         (s) =>
-          `- ${s.locationId} : ${s.currentState}${s.modifications.length > 0 ? ` (Dégâts: ${s.modifications.join(', ')})` : ''}`
+          `- ${s.locationId} : ${s.currentState}${(s.modifications?.length || 0) > 0 ? ` (Dégâts: ${s.modifications.join(', ')})` : ''}`
       )
       .join('\n')
   }

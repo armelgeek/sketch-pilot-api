@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { VimaxPromptRefinery } from '../agents/vimax-prompt-refinery.agent'
+import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
 import { VimaxVisionAuditor } from '../agents/vimax-vision-auditor.agent'
 import type { LearningEpisode, Lesson } from '../types'
 import { LessonStore } from './lesson-store'
@@ -14,6 +15,7 @@ import type { LLMService } from './llm.interface'
 export class VimaxBrain {
   private refinery: VimaxPromptRefinery
   private visionAuditor: VimaxVisionAuditor
+  private sagaSentinel: VimaxSagaSentinel
   private store: LessonStore
   private maxTokensPerCycle: number = 50000 // Défaut : 50k tokens par cycle (~0.15$)
 
@@ -23,6 +25,7 @@ export class VimaxBrain {
   ) {
     this.refinery = new VimaxPromptRefinery(llm)
     this.visionAuditor = new VimaxVisionAuditor(llm)
+    this.sagaSentinel = new VimaxSagaSentinel(llm)
     this.store = LessonStore.getInstance()
     if (options?.maxTokensPerCycle) {
       this.maxTokensPerCycle = options.maxTokensPerCycle
@@ -33,17 +36,96 @@ export class VimaxBrain {
    * Pipeline d'apprentissage autonome (Shadow Loop).
    * Analyse les derniers épisodes et met à jour le store.
    */
-  async autonomousLearning(): Promise<number> {
+  async autonomousLearning(options?: { seriesId?: string }): Promise<number> {
     await this.store.load()
-    const episodes = await this.loadEpisodes()
+    let episodes = await this.loadEpisodes()
     if (episodes.length === 0) {
       await this.cleanupOldEpisodes()
       return 0
     }
 
-    // Filtre les échecs auto ou humains
-    const failures = episodes.filter((ep) => ep.status === 'failure' || (ep.evaluation && !ep.evaluation.isValid))
-    if (failures.length === 0) return 0
+    if (options?.seriesId) {
+      episodes = episodes.filter((e) => e.seriesId === options.seriesId)
+      console.log(`[VimaxBrain] Filtrage par contexte : ${options.seriesId} (${episodes.length} épisodes trouvés).`)
+    }
+
+    // 0. PHASE D'AUTO-AUDIT QUALITATIF (Audit 2.0)
+    // On audit les épisodes "pending" ou sans évaluation
+    const toAudit = episodes.filter((ep) => !ep.evaluation || ep.evaluation.score === undefined)
+    if (toAudit.length > 0) {
+      console.log(`[VimaxBrain] Audit 2.0 : Évaluation qualitative de ${toAudit.length} épisodes...`)
+      for (const ep of toAudit) {
+        const result = await this.visionAuditor.scoreEpisode(ep)
+        ep.evaluation = {
+          score: result.score,
+          isValid: result.score >= 80,
+          issues: result.issues,
+          critique: result.rationale,
+          source: 'vision'
+        }
+        ep.status = result.score >= 80 ? 'success' : 'failure'
+        await this.saveEpisode(ep)
+      }
+    }
+
+    // 0.5. PHASE DE SENTINEL DE SAGA (Continuité Long-Terme)
+    if (options?.seriesId) {
+      const sagaEpisodes = episodes
+        .filter((e) => e.seriesId === options.seriesId)
+        .sort((a, b) => a.timestamp - b.timestamp)
+
+      if (sagaEpisodes.length > 1) {
+        console.log(`[VimaxBrain] SagaSentinel : Audit de continuité pour ${sagaEpisodes.length} épisodes...`)
+        // On audit chaque épisode (sauf le premier) par rapport à ses prédécesseurs
+        for (let i = 1; i < sagaEpisodes.length; i++) {
+          const current = sagaEpisodes[i]
+          const history = sagaEpisodes
+            .slice(0, i)
+            .map((e, idx) => `[ÉPISODE ${idx + 1}] ${e.narration || 'Résumé indisponible'}`)
+
+          const audit = await this.sagaSentinel.auditSagaContinuity(
+            { narration: current.narration || 'Nouveau script', screenplay: current.response },
+            history
+          )
+
+          if (!audit.isConsistent) {
+            console.warn(
+              `[VimaxBrain] Rupture de continuité détectée dans l'épisode ${current.id}: ${audit.violations.join(', ')}`
+            )
+            current.status = 'failure'
+            current.evaluation = {
+              isValid: false,
+              issues: audit.violations,
+              critique: audit.reasoning,
+              source: 'saga-sentinel',
+              score: 0.4
+            }
+            await this.saveEpisode(current)
+          }
+        }
+      }
+    }
+
+    // 1. PHASE DE RENFORCEMENT DARWINISTE (Succès)
+    const successes = episodes.filter(
+      (ep) => (ep.status === 'success' || (ep.evaluation?.score || 0) > 80) && !ep.learningApplied
+    )
+    if (successes.length > 0) {
+      console.log(`[VimaxBrain] Renforcement Darwiniste sur les succès (${successes.length} épisodes)...`)
+      for (const success of successes) {
+        if (success.appliedLessonIds && success.appliedLessonIds.length > 0) {
+          await this.store.recordSuccess(success.appliedLessonIds)
+        }
+        success.learningApplied = true
+        await this.saveEpisode(success)
+      }
+    }
+
+    // 2. PHASE D'APPRENTISSAGE PAR L'ÉCHEC
+    const failures = episodes.filter(
+      (ep) => (ep.status === 'failure' || (ep.evaluation && !ep.evaluation.isValid)) && !ep.learningApplied
+    )
+    if (failures.length === 0) return successes.length
 
     // THRESHOLD : Si on a trop d'échecs, on passe en mode "Thematic Scaling"
     if (failures.length > 50) {
@@ -132,12 +214,85 @@ export class VimaxBrain {
           confidence: partial.confidence || 0.8,
           successCount: 1,
           failCount: 0,
+          tags: partial.tags || [],
           lastUpdated: Date.now()
         })
         count++
       }
+
+      // Marathon Hardening : On marque l'épisode comme traité quoi qu'il arrive (success ou shadow fail)
+      if (relevantFailure) {
+        relevantFailure.learningApplied = true
+        await this.saveEpisode(relevantFailure)
+      }
     }
     return count
+  }
+
+  /**
+   * Agrège les statistiques de performance par saga et par temps.
+   */
+  async getPerformanceStats(): Promise<any> {
+    const episodes = await this.loadEpisodes()
+    if (episodes.length === 0) return { sagas: {}, totalAvg: 0 }
+
+    const sagas: Record<string, { count: number; totalScore: number; avg: number; scores: number[] }> = {}
+    let grandTotalScore = 0
+    let evaluatedCount = 0
+
+    episodes.forEach((ep) => {
+      const seriesId = ep.seriesId || 'Unknown'
+      if (!sagas[seriesId]) {
+        sagas[seriesId] = { count: 0, totalScore: 0, avg: 0, scores: [] }
+      }
+      sagas[seriesId].count++
+
+      if (ep.evaluation?.score !== undefined) {
+        const score = ep.evaluation.score
+        sagas[seriesId].totalScore += score
+        sagas[seriesId].scores.push(score)
+        grandTotalScore += score
+        evaluatedCount++
+      }
+    })
+
+    // Calcul des moyennes
+    Object.keys(sagas).forEach((id) => {
+      const s = sagas[id]
+      const scores = s.scores
+      s.avg = scores.length > 0 ? Math.round(s.totalScore / scores.length) : 0
+    })
+
+    return {
+      sagas,
+      totalAvg: evaluatedCount > 0 ? Math.round(grandTotalScore / evaluatedCount) : 0,
+      totalCount: episodes.length,
+      evaluatedCount
+    }
+  }
+
+  private async saveEpisode(episode: LearningEpisode): Promise<void> {
+    const dir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+    const episodes = await this.loadEpisodes() // Un peu lourd, on pourrait optimiser
+
+    const findPath = async (currentDir: string): Promise<string | null> => {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true })
+      for (const entry of entries) {
+        const res = path.join(currentDir, entry.name)
+        if (entry.isDirectory()) {
+          const found = await findPath(res)
+          if (found) return found
+        } else if (entry.name === `${episode.id}.json`) {
+          return res
+        }
+      }
+      return null
+    }
+
+    const filePath = await findPath(dir)
+    if (filePath) {
+      await fs.writeFile(filePath, JSON.stringify(episode, null, 2), 'utf8')
+    }
   }
 
   /**
@@ -168,45 +323,80 @@ export class VimaxBrain {
    * Intègre un feedback humain spécifique pour corriger un agent.
    */
   async processHumanFeedback(episodeId: string, critique: string): Promise<boolean> {
-    const filePath = path.join(process.cwd(), 'vimax-logs', 'learning-episodes', `${episodeId}.json`)
+    const episodes = await this.loadEpisodes()
+    const episode = episodes.find((e) => e.id === episodeId)
+
+    if (!episode) {
+      console.error(`[VimaxBrain] Épisode ${episodeId} non trouvé.`)
+      return false
+    }
+
+    const filePath = await this.findEpisodePath(episodeId)
+    if (!filePath) return false
 
     try {
-      const raw = await fs.readFile(filePath, 'utf8')
-      const episode: LearningEpisode = JSON.parse(raw)
+      const isApproval = critique.toLowerCase().includes('approbation') || critique.toLowerCase().includes('excellent')
 
-      // On enrichit l'épisode avec l'évaluation humaine
+      // Mise à jour de l'épisode
       episode.evaluation = {
-        score: 0,
-        isValid: false,
-        issues: ['Feedback utilisateur'],
+        score: isApproval ? 100 : 0,
+        isValid: isApproval,
+        issues: isApproval ? [] : ['Feedback utilisateur'],
         critique,
         source: 'human'
       }
-      episode.status = 'failure'
+      episode.status = isApproval ? 'success' : 'failure'
 
-      // Sauvegarde du feedback
+      // Sauvegarde
       await fs.writeFile(filePath, JSON.stringify(episode, null, 2))
 
-      // On lance immédiatement un mini-cycle de raffinage pour cet épisode
-      console.log(`[VimaxBrain] Apprentissage immédiat depuis feedback humain sur ${episode.agentName}...`)
-      const [lessonPartial] = await this.refinery.refine([episode])
-
-      if (lessonPartial) {
-        await this.store.addLesson({
-          ...lessonPartial,
-          id: `lesson-human-${Date.now()}`,
-          agentName: episode.agentName,
-          confidence: 1, // Confiance maximum pour le feedback humain
-          successCount: 1,
-          failCount: 0,
-          lastUpdated: Date.now()
-        } as any)
+      if (isApproval) {
+        // RENFORCEMENT POSITIF : On renforce les leçons qui ont été appliquées
+        if (episode.appliedLessonIds && episode.appliedLessonIds.length > 0) {
+          console.log(`[VimaxBrain] Renforcement positif des leçons: ${episode.appliedLessonIds.join(', ')}`)
+          await this.store.recordSuccess(episode.appliedLessonIds)
+        }
         return true
+      } else {
+        // APPRENTISSAGE PAR L'ÉCHEC : On distille une nouvelle leçon
+        console.log(`[VimaxBrain] Apprentissage par l'échec sur ${episode.agentName}...`)
+        const [lessonPartial] = await this.refinery.refine([episode])
+        if (lessonPartial) {
+          await this.store.addLesson({
+            ...lessonPartial,
+            id: `lesson-human-${Date.now()}`,
+            agentName: episode.agentName,
+            confidence: 1,
+            successCount: 1,
+            failCount: 0,
+            tags: lessonPartial.tags || [],
+            lastUpdated: Date.now()
+          } as any)
+          return true
+        }
       }
     } catch (error) {
       console.error(`[VimaxBrain] Erreur lors du processing feedback:`, error)
     }
     return false
+  }
+
+  private async findEpisodePath(episodeId: string): Promise<string | null> {
+    const rootDir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+    const find = async (dir: string): Promise<string | null> => {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const res = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          const found = await find(res)
+          if (found) return found
+        } else if (entry.name === `${episodeId}.json`) {
+          return res
+        }
+      }
+      return null
+    }
+    return find(rootDir)
   }
 
   /**

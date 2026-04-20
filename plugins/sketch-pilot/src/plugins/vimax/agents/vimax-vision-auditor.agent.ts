@@ -42,11 +42,46 @@ ${expectedCharacters.join(', ')}
 Réponds en JSON uniquement.
 `.trim()
 
-    // Note: On assume que l'implémentation de LLMService supporte les URLs d'images pour le multimodal
     const result = await this.generateStructured<VisionAuditReport>(
       `${prompt}\n\n[IMAGE_URL]\n${imageUrl}`,
       this.getSystemPrompt(),
       { isValid: false, issues: [], visualDNA: { lighting: '', composition: '', styleAdherence: 0 } }
+    )
+
+    return result.data
+  }
+
+  /**
+   * Évalue qualitativement un épisode entier (Screenplay + Narration).
+   */
+  async scoreEpisode(episode: any): Promise<{ score: number; issues: string[]; rationale: string }> {
+    const prompt = `
+[MISSION : ÉVALUATEUR DE QUALITÉ CINÉMATOGRAPHIQUE]
+Analyse cet épisode généré par Vimax et attribue une note de 0 à 100.
+
+[INPUT]
+- Narration : ${episode.narration}
+- Scénario (Screenplay) : ${JSON.stringify(episode.response)}
+
+[CRITÈRES D'ÉVALUATION]
+1. Rythme (0-25) : La narration est-elle punchy ? Les coupures de scènes sont-elles logiques ?
+2. Continuité (0-25) : Les personnages (@Nom) et objets sont-ils persistants ?
+3. Richesse Visuelle (0-25) : Les prompts d'images sont-ils évocateurs et précis ?
+4. Respect des Consignes (0-25) : La durée et le ton sont-ils respectés ?
+
+[FORMAT]
+Réponds uniquement en JSON :
+{
+  "score": 85,
+  "rationale": "Pourquoi ce score ?",
+  "issues": ["Problème de rythme en scène 2", "Vêtement de @Banane changeant"]
+}
+`.trim()
+
+    const result = await this.generateStructured<{ score: number; issues: string[]; rationale: string }>(
+      prompt,
+      'Tu es un critique de cinéma et superviseur de script extrêmement rigoureux.',
+      { score: 50, issues: ["Erreur lors de l'audit"], rationale: 'Fallback' }
     )
 
     return result.data

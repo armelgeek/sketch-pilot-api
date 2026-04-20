@@ -38,7 +38,14 @@
     "db:reset": "tsx ./drizzle/reset.ts",
     "db:update": "npm run db:generate && npm run db:migrate",
     "stripe:listen": "stripe listen --forward-to http://localhost:5000/api/auth/stripe/webhook",
-    "minio:migrate": "NODE_TLS_REJECT_UNAUTHORIZED=0 tsx migrate-to-minio.ts --dry-run"
+    "minio:migrate": "NODE_TLS_REJECT_UNAUTHORIZED=0 tsx migrate-to-minio.ts --dry-run",
+    "vimax:plan": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts plan",
+    "vimax:episode": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts episode",
+    "vimax:sagas": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts sagas",
+    "vimax:view": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts view",
+    "vimax:learn": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts learn",
+    "vimax:analytics": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts analytics",
+    "vimax:help": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts help"
   },
   "simple-git-hooks": {
     "pre-commit": "npm run lint && npm run format",

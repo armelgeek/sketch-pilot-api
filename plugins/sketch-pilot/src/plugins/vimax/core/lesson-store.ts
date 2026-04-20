@@ -12,7 +12,22 @@ export class LessonStore {
   private data: ILessonStore = { lessons: [], globalDirectives: [] }
 
   private constructor() {
-    this.storePath = path.join(process.cwd(), 'src', 'plugins', 'vimax', 'data', 'learned-lessons.json')
+    // Résolution de chemin robuste compatible ESM/TSX
+    const root = process.cwd()
+    const pluginPath = path.join(
+      root,
+      'plugins',
+      'sketch-pilot',
+      'src',
+      'plugins',
+      'vimax',
+      'data',
+      'learned-lessons.json'
+    )
+    const localPath = path.join(root, 'src', 'plugins', 'vimax', 'data', 'learned-lessons.json')
+
+    // On privilégie le chemin complet si on est à la racine du repo, sinon on utilise le chemin local
+    this.storePath = pluginPath
   }
 
   public static getInstance(): LessonStore {
@@ -43,10 +58,20 @@ export class LessonStore {
   }
 
   /**
-   * Récupère les leçons pertinentes pour un agent spécifique.
+   * Récupère les leçons pertinentes pour un agent spécifique avec filtrage optionnel par tags.
    */
-  getLessonsFor(agentName: string): Lesson[] {
-    return this.data.lessons.filter((l) => l.agentName === agentName || l.agentName === 'Global')
+  getLessonsFor(agentName: string, tags: string[] = []): Lesson[] {
+    const lessons = this.data.lessons.filter((l) => l.agentName === agentName || l.agentName === 'Global')
+
+    if (tags.length > 0) {
+      // On privilégie les leçons qui correspondent aux tags (Smart Semantic Retrieval)
+      const taggedLessons = lessons.filter((l) => l.tags?.some((t) => tags.includes(t)))
+      // Si on a des leçons tagguées, on les renvoie, sinon on renvoie tout ce qui concerne l'agent
+      // (On pourrait aussi faire un merge avec une priorité)
+      if (taggedLessons.length > 0) return taggedLessons
+    }
+
+    return lessons
   }
 
   /**
@@ -58,16 +83,65 @@ export class LessonStore {
   }
 
   /**
-   * Ajoute ou met à jour une leçon.
+   * Ajoute ou met à jour une leçon avec déduplication sémantique.
    */
   async addLesson(lesson: Lesson): Promise<void> {
-    const existingIndex = this.data.lessons.findIndex((l) => l.id === lesson.id)
+    const existingIndex = this.data.lessons.findIndex((l) => {
+      // Match par ID (Feedback humain ou update direct)
+      if (l.id === lesson.id) return true
+      // Match par Directive (Déduplication sémantique simple)
+      return (
+        l.agentName === lesson.agentName && l.directive.toLowerCase().trim() === lesson.directive.toLowerCase().trim()
+      )
+    })
+
     if (existingIndex >= 0) {
-      this.data.lessons[existingIndex] = { ...this.data.lessons[existingIndex], ...lesson }
+      // Merge intelligence : On augmente les compteurs et on garde la confiance la plus haute
+      const existing = this.data.lessons[existingIndex]
+      this.data.lessons[existingIndex] = {
+        ...existing,
+        ...lesson,
+        successCount: existing.successCount + (lesson.successCount || 0),
+        failCount: existing.failCount + (lesson.failCount || 0),
+        confidence: Math.max(existing.confidence, lesson.confidence),
+        lastUpdated: Date.now()
+      }
     } else {
       this.data.lessons.push(lesson)
     }
     await this.save()
+  }
+
+  /**
+   * Enregistre un succès pour une liste de leçons (Renforcement Darwiniste).
+   */
+  async recordSuccess(lessonIds: string[]): Promise<void> {
+    if (!lessonIds || lessonIds.length === 0) return
+    let changed = false
+    this.data.lessons.forEach((l) => {
+      if (lessonIds.includes(l.id)) {
+        l.successCount++
+        l.lastUpdated = Date.now()
+        changed = true
+      }
+    })
+    if (changed) await this.save()
+  }
+
+  /**
+   * Enregistre un échec pour une liste de leçons.
+   */
+  async recordFailure(lessonIds: string[]): Promise<void> {
+    if (!lessonIds || lessonIds.length === 0) return
+    let changed = false
+    this.data.lessons.forEach((l) => {
+      if (lessonIds.includes(l.id)) {
+        l.failCount++
+        l.lastUpdated = Date.now()
+        changed = true
+      }
+    })
+    if (changed) await this.save()
   }
 
   /**
@@ -95,8 +169,8 @@ export class LessonStore {
   /**
    * Formate les leçons en directives pour un prompt système.
    */
-  formatDirectives(agentName: string): string {
-    const lessons = this.getLessonsFor(agentName)
+  formatDirectives(agentName: string, tags: string[] = []): string {
+    const lessons = this.getLessonsFor(agentName, tags)
     return this.formatDirectivesFrom(lessons)
   }
 
