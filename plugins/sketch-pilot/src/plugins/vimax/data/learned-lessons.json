@@ -294,13 +294,79 @@
     {
       "id": "lesson-audit-1776716001921",
       "agentName": "Global",
-      "directive": "Développez la profondeur émotionnelle des personnages en explorant leurs motivations et luttes internes. Intégrez des éléments narratifs tels que des flashbacks pour illustrer les événements marquants de leur passé et les raisons qui les poussent à agir dans l'histoire.",
+      "directive": "Développez la profondeur émotionnelle des personnages en explorant leurs motivations et luttes internes. Utilisez divers éléments narratifs, tels que des dialogues introspectifs, des interactions significatives ou d'autres techniques appropriées, pour illustrer les événements marquants de leur passé et les raisons qui les poussent à agir dans l'histoire. Évitez de se limiter à une méthode particulière, comme les flashbacks, pour enrichir cette exploration ; privilégiez une approche variée qui reflète la complexité des personnages.",
+      "category": "logic",
+      "confidence": 1,
+      "successCount": 8,
+      "failCount": 0,
+      "lastUpdated": 1776718216912,
+      "tags": ["narrative", "audit", "medium"]
+    },
+    {
+      "id": "lesson-audit-1776716982072",
+      "agentName": "Global",
+      "directive": "Le dénouement doit comporter des éléments imprévus qui remettent en question les choix des personnages. Introduisez des dilemmes moraux complexes qui forcent le protagoniste à naviguer entre la vérité et la protection d'autrui, afin de rendre la résolution moins prévisible.",
       "category": "logic",
       "confidence": 0.9,
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776716001921,
+      "lastUpdated": 1776716982072,
       "tags": ["narrative", "audit", "medium"]
+    },
+    {
+      "id": "lesson-audit-1776717004931",
+      "agentName": "Global",
+      "directive": "Le protagoniste doit avoir une motivation claire et explorée pour ses actions, en particulier lorsqu'il adopte des comportements extrêmes. Développez les raisons de ses choix à travers des luttes internes et des motivations profondes qui enrichissent son caractère. Utilisez des éléments narratifs tels que des flashbacks pour illustrer des événements marquants du passé qui expliquent sa déconnexion du monde.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776717004931,
+      "tags": ["narrative", "audit", "high"]
+    },
+    {
+      "id": "lesson-audit-1776717182013",
+      "agentName": "Global",
+      "directive": "Le protagoniste doit développer des réactions émotionnelles progressivement, en construisant des interactions significatives qui révèlent les vulnérabilités de l'antagoniste. Utilisez des indices subtils pour préparer le terrain, afin que les réponses émotionnelles apparaissent nuancées et crédibles lors des révélations majeures.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776717182013,
+      "tags": ["narrative", "audit", "high"]
+    },
+    {
+      "id": "lesson-narrative-pacing-1776718000000",
+      "agentName": "Global",
+      "directive": "Ne te limite pas à un nombre fixe d'épisodes (comme 4) si l'histoire demande plus de temps pour installer les enjeux. Si une cible d'épisodes est donnée, structure les actes proportionnellement pour éviter les raccourcis narratifs et garantir un développement émotionnel crédible.",
+      "category": "logic",
+      "confidence": 1,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1776718000000,
+      "tags": ["narrative", "pacing", "#Global"]
+    },
+    {
+      "id": "lesson-audit-1776718952470",
+      "agentName": "Global",
+      "directive": "Le protagoniste doit adopter une posture menaçante dès le début de l'histoire.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776718952470,
+      "tags": ["narrative", "audit", "high"]
+    },
+    {
+      "id": "lesson-audit-1776718964896",
+      "agentName": "Global",
+      "directive": "Le protagoniste doit instaurer une présence menaçante dès le début de l'histoire.",
+      "category": "logic",
+      "confidence": 0.9,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776718964896,
+      "tags": ["narrative", "audit", "high"]
     }
   ],
   "globalDirectives": [

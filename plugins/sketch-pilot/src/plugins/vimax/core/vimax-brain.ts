@@ -453,6 +453,65 @@ Réponds uniquement avec la directive reformulée.
   }
 
   /**
+   * Met à jour une leçon existante en y intégrant un feedback utilisateur.
+   */
+  async refineLesson(lessonId: string, userFeedback: string): Promise<Lesson> {
+    await this.store.load()
+    const lesson = this.store.getLessonById(lessonId)
+    if (!lesson) {
+      throw new Error(`Leçon ${lessonId} non trouvée.`)
+    }
+
+    console.log(`[VimaxBrain] Raffinement de la leçon ${lessonId} avec feedback : "${userFeedback}"...`)
+
+    const refinementPrompt = `
+Tu es un Architecte Narratif Senior. Ta mission est de mettre à jour une **Directive de Rigueur Globale** existante en y intégrant un nouveau feedback utilisateur.
+
+[DIRECTIVE ACTUELLE]
+${lesson.directive}
+
+[FEEDBACK UTILISATEUR]
+${userFeedback}
+
+[CONSIGNES]
+1. Synthétise la directive actuelle et le feedback pour créer une nouvelle version plus équilibrée ou plus précise.
+2. Évite que la nouvelle directive ne devienne contradictoire.
+3. Garde le ton impératif, universel et sans noms propres. (Ex: "Le protagoniste", "L'antagoniste").
+4. Ne supprime pas totalement l'intention originale, mais nuance-la selon le feedback.
+
+Réponds UNIQUEMENT avec la nouvelle directive reformulée.
+`.trim()
+
+    const refinedDirective = await this.llm.generateContent(
+      refinementPrompt,
+      'Tu es un expert en équilibrage de principes narratifs.'
+    )
+
+    lesson.directive = refinedDirective.trim()
+    lesson.lastUpdated = Date.now()
+    lesson.confidence = 1 // Un feedback humain booste la confiance au max
+
+    await this.store.addLesson(lesson)
+    return lesson
+  }
+
+  /**
+   * Récupère toutes les leçons du store.
+   */
+  async getAllLessons(): Promise<Lesson[]> {
+    await this.store.load()
+    return this.store.getAllLessons()
+  }
+
+  /**
+   * Supprime une leçon du store.
+   */
+  async deleteLesson(id: string): Promise<void> {
+    await this.store.load()
+    await this.store.deleteLesson(id)
+  }
+
+  /**
    * Nettoyage et fusion du store pour éviter le surpoids.
    */
   async consolidate(): Promise<void> {

@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import dotenv from 'dotenv'
 import { LessonStore } from '../core/lesson-store'
 import { VimaxBrain } from '../core/vimax-brain'
+import type { NarrativeFeedbackItem } from '../types'
 
 /**
  * VimaxBrain Tool
@@ -38,12 +39,6 @@ async function main() {
   await store.load()
 
   switch (command) {
-    case 'lessons':
-      const lessons = store.getAllLessons()
-      console.log(`\n=== LEÇONS APPRISES (${lessons.length}) ===`)
-      lessons.forEach((l) => console.log(`- [${l.agentName}] [${l.category}] ${l.directive}`))
-      break
-
     case 'stats':
       const allLessons = store.getAllLessons()
       console.log('\n=== VIMAX BRAIN STATS (v3.2) ===')
@@ -188,6 +183,52 @@ async function main() {
       break
     }
 
+    case 'feedback': {
+      const [sagaId, type, ...msgParts] = args.slice(1)
+      const message = msgParts.join(' ')
+      if (!sagaId || !type || !message) {
+        console.error('❌ Usage : feedback <sagaId> <type> <message>')
+        console.error('   Exemple : feedback series-123 plan "Ajoute plus de suspense"')
+        process.exit(1)
+      }
+
+      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
+      const auditPath = path.join(sagaDir, `audit-${type}-manual.json`)
+
+      let audit: any = {
+        score: 0,
+        globallyCoherent: true,
+        characterArcsAnalysis: 'Feedback manuel utilisateur',
+        themesAnalyzed: [],
+        feedbacks: []
+      }
+
+      try {
+        const raw = await fs.readFile(auditPath, 'utf8')
+        audit = JSON.parse(raw)
+      } catch {
+        // Nouveau fichier audit manuel
+      }
+
+      const newItem: NarrativeFeedbackItem = {
+        issue: message,
+        rationale: 'Critique manuelle enregistrée via la CLI.',
+        correction: 'À traiter selon le contexte du feedback.',
+        priority: 'high',
+        processed: false
+      }
+
+      audit.feedbacks.push(newItem)
+      await fs.mkdir(sagaDir, { recursive: true })
+      await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
+
+      console.log(`✅ Feedback manuel enregistré pour ${type} (${sagaId}) !`)
+      console.log(`📌 Action suivante possible :`)
+      console.log(`   - Appliquer : npm run vimax:apply-feedback -- ${sagaId} ${type} manual ${audit.feedbacks.length}`)
+      console.log(`   - Apprendre : npm run vimax:learn-audit -- ${sagaId} ${type} manual ${audit.feedbacks.length}`)
+      break
+    }
+
     case 'audit-item': {
       const [sagaId, type, id] = args.slice(1)
       if (!sagaId || !type) {
@@ -242,10 +283,17 @@ async function main() {
     }
 
     case 'apply-feedback': {
-      const [sagaId, type, id, feedbackIndexStr] = args.slice(1)
+      let [sagaId, type, id, feedbackIndexStr] = args.slice(1)
+
+      // Si le 3ème argument est un nombre, c'est l'index, et l'id doit être déduit
+      if (!isNaN(parseInt(id)) && feedbackIndexStr === undefined) {
+        feedbackIndexStr = id
+        id = type === 'plan' ? 'initial' : 'current'
+      }
+
       const feedbackIndex = parseInt(feedbackIndexStr)
       if (!sagaId || !type || !id || isNaN(feedbackIndex)) {
-        console.error('❌ Usage : apply-feedback <sagaId> <type> <id> <feedbackIndex>')
+        console.error('❌ Usage : apply-feedback <sagaId> <type> [id] <feedbackIndex>')
         process.exit(1)
       }
 
@@ -291,11 +339,18 @@ async function main() {
     }
 
     case 'learn-audit': {
-      const [sagaId, type, id, feedbackIndexStr] = args.slice(1)
+      let [sagaId, type, id, feedbackIndexStr] = args.slice(1)
+
+      // Si le 3ème argument est un nombre, c'est l'index, et l'id doit être déduit
+      if (!isNaN(parseInt(id)) && feedbackIndexStr === undefined) {
+        feedbackIndexStr = id
+        id = type === 'plan' ? 'initial' : 'current'
+      }
+
       const feedbackIndex = parseInt(feedbackIndexStr)
       if (!sagaId || !type || !id || isNaN(feedbackIndex)) {
-        console.error('❌ Usage : learn-audit <sagaId> <type> <id> <feedbackIndex>')
-        console.error('   Exemple : learn-audit series-123 plan initial 1')
+        console.error('❌ Usage : learn-audit <sagaId> <type> [id] <feedbackIndex>')
+        console.error('   Exemple : learn-audit series-123 plan 1')
         process.exit(1)
       }
 
@@ -337,15 +392,28 @@ async function main() {
     }
 
     case 'plan': {
-      const idea = args.slice(1).join(' ')
+      let idea: string
+      let count: number | undefined
+
+      const lastArg = args.at(-1)
+      if (lastArg && args.length > 2 && !isNaN(parseInt(lastArg))) {
+        count = parseInt(lastArg)
+        idea = args.slice(1, -1).join(' ')
+      } else {
+        idea = args.slice(1).join(' ')
+      }
+
       if (!idea) {
-        console.error('❌ Idée requise : plan <votre idée>')
+        console.error('❌ Idée requise : plan <votre idée> [nb_épisodes]')
         process.exit(1)
       }
+
       const { VimaxAgent } = await import('../pipeline/vimax.agent')
       const agent = new VimaxAgent(llm)
       console.log(`[VimaxAgent] Planification de la saga : "${idea}"...`)
-      const seriesId = await agent.planSaga(idea)
+      if (count) console.log(`📈 Cible : ${count} épisodes.`)
+
+      const seriesId = await agent.planSaga(idea, { targetEpisodeCount: count })
       console.log(`✅ Saga planifiée ! ID : ${seriesId}`)
       console.log(`Utilisez 'episode ${seriesId} 1' pour générer le premier épisode.`)
       break
@@ -383,8 +451,45 @@ async function main() {
           console.log(`- [${s.name}] : ${idea.slice(0, 50)}...`)
         }
       } catch {
-        console.log('❓ Aucune saga trouvée (dossier vimax-logs/sagas absent).')
+        console.log('❓ Aucune saga trouvée.')
       }
+      break
+    }
+
+    case 'lessons': {
+      const lessons = await brain.getAllLessons()
+      console.log(`\n📚 BIBLIOTHÈQUE DES LEÇONS (${lessons.length}) :`)
+      lessons.forEach((l, i) => {
+        const status = l.verified ? '✅' : '🧠'
+        console.log(`[${i + 1}] ID: ${l.id} ${status}`)
+        console.log(`    Directive: ${l.directive}`)
+        console.log(`    Tags: ${l.tags?.join(', ')} | Confiance: ${l.confidence}`)
+        console.log('---')
+      })
+      break
+    }
+
+    case 'refine-lesson': {
+      const lessonId = args[1]
+      const feedback = args.slice(2).join(' ')
+      if (!lessonId || !feedback) {
+        console.error('❌ Usage : refine-lesson <lessonId> <feedback>')
+        process.exit(1)
+      }
+      const refined = await brain.refineLesson(lessonId, feedback)
+      console.log(`✅ Leçon ${lessonId} raffinée avec succès !`)
+      console.log(`📢 Nouvelle directive : ${refined.directive}`)
+      break
+    }
+
+    case 'delete-lesson': {
+      const lessonId = args[1]
+      if (!lessonId) {
+        console.error('❌ Usage : delete-lesson <lessonId>')
+        process.exit(1)
+      }
+      await brain.deleteLesson(lessonId)
+      console.log(`🗑️ Leçon ${lessonId} supprimée.`)
       break
     }
 
@@ -431,31 +536,30 @@ async function main() {
 Usage: brain-tool.ts <command> [args]
 
 Commands:
-  lessons             Liste toutes les leçons apprises
-  stats               Statistiques de fiabilité par leçon
-  analytics           Moyennes de qualité et évolution
-  learn [seriesId]    Apprentissage (échecs) & Renforcement (succès)
-  audit <seriesId>    Audit qualitatif automatique via Vision (Images/Rendu)
-  audit-plan <id>     Shortcut pour audit narratif du plan (type=plan, id=initial)
+  lessons             Liste toutes les leçons du cerveau Vimax
+  refine-lesson <id> <fb> Raffine une leçon avec un nouveau feedback
+  delete-lesson <id>  Supprime définitivement une leçon
   
+  audit-plan <id>     Audit narratif du plan (type=plan, id=initial)
   audit-item <sagaId> <type> [id] - Relance un audit complet (coûte des tokens)
   audit-show <sagaId> <type> [id] - Affiche un audit existant (gratuit)
     
-  learn-audit <sagaId> <type> <id> <index>
+  learn-audit <sagaId> <type> [id] <index>
     Extrait un feedback de l'audit et l'enregistre comme leçon globale.
     
-  apply-feedback <sagaId> <type> <id> <index>  
+  apply-feedback <sagaId> <type> [id] <index>  
     Applique la correction suggérée par un feedback à l'objet original.
-    Ex: apply-feedback series-123 plan initial 1
     
-  continue-plan <id>  Ajoute des épisodes (extension) à une saga existante
-  episodes [idSaga]   Liste les épisodes (Learning), filtrable par saga
-  show <epId>         Affiche les détails complets d'un épisode (Learning)
-  inspect <epId>      Affiche les prompts réels envoyés au LLM
-  plan <idée>         Planifie une saga et génère son plan structurel
+  plan <idée> [nb]     Planifie une saga avec cible d'épisodes
   episode <id> <n>    Génère l'épisode numéro n pour la saga id
+  feedback <sagaId> <type> <msg> Enregistre un feedback manuel sur un plan/épisode
+  continue-plan <id>  Ajoute des épisodes (extension) à une saga existante
+  
   sagas               Liste toutes les séries/sagas de production
-  view <id>           Affiche le plan détaillé et l'état d'avancement d'une saga
+  view <id>           Affiche l'état d'avancement d'une saga
+  episodes [idSaga]   Liste les épisodes générés (Learning)
+  show <epId>         Détails complets d'un épisode
+  inspect <epId>      Prompts réels envoyés au LLM
       `)
       break
   }

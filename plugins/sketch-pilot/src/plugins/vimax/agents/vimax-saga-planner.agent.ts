@@ -81,7 +81,7 @@ ${bibleContext}
    * @param options Optionnel : options de génération (durée, context, etc.)
    */
   async planSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<SagaPlan> {
-    const { targetDuration, maxScenes } = options
+    const { targetDuration, maxScenes, targetEpisodeCount } = options
 
     // 1. Route intent
     const routed = await this.generateStructured<{ intent: SagaIntent }>(
@@ -91,16 +91,18 @@ ${bibleContext}
     )
     const intent = routed.data.intent
 
-    const lengthHint = maxScenes
-      ? `\nCible de longueur : ${maxScenes} scènes maximum.`
-      : targetDuration
-        ? `\nCible de durée : ${targetDuration} secondes.`
-        : ''
+    const lengthHint = targetEpisodeCount
+      ? `\nCible de longueur : EXACTEMENT ${targetEpisodeCount} épisodes pour permettre un développement narratif profond.`
+      : maxScenes
+        ? `\nCible de longueur : ${maxScenes} scènes maximum.`
+        : targetDuration
+          ? `\nCible de durée : ${targetDuration} secondes.`
+          : ''
 
     const bibleContext = this.getBibleContext({ seriesBible: options.seriesContext?.seriesBible })
 
     const expanded = await this.generateStructured<{ planned_script: string; episodes: any[] }>(
-      `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Calibre la longueur pour respecter ces contraintes.\n\nRéponds uniquement en JSON.`,
+      `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Évite les raccourcis narratifs ; prends le temps d'installer les enjeux et les émotions.${targetEpisodeCount ? ` Structure l'histoire en ${targetEpisodeCount} actes bien distincts.` : ''}\n\nRéponds uniquement en JSON.`,
       this.getSpecializedSystem(intent, bibleContext),
       { planned_script: basicIdea, episodes: [] }
     )
