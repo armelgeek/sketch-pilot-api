@@ -46,29 +46,11 @@ ${intentReminder}
 [GRANULARITÉ]
 ${granularity}
 
-[RÉCAPITULATIF DES ÉPISODES PRÉCÉDENTS — MAX 3 ÉPISODES]
-${context.previousEpisodes?.slice(-3).join('\n\n') || 'Aucun épisode précédent.'}
-
 ${this.getBibleContext(context)}
 
 ${memoryBlock}
 
 ${tensionProgression}
-
-[DIRECTIVES NARRATION]
-1. LONGUEUR : ${mode === 'series' ? 'Séquence complète' : '2-3 phrases maximum'}. ${lengthGuide}
-2. PAS DE RÉPÉTITION : Chaque segment doit faire progresser l'action. Ne répète PAS une action déjà accomplie.
-3. RÔLES DE SCÈNE : Attribue un rôle unique (ex: Arrivée, Hésitation, Révélation, Point de non-retour, Climax). NE RÉPÈTE PAS UN RÔLE DÉJÀ PRIS.
-4. CONTINUITÉ SPATIALE & PHYSIQUE (COHÉRENCE DURE) : Respecte strictement l'état des lieux (ex: si un mur est détruit à la scène 2, il est un tas de gravats à la scène 4) et l'état des personnages (ex: une blessure à l'épaule gauche rend le bras inutilisable pour les scènes suivantes).
-5. CAUSALITÉ VISUELLE : Montre la source du danger (ex: "Une poutre s'effondre" et non "Un bruit sourd").
-6. DIALOGUE : Maximum UNE citation directe par scène, intégrée à l'action.
-7. IDENTIFIANTS : Utilise IMPÉRATIVEMENT le format @PascalCase pour tous les personnages.
-8. PROMESSES NARRATIVES (RÉSOLUTION) : Tout élément introduit (ex: @Banane cache une clé USB rouge) DOIT avoir un impact ou une résolution d'ici la fin de l'épisode. Ne l'oublie PAS.
-
-[STYLE]
-- Phrases percutantes et courtes.
-- Détails atmosphériques riches (lumière, texture, météo).
-- Profondeur psychologique par le langage corporel.
 
 [FORMAT]
 Renvoie UNIQUEMENT du JSON valide : { "narration": "la narration ici" }
@@ -127,8 +109,8 @@ ${openPromises}
   }
 
   private getBibleContext(context: SeriesContext): string {
-    if (!context.seriesBible) return ''
     const b = context.seriesBible
+    if (!b || typeof b === 'string') return ''
     return `
 [BIBLE DE LA SÉRIE - SPEC]
 - GENRE : ${b.genre}

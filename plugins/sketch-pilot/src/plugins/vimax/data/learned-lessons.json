@@ -1,0 +1,158 @@
+{
+  "lessons": [
+    {
+      "id": "seed-narration-logic",
+      "agentName": "VimaxNarrationAgent",
+      "category": "logic",
+      "directive": "Génère une NARRATION BRUTE et percutante. Phrases courtes. Détails atmosphériques riches. Pas de répétition d'action déjà accomplie. Max 1 citation directe par scène.",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-global-idents",
+      "agentName": "Global",
+      "category": "continuity",
+      "directive": "IDENTIFIANTS : Utilise impérativement le format @PascalCase pour tous les personnages. AUCUN ESPACE, AUCUNE APOSTROPHE.",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-planner-router",
+      "agentName": "VimaxSagaPlanner",
+      "category": "logic",
+      "directive": "Intent Router : narrative (histoire 3 actes), motion (action pure speed vectors), montage (émotion/rythme), viral (court/absurde/cliffhanger), dramatic (trahisons/suspense).",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-planner-visual",
+      "agentName": "VimaxSagaPlanner",
+      "category": "style",
+      "directive": "ImagePrompt : Décris le sujet @Nom au premier plan, les éléments actifs au plan moyen, et l'environnement en arrière-plan dans une seule phrase fluide. Pas de tags [FOREGROUND].",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-screenwriter-camera",
+      "agentName": "VimaxScreenwriter",
+      "category": "style",
+      "directive": "Rythme Caméra : Alternance CLOSEUP, OVERSHOULDER et WIDE. Scène finale : shake + slow-motion (high intensity).",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-auditor-verity",
+      "agentName": "VimaxContinuityAuditor",
+      "category": "continuity",
+      "directive": "LA NARRATION EST LA SOURCE DE VÉRITÉ ABSOLUE. Vérifie les contradictions physiques, les résolutions manquantes et les ruptures de ton. Cherche les téléportations et résurrections.",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-character-extractor-anthropo",
+      "agentName": "VimaxCharacterExtractor",
+      "category": "logic",
+      "directive": "PERSONNAGES ANTHROPOMORPHES : Si fruit/objet, corps humain complet musclé requis. Tête en forme d'objet avec visage expressif. Habits humains. Membres fins interdits.",
+      "confidence": 1.0,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-planner-motion",
+      "agentName": "VimaxSagaPlanner",
+      "category": "logic",
+      "directive": "INTENT MOTION : Script cinétique précis. PAS de métaphores. VECTEURS, VITESSE, orientation SPATIALE. 4-6 beats d'action.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-planner-viral",
+      "agentName": "VimaxSagaPlanner",
+      "category": "logic",
+      "directive": "INTENT VIRAL : Hook immédiat (1s). Archétypes anthropomorphiques. Rythme rapide. Cliffhanger de choc. Show don't tell.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-planner-dramatic",
+      "agentName": "VimaxSagaPlanner",
+      "category": "logic",
+      "directive": "INTENT DRAMATIC : Suspense & Trahison. Plot twists à chaque épisode. Motivations cachées. Enjeux élevés (High Stakes).",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-screenwriter-meta",
+      "agentName": "VimaxScreenwriter",
+      "category": "logic",
+      "directive": "Meta Episode : Gardien de la Bible. Génère summary, cliffhanger et continuité personnages/lieux cohérente avec les scènes.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-character-extractor-base",
+      "agentName": "VimaxCharacterExtractor",
+      "category": "logic",
+      "directive": "Profils Visuels : Extrais caractéristiques statiques (morphologie, visage) et dynamiques (vêtements, accessoires) avec précision cinématique.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-animation-physical",
+      "agentName": "VimaxAnimationAgent",
+      "category": "logic",
+      "directive": "FOCUS PHYSIQUE : Détaille les gestes et postures expressives (ex: @Banane pointe le ciel). Précise qui parle pour la synchronisation labiale.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-dialogue-subtext",
+      "agentName": "VimaxDialogueAgent",
+      "category": "logic",
+      "directive": "CONCISION & SUBTEXTE : Répliques courtes (1-2 lignes). Évite le bavardage héroïque. Respecte IMPÉRATIVEMENT l'historique émotionnel et les contradictions.",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    },
+    {
+      "id": "seed-sanitizer-viability",
+      "agentName": "VimaxInputSanitizer",
+      "category": "logic",
+      "directive": "ENRICHISSEMENT VIABILITÉ : Si l'idée est vague, propose des suggestions concrètes qui rentrent dans les limites techniques (4 scènes, whiteboard).",
+      "confidence": 1.0,
+      "successCount": 0,
+      "failCount": 0,
+      "lastUpdated": 1682000000000
+    }
+  ],
+  "globalDirectives": [
+    "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+    "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+  ]
+}

@@ -19,13 +19,7 @@ export class VimaxContinuityAuditor extends VimaxBaseAgent {
   private getSystem(): string {
     return `
 Tu es un Auditor de Continuité (Script Supervisor) pour une série d'animation.
-Ta mission est de relire l'ensemble des scènes d'un épisode pour détecter toute faille de cohérence.
-
-[CRITÈRES D'AUDIT]
-1. CONTRADICTIONS PHYSIQUES : Un personnage ne peut pas être mort/blessé puis parfaitement sain sans explication. Les objets ne peuvent pas changer de couleur ou de forme sans raison.
-2. RÉSOLUTIONS MANQUANTES : Si un objet ou un mystère est introduit (ex: "la clé USB rouge"), il doit être soit résolu, soit mentionné comme restant en suspens.
-3. RUPTURES DE TON : Un épisode doit garder une cohérence émotionnelle. Une scène de comédie pure au milieu d'un drame psychologique intense sans justification est une rupture de ton.
-4. COHÉRENCE SPATIALE : Si l'action se déplace, le trajet doit être logique.
+Ta mission est de détecter toute faille de cohérence narrative ou visuelle.
 
 [FORMAT DE RÉPONSE]
 Renvoie UNIQUEMENT du JSON valide :
@@ -55,7 +49,10 @@ Réalise un audit complet de continuité.
       contradictions: [],
       missingResolutions: [],
       toneBreaks: [],
-      approved: true
+      approved: true,
+      isValid: true,
+      issues: [],
+      score: 100
     })
 
     return result.data
@@ -167,7 +164,9 @@ Renvoie du JSON : {
     const result = await this.generateStructured<FinalAuditResult>(prompt, this.getSystem(), {
       approved: true,
       contradictions: [],
-      scenesToPatch: []
+      scenesToPatch: [],
+      globalCoherence: 100,
+      scenePatches: []
     })
 
     return result.data

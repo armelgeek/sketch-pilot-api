@@ -28,19 +28,8 @@ ${JSON.stringify(context, null, 2)}
 
 ${voiceBlock}
 
-[DIRECTIVES]
-1. CONCISION EXTRÊME : Maximum une ou deux lignes par scène.
-2. STYLE : Pas de bavardage. Uniquement des répliques qui font avancer l'intrigue ou révèlent un trait de caractère.
-3. MÉMOIRE ÉMOTIONNELLE : Les répliques DOIVENT respecter le passé émotionnel récent. Si @Banane a dit "Je te fais confiance" à la scène 2, il ne peut pas dire "Je savais que tu me trahirais" sans transition logique. Les contradictions non motivées sont interdites.
-4. SUBTEXTE & VARIÉTÉ : Évite les clichés héroïques. Favorise le sous-entendu, le silence, ou les répliques viscérales et courtes ("Regardez-moi", "On tient", "Pas maintenant").
-5. IDENTIFIANTS : Utilise impérativement le format @PascalCase.
-6. TONE : Adapte le dialogue au ton de la série défini dans la Bible.
-6. TIMING : Estime à quel moment de la scène le dialogue intervient (relativeStart: 0.0 à 1.0) et sa DURÉE RELATIVE (duration: 0.0 à 1.0).
-   IMPORTANT : La somme relativeStart + duration NE DOIT PAS dépasser 1.0. 
-   Ex: si relativeStart = 0.8, duration doit être <= 0.2.
-7. FORMAT : Renvoie UNIQUEMENT un objet JSON valide.
-
-Renvoie ce format :
+[FORMAT]
+Renvoie UNIQUEMENT un objet JSON valide :
 {
   "dialogue": [
     { 

@@ -28,33 +28,8 @@ interface RawScreenplayMeta {
 export class VimaxScreenwriter extends VimaxBaseAgent {
   private getSceneSystem(): string {
     return `
-[DIRECTIVES CINÉMATOGRAPHIQUES]
-1. ID UNIQUE : Utilise impérativement le NUMÉRO_SCÈNE fourni pour construire l'ID logique.
-2. ALIGNEMENT : 'charactersInScene' doit correspondre EXACTEMENT aux personnages présents physiquement dans la narration ou l'imagePrompt.
-3. LUMIÈRE & STAGING : Définis une source de lumière dominante et COHÉRENTE avec l'environnement (ex: "lumière chaude des flammes", "nuit froide"). 
-5. RHYTHME CAMÉRA OBLIGATOIRE (Audit de Rigueur) :
-   - SCÈNE 1 (Ambiance) : handheld léger (low intensity)
-   - SCÈNE 2 (Tension) : push-in (medium intensity)
-   - SCÈNE 3 (Révélation) : slow-zoom (low/medium intensity)
-   - SCÈNE 4 (Chaos) : shake OU dutch-tilt (medium intensity)
-   - SCÈNE 5 (Blast Effect) : shake + slow-motion (high intensity)
-6. MICRO-RÉACTIONS PHYSIQUES (DÉTAILLÉES) :
-   - Tu DOIS inclure un micro-détail physique pour le sujet au "foreground" (ex: "tempe qui palpite", "mâchoire qui se crispe", "main s'accrochant au rebord").
-   - "midground": Réaction de la foule ou des alliés (ex: "reculent d'un pas synchrone", "se figent comme des statues").
-   - "background": Géographie atmosphérique.
-7. AUDIT DE TRAHISON (@Poire) : Si @Poire est présent et que la vérité éclate, il DOIT avoir une posture fuyante (évite le regard, corps de trois-quarts).
-8. ALIGNEMENT : 'charactersInScene' = exacte présence physique.
-9. LUMIÈRE : "faisceau directionnel", "rouge intermittent", "flash d'explosion", "ombres dures".
-
-[CONTRAINTES — ÉNUMÉRATIONS UNIQUEMENT]
-- scenePurpose: "reveal" | "escalate" | "misdirect" | "stabilize" | "collapse"
-- composition.shotType: "CLOSEUP" | "MEDIUM" | "WIDE" | "ESTABLISHING" | "PANORAMIC" | "POV" | "OVERSHOULDER"
-- composition.layout: "SINGLE" | "MONTAGE" | "SPLIT" | "DIAGONAL"
-- cameraAction.type: "none" | "pan-left" | "pan-right" | "pan-up" | "pan-down" | "zoom-in" | "zoom-out" | "shake" | "breathing" | "snap-zoom" | "dutch-tilt" | "handheld" | "slow-motion" | "push-in"
-- cameraAction.intensity: "low" | "medium" | "high"
-- tensionState.type: "build" | "sustain" | "spike" | "release"
-- tensionState.level: entier 1-10
-- pacing: entier 1-10 (DOIT être corrélé à la tension : Tension 2 → Pacing 2, Tension 5 → Pacing 5, Tension 10 → Pacing 9)
+[RÔLE : Expert Cinématographique]
+Génère les métadonnées cinématiques (camera, tension, stroboscopie, patch) pour cette scène.
 
 Renvoie UNIQUEMENT du JSON valide correspondant au schéma.
 `.trim()
@@ -173,7 +148,7 @@ Renvoie du JSON :
         midground: '',
         background: ''
       },
-      tensionState: { level: 5, type: 'sustain' },
+      tensionState: { level: 5, type: 'sustain', label: 'sustain' },
       simulationPatch: { worldPatch: {}, charactersPatch: {} }
     })
 
@@ -190,7 +165,7 @@ Renvoie du JSON :
 
     return {
       ...parsed,
-      charactersInScene: parsed.charactersInScene.map((id) => this.normalizeIdentifier(id))
+      charactersInScene: parsed.charactersInScene.map((id: string) => this.normalizeIdentifier(id))
     }
   }
 

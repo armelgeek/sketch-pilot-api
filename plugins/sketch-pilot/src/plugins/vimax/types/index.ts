@@ -142,6 +142,15 @@ export interface SagaPlan {
   }>
 }
 
+export interface SeriesBible {
+  genre: string
+  tone: string
+  visualStyle: string
+  universeLaws?: string[]
+  static_features?: string
+  dynamic_features?: string
+}
+
 export interface SeriesContext {
   characterVoiceHistory?: Record<string, CharacterVoiceHistory[]>
   locationRegistry?: Record<string, LocationState>
@@ -149,7 +158,7 @@ export interface SeriesContext {
   lastEpisodeSummary?: string
   lastEpisodeBridge?: string
   previousEpisodes?: any[]
-  seriesBible?: string
+  seriesBible?: SeriesBible | string
   intent?: SagaIntent | string
   characterStates?: CharacterState[]
 }
@@ -217,7 +226,7 @@ export interface CharacterProfile {
 }
 
 export interface CharacterVoiceHistory {
-  identifier: string // Added for DialogueContinuityGuard
+  identifier: string
   lastLines: string[]
   currentEmotionalState: string
   voiceSignature: string
@@ -227,6 +236,14 @@ export interface CharacterVoiceHistory {
   acting?: string
 }
 
+export interface DialogueLine {
+  character: string
+  text: string
+  acting?: string
+  relativeStart?: number
+  duration?: number
+}
+
 export interface LocationState {
   id: string
   name: string
@@ -234,7 +251,7 @@ export interface LocationState {
   atmosphere: string
   evolution: string
   currentState?: string
-  modifications?: string[]
+  modifications: string[] // Non-optional for map
   locationId?: string
 }
 
@@ -277,7 +294,7 @@ export interface PlotContract {
     introducedAtScene: number
     mustResolveBy: number
   }>
-  closedPromises?: string[]
+  closedPromises: string[] // Non-optional
 }
 
 export interface SceneMemory {
@@ -304,3 +321,44 @@ export interface VimaxScreenplay {
 // Legacy exports
 export type SagaPlanInterface = SagaPlan
 export type EpisodeBridge = string
+
+// ─────────────────────────────────────────────
+// Prompt Learning System Types
+// ─────────────────────────────────────────────
+
+export interface LearningEpisode {
+  id: string
+  agentName: string
+  systemPrompt: string
+  userPrompt: string
+  response: string
+  timestamp: number
+  durationMs: number
+  status: 'pending' | 'success' | 'failure' | 'shadow_tested'
+  evaluation?: EvaluationReport
+}
+
+export interface EvaluationReport {
+  score: number // 0-100
+  isValid: boolean
+  issues: string[]
+  critique?: string
+  source: 'auditor' | 'human' | 'system' | 'vision'
+}
+
+export interface Lesson {
+  id: string
+  agentName: string
+  directive: string
+  category: 'style' | 'logic' | 'syntax' | 'continuity'
+  confidence: number
+  successCount: number
+  failCount: number
+  lastUpdated: number
+  examples?: { input: string; output: string }[]
+}
+
+export interface LessonStore {
+  lessons: Lesson[]
+  globalDirectives: string[]
+}

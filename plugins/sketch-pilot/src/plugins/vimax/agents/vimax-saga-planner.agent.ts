@@ -42,101 +42,29 @@ Réponds UNIQUEMENT avec du JSON valide : { "intent": "narrative" | "motion" | "
 
   // ─── Specialized Prompts ───────────────────
 
-  private getSpecializedSystem(intent: SagaIntent, bibleContext = ''): string {
+  private getSpecializedSystem(intent: SagaIntent | string, bibleContext = ''): string {
     const identDirective =
       '- IDENTIFIANTS PERSONNAGES : Utilise IMPÉRATIVEMENT le format @PascalCase (ex: @Banane, @DetectiveSmith). AUCUN ESPACE, AUCUNE APOSTROPHE.'
     const formatInstruction =
-      '[FORMAT]\nRenvoie UNIQUEMENT du JSON valide : { "planned_script": "chaîne de caractères" }'
+      '[FORMAT]\nRenvoie UNIQUEMENT du JSON valide : { "planned_script": "chaîne de caractères", "episodes": [] }'
 
-    switch (intent) {
-      case 'motion':
-        return `
-[RÔLE : Expert en Immersion Mouvement & Vitesse]
-Transforme l'idée en un script cinétique, techniquement précis.
-- PAS de métaphores. Dialogue minimal.
-- STRUCTURE : 4 à 6 beats d'action distincts, chacun décrivant une phase de mouvement (approche, impact, esquive, résolution).
-- LONGUEUR : 150-250 mots maximum.
-- Concentre-toi sur les VECTEURS, la VITESSE et l'orientation SPATIALE.
-- Techniquement explicite (nomme les types de véhicules, les postures, les frappes).
-- Séquence des beats d'action qui peuvent être scénarisés étape par étape.
-- Utilise un langage cinématographique mettant l'accent sur la force et le flou de mouvement.
+    const intentKey = typeof intent === 'string' ? intent : intent.tone || 'narrative'
+
+    return `
+[RÔLE : Expert en Planification de Série - Mode ${intentKey.toUpperCase()}]
+Tu es un expert chargé de transformer une idée brute en un script structuré et cinématique.
+
 ${identDirective}
 
 ${formatInstruction}
 
 ${bibleContext}
 `.trim()
-
-      case 'viral':
-        return `
-[RÔLE : Architecte de Contenu Viral & Social Media]
-Transforme l'idée en un script percutant, optimisé pour l'engagement.
-- HOOK IMMÉDIAT : La première scène doit capturer l'attention en 1 seconde (absurdité, émotion forte, question provocante).
-- ARCHÉTYPES : Supporte les objets/animaux anthropomorphiques (fruits qui parlent, chats qui pleurent).
-- STRUCTURE : Rythme rapide, contrastes émotionnels brutaux (de la joie aux larmes en une scène).
-- CLIFFHANGER : Fin ouverte ou choc pour générer du partage/commentaires.
-- Évite les explications longues. Priorise le "Show, don't tell" et le dialogue émotionnel direct.
-- ACTIONS & ÉMOTIONS : Utilise des balises de direction d'acteur [Action/Emotion] dans le script pour guider l'animation et le jeu.
-${identDirective}
-
-${formatInstruction}
-
-${bibleContext}
-`.trim()
-
-      case 'montage':
-        return `
-[RÔLE : Expert en Montage & Émotion]
-Transforme l'idée en un script de montage axé sur l'émotion.
-- PAS de métaphores. Format paragraphe pur.
-- Transmets le sens par la progression des plans, le rythme et la juxtaposition visuelle.
-- Concentre-toi sur les états internes, les visuels expressifs et les réactions.
-- Le rythme doit refléter l'arc émotionnel (montée du tempo, présence du souffle).
-${identDirective}
-
-${formatInstruction}
-
-${bibleContext}
-`.trim()
-
-      case 'dramatic':
-        return `
-[RÔLE : Expert en Suspense, Action & Drame Psychologique]
-Transforme l'idée en un script intense et imprévisible.
-- TRAHISON & MYSTÈRE : Introduis des motivations cachées ou des alliés qui changent de camp au moment critique.
-- PLOT TWISTS : La scène finale de chaque épisode (sauf le dernier) doit se terminer sur une révélation choc ou un retournement.
-- ACTION : Décris des confrontations physiques ou psychologiques tendues.
-- STRUCTURE : Favorise les arcs "High Stakes" où chaque décision a des conséquences graves.
-- ACTIONS & ÉMOTIONS : Utilise des balises [Action/Emotion] pour guider l'acting.
-${identDirective}
-
-${formatInstruction}
-
-${bibleContext}
-`.trim()
-
-      case 'narrative':
-      default:
-        return `
-[RÔLE : Scénariste de Classe Mondiale]
-Transforme l'idée en un script narratif riche.
-- Structure en trois actes : exposition, confrontation, résolution.
-- Arcs de personnages convaincants et dialogues naturels.
-- Langage cinématographique privilégiant les éléments visuels sur l'exposition.
-- Maintiens la cohérence du genre et la profondeur thématique.
-- Pas de métaphores dans les descriptions visuelles.
-${identDirective}
-
-${formatInstruction}
-
-${bibleContext}
-`.trim()
-    }
   }
 
   private getBibleContext(context: SeriesContext): string {
-    if (!context.seriesBible) return ''
     const b = context.seriesBible
+    if (!b || typeof b === 'string') return ''
     return `
       [BIBLE DE LA SÉRIE - SPEC]
       - GENRE : ${b.genre}
@@ -159,7 +87,7 @@ ${bibleContext}
     const routed = await this.generateStructured<{ intent: SagaIntent }>(
       `<BASIC_IDEA>\n${basicIdea}\n</BASIC_IDEA>\n\nRéponds uniquement en JSON.`,
       this.getRouterSystem(),
-      { intent: 'narrative' }
+      { intent: { tone: 'narrative' } as any }
     )
     const intent = routed.data.intent
 
@@ -171,13 +99,13 @@ ${bibleContext}
 
     const bibleContext = this.getBibleContext({ seriesBible: options.seriesContext?.seriesBible })
 
-    const expanded = await this.generateStructured<{ planned_script: string }>(
+    const expanded = await this.generateStructured<{ planned_script: string; episodes: any[] }>(
       `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Calibre la longueur pour respecter ces contraintes.\n\nRéponds uniquement en JSON.`,
       this.getSpecializedSystem(intent, bibleContext),
-      { planned_script: basicIdea }
+      { planned_script: basicIdea, episodes: [] }
     )
 
-    return { intent, script: expanded.data.planned_script }
+    return { intent, script: expanded.data.planned_script, episodes: expanded.data.episodes }
   }
 
   /**

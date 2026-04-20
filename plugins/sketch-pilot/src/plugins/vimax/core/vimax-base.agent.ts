@@ -1,4 +1,7 @@
-import type { GenerationResult } from '../types'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import type { GenerationResult, LearningEpisode } from '../types'
+import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
 
 // ─────────────────────────────────────────────
@@ -48,24 +51,61 @@ export abstract class VimaxBaseAgent {
     system: string,
     mime: 'text/plain' | 'application/json' = 'text/plain'
   ): Promise<string> {
-    if (process.env.DEBUG_LLM) {
-      console.log(`\n[LLM CALL] system: ${system.slice(0, 100)}... prompt: ${prompt.slice(0, 100)}...`)
-    }
-
     const startTime = Date.now()
     const prunedPrompt = this.enforceTokenBudget(prompt)
-    const raw = await this.llm.generateContent(prunedPrompt, system, mime)
 
-    this.metrics.durationMs += Date.now() - startTime
+    // Injection dynamique des leçons (Phase 4)
+    const store = LessonStore.getInstance()
+    // On s'assure que le store est chargé (normalement fait au démarrage par le pipeline,
+    // mais on ajoute une sécurité ici ou on suppose que c'est fait)
+    const learnedDirectives = store.formatDirectives(this.constructor.name)
+    const finalSystem = learnedDirectives ? `${system}\n\n${learnedDirectives}` : system
+
+    // Capture de l'épisode avant appel
+    const episodeId = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+    if (process.env.DEBUG_LLM) {
+      console.log(`\n[LLM CALL] ${this.constructor.name} - ID: ${episodeId}`)
+    }
+
+    const raw = await this.llm.generateContent(prunedPrompt, finalSystem, mime)
+    const duration = Date.now() - startTime
+
+    this.metrics.durationMs += duration
     this.metrics.calls++
     this.metrics.estimatedTokens += Math.round((prunedPrompt.length + system.length + raw.length) / 4)
 
-    // Log direct pour debug
+    // Enregistrement de l'épisode pour le Prompt Learning System
+    await this.recordEpisode({
+      id: episodeId,
+      agentName: this.constructor.name,
+      systemPrompt: system,
+      userPrompt: prunedPrompt,
+      response: raw,
+      timestamp: Date.now(),
+      durationMs: duration,
+      status: 'pending' // Sera mis à jour par l'orchestrateur ou l'auditeur
+    })
+
     if (process.env.DEBUG_LLM) {
       console.log(`[LLM RESPONSE] raw: ${raw.slice(0, 100)}...`)
     }
 
     return raw
+  }
+
+  /**
+   * Enregistre un épisode d'apprentissage sur le disque.
+   */
+  private async recordEpisode(episode: LearningEpisode): Promise<void> {
+    try {
+      const episodesDir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+      await fs.mkdir(episodesDir, { recursive: true })
+      const filePath = path.join(episodesDir, `${episode.id}.json`)
+      await fs.writeFile(filePath, JSON.stringify(episode, null, 2), 'utf8')
+    } catch (error) {
+      console.warn(`[${this.constructor.name}] Échec de l'enregistrement de l'épisode:`, error)
+    }
   }
 
   /**
@@ -80,20 +120,27 @@ export abstract class VimaxBaseAgent {
     let retryCount = 0
 
     while (retryCount <= maxRetries) {
+      const episodeId = `ep-struct-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
       try {
+        // Note: On passe l'episodeId pour que generate puisse l'utiliser (ou on laisse generate en créer un nouveau)
+        // Pour simplifier, on laisse generate créer son propre épisode et on le récupérera via le dernier fichier créé si besoin,
+        // MAIS le mieux est de modifier generate pour accepter un ID optionnel.
         const raw = await this.generate(prompt, system, 'application/json')
         const data = this.parseJSON<T>(raw)
 
-        // Si on arrive ici, le parsing a réussi
         return {
           data,
           confidence: retryCount === 0 ? 'high' : 'low',
           retryCount
         }
-      } catch (error) {
-        if (process.env.DEBUG_LLM) {
-          console.warn(`[VimaxBaseAgent] Échec de parsing (tentative ${retryCount + 1}/${maxRetries + 1}):`, error)
-        }
+      } catch (error: any) {
+        // TAG FAILURE : Si on est ici, c'est un échec de parsing
+        console.warn(`[VimaxBaseAgent] Échec de parsing - Tentative ${retryCount}:`, error.message)
+
+        // On pourrait ici mettre à jour le dernier épisode enregistré pour le marquer comme FAILURE
+        // Mais comme generate enregistre déjà, on va simplement laisser un log ou émettre un signal.
+        // Option simple : generateStructured marque la fin du processus.
+
         retryCount++
         if (retryCount <= maxRetries) {
           await new Promise((resolve) => setTimeout(resolve, 500 * retryCount))

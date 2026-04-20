@@ -12,8 +12,9 @@ import type {
  * Gère la progression de l'intensité dramatique.
  */
 export class TensionCurveManager {
-  buildCurve(sceneCount: number, intent: SagaIntent): number[] {
+  buildCurve(sceneCount: number, intentInput: SagaIntent | string): number[] {
     if (sceneCount <= 1) return [10]
+    const intent = typeof intentInput === 'string' ? intentInput : intentInput.tone || 'narrative'
     switch (intent) {
       case 'dramatic':
         return Array.from({ length: sceneCount }, (_, i) => Math.round(2 + 8 * (i / (sceneCount - 1)) ** 1.5))
@@ -70,7 +71,7 @@ export class LocationTracker {
 
   update(newStates: LocationState[]) {
     for (const s of newStates) {
-      this.states.set(s.locationId, s)
+      this.states.set(s.locationId || 'unknown', s)
     }
   }
 
@@ -115,7 +116,7 @@ export class SceneRoleRegistry {
  * Gère le cycle de vie des promesses narratives.
  */
 export class PlotContractValidator {
-  private contract: PlotContract = { openPromises: [], closedPromises: [] }
+  private contract: PlotContract = { openPromises: [], closedPromises: [], unresolvedThreads: [], promises: [] }
 
   update(newContract: PlotContract) {
     this.contract = newContract
@@ -146,7 +147,11 @@ export class DialogueContinuityGuard {
           identifier: line.character,
           lastLines: [],
           currentEmotionalState: line.acting || 'neutre',
-          voiceSignature: 'standard'
+          voiceSignature: 'standard',
+          episodeId: 'current',
+          sceneNumber: 0,
+          line: line.text,
+          acting: line.acting || 'neutre'
         }
         this.histories.set(line.character, history)
       }

@@ -13,6 +13,7 @@ import { VimaxSagaCompressor } from '../agents/vimax-saga-compressor.agent'
 import { VimaxSagaPlanner } from '../agents/vimax-saga-planner.agent'
 import { VimaxScreenwriter } from '../agents/vimax-screenwriter.agent'
 import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
+import { VimaxBrain } from '../core/vimax-brain'
 import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
 import type { LLMService } from '../core/llm.interface'
 import type {
@@ -50,6 +51,7 @@ export class VimaxAgent {
   private auditor: VimaxContinuityAuditor
   private inputSanitizer: VimaxInputSanitizerAgent
   private outputFormatter: VimaxOutputFormatterAgent
+  private brain: VimaxBrain
 
   private metrics = {
     totalCalls: 0,
@@ -71,6 +73,7 @@ export class VimaxAgent {
     this.auditor = new VimaxContinuityAuditor(llm)
     this.inputSanitizer = new VimaxInputSanitizerAgent(llm)
     this.outputFormatter = new VimaxOutputFormatterAgent(llm)
+    this.brain = new VimaxBrain(llm)
   }
 
   /**
@@ -132,6 +135,14 @@ export class VimaxAgent {
 
       // Extract bridge for next episode
       lastEpisodeBridge = await this.compressor.extractEpisodeBridge(episode.narration)
+    }
+
+    // Pass 6 : Auto-Apprentissage via VimaxBrain
+    try {
+      console.log("\n[VIMAX_BRAIN] Lancement du cycle d'auto-amélioration...")
+      await this.brain.autonomousLearning()
+    } catch (learnError) {
+      console.warn("[VimaxAgent] Échec du cycle d'auto-apprentissage (non bloquant) :", learnError)
     }
 
     return {
@@ -205,6 +216,8 @@ export class VimaxAgent {
     )
 
     const screenplay: VimaxScreenplay = {
+      title: event.description,
+      tensionCurve: [], // Sera rempli ou calculé
       seriesMetadata: {
         episodeSummary: enhancedScript.slice(0, 200),
         cliffhanger: { type: 'unknown', description: 'Suspendu', audienceQuestion: 'Que va-t-il se passer ?' },
@@ -226,6 +239,10 @@ export class VimaxAgent {
     await this.saveIntermediate(`${prefix}-pass5-formatted`, formattedResult)
 
     return {
+      id: `ep-${index}-${Date.now()}`,
+      episodeNumber: index,
+      summary: `${enhancedScript.slice(0, 50)}...`,
+      scenes,
       eventIndex: index,
       eventDescription: event.description,
       narration: enhancedScript,
@@ -330,9 +347,10 @@ export class VimaxAgent {
 
       // IntentDriftDetector — Rappel d'intention après la scène 2
       const intent = context.intent || 'narrative'
+      const intentStr = typeof intent === 'string' ? intent : intent.tone || 'narrative'
       const intentReminder =
         i + 1 > 2
-          ? `[RAPPEL INTENT : ${intent.toUpperCase()}] Tu génères une scène de type "${intent}". Vérifie que cette scène respecte les codes de ce format.`
+          ? `[RAPPEL INTENT : ${intentStr.toUpperCase()}] Tu génères une scène de type "${intentStr}". Vérifie que cette scène respecte les codes de ce format.`
           : ''
 
       // SceneBudgetManager — Gestion du budget de contexte
@@ -457,7 +475,7 @@ export class VimaxAgent {
             ([id, patch]) =>
               ({
                 identifier: id,
-                ...patch
+                ...(patch as any)
               }) as any
           )
           continuity.characters.update(newCharStates)
@@ -467,7 +485,7 @@ export class VimaxAgent {
             ([id, patch]) =>
               ({
                 locationId: id,
-                ...patch
+                ...(patch as any)
               }) as any
           )
           continuity.locations.update(newLocStates)

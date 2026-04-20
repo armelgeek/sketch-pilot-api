@@ -17,62 +17,24 @@ export class VimaxEventExtractor extends VimaxBaseAgent {
     targetEpisodeCount?: number
   ): string {
     const targetCount = targetEpisodeCount ?? maxScenes
-    let beats = ''
-
-    if (targetCount) {
-      beats = `EXACTEMENT ${targetCount} ${mode === 'series' ? 'épisode(s)' : 'beat(s)'}`
-    } else if (targetDuration) {
-      if (mode === 'series') {
-        const estimatedEps = Math.max(1, Math.floor(targetDuration / 45))
-        beats = `MAXIMUM ${estimatedEps} épisode(s) (basé sur ~45 secondes par épisode pour ${targetDuration}s)`
-      } else {
-        const estimatedScenes = Math.max(4, Math.ceil(targetDuration / 6))
-        beats = `MAXIMUM ${estimatedScenes} beat(s) (basé sur ~6 secondes par scène pour ${targetDuration}s)`
-      }
-    } else {
-      beats = mode === 'series' ? '1-3 épisodes' : '4-8 beats'
-    }
-
-    const extractionScope = targetCount
-      ? `Extrais EXACTEMENT ${targetCount} événements séquentiels, en choisissant les plus importants dramatiquement. Ni plus, ni moins.`
-      : `Extrais TOUS les événements séquentiels distincts du texte.`
-
-    const granularity =
-      mode === 'series'
-        ? `arc narratif majeur. Chaque événement = un épisode complet.`
-        : `beat de niveau scène. Chaque événement = une scène.`
-
-    const countDirective = targetCount
-      ? `6. COMPTE : Tu DOIS extraire EXACTEMENT ${targetCount} événements. C'est une contrainte technique absolue.`
-      : `6. COMPTE : Extrais tous les événements narratifs distincts du texte, sans en inventer.`
+    const granularity = mode === 'series' ? 'épisodes' : 'scènes'
 
     return `
-      Tu es une IA d'Analyse Littéraire spécialisée dans la déconstruction narrative.
-      ${extractionScope}
-      Granularité : ${granularity} (${beats})
+Tu es une IA d'Analyse Littéraire spécialisée dans la déconstruction narrative.
+Extraits EXACTEMENT ${targetCount || 'tous les'} événements séquentiels (${granularity}).
 
-      [Directives]
-      1. Concentre-toi sur les événements critiques pour l'intrigue ou le développement des personnages.
-      2. Chaque événement doit être logiquement distinct des précédents.
-      3. Unis plusieurs micro-actions liées sous un seul objectif dramatique.
-      4. PROCESS CHAIN : 2 à 4 étapes maximum par événement. Chaque étape = une action concrète et distincte.
-      5. CONTINUITÉ : Chaque événement doit faire avancer l'histoire.
-      ${countDirective}
-      7. IDENTIFIANTS : Dans "description" et "processChain", utilise IMPÉRATIVEMENT le format @PascalCase pour tous les personnages (ex: @Banane, @Samuel). AUCUN ESPACE, AUCUNE APOSTROPHE.
-      8. DERNIER ÉVÉNEMENT : Le champ "isLast" doit être TRUE uniquement pour le DERNIER événement de la liste. Tous les autres doivent avoir "isLast": false.
-
-      [FORMAT]
-      Renvoie UNIQUEMENT du JSON valide :
-      {
-        "events": [
-          {
-            "index": 0,
-            "description": "chaîne de caractères",
-            "processChain": ["étape 1", "étape 2"],
-            "isLast": false
-          }
-        ]
-      }
+[FORMAT]
+Renvoie UNIQUEMENT du JSON valide :
+{
+  "events": [
+    {
+      "index": 0,
+      "description": "chaîne de caractères",
+      "processChain": ["étape 1", "étape 2"],
+      "isLast": false
+    }
+  ]
+}
 `.trim()
   }
 
@@ -109,7 +71,7 @@ Réponds uniquement avec le JSON demandé.
 
     // Validation et post-processing (Problèmes 8 & 9)
     const limit = targetEpisodeCount ?? maxScenes ?? parsed.events.length
-    const events = parsed.events.slice(0, limit).map((e, i) => ({
+    const events = parsed.events.slice(0, limit).map((e: any, i: number) => ({
       ...e,
       index: i,
       isLast: false // Reset initial
