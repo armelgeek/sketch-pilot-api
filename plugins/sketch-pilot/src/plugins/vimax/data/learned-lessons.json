@@ -1,372 +1,54 @@
 {
   "lessons": [
     {
-      "id": "seed-narration-logic",
+      "directive": "Adoptez une narration concise et percutante, intégrant des détails atmosphériques riches et évitant les répétitions d'actions.",
+      "category": "logic",
+      "confidence": 1,
+      "id": "trend-1776720502677-0",
       "agentName": "VimaxNarrationAgent",
-      "category": "logic",
-      "directive": "Génère une NARRATION BRUTE et percutante. Phrases courtes. Détails atmosphériques riches. Pas de répétition d'action déjà accomplie. Max 1 citation directe par scène.",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-global-idents",
-      "agentName": "Global",
-      "category": "continuity",
-      "directive": "IDENTIFIANTS : Utilise impérativement le format @PascalCase pour tous les personnages. AUCUN ESPACE, AUCUNE APOSTROPHE.",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-planner-router",
-      "agentName": "VimaxSagaPlanner",
-      "category": "logic",
-      "directive": "Intent Router : narrative (histoire 3 actes), motion (action pure speed vectors), montage (émotion/rythme), viral (court/absurde/cliffhanger), dramatic (trahisons/suspense).",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-planner-visual",
-      "agentName": "VimaxSagaPlanner",
-      "category": "style",
-      "directive": "ImagePrompt : Décris le sujet @Nom au premier plan, les éléments actifs au plan moyen, et l'environnement en arrière-plan dans une seule phrase fluide. Pas de tags [FOREGROUND].",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-screenwriter-camera",
-      "agentName": "VimaxScreenwriter",
-      "category": "style",
-      "directive": "Rythme Caméra : Alternance CLOSEUP, OVERSHOULDER et WIDE. Scène finale : shake + slow-motion (high intensity).",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-auditor-verity",
-      "agentName": "VimaxContinuityAuditor",
-      "category": "continuity",
-      "directive": "LA NARRATION EST LA SOURCE DE VÉRITÉ ABSOLUE. Vérifie les contradictions physiques, les résolutions manquantes et les ruptures de ton. Cherche les téléportations et résurrections.",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-character-extractor-anthropo",
-      "agentName": "VimaxCharacterExtractor",
-      "category": "logic",
-      "directive": "PERSONNAGES ANTHROPOMORPHES : Si fruit/objet, corps humain complet musclé requis. Tête en forme d'objet avec visage expressif. Habits humains. Membres fins interdits.",
-      "confidence": 1,
-      "successCount": 100,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-planner-motion",
-      "agentName": "VimaxSagaPlanner",
-      "category": "logic",
-      "directive": "INTENT MOTION : Script cinétique précis. PAS de métaphores. VECTEURS, VITESSE, orientation SPATIALE. 4-6 beats d'action.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-planner-viral",
-      "agentName": "VimaxSagaPlanner",
-      "category": "logic",
-      "directive": "INTENT VIRAL : Hook immédiat (1s). Archétypes anthropomorphiques. Rythme rapide. Cliffhanger de choc. Show don't tell.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-planner-dramatic",
-      "agentName": "VimaxSagaPlanner",
-      "category": "logic",
-      "directive": "INTENT DRAMATIC : Suspense & Trahison. Plot twists à chaque épisode. Motivations cachées. Enjeux élevés (High Stakes).",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-screenwriter-meta",
-      "agentName": "VimaxScreenwriter",
-      "category": "logic",
-      "directive": "Meta Episode : Gardien de la Bible. Génère summary, cliffhanger et continuité personnages/lieux cohérente avec les scènes.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-character-extractor-base",
-      "agentName": "VimaxCharacterExtractor",
-      "category": "logic",
-      "directive": "Profils Visuels : Extrais caractéristiques statiques (morphologie, visage) et dynamiques (vêtements, accessoires) avec précision cinématique.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-animation-physical",
-      "agentName": "VimaxAnimationAgent",
-      "category": "logic",
-      "directive": "FOCUS PHYSIQUE : Détaille les gestes et postures expressives (ex: @Banane pointe le ciel). Précise qui parle pour la synchronisation labiale.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-dialogue-subtext",
-      "agentName": "VimaxDialogueAgent",
-      "category": "logic",
-      "directive": "CONCISION & SUBTEXTE : Répliques courtes (1-2 lignes). Évite le bavardage héroïque. Respecte IMPÉRATIVEMENT l'historique émotionnel et les contradictions.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-sanitizer-viability",
-      "agentName": "VimaxInputSanitizer",
-      "category": "logic",
-      "directive": "ENRICHISSEMENT VIABILITÉ : Si l'idée est vague, propose des suggestions concrètes qui rentrent dans les limites techniques (4 scènes, whiteboard).",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-compressor-fidelity",
-      "agentName": "VimaxSagaCompressor",
-      "category": "logic",
-      "directive": "COMPRESSION NARRATIVE : Préserve les rebondissements clés et les beats de personnages. Élimine les redondances. Produis un paragraphe fluide sans marqueurs.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "seed-enhancer-precision",
-      "agentName": "VimaxScriptEnhancer",
-      "category": "style",
-      "directive": "PRÉCISION SENSORIELLE : Ajoute éclairage, météo et textures. Supprime tout jargon de caméra. Clarifie la position spatiale de @Nom.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1682000000000
-    },
-    {
-      "id": "lesson-1776691465419-0",
-      "agentName": "VimaxSagaPlanner",
-      "directive": "Utilisez l'intention 'dramatic' pour des récits centrés sur des conflits émotionnels ou des trahisons.",
-      "category": "style",
-      "confidence": 0.8,
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776691465419
+      "lastUpdated": 1776720502677
     },
     {
-      "id": "lesson-1776697176101-0",
-      "agentName": "VimaxSagaPlanner",
-      "directive": "Utilisez l'intention 'dramatic' pour les récits incluant des trahisons ou des révélations majeures.",
-      "category": "style",
-      "confidence": 0.8,
-      "successCount": 6,
-      "failCount": 0,
-      "tags": ["dramatic", "#Métropole", "action"],
-      "lastUpdated": 1776703552918
-    },
-    {
-      "id": "lesson-brevity-enforcer",
+      "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant suspense et trahison.",
+      "category": "logic",
+      "confidence": 1,
+      "id": "trend-1776720502677-1",
       "agentName": "VimaxNarrationAgent",
-      "category": "logic",
-      "directive": "CONCISION TEMPORELLE ABSOLUE : Pour un épisode de 30s, ne dépasse jamais 60-70 mots au TOTAL. Chaque mot superflu vole du temps à l'image.",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "tags": ["duration", "brevity", "logic"],
-      "lastUpdated": 1776698000000
-    },
-    {
-      "id": "lesson-1776703552916-0",
-      "agentName": "Global",
-      "directive": "Veille à respecter le format @PascalCase pour tous les identifiants de personnages.",
-      "category": "continuity",
-      "confidence": 0.8,
       "successCount": 1,
       "failCount": 0,
-      "tags": ["idents", "#Global"],
-      "lastUpdated": 1776703552916
+      "lastUpdated": 1776720502677
     },
     {
-      "id": "lesson-1776703552916-1",
-      "agentName": "Global",
-      "directive": "Équilibre les descriptions visuelles pour maintenir un rythme adéquat dans la narration.",
-      "category": "style",
-      "confidence": 0.8,
-      "successCount": 1,
-      "failCount": 0,
-      "tags": ["#Global"],
-      "lastUpdated": 1776703552916
-    },
-    {
-      "id": "lesson-1776703552916-2",
-      "agentName": "Global",
-      "directive": "Faites attention à la continuité des émotions et des actions des personnages.",
-      "category": "continuity",
-      "confidence": 0.8,
-      "successCount": 1,
-      "failCount": 0,
-      "tags": ["#Global"],
-      "lastUpdated": 1776703552916
-    },
-    {
-      "id": "lesson-1776703552917-3",
-      "agentName": "Global",
-      "directive": "Évitez de donner une autorité ou des capacités d'action à des objets inanimés.",
-      "category": "logic",
-      "confidence": 0.8,
-      "successCount": 1,
-      "failCount": 0,
-      "tags": ["#Global"],
-      "lastUpdated": 1776703552917
-    },
-    {
-      "id": "lesson-1776703552917-4",
-      "agentName": "Global",
-      "directive": "Décrivez les environnements de manière cohérente avec les événements précédents.",
-      "category": "continuity",
-      "confidence": 0.8,
-      "successCount": 1,
-      "failCount": 0,
-      "tags": ["#Global"],
-      "lastUpdated": 1776703552917
-    },
-    {
-      "directive": "Assurer une progression narrative fluide et réaliste en évitant les bonds temporels ou relationnels extrêmes (ex: rencontre vers mariage) sans épisodes de transition.",
-      "category": "continuity",
-      "agentName": "VimaxSagaPlanner",
-      "explanation": "Le public décroche si l'évolution des personnages est trop rapide. Chaque changement majeur de statut ou de relation doit être préparé par un développement graduel.",
-      "tags": ["pacing", "realism", "#Global"],
-      "confidence": 1,
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776710133000,
-      "id": "lesson-human-1776710133000"
-    },
-    {
-      "id": "lesson-audit-1776714492513",
-      "agentName": "Global",
-      "directive": "Éviter les clichés liés aux rencontres entre opposés en introduisant des motivations complexes et originales pour les personnages. Renverser les rôles ou enrichir le développement des protagonistes pour garantir une originalité narrative.",
+      "directive": "Instaurer une montée dramatique et émotionnelle progressive, en évitant les bonds temporels extrêmes et les confrontations directes immédiates.",
       "category": "logic",
       "confidence": 0.9,
+      "id": "trend-1776720502677-2",
+      "agentName": "VimaxNarrationAgent",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776714492513,
-      "tags": ["narrative", "audit", "high"]
+      "lastUpdated": 1776720502677
     },
     {
-      "id": "lesson-audit-1776715558319",
-      "agentName": "Global",
-      "directive": "Évitez les clichés de la rencontre entre opposés en inversant les rôles ou en ajoutant des motivations complexes aux personnages. Le protagoniste doit avoir une raison sincère et nuancée pour interagir avec l'antagoniste, afin d'enrichir l'originalité de l'histoire.",
+      "directive": "Structurer les confrontations émotionnelles avec une progression où les personnages passent de la négation à l'acceptation, culminant dans un silence lourd.",
       "category": "logic",
       "confidence": 0.9,
+      "id": "trend-1776720502677-3",
+      "agentName": "VimaxNarrationAgent",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776715558319,
-      "tags": ["narrative", "audit", "high"]
+      "lastUpdated": 1776720502677
     },
     {
-      "id": "lesson-audit-1776716001921",
-      "agentName": "Global",
-      "directive": "Développez la profondeur émotionnelle des personnages en explorant leurs motivations et luttes internes. Utilisez divers éléments narratifs, tels que des dialogues introspectifs, des interactions significatives ou d'autres techniques appropriées, pour illustrer les événements marquants de leur passé et les raisons qui les poussent à agir dans l'histoire. Évitez de se limiter à une méthode particulière, comme les flashbacks, pour enrichir cette exploration ; privilégiez une approche variée qui reflète la complexité des personnages.",
-      "category": "logic",
-      "confidence": 1,
-      "successCount": 8,
-      "failCount": 0,
-      "lastUpdated": 1776718216912,
-      "tags": ["narrative", "audit", "medium"]
-    },
-    {
-      "id": "lesson-audit-1776716982072",
-      "agentName": "Global",
-      "directive": "Le dénouement doit comporter des éléments imprévus qui remettent en question les choix des personnages. Introduisez des dilemmes moraux complexes qui forcent le protagoniste à naviguer entre la vérité et la protection d'autrui, afin de rendre la résolution moins prévisible.",
+      "directive": "Organiser les thèmes centraux du récit autour d'une idée forte et cohérente, assurant que chaque élément de l'histoire renforce cette notion.",
       "category": "logic",
       "confidence": 0.9,
+      "id": "trend-1776720502677-4",
+      "agentName": "VimaxNarrationAgent",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776716982072,
-      "tags": ["narrative", "audit", "medium"]
-    },
-    {
-      "id": "lesson-audit-1776717004931",
-      "agentName": "Global",
-      "directive": "Le protagoniste doit avoir une motivation claire et explorée pour ses actions, en particulier lorsqu'il adopte des comportements extrêmes. Développez les raisons de ses choix à travers des luttes internes et des motivations profondes qui enrichissent son caractère. Utilisez des éléments narratifs tels que des flashbacks pour illustrer des événements marquants du passé qui expliquent sa déconnexion du monde.",
-      "category": "logic",
-      "confidence": 0.9,
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776717004931,
-      "tags": ["narrative", "audit", "high"]
-    },
-    {
-      "id": "lesson-audit-1776717182013",
-      "agentName": "Global",
-      "directive": "Le protagoniste doit développer des réactions émotionnelles progressivement, en construisant des interactions significatives qui révèlent les vulnérabilités de l'antagoniste. Utilisez des indices subtils pour préparer le terrain, afin que les réponses émotionnelles apparaissent nuancées et crédibles lors des révélations majeures.",
-      "category": "logic",
-      "confidence": 0.9,
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776717182013,
-      "tags": ["narrative", "audit", "high"]
-    },
-    {
-      "id": "lesson-narrative-pacing-1776718000000",
-      "agentName": "Global",
-      "directive": "Ne te limite pas à un nombre fixe d'épisodes (comme 4) si l'histoire demande plus de temps pour installer les enjeux. Si une cible d'épisodes est donnée, structure les actes proportionnellement pour éviter les raccourcis narratifs et garantir un développement émotionnel crédible.",
-      "category": "logic",
-      "confidence": 1,
-      "successCount": 0,
-      "failCount": 0,
-      "lastUpdated": 1776718000000,
-      "tags": ["narrative", "pacing", "#Global"]
-    },
-    {
-      "id": "lesson-audit-1776718952470",
-      "agentName": "Global",
-      "directive": "Le protagoniste doit adopter une posture menaçante dès le début de l'histoire.",
-      "category": "logic",
-      "confidence": 0.9,
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776718952470,
-      "tags": ["narrative", "audit", "high"]
-    },
-    {
-      "id": "lesson-audit-1776718964896",
-      "agentName": "Global",
-      "directive": "Le protagoniste doit instaurer une présence menaçante dès le début de l'histoire.",
-      "category": "logic",
-      "confidence": 0.9,
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776718964896,
-      "tags": ["narrative", "audit", "high"]
+      "lastUpdated": 1776720502677
     }
   ],
   "globalDirectives": [

@@ -93,6 +93,11 @@ async function main() {
       })
       break
 
+    case 'consolidate':
+      await brain.consolidateLessons()
+      console.log('✅ Consolidation terminée. Votre cerveau Vimax est maintenant plus léger et plus précis.')
+      break
+
     case 'inspect':
       const epIdToInspect = args[1]
       if (!epIdToInspect) {
@@ -553,6 +558,7 @@ Commands:
   plan <idée> [nb]     Planifie une saga avec cible d'épisodes
   episode <id> <n>    Génère l'épisode numéro n pour la saga id
   feedback <sagaId> <type> <msg> Enregistre un feedback manuel sur un plan/épisode
+  consolidate         Consolide et fusionne les leçons pour éviter le surpoids (Anti-Bloat)
   continue-plan <id>  Ajoute des épisodes (extension) à une saga existante
   
   sagas               Liste toutes les séries/sagas de production

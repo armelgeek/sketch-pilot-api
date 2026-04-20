@@ -512,6 +512,45 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
   }
 
   /**
+   * Consolide la bibliothèque de leçons (Anti-bloat).
+   * Utilise le PromptRefinery pour fusionner sémantiquement les directives.
+   */
+  async consolidateLessons(): Promise<void> {
+    await this.store.load()
+    const allLessons = this.store.getAllLessons()
+    if (allLessons.length === 0) return
+
+    console.log(`[VimaxBrain] Consolidation de ${allLessons.length} leçons en cours (Cortex Loop)...`)
+
+    // On utilise la consolidation thématique pour un nettoyage de masse
+    const consolidated = await this.refinery.thematicConsolidate(allLessons)
+
+    console.log(
+      `[VimaxBrain] Consolidation terminée : ${allLessons.length} -> ${consolidated.length} leçons distillées.`
+    )
+
+    // On préserve les leçons validées manuellement par l'humain (Sacrées)
+    const verified = allLessons.filter((l) => l.verified)
+
+    // On purge le store actuel pour les leçons d'agent ou Global (Anti-bloat physique)
+    for (const l of allLessons) {
+      await this.store.deleteLesson(l.id)
+    }
+
+    // On ré-injecte les leçons vérifiées (Priorité Haute)
+    for (const l of verified) {
+      await this.store.addLesson({ ...l, confidence: 1 })
+    }
+
+    // On injecte les nouvelles leçons distillées
+    for (const l of consolidated) {
+      await this.store.addLesson(l)
+    }
+
+    console.log(`[VimaxBrain] Bibliothèque purgée et optimisée : ${verified.length + consolidated.length} directives.`)
+  }
+
+  /**
    * Nettoyage et fusion du store pour éviter le surpoids.
    */
   async consolidate(): Promise<void> {

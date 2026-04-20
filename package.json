@@ -50,6 +50,7 @@
     "vimax:audit-item": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts audit-item",
     "vimax:audit-show": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts audit-show",
     "vimax:apply-feedback": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts apply-feedback",
+    "vimax:consolidate": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts consolidate",
     "vimax:learn-audit": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts learn-audit",
     "vimax:analytics": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts analytics",
     "vimax:lessons": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts lessons",
