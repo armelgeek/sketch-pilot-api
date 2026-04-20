@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
 import { LessonStore } from '../core/lesson-store'
 import { VimaxBrain } from '../core/vimax-brain'
 
@@ -20,21 +18,34 @@ async function main() {
 
   switch (command) {
     case 'stats':
-      const lessons = store.getLessonsFor('Global')
-      console.log('\n=== VIMAX BRAIN STATS ===')
-      console.log(`Leçons apprises : ${lessons.length}`)
-      console.log(`Version du store : ${Date.now()}`)
+      const allLessons = store.getAllLessons()
+      console.log('\n=== VIMAX BRAIN STATS (v3.0) ===')
+      console.log(`Intelligence totale : ${allLessons.length} leçons`)
+      console.log(`Top Tags : ${Array.from(new Set(allLessons.flatMap((l) => l.tags || []))).join(', ')}`)
       console.log('-------------------------')
-      lessons.forEach((l) => {
-        console.log(`[${l.agentName}] ${l.directive.slice(0, 60)}... (Conf: ${l.confidence})`)
+      allLessons.forEach((l) => {
+        const total = l.successCount + l.failCount
+        const rate = total > 0 ? ((l.successCount / total) * 100).toFixed(1) : 'N/A'
+        console.log(`[${l.agentName}] [${rate}%] ${l.directive.slice(0, 50)}...`)
+        if (l.tags?.length) console.log(`   Tags: ${l.tags.join(', ')}`)
       })
       break
 
     case 'episodes':
-      const dir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
-      const files = await fs.readdir(dir)
-      console.log(`\n=== ÉPISODES RECENSÉS (${files.length}) ===`)
-      files.forEach((f) => console.log(`- ${f}`))
+      // Utilisation de la méthode récursive déjà présente dans le store/brain si possible
+      // Ici on simule pour l'outil CLI
+      const episodes = await (brain as any).loadEpisodes()
+      console.log(`\n=== ÉPISODES RECENSÉS (${episodes.length}) ===`)
+      episodes.forEach((e: any) => {
+        const statusIcon = e.status === 'success' ? '✅' : '❌'
+        console.log(`${statusIcon} [${e.agentName}] ${e.id} (Series: ${e.seriesId || 'N/A'})`)
+      })
+      break
+
+    case 'learn':
+      console.log("[Brain] Lancement d'un cycle d'apprentissage autonome...")
+      const newCount = await brain.autonomousLearning()
+      console.log(`✅ Cycle terminé. ${newCount} nouvelles leçons distillées.`)
       break
 
     case 'feedback':
@@ -50,7 +61,7 @@ async function main() {
       break
 
     default:
-      console.log('Commandes disponibles : stats, episodes, feedback')
+      console.log('Commandes disponibles : stats, episodes, learn, feedback')
   }
 }
 

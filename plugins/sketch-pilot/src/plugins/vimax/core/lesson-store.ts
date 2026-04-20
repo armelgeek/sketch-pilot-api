@@ -50,6 +50,14 @@ export class LessonStore {
   }
 
   /**
+   * Récupère les leçons globales qui matchent certains tags.
+   */
+  getGlobalLessonsByTags(tags: string[]): Lesson[] {
+    if (tags.length === 0) return []
+    return this.data.lessons.filter((l) => l.agentName === 'Global' && l.tags?.some((tag) => tags.includes(tag)))
+  }
+
+  /**
    * Ajoute ou met à jour une leçon.
    */
   async addLesson(lesson: Lesson): Promise<void> {
@@ -63,10 +71,39 @@ export class LessonStore {
   }
 
   /**
+   * Récupère une leçon par son ID.
+   */
+  getLessonById(id: string): Lesson | undefined {
+    return this.data.lessons.find((l) => l.id === id)
+  }
+
+  /**
+   * Récupère toutes les leçons.
+   */
+  getAllLessons(): Lesson[] {
+    return [...this.data.lessons]
+  }
+
+  /**
+   * Supprime une leçon.
+   */
+  async deleteLesson(id: string): Promise<void> {
+    this.data.lessons = this.data.lessons.filter((l) => l.id !== id)
+    await this.save()
+  }
+
+  /**
    * Formate les leçons en directives pour un prompt système.
    */
   formatDirectives(agentName: string): string {
     const lessons = this.getLessonsFor(agentName)
+    return this.formatDirectivesFrom(lessons)
+  }
+
+  /**
+   * Formate une liste arbitraire de leçons.
+   */
+  formatDirectivesFrom(lessons: Lesson[]): string {
     if (lessons.length === 0) return ''
 
     return `

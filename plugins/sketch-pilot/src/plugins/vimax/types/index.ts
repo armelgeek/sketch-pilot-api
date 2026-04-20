@@ -146,6 +146,7 @@ export interface SeriesBible {
   genre: string
   tone: string
   visualStyle: string
+  language?: string
   universeLaws?: string[]
   static_features?: string
   dynamic_features?: string
@@ -153,6 +154,7 @@ export interface SeriesBible {
 
 export interface SeriesContext {
   characterVoiceHistory?: Record<string, CharacterVoiceHistory[]>
+  characterRegistry?: Record<string, any>
   locationRegistry?: Record<string, LocationState>
   tensionCurve?: number[]
   lastEpisodeSummary?: string
@@ -337,6 +339,7 @@ export interface LearningEpisode {
   timestamp: number
   durationMs: number
   status: 'pending' | 'success' | 'failure' | 'shadow_tested'
+  appliedLessonIds?: string[]
   evaluation?: EvaluationReport
 }
 
@@ -357,6 +360,9 @@ export interface Lesson {
   successCount: number
   failCount: number
   lastUpdated: number
+  tags?: string[]
+  parentLessonId?: string
+  version?: string
   examples?: { input: string; output: string }[]
 }
 

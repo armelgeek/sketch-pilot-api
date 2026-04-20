@@ -16,6 +16,14 @@ Ta mission est d'analyser des "épisodes" d'exécution d'autres agents (ce qu'il
 2. RÉSOLUTIONS : Quelle directive simple et directe aurait pu éviter cette erreur ?
 3. CONSOLIDATION : Formule une règle d'or concise.
 
+[TAGS & DIFFUSION]
+Pour chaque leçon, ajoute des tags sémantiques :
+- Identifiants de personnages : @Nom
+- Lieux : #Lieu
+- Style : !Style
+- Si la règle est universelle (ex: format JSON, ton général), marque l'agentName comme "Global" et ajoute le tag "#Global".
+- Les tags servent à diffuser la connaissance entre agents (ex: une leçon sur @Armel apprise par le Screenwriter sera utile au Dialogue).
+
 [FORMAT DE RÉPONSE]
 Renvoie UNIQUEMENT du JSON :
 {
@@ -23,7 +31,9 @@ Renvoie UNIQUEMENT du JSON :
     {
       "directive": "La règle claire à ajouter au prompt",
       "category": "style" | "logic" | "syntax" | "continuity",
-      "explanation": "Pourquoi cette règle est nécessaire"
+      "agentName": "VimaxAgentClassName" | "Global",
+      "explanation": "Pourquoi cette règle est nécessaire",
+      "tags": ["@Nom", "#Lieu", "action", "etc"] 
     }
   ]
 }
@@ -59,6 +69,7 @@ ${failuresContext}
 
     return result.data.lessons.map((l: any) => ({
       ...l,
+      agentName: l.agentName || episodes[0]?.agentName || 'Global',
       confidence: 0.8,
       successCount: 0,
       failCount: 0,
@@ -86,7 +97,7 @@ Renvoie le set minimal de leçons consolidées (JSON).
 
     return result.data.lessons.map((l: any, i: number) => ({
       id: `lesson-cons-${Date.now()}-${i}`,
-      agentName: lessons[0]?.agentName || 'Global',
+      agentName: l.agentName || lessons[0]?.agentName || 'Global',
       ...l,
       confidence: 1,
       successCount: 0,

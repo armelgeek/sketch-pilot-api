@@ -69,6 +69,9 @@ export class VimaxBrain {
     const newLessonPartials = await this.refinery.refine(updatedFailures)
     const count = await this.applyLessons(newLessonPartials, updatedFailures)
 
+    // Darwinisme : Fin de vie des leçons inefficaces
+    await this.scoreLessons(episodes)
+
     // Nettoyage après apprentissage
     await this.cleanupOldEpisodes()
 
@@ -252,6 +255,57 @@ export class VimaxBrain {
       return results
     } catch {
       return []
+    }
+  }
+
+  /**
+   * Analyse la performance des leçons appliquées (Darwinisme).
+   */
+  private async scoreLessons(episodes: LearningEpisode[]): Promise<void> {
+    const store = LessonStore.getInstance()
+    await store.load()
+
+    for (const ep of episodes) {
+      if (!ep.appliedLessonIds || ep.appliedLessonIds.length === 0 || !ep.evaluation) continue
+
+      for (const lessonId of ep.appliedLessonIds) {
+        const lesson = store.getLessonById(lessonId)
+        if (!lesson) continue
+
+        if (ep.evaluation.isValid) {
+          lesson.successCount++
+        } else {
+          lesson.failCount++
+        }
+
+        // Recalculer la confiance (Bayésien simplifié)
+        const total = lesson.successCount + lesson.failCount
+        if (total > 5) {
+          lesson.confidence = lesson.successCount / total
+        }
+
+        await store.addLesson(lesson)
+      }
+    }
+
+    // Phase d'élagage (Pruning)
+    await this.pruneIneffectiveLessons()
+  }
+
+  /**
+   * Supprime les leçons qui nuisent à la performance ou qui sont redondantes.
+   */
+  private async pruneIneffectiveLessons(): Promise<void> {
+    const store = LessonStore.getInstance()
+    const all = store.getAllLessons()
+
+    for (const lesson of all) {
+      const total = lesson.successCount + lesson.failCount
+      // Si une leçon échoue trop souvent après un rodage (ex: > 40% d'échec sur 10+ runs)
+      if (total >= 10 && lesson.failCount / total > 0.4) {
+        console.warn(`[VimaxBrain] Pruning ineffective lesson: ${lesson.id} (${lesson.directive})`)
+        await store.deleteLesson(lesson.id)
+      }
     }
   }
 

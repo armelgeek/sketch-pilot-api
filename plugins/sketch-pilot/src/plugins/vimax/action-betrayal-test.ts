@@ -49,24 +49,30 @@ async function runActionTest() {
     "Un groupe de résistants (mené par @Banane et @Poire) tente d'arrêter une bombe à la station de métro. Mais @Poire cache un secret : il travaille pour l'Empire des Mouches. Une trahison éclate au moment crucial, menant à une poursuite intense. Ne fige pas le nombre d'épisodes, laisse l'histoire se développer."
 
   try {
-    const serie = await agent.runSeries(basicIdea, {
+    const serie = await agent.runSaga(basicIdea, {
+      seriesId: `test-betrayal-${Date.now()}`,
       seriesContext: context,
-      // targetEpisodeCount: undefined, // LAISSE L'IA DÉCIDER
-      maxScenes: 5, // Bonne densité pour l'action
-      targetDuration: 45 // Épisodes de 45s
+      maxScenes: 5,
+      targetDuration: 45
     })
 
-    console.log(`\n✅ DRAMA TEST TERMINÉ !`)
-    console.log(`🔹 Intention détectée : ${serie.intent}`)
-    console.log(`🔹 Épisodes planifiés par l'IA : ${serie.episodes.length}`)
+    console.log(`\n✅ SAGA GENERÉE !`)
+    console.log(`🔹 Intention : ${serie.intent}`)
+    console.log(`🔹 Épisodes : ${serie.episodes.length}`)
+
+    // LANCEMENT DU CYCLE D'APPRENTISSAGE (Power of v3.0)
+    console.log(`\n🧠 Lancement du cycle d'apprentissage autonome...`)
+    const learningCount = await agent.getBrain().autonomousLearning()
+    console.log(`✅ Apprentissage terminé : ${learningCount} leçons distillées.`)
 
     serie.episodes.forEach((ep, i) => {
-      console.log(`\n🎬 ÉPISODE ${i + 1} : ${ep.screenplay.seriesMetadata.episodeSummary.slice(0, 120)}...`)
-      if (ep.screenplay.seriesMetadata.cliffhanger) {
+      const summary = ep.screenplay?.seriesMetadata.episodeSummary || 'N/A'
+      console.log(`\n🎬 ÉPISODE ${i + 1} : ${summary.slice(0, 120)}...`)
+      if (ep.screenplay?.seriesMetadata.cliffhanger) {
         console.log(`⚠️ CLIFFHANGER : ${ep.screenplay.seriesMetadata.cliffhanger}`)
       }
 
-      ep.screenplay.scenes.forEach((scene) => {
+      ep.screenplay?.scenes.forEach((scene) => {
         console.log(`   🔸 Scène ${scene.sceneNumber} | ${scene.acting} | ${scene.animationPrompt}`)
         if (scene.dialogue?.length) {
           scene.dialogue.forEach((d) => console.log(`      💬 ${d.character}: "${d.text}"`))

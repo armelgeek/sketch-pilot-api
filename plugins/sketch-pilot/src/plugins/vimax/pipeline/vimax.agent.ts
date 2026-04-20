@@ -79,6 +79,10 @@ export class VimaxAgent {
   /**
    * Pipeline Complet : De l'idée à la série d'épisodes développés.
    */
+  public getBrain(): VimaxBrain {
+    return this.brain
+  }
+
   async runSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<VimaxSeries> {
     // 0. Input Sanitation (Rigueur 5.0)
     const analysis = await this.inputSanitizer.analyze(basicIdea)

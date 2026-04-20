@@ -59,11 +59,18 @@ export abstract class VimaxBaseAgent {
     const startTime = Date.now()
     const prunedPrompt = this.enforceTokenBudget(prompt)
 
-    // Injection dynamique des leçons (Phase 4)
+    // Injection dynamique des leçons (Phase 4 & 14 - Semantic Injection)
     const store = LessonStore.getInstance()
-    // On s'assure que le store est chargé (normalement fait au démarrage par le pipeline,
-    // mais on ajoute une sécurité ici ou on suppose que c'est fait)
-    const learnedDirectives = store.formatDirectives(this.constructor.name)
+    await store.load()
+
+    const agentLessons = store.getLessonsFor(this.constructor.name)
+    const promptTags = this.extractContextTags(prunedPrompt)
+    const globalRelevant = store.getGlobalLessonsByTags(promptTags)
+
+    const allRelevant = [...agentLessons, ...globalRelevant]
+    const contextRelevant = this.selectRelevantLessons(prunedPrompt, allRelevant)
+    const appliedLessonIds = contextRelevant.map((l) => l.id)
+    const learnedDirectives = store.formatDirectivesFrom(contextRelevant)
     const finalSystem = learnedDirectives ? `${system}\n\n${learnedDirectives}` : system
 
     // Capture de l'épisode avant appel
@@ -90,7 +97,8 @@ export abstract class VimaxBaseAgent {
       response: raw,
       timestamp: Date.now(),
       durationMs: duration,
-      status: 'pending' // Sera mis à jour par l'orchestrateur ou l'auditeur
+      status: 'pending',
+      appliedLessonIds
     })
 
     if (process.env.DEBUG_LLM) {
@@ -212,5 +220,36 @@ export abstract class VimaxBaseAgent {
     // On garde le début (contexte récent/global) et la fin (directives de formatage)
     const preserveSize = Math.floor(maxChars / 2.5)
     return `${prompt.slice(0, preserveSize)}\n\n[... ÉLAGAGE BUDGET TOKEN (CONTRÔLE RIGUEUR) ...]\n\n${prompt.slice(-preserveSize)}`
+  }
+
+  /**
+   * Sélectionne les leçons les plus pertinentes par rapport au contexte du prompt (Phase 14).
+   */
+  private selectRelevantLessons(prompt: string, lessons: any[]): any[] {
+    if (lessons.length === 0) return []
+
+    const lowerPrompt = prompt.toLowerCase()
+
+    return lessons.filter((lesson) => {
+      // 1. Toujours inclure si pas de tags (règle universelle)
+      if (!lesson.tags || lesson.tags.length === 0) return true
+
+      // 2. Inclure si un tag est mentionné dans le prompt (Keyword matching simple mais robuste)
+      return lesson.tags.some((tag: string) => lowerPrompt.includes(tag.toLowerCase()))
+    })
+  }
+
+  /**
+   * Extrait les tags de contexte d'un prompt (@Nom, #Lieu, !Style).
+   */
+  private extractContextTags(prompt: string): string[] {
+    const tags: string[] = []
+    const matches = prompt.match(/[@#!][a-z0-9]+/gi)
+    if (matches) {
+      matches.forEach((m) => {
+        if (!tags.includes(m)) tags.push(m)
+      })
+    }
+    return tags
   }
 }
