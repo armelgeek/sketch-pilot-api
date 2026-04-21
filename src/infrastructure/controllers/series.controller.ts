@@ -1,7 +1,13 @@
+import crypto from 'node:crypto'
+import process from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { streamSSE } from 'hono/streaming'
+import { LLMServiceFactory } from '@sketch-pilot/services/llm'
+import { SagaProductionService } from '../../../plugins/sketch-pilot/src/plugins/vimax/services/saga-production.service'
 import { DeleteSeriesUseCase } from '../../application/use-cases/series/delete-series.use-case'
 import { GenerateNextEpisodeUseCase } from '../../application/use-cases/series/generate-next-episode.use-case'
+import { PrepareSagaDraftUseCase } from '../../application/use-cases/series/prepare-saga-draft.use-case'
+import { PrepareSagaEnrichUseCase } from '../../application/use-cases/series/prepare-saga-enrich.use-case'
+import { PrepareSagaPortraitsUseCase } from '../../application/use-cases/series/prepare-saga-portraits.use-case'
 import { PrepareSeriesUseCase } from '../../application/use-cases/series/prepare-series.use-case'
 import { PromoteRegistryItemUseCase } from '../../application/use-cases/series/promote-registry-item.use-case'
 import { RegenerateSeriesAssetImageUseCase } from '../../application/use-cases/series/regenerate-series-asset-image.use-case'
@@ -21,130 +27,95 @@ export class SeriesController implements Routes {
   private generateNextEpisodeUseCase: GenerateNextEpisodeUseCase
   private promoteRegistryItemUseCase: PromoteRegistryItemUseCase
   private deleteSeriesUseCase: DeleteSeriesUseCase
+  private prepareSagaDraftUseCase: PrepareSagaDraftUseCase
+  private prepareSagaEnrichUseCase: PrepareSagaEnrichUseCase
+  private prepareSagaPortraitsUseCase: PrepareSagaPortraitsUseCase
+  private sagaProductionService?: SagaProductionService
 
   constructor() {
     this.controller = new OpenAPIHono()
     this.seriesRepository = new SeriesRepository()
-    this.prepareSeriesUseCase = new PrepareSeriesUseCase()
     this.suggestSeriesConceptUseCase = new SuggestSeriesConceptUseCase()
     this.regenerateSeriesCharacterImageUseCase = new RegenerateSeriesCharacterImageUseCase()
     this.regenerateSeriesAssetImageUseCase = new RegenerateSeriesAssetImageUseCase()
-    this.generateNextEpisodeUseCase = new GenerateNextEpisodeUseCase()
+    this.generateNextEpisodeUseCase = new GenerateNextEpisodeUseCase(null as any) // Will be set lazily
+    this.prepareSeriesUseCase = new PrepareSeriesUseCase(null as any) // Will be set lazily
     this.promoteRegistryItemUseCase = new PromoteRegistryItemUseCase()
     this.deleteSeriesUseCase = new DeleteSeriesUseCase()
+    this.prepareSagaDraftUseCase = new PrepareSagaDraftUseCase(null as any)
+    this.prepareSagaEnrichUseCase = new PrepareSagaEnrichUseCase(null as any)
+    this.prepareSagaPortraitsUseCase = new PrepareSagaPortraitsUseCase()
+  }
+
+  private async getSagaProductionService(): Promise<SagaProductionService> {
+    if (this.sagaProductionService) return this.sagaProductionService
+
+    const llmService = await LLMServiceFactory.create({
+      provider: 'openai',
+      apiKey: process.env.OPENAI_API_KEY || ''
+    })
+
+    this.sagaProductionService = new SagaProductionService(llmService, this.seriesRepository)
+    // Update use cases with the service
+    this.generateNextEpisodeUseCase = new GenerateNextEpisodeUseCase(this.sagaProductionService)
+    this.prepareSeriesUseCase = new PrepareSeriesUseCase(this.sagaProductionService)
+    this.prepareSagaDraftUseCase = new PrepareSagaDraftUseCase(this.sagaProductionService)
+    this.prepareSagaEnrichUseCase = new PrepareSagaEnrichUseCase(this.sagaProductionService)
+
+    return this.sagaProductionService
   }
 
   public initRoutes() {
-    // POST /v1/series/prepare
-    this.controller.openapi(
-      createRoute({
-        method: 'post',
-        path: '/v1/series/prepare',
-        tags: ['Series'],
-        summary: 'Prepare series context using AI',
-        security: [{ Bearer: [] }],
-        request: {
-          body: {
-            content: {
-              'application/json': {
-                schema: z.object({
-                  title: z.string().min(1),
-                  description: z.string().optional(),
-                  language: z.string().optional(),
-                  promptId: z.string().optional(),
-                  skipPortraits: z.boolean().optional(),
-                  aspectRatio: z.string().optional(),
-                  roadmapOnly: z.boolean().optional()
-                })
-              }
-            }
-          }
-        },
-        responses: {
-          200: {
-            description: 'Series prepared',
-            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: z.any() }) } }
-          }
-        }
-      }),
-      async (c: any) => {
-        const user = c.get('user')
-        if (!user) return c.json({ error: 'Unauthorized' }, 401)
-
-        const body = c.req.valid('json')
-        const result = await this.prepareSeriesUseCase.execute({
-          userId: user.id,
-          ...body
-        })
-
-        return c.json(result)
-      }
-    )
-
-    // GET /v1/series/suggest-idea
-    this.controller.openapi(
-      createRoute({
-        method: 'get',
-        path: '/v1/series/suggest-idea',
-        tags: ['Series'],
-        summary: 'Suggest a random saga concept (idea)',
-        security: [{ Bearer: [] }],
-        responses: {
-          200: {
-            description: 'Concept suggested',
-            content: { 'application/json': { schema: z.object({ success: z.boolean(), data: z.any() }) } }
-          }
-        }
-      }),
-      async (c: any) => {
-        const user = c.get('user')
-        if (!user) return c.json({ error: 'Unauthorized' }, 401)
-
-        const result = await this.suggestSeriesConceptUseCase.execute(user.id)
-        return c.json(result)
-      }
-    )
-
+    // LEGACY PREPARE API (Removed in favor of sequential draft/enrich/portraits)
     this.controller.get('/v1/series/prepare/stream', (c: any) => {
+      return c.json(
+        {
+          error:
+            'Legacy monolithic prepare is no longer supported. Please use the sequential /draft, /enrich, and /portraits endpoints.',
+          code: 'LEGACY_PREPARE_NOT_SUPPORTED'
+        },
+        410
+      )
+    })
+
+    this.controller.post('/v1/series/prepare', (c: any) => {
+      return c.json(
+        {
+          error:
+            'Legacy monolithic prepare is no longer supported. Please use the sequential /draft, /enrich, and /portraits endpoints.',
+          code: 'LEGACY_PREPARE_NOT_SUPPORTED'
+        },
+        410
+      )
+    })
+
+    // NEW SEQUENTIAL PREPARE APIs
+    this.controller.post('/v1/series/prepare/draft', async (c: any) => {
       const user = c.get('user')
       if (!user) return c.json({ error: 'Unauthorized' }, 401)
+      const params = await c.req.json()
+      await this.getSagaProductionService()
+      const result = await this.prepareSagaDraftUseCase.execute({ userId: user.id, ...params })
+      return c.json(result)
+    })
 
-      const title = c.req.query('title')
-      const seriesId = c.req.query('seriesId')
-      const description = c.req.query('description')
-      const language = c.req.query('language') || 'fr'
-      const promptId = c.req.query('promptId')
-      const videoGenre = c.req.query('videoGenre')
-      const totalEpisodesStr = c.req.query('totalEpisodes')
-      const totalEpisodes = totalEpisodesStr ? Number.parseInt(totalEpisodesStr, 10) : undefined
-      const skipPortraits = c.req.query('skipPortraits') === 'true'
-      const roadmapOnly = c.req.query('roadmapOnly') === 'true'
-      const characterModelId = c.req.query('characterModelId')
+    this.controller.post('/v1/series/:id/prepare/enrich', async (c: any) => {
+      const user = c.get('user')
+      if (!user) return c.json({ error: 'Unauthorized' }, 401)
+      const seriesId = c.req.param('id')
+      const params = await c.req.json()
+      await this.getSagaProductionService()
+      const result = await this.prepareSagaEnrichUseCase.execute({ userId: user.id, seriesId, ...params })
+      return c.json(result)
+    })
 
-      if (!title) return c.json({ error: 'Title is required' }, 400)
-
-      return streamSSE(c, async (stream) => {
-        const generator = this.prepareSeriesUseCase.streamExecute({
-          userId: user.id,
-          seriesId,
-          title,
-          description,
-          language,
-          promptId,
-          videoGenre,
-          totalEpisodes,
-          skipPortraits,
-          roadmapOnly,
-          characterModelId
-        })
-
-        for await (const event of generator) {
-          await stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event.data)
-          })
-        }
-      })
+    this.controller.post('/v1/series/:id/prepare/portraits', async (c: any) => {
+      const user = c.get('user')
+      if (!user) return c.json({ error: 'Unauthorized' }, 401)
+      const seriesId = c.req.param('id')
+      const params = (await c.req.json().catch(() => ({}))) || {}
+      const result = await this.prepareSagaPortraitsUseCase.execute({ userId: user.id, seriesId, ...params })
+      return c.json(result)
     })
 
     // POST /v1/series
@@ -555,7 +526,8 @@ export class SeriesController implements Routes {
         if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
         const { id } = c.req.valid('param')
-        const result = await this.generateNextEpisodeUseCase.execute({
+        const sagaService = await this.getSagaProductionService()
+        const result = await new GenerateNextEpisodeUseCase(sagaService).execute({
           userId: user.id,
           seriesId: id,
           planId: (user as any).planId

@@ -258,6 +258,7 @@ export interface CharacterProfile {
   currentMood: string
   static_features?: string
   dynamic_features?: string
+  portrait_prompt?: string
 }
 
 export interface CharacterVoiceHistory {

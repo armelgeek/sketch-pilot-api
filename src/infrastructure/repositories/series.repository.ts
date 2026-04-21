@@ -36,6 +36,7 @@ export class SeriesRepository {
     audioProvider?: string
     kokoroVoicePreset?: string
     plannedEpisodes?: { number: number; title: string; hook: string }[]
+    status?: string
   }) {
     const [result] = await db
       .insert(series)

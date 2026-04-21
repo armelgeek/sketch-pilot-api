@@ -22,8 +22,9 @@ Réponds UNIQUEMENT du JSON valide :
     {
       "index": 0,
       "identifier": "@PascalCase",
-      "static_features": "Description immuable",
-      "dynamic_features": "Description modifiable"
+      "static_features": "Physical description (age, hair, eyes, clothes)",
+      "dynamic_features": "Mood or specific pose in this context",
+      "portrait_prompt": "Absolute character identity prompt: Detailed description of face and unique traits for image generation"
     }
   ]
 }

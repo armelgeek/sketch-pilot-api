@@ -66,7 +66,7 @@ Réponds UNIQUEMENT avec du JSON valide : { "intent": "narrative" | "motion" | "
     const identDirective =
       '- IDENTIFIANTS PERSONNAGES : Utilise IMPÉRATIVEMENT le format @PascalCase (ex: @Banane, @DetectiveSmith). AUCUN ESPACE, AUCUNE APOSTROPHE.'
     const formatInstruction =
-      '[FORMAT]\nRenvoie UNIQUEMENT du JSON valide : { "planned_script": "chaîne de caractères", "episodes": [] }'
+      '[FORMAT]\nRenvoie UNIQUEMENT du JSON valide : { "planned_script": "chaîne de caractères", "episodes": [ { "title": "...", "summary": "..." } ] }'
 
     const intentKey = typeof intent === 'string' ? intent : intent.tone || 'narrative'
 
@@ -97,19 +97,24 @@ ${bibleContext}
   // ─── Public API ────────────────────────────
 
   /**
-   * Route l'intent et amplifie l'idée en script développé.
+   * Étape 1 : Route l'intent et amplifie l'idée en script développé.
    * @param options Optionnel : options de génération (durée, context, etc.)
    */
-  async planSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<SagaPlan> {
-    const { targetDuration, maxScenes, targetEpisodeCount } = options
+  async draftSaga(
+    basicIdea: string,
+    options: VimaxRunOptions = {}
+  ): Promise<{ intent: SagaIntent; script: string; episodes: any[] }> {
+    const { targetEpisodeCount, maxScenes, targetDuration } = options
 
     // 1. Route intent
+    console.info(`[VimaxSagaPlanner] 🚦 Routage de l'intention pour: "${basicIdea.slice(0, 50)}..."`)
     const routed = await this.generateStructured<{ intent: SagaIntent }>(
       `<BASIC_IDEA>\n${basicIdea}\n</BASIC_IDEA>\n\nRéponds uniquement en JSON.`,
       this.getRouterSystem(),
       { intent: { tone: 'narrative' } as any }
     )
     const intent = routed.data.intent
+    console.info(`[VimaxSagaPlanner] 🎯 Intention identifiée: ${intent}`)
 
     const lengthHint = targetEpisodeCount
       ? `\nCible de longueur : EXACTEMENT ${targetEpisodeCount} épisodes pour permettre un développement narratif profond.`
@@ -121,38 +126,89 @@ ${bibleContext}
 
     const bibleContext = this.getBibleContext({ seriesBible: options.seriesContext?.seriesBible })
 
+    console.info('[VimaxSagaPlanner] ✍️ Expansion du script global...')
     const expanded = await this.generateStructured<{ planned_script: string; episodes: any[] }>(
       `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Évite les raccourcis narratifs ; prends le temps d'installer les enjeux et les émotions.${targetEpisodeCount ? ` Structure l'histoire en ${targetEpisodeCount} actes bien distincts.` : ''}\n\nRéponds uniquement en JSON.`,
       this.getSpecializedSystem(intent, bibleContext),
       { planned_script: basicIdea, episodes: [] }
     )
 
-    const script = expanded.data.planned_script
-    const episodes = expanded.data.episodes
-
-    // Orchestration complète des extractions pour match Database Schema
-    const characterRegistry = this.characterExtractor ? await this.characterExtractor.extractCharacters(script) : []
-    const locationRegistry = this.locationExtractor ? await this.locationExtractor.extractLocations(script) : []
-    const assetRegistry = this.assetExtractor ? await this.assetExtractor.extractAssets(script) : []
-    const atmosphereData = this.atmosphereExtractor
-      ? await this.atmosphereExtractor.extractAtmosphere(script)
-      : { atmosphere: {}, visualEvolution: {} }
-    const narrativeData = this.narrativeExtractor
-      ? await this.narrativeExtractor.extractNarrative(script)
-      : { unresolvedThreads: [], roadmap: {}, relationshipMap: {} }
-
     return {
       intent,
-      script,
-      episodes,
+      script: expanded.data.planned_script,
+      episodes: expanded.data.episodes
+    }
+  }
+
+  /**
+   * Étape 2 : Extrait les registres (personnages, lieux, etc.) à partir d'un script existant.
+   */
+  async enrichSaga(script: string, options: VimaxRunOptions = {}): Promise<Partial<SagaPlan>> {
+    console.info(`[VimaxSagaPlanner] 🔍 Orchestration des extractions...`)
+
+    const characterExtractor = this.characterExtractor
+    const locationExtractor = this.locationExtractor
+    const assetExtractor = this.assetExtractor
+    const atmosphereExtractor = this.atmosphereExtractor
+    const narrativeExtractor = this.narrativeExtractor
+
+    const [characterRegistry, locationRegistry, assetRegistry, atmosphereData, narrativeData] = await Promise.all([
+      characterExtractor
+        ? (async () => {
+            console.info('[VimaxSagaPlanner] 🎭 Extraction des personnages...')
+            return await characterExtractor.extractCharacters(script)
+          })()
+        : Promise.resolve([]),
+      locationExtractor
+        ? (async () => {
+            console.info('[VimaxSagaPlanner] 📍 Extraction des lieux...')
+            return await locationExtractor.extractLocations(script)
+          })()
+        : Promise.resolve([]),
+      assetExtractor
+        ? (async () => {
+            console.info('[VimaxSagaPlanner] 📦 Extraction des assets...')
+            return await assetExtractor.extractAssets(script)
+          })()
+        : Promise.resolve([]),
+      atmosphereExtractor
+        ? (async () => {
+            console.info("[VimaxSagaPlanner] 🌫️ Extraction de l'atmosphère...")
+            return await atmosphereExtractor.extractAtmosphere(script)
+          })()
+        : Promise.resolve({ atmosphere: {}, visualEvolution: {} }),
+      narrativeExtractor
+        ? (async () => {
+            console.info('[VimaxSagaPlanner] 📖 Extraction de la narration...')
+            return await narrativeExtractor.extractNarrative(script)
+          })()
+        : Promise.resolve({ unresolvedThreads: [], roadmap: {}, relationshipMap: {} })
+    ])
+
+    return {
       characterRegistry,
       locationRegistry,
       assetRegistry,
-      unresolvedThreads: narrativeData.unresolvedThreads,
-      roadmap: narrativeData.roadmap,
-      atmosphere: atmosphereData.atmosphere,
-      visualEvolution: atmosphereData.visualEvolution,
-      relationshipMap: narrativeData.relationshipMap
+      unresolvedThreads: (narrativeData as any).unresolvedThreads,
+      roadmap: (narrativeData as any).roadmap,
+      atmosphere: (atmosphereData as any).atmosphere,
+      visualEvolution: (atmosphereData as any).visualEvolution,
+      relationshipMap: (narrativeData as any).relationshipMap
+    }
+  }
+
+  /**
+   * Wrapper pour backward compatibility - appelle draftSaga puis enrichSaga.
+   */
+  async planSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<SagaPlan> {
+    const draft = await this.draftSaga(basicIdea, options)
+    const enrichment = await this.enrichSaga(draft.script, options)
+
+    console.info('[VimaxSagaPlanner] ✅ Planification de saga terminée.')
+
+    return {
+      ...draft,
+      ...(enrichment as SagaPlan)
     }
   }
 

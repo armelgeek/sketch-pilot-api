@@ -109,5 +109,6 @@ export interface VideoJobData {
     imageStyle?: any
     lastCliffhanger?: string
     unresolvedThreads?: string[]
+    vimaxData?: any
   }
 }

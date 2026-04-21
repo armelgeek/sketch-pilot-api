@@ -53,7 +53,8 @@ function toJobOptions(options: Partial<VideoGenerationOptions>, customSpec?: any
     characterModelId: options.characterModelId ?? undefined,
     episodeNumber: options.episodeNumber || customSpec?.seriesMetadata?.episodeNumber,
     lastCliffhanger: customSpec?.seriesMetadata?.lastCliffhanger || (options as any).lastCliffhanger,
-    unresolvedThreads: customSpec?.seriesMetadata?.unresolvedThreads || (options as any).unresolvedThreads
+    unresolvedThreads: customSpec?.seriesMetadata?.unresolvedThreads || (options as any).unresolvedThreads,
+    vimaxData: (options as any).vimaxData
   }
 }
 

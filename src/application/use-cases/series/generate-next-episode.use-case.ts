@@ -4,6 +4,7 @@ import { db } from '@/infrastructure/database/db'
 import { videos } from '@/infrastructure/database/schema'
 import { SeriesRepository } from '@/infrastructure/repositories/series.repository'
 import { GenerateVideoUseCase } from '../video/generate-video.use-case'
+import type { SagaProductionService } from '../../../../plugins/sketch-pilot/src/plugins/vimax/services/saga-production.service'
 
 type GenerateNextEpisodeParams = {
   userId: string
@@ -23,6 +24,10 @@ type GenerateNextEpisodeResponse = {
 export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodeParams, GenerateNextEpisodeResponse> {
   private readonly seriesRepository = new SeriesRepository()
   private readonly generateVideoUseCase = new GenerateVideoUseCase()
+
+  constructor(private readonly sagaProductionService: SagaProductionService) {
+    super()
+  }
 
   async execute({ userId, seriesId, planId }: GenerateNextEpisodeParams): Promise<GenerateNextEpisodeResponse> {
     try {
@@ -75,6 +80,11 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
 
       console.info(`[GenerateNextEpisode] Starting episode ${nextEpisodeNumber} for series ${seriesId}: ${topic}`)
 
+      // --- [VIMAX INTEGRATION] ---
+      // We use the SagaProductionService to produce the high-fidelity script and scenes
+      console.info(`[GenerateNextEpisode] ⚡ Orchestrating Vimax for episode ${nextEpisodeNumber}...`)
+      const vimaxEpisode = await this.sagaProductionService.generateEpisode(userId, seriesId, nextEpisodeNumber)
+
       const result = await this.generateVideoUseCase.execute({
         userId,
         planId,
@@ -84,7 +94,8 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
           type: 'series',
           title: displayTitle,
           episodeNumber: nextEpisodeNumber,
-          scriptOnly: true
+          scriptOnly: false, // Now we have a real script from Vimax
+          vimaxData: vimaxEpisode // Pass the generated episode data if needed
         } as any
       })
 

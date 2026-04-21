@@ -60,7 +60,10 @@ export class OpenAILLMService implements LLMService {
     if (!config.apiKey) {
       throw new Error('OpenAI API key is required to use the OpenAI LLM service')
     }
-    this.client = new OpenAI({ apiKey: config.apiKey })
+    this.client = new OpenAI({
+      apiKey: config.apiKey,
+      timeout: 180_000 // 3 minutes for complex saga generation
+    })
     this.modelId = config.modelId || 'gpt-4o'
   }
 
