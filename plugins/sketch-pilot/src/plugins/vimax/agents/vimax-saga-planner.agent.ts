@@ -1,6 +1,12 @@
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
 import type { LLMService } from '../core/llm.interface'
+import type { VimaxAgent } from '../pipeline/vimax.agent'
 import type { SagaIntent, SagaPlan, SeriesContext, StyleLock, VimaxRunOptions, VisualAnchorState } from '../types'
+import type { VimaxAssetExtractor } from './vimax-asset-extractor.agent'
+import type { VimaxAtmosphereExtractor } from './vimax-atmosphere-extractor.agent'
+import type { VimaxCharacterExtractor } from './vimax-character-extractor.agent'
+import type { VimaxLocationExtractor } from './vimax-location-extractor.agent'
+import type { VimaxNarrativeExtractor } from './vimax-narrative-extractor.agent'
 
 // ─────────────────────────────────────────────
 // VimaxSagaPlanner
@@ -12,9 +18,22 @@ import type { SagaIntent, SagaPlan, SeriesContext, StyleLock, VimaxRunOptions, V
 export class VimaxSagaPlanner extends VimaxBaseAgent {
   public id = 'saga-planner'
   private styleLock: StyleLock | null = null
+  private characterExtractor?: VimaxCharacterExtractor
+  private locationExtractor?: VimaxLocationExtractor
+  private assetExtractor?: VimaxAssetExtractor
+  private atmosphereExtractor?: VimaxAtmosphereExtractor
+  private narrativeExtractor?: VimaxNarrativeExtractor
 
   constructor(llm: LLMService) {
     super(llm)
+  }
+
+  onInitialize(agent: VimaxAgent) {
+    this.characterExtractor = agent.characterExtractor
+    this.locationExtractor = agent.locationExtractor
+    this.assetExtractor = agent.assetExtractor
+    this.atmosphereExtractor = agent.atmosphereExtractor
+    this.narrativeExtractor = agent.narrativeExtractor
   }
 
   setStyleLock(lock: StyleLock) {
@@ -108,7 +127,33 @@ ${bibleContext}
       { planned_script: basicIdea, episodes: [] }
     )
 
-    return { intent, script: expanded.data.planned_script, episodes: expanded.data.episodes }
+    const script = expanded.data.planned_script
+    const episodes = expanded.data.episodes
+
+    // Orchestration complète des extractions pour match Database Schema
+    const characterRegistry = this.characterExtractor ? await this.characterExtractor.extractCharacters(script) : []
+    const locationRegistry = this.locationExtractor ? await this.locationExtractor.extractLocations(script) : []
+    const assetRegistry = this.assetExtractor ? await this.assetExtractor.extractAssets(script) : []
+    const atmosphereData = this.atmosphereExtractor
+      ? await this.atmosphereExtractor.extractAtmosphere(script)
+      : { atmosphere: {}, visualEvolution: {} }
+    const narrativeData = this.narrativeExtractor
+      ? await this.narrativeExtractor.extractNarrative(script)
+      : { unresolvedThreads: [], roadmap: {}, relationshipMap: {} }
+
+    return {
+      intent,
+      script,
+      episodes,
+      characterRegistry,
+      locationRegistry,
+      assetRegistry,
+      unresolvedThreads: narrativeData.unresolvedThreads,
+      roadmap: narrativeData.roadmap,
+      atmosphere: atmosphereData.atmosphere,
+      visualEvolution: atmosphereData.visualEvolution,
+      relationshipMap: narrativeData.relationshipMap
+    }
   }
 
   /**
@@ -148,10 +193,32 @@ Réponds uniquement en JSON.
       { planned_script: '', episodes: [] }
     )
 
+    const script = expanded.data.planned_script
+    const episodes = expanded.data.episodes
+
+    // Extraction complète pour le nouvel Arc
+    const characterRegistry = this.characterExtractor ? await this.characterExtractor.extractCharacters(script) : []
+    const locationRegistry = this.locationExtractor ? await this.locationExtractor.extractLocations(script) : []
+    const assetRegistry = this.assetExtractor ? await this.assetExtractor.extractAssets(script) : []
+    const atmosphereData = this.atmosphereExtractor
+      ? await this.atmosphereExtractor.extractAtmosphere(script)
+      : { atmosphere: {}, visualEvolution: {} }
+    const narrativeData = this.narrativeExtractor
+      ? await this.narrativeExtractor.extractNarrative(script)
+      : { unresolvedThreads: [], roadmap: {}, relationshipMap: {} }
+
     return {
       intent,
-      script: expanded.data.planned_script,
-      episodes: expanded.data.episodes
+      script,
+      episodes,
+      characterRegistry,
+      locationRegistry,
+      assetRegistry,
+      unresolvedThreads: narrativeData.unresolvedThreads,
+      roadmap: narrativeData.roadmap,
+      atmosphere: atmosphereData.atmosphere,
+      visualEvolution: atmosphereData.visualEvolution,
+      relationshipMap: narrativeData.relationshipMap
     }
   }
 
@@ -222,7 +289,7 @@ Renvoie UNIQUEMENT du JSON valide :
     const result = await this.generateStructured<{ imagePrompt: string; visualAnchor: VisualAnchorState }>(
       `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${characterSection}\n\nGénère un imagePrompt FLUIDE, RÉALISTE ET CINÉMATOGRAPHIQUE.
 Génère la description en une seule phrase narrative couvrant le sujet principal @Nom au premier plan, les éléments secondaires au plan moyen, et l'environnement lumineux avec sa profondeur en arrière-plan.
-\nRéponds UNIQUEMENT avec du JSON.`,
+\nRéponds UNIQUEMENT with du JSON.`,
       system,
       {
         imagePrompt: narrationSegment,

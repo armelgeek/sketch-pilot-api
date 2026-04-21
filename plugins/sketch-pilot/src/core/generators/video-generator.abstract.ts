@@ -110,6 +110,7 @@ export interface VideoGeneratorConfig {
   scriptSpec?: VideoTypeSpecification
   characterModelId?: string
   systemPrompt?: string
+  llm?: any
   seriesContext?: {
     seriesId: string
     episodeNumber: number

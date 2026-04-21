@@ -1,4 +1,5 @@
 import { QuotesVideoGenerator } from './quotes-video-generator'
+import { SerieGenerator } from './serie-generator'
 import { SeriesVideoGenerator } from './series-video-generator'
 import { StandaloneVideoGenerator } from './standalone-video-generator'
 import type { VideoGenerator, VideoGeneratorConfig } from './video-generator.abstract'
@@ -7,6 +8,13 @@ export const VideoGeneratorFactory = {
   create(config: VideoGeneratorConfig, extraOptions: Record<string, any> = {}): VideoGenerator {
     // Support both extraOptions (legacy/direct) and config.seriesContext (new preferred)
     const seriesId = extraOptions.seriesId || config.seriesContext?.seriesId
+
+    // New Vimax-powered SerieGenerator (Advanced Agentic Mode)
+    if (extraOptions.engine === 'vimax' || extraOptions.type === 'serie') {
+      console.log(`[VideoGeneratorFactory] Creating Vimax-powered SerieGenerator for series ${seriesId}`)
+      return new SerieGenerator(config, (config.seriesContext || extraOptions) as any)
+    }
+
     if (seriesId) {
       console.log(`[VideoGeneratorFactory] Creating SeriesVideoGenerator for series ${seriesId}`)
       const sc = (config.seriesContext || {}) as any

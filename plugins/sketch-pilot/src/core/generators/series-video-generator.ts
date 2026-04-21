@@ -1,8 +1,11 @@
+import { VimaxAgent } from '../../plugins/vimax'
+import { SeriesContinuityPlugin } from '../../plugins/vimax/plugins/series-continuity.plugin'
+import { SeriesNarrativePlugin } from '../../plugins/vimax/plugins/series-narrative.plugin'
 import { computeSceneCountRange, type EnrichedScene, type VideoGenerationOptions } from '../../types/video-script.types'
+
 import type { VideoTypeSpecification } from '../prompt-maker.types'
 import { registerCharacterVisual } from './series/character-consistency'
 import { registerLocationVisual } from './series/location-consistency'
-
 import { buildImagePrompt as buildImagePromptExternal } from './series/series-image-prompt.builder'
 import {
   buildCliffhangerBridgeInstruction,
@@ -285,6 +288,7 @@ function validateThreadsAsQuestions(threads: NarrativeThread[]): string[] {
 export class SeriesVideoGenerator extends VideoGenerator {
   public seriesContext: SeriesContext
   private narrativeInstructions: string[] = []
+  private vimax: VimaxAgent
 
   constructor(config: VideoGeneratorConfig, seriesContext: SeriesContext) {
     super(config)
@@ -292,6 +296,13 @@ export class SeriesVideoGenerator extends VideoGenerator {
     if (!this.seriesContext.visualRegistry) {
       this.seriesContext.visualRegistry = createVisualRegistry()
     }
+
+    // Initialize Vimax agentic orchestrator
+    this.vimax = new VimaxAgent(config.llm)
+
+    // Register Series specialized plugins
+    this.vimax.registry.register(new SeriesNarrativePlugin())
+    this.vimax.registry.register(new SeriesContinuityPlugin())
     //console.log('[CONTEXTUAL_SERIE_CONTEXT_CONTEXT]', seriesContext)
     // Automatic final episode detection
     const instructions = [

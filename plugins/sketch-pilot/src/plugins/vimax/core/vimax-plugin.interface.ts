@@ -13,12 +13,12 @@ export interface VimaxPlugin {
   onInitialize?: (agent: any) => void | Promise<void>
 
   // Lifecycle Hooks
-  onBeforePlanSaga?: (idea: string, options: any) => Promise<void>
-  onAfterPlanSaga?: (plan: any) => Promise<void>
+  onBeforePlanSaga?: (agent: any, idea: string, options: any) => Promise<void>
+  onAfterPlanSaga?: (agent: any, plan: any) => Promise<void>
 
-  onBeforeEpisode?: (event: any, index: number, context: any) => Promise<void>
-  onAfterEpisode?: (episode: any) => Promise<void>
+  onBeforeEpisode?: (agent: any, event: any, index: number, options: any) => Promise<void>
+  onAfterEpisode?: (agent: any, episode: any) => Promise<void>
 
-  onBeforeScene?: (event: any, sceneNumber: number) => Promise<void>
-  onAfterScene?: (scene: any) => Promise<void>
+  onBeforeScene?: (agent: any, event: any, sceneNumber: number, options: any) => Promise<void>
+  onAfterScene?: (agent: any, scene: any) => Promise<void>
 }

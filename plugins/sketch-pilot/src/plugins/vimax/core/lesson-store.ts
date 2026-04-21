@@ -15,6 +15,17 @@ export class LessonStore {
   private data: ILessonStore = { version: '1.0.0', lessons: [], globalDirectives: [] }
   private learningData: ILessonStore = { version: '1.0.0', lessons: [], globalDirectives: [] }
 
+  private static readonly LEGACY_MAPPING: Record<string, string> = {
+    screenwriter: 'VimaxScreenwriter',
+    'saga-planner': 'VimaxSagaPlanner',
+    narration: 'VimaxNarrationAgent',
+    'character-extractor': 'VimaxCharacterExtractor',
+    'location-extractor': 'VimaxLocationExtractor',
+    'event-extractor': 'VimaxEventExtractor',
+    'continuity-auditor': 'VimaxContinuityAuditor',
+    'dialogue-agent': 'VimaxDialogueAgent'
+  }
+
   private constructor() {
     const root = process.cwd()
     const dataDir = path.join(root, 'plugins', 'sketch-pilot', 'src', 'plugins', 'vimax', 'data')
@@ -143,13 +154,16 @@ export class LessonStore {
    * @param mode 'stable' (Cortex uniquement) ou 'all' (Cortex + Hippocampe)
    */
   getLessonsFor(agentName: string, tags: string[] = [], mode: 'stable' | 'all' = 'all'): Lesson[] {
-    const prodLessons = (this.data.lessons || []).filter((l) => l.agentName === agentName || l.agentName === 'Global')
+    const legacyName = LessonStore.LEGACY_MAPPING[agentName]
+    const prodLessons = (this.data.lessons || []).filter(
+      (l) => l.agentName === agentName || l.agentName === 'Global' || (legacyName && l.agentName === legacyName)
+    )
 
     let lessons = [...prodLessons]
 
     if (mode === 'all') {
       const learningLessons = (this.learningData.lessons || []).filter(
-        (l) => l.agentName === agentName || l.agentName === 'Global'
+        (l) => l.agentName === agentName || l.agentName === 'Global' || (legacyName && l.agentName === legacyName)
       )
       lessons = [...lessons, ...learningLessons]
     }

@@ -1,12 +1,16 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { VimaxAnimationAgent } from '../agents/vimax-animation.agent'
+import { VimaxAssetExtractor } from '../agents/vimax-asset-extractor.agent'
+import { VimaxAtmosphereExtractor } from '../agents/vimax-atmosphere-extractor.agent'
 import { VimaxCharacterExtractor } from '../agents/vimax-character-extractor.agent'
 import { VimaxContinuityAuditor } from '../agents/vimax-continuity-auditor.agent'
 import { VimaxDialogueAgent } from '../agents/vimax-dialogue.agent'
 import { VimaxEventExtractor } from '../agents/vimax-event-extractor.agent'
 import { VimaxInputSanitizerAgent } from '../agents/vimax-input-sanitizer.agent'
+import { VimaxLocationExtractor } from '../agents/vimax-location-extractor.agent'
 import { VimaxNarrationAgent } from '../agents/vimax-narration.agent'
+import { VimaxNarrativeExtractor } from '../agents/vimax-narrative-extractor.agent'
 import { VimaxOutputFormatterAgent } from '../agents/vimax-output-formatter.agent'
 import { VimaxSagaCompressor } from '../agents/vimax-saga-compressor.agent'
 import { VimaxSagaPlanner } from '../agents/vimax-saga-planner.agent'
@@ -39,22 +43,26 @@ import type {
 // ─────────────────────────────────────────────
 
 export class VimaxAgent {
-  private planner: VimaxSagaPlanner
-  private narration: VimaxNarrationAgent
-  private screenwriter: VimaxScreenwriter
-  private eventExtractor: VimaxEventExtractor
-  private compressor: VimaxSagaCompressor
-  private sagaSentinel: VimaxSagaSentinel
-  private enhancer: VimaxScriptEnhancer
-  private characterExtractor: VimaxCharacterExtractor
-  private dialogue: VimaxDialogueAgent
-  private animation: VimaxAnimationAgent
-  private auditor: VimaxContinuityAuditor
-  private inputSanitizer: VimaxInputSanitizerAgent
-  private outputFormatter: VimaxOutputFormatterAgent
-  private critic: VimaxUniversalCriticAgent
-  private brain: VimaxBrain
-  private registry: VimaxPluginRegistry
+  public planner: VimaxSagaPlanner
+  public narration: VimaxNarrationAgent
+  public screenwriter: VimaxScreenwriter
+  public eventExtractor: VimaxEventExtractor
+  public compressor: VimaxSagaCompressor
+  public sagaSentinel: VimaxSagaSentinel
+  public enhancer: VimaxScriptEnhancer
+  public characterExtractor: VimaxCharacterExtractor
+  public locationExtractor: VimaxLocationExtractor
+  public assetExtractor: VimaxAssetExtractor
+  public atmosphereExtractor: VimaxAtmosphereExtractor
+  public narrativeExtractor: VimaxNarrativeExtractor
+  public dialogue: VimaxDialogueAgent
+  public animation: VimaxAnimationAgent
+  public auditor: VimaxContinuityAuditor
+  public inputSanitizer: VimaxInputSanitizerAgent
+  public outputFormatter: VimaxOutputFormatterAgent
+  public critic: VimaxUniversalCriticAgent
+  public brain: VimaxBrain
+  public registry: VimaxPluginRegistry
 
   private metrics = {
     totalCalls: 0,
@@ -79,6 +87,10 @@ export class VimaxAgent {
     this.sagaSentinel = this.registry.getPlugin<VimaxSagaSentinel>('saga-sentinel')!
     this.enhancer = this.registry.getPlugin<VimaxScriptEnhancer>('script-enhancer')!
     this.characterExtractor = this.registry.getPlugin<VimaxCharacterExtractor>('character-extractor')!
+    this.locationExtractor = this.registry.getPlugin<VimaxLocationExtractor>('location-extractor')!
+    this.assetExtractor = this.registry.getPlugin<VimaxAssetExtractor>('asset-extractor')!
+    this.atmosphereExtractor = this.registry.getPlugin<VimaxAtmosphereExtractor>('atmosphere-extractor')!
+    this.narrativeExtractor = this.registry.getPlugin<VimaxNarrativeExtractor>('narrative-extractor')!
     this.dialogue = this.registry.getPlugin<VimaxDialogueAgent>('dialogue')!
     this.animation = this.registry.getPlugin<VimaxAnimationAgent>('animation')!
     this.auditor = this.registry.getPlugin<VimaxContinuityAuditor>('continuity-auditor')!
@@ -101,6 +113,10 @@ export class VimaxAgent {
     this.registry.register(new VimaxSagaSentinel(llm))
     this.registry.register(new VimaxScriptEnhancer(llm))
     this.registry.register(new VimaxCharacterExtractor(llm))
+    this.registry.register(new VimaxLocationExtractor(llm))
+    this.registry.register(new VimaxAssetExtractor(llm))
+    this.registry.register(new VimaxAtmosphereExtractor(llm))
+    this.registry.register(new VimaxNarrativeExtractor(llm))
     this.registry.register(new VimaxDialogueAgent(llm))
     this.registry.register(new VimaxAnimationAgent(llm))
     this.registry.register(new VimaxContinuityAuditor(llm))

@@ -21,6 +21,8 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     durationMs: 0
   }
 
+  protected pluginDirectives: string[] = []
+
   protected lastPromptData = {
     system: '',
     user: '',
@@ -43,6 +45,21 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
 
   public getLastPromptData() {
     return { ...this.lastPromptData }
+  }
+
+  /**
+   * Ajoute une consigne dynamique issue d'un plugin.
+   * Ces consignes sont volatiles et doivent être purgées après chaque pass.
+   */
+  public addDirective(directive: string) {
+    this.pluginDirectives.push(directive)
+  }
+
+  /**
+   * Purge les consignes des plugins.
+   */
+  public clearDirectives() {
+    this.pluginDirectives = []
   }
 
   /**
@@ -85,13 +102,18 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     await store.load()
 
     const promptTags = this.extractContextTags(prunedPrompt)
-    const learnedDirectives = store.formatDirectives(this.constructor.name, promptTags, this.brainMode)
+    const learnedDirectives = store.formatDirectives(this.id, promptTags, this.brainMode)
 
     // Pour l'analyse post-saga, on récupère les IDs des leçons appliquées
-    const contextRelevant = store.getLessonsFor(this.constructor.name, promptTags, this.brainMode)
+    const contextRelevant = store.getLessonsFor(this.id, promptTags, this.brainMode)
     const appliedLessonIds = contextRelevant.map((l) => l.id)
 
-    const finalSystem = learnedDirectives ? `${system}\n\n${learnedDirectives}` : system
+    // Fusion des systèmes prompts : Base + Leçons + Plugins
+    let finalSystem = system
+    if (learnedDirectives) finalSystem += `\n\n${learnedDirectives}`
+    if (this.pluginDirectives.length > 0) {
+      finalSystem += `\n\n[CONSIGNES SPÉCIFIQUES PLUGINS] :\n${this.pluginDirectives.join('\n')}`
+    }
 
     // Capture de l'épisode avant appel
     const episodeId = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -104,7 +126,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     }
 
     if (process.env.DEBUG_LLM) {
-      console.log(`\n[LLM CALL] ${this.constructor.name} - ID: ${episodeId}`)
+      console.log(`\n[LLM CALL] ${this.id} (${this.constructor.name}) - ID: ${episodeId}`)
     }
 
     const raw = await this.llm.generateContent(prunedPrompt, finalSystem, mime)
@@ -117,7 +139,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     // Enregistrement de l'épisode pour le Prompt Learning System
     await this.recordEpisode({
       id: episodeId,
-      agentName: this.constructor.name,
+      agentName: this.id,
       seriesId: this.seriesId,
       systemPrompt: system,
       userPrompt: prunedPrompt,
@@ -148,7 +170,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
       const filePath = path.join(episodesDir, `${episode.id}.json`)
       await fs.writeFile(filePath, JSON.stringify(episode, null, 2), 'utf8')
     } catch (error) {
-      console.warn(`[${this.constructor.name}] Échec de l'enregistrement de l'épisode:`, error)
+      console.warn(`[${this.id}] Échec de l'enregistrement de l'épisode:`, error)
     }
   }
 
@@ -179,7 +201,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
         }
       } catch (error: any) {
         // TAG FAILURE : Si on est ici, c'est un échec de parsing
-        console.warn(`[VimaxBaseAgent] Échec de parsing - Tentative ${retryCount}:`, error.message)
+        console.warn(`[VimaxBaseAgent] Échec de parsing (${this.id}) - Tentative ${retryCount}:`, error.message)
 
         // On pourrait ici mettre à jour le dernier épisode enregistré pour le marquer comme FAILURE
         // Mais comme generate enregistre déjà, on va simplement laisser un log ou émettre un signal.
@@ -242,7 +264,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
   protected enforceTokenBudget(prompt: string, maxChars = 120000): string {
     if (prompt.length <= maxChars) return prompt
 
-    console.warn(`[${this.constructor.name}] Prompt budget exceeded (${prompt.length} chars). Enforcing truncation...`)
+    console.warn(`[${this.id}] Prompt budget exceeded (${prompt.length} chars). Enforcing truncation...`)
 
     // On garde le début (contexte récent/global) et la fin (directives de formatage)
     const preserveSize = Math.floor(maxChars / 2.5)

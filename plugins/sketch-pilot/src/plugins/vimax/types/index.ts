@@ -131,6 +131,29 @@ export interface SagaIntent {
   universeLaws?: string[]
 }
 
+export interface AssetProfile {
+  id: string
+  name: string
+  description: string
+  type: string
+  thumbnailUrl?: string
+}
+
+export interface NarrativeThread {
+  id: string
+  title: string
+  status: 'active' | 'resolved' | 'cliffhanger'
+  description: string
+}
+
+export interface VisualAtmosphere {
+  weatherState?: string
+  timeOfDay?: string
+  colorPalette?: string
+  cameraStyle?: string
+  symbolicMotifs?: string[]
+}
+
 export interface SagaPlan {
   intent: SagaIntent | string
   script: string
@@ -139,7 +162,16 @@ export interface SagaPlan {
     summary: string
     eventIndex: number
     eventDescription: string
+    hook?: string
   }>
+  characterRegistry: CharacterProfile[]
+  locationRegistry: LocationState[]
+  assetRegistry: AssetProfile[]
+  unresolvedThreads: NarrativeThread[]
+  roadmap: any
+  atmosphere: VisualAtmosphere
+  visualEvolution: Record<string, string>
+  relationshipMap: Record<string, Record<string, string>>
 }
 
 export interface SeriesBible {
@@ -275,7 +307,9 @@ export interface VimaxRunOptions {
   visualStyle?: string
   colorPalette?: string[]
   seriesId?: string
+  userId?: string
   reviewGates?: ReviewGate['stage'][]
+
   brainMode?: 'stable' | 'all'
 }
 
