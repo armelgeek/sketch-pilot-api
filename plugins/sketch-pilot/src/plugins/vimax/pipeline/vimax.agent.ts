@@ -308,6 +308,61 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
   }
 
   /**
+   * Applique plusieurs corrections issues d'un audit à un élément. (Mode groupé)
+   */
+  async refineItemFromFeedbacks(type: string, data: any, feedbacks: any[]): Promise<any> {
+    if (feedbacks.length === 0) return data
+    const seriesId = this.planner.getSeriesId() || 'pending'
+    this.getAllAgents().forEach((a) => a.setSeriesId(seriesId))
+
+    console.log(`[VimaxAgent] Raffinement de groupé de ${type} via ${feedbacks.length} feedbacks...`)
+
+    const feedbackList = feedbacks
+      .map((f, i) =>
+        `
+[FEEDBACK ${i + 1}]
+- Problème : ${f.issue}
+- Raison : ${f.rationale}
+- Correction : ${f.correction}
+${f.example ? `- Exemple : ${f.example}` : ''}
+`.trim()
+      )
+      .join('\n\n')
+
+    const instruction = `
+[MISSION : RAFFINEMENT GLOBAL SUITE À AUDIT]
+L'audit a identifié les points d'amélioration suivants :
+
+${feedbackList}
+
+Consigne : Mets à jour l'objet fourni pour intégrer TOUTES ces corrections de façon cohérente. 
+Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
+`.trim()
+
+    let refined: any
+    switch (type) {
+      case 'plan':
+        refined = await this.planner.generateStructured(
+          `Objet à raffiner : ${JSON.stringify(data)}\n\n${instruction}`,
+          'Tu es un expert en planification narrative. Applique les corrections demandées au plan de la saga.',
+          data
+        )
+        break
+      case 'episode':
+        refined = await this.screenwriter.generateStructured(
+          `Objet à raffiner : ${JSON.stringify(data)}\n\n${instruction}`,
+          "Tu es un expert Script Doctor. Applique les corrections demandées au script de l'épisode.",
+          data
+        )
+        break
+      default:
+        throw new Error(`Raffinement groupé non supporté pour : ${type}`)
+    }
+
+    return refined.data
+  }
+
+  /**
    * Audit d'un élément spécifique du pipeline (plan, épisode, scène, etc.)
    */
   async auditItem(

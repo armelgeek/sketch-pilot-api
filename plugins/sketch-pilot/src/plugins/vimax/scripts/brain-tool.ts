@@ -262,19 +262,49 @@ async function main() {
     }
 
     case 'apply-feedback': {
-      let [sagaId, type, id, feedbackIndexStr] = args.slice(1)
-      if (!isNaN(parseInt(id)) && feedbackIndexStr === undefined) {
-        feedbackIndexStr = id
-        id = type === 'plan' ? 'initial' : 'current'
+      const [sagaId, type, ...rest] = args.slice(1)
+      let id: string | undefined
+      let feedbackIndexStr: string
+
+      if (rest.length === 1) {
+        feedbackIndexStr = rest[0]
+      } else {
+        id = rest[0]
+        feedbackIndexStr = rest[1]
       }
+
       const feedbackIndex = parseInt(feedbackIndexStr)
-      if (!sagaId || !type || !id || isNaN(feedbackIndex)) {
-        console.error('❌ Usage : apply-feedback <sagaId> <type> [id] <feedbackIndex>')
+      if (!sagaId || !type || isNaN(feedbackIndex)) {
+        console.error('❌ Usage : apply-feedback <sagaId> <type> <feedbackIndex> [id]')
         process.exit(1)
       }
 
       const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
-      const auditPath = path.join(sagaDir, `audit-${type}-${id}.json`)
+      let auditPath: string | undefined
+
+      if (id) {
+        auditPath = path.join(sagaDir, `audit-${type}-${id}.json`)
+      } else {
+        const defaultId = type === 'plan' ? 'initial' : 'current'
+        const candidatePaths = [
+          path.join(sagaDir, `audit-${type}-${defaultId}.json`),
+          path.join(sagaDir, `audit-${type}-manual.json`)
+        ]
+        for (const p of candidatePaths) {
+          try {
+            await fs.access(p)
+            auditPath = p
+            id = p.includes('manual') ? 'manual' : defaultId
+            break
+          } catch {}
+        }
+      }
+
+      if (!auditPath) {
+        console.error(`❌ Aucun fichier d'audit trouvé pour ${type} (${sagaId}).`)
+        process.exit(1)
+      }
+
       let filePath: string
       if (type === 'plan') filePath = path.join(sagaDir, 'plan.json')
       else if (type === 'episode') filePath = path.join(sagaDir, `episode-${id}.json`)
@@ -288,7 +318,7 @@ async function main() {
         const feedback = audit.feedbacks[feedbackIndex - 1]
         const originalData = JSON.parse(await fs.readFile(filePath, 'utf8'))
         if (!feedback) {
-          console.error(`❌ Feedback ${feedbackIndex} non trouvé.`)
+          console.error(`❌ Feedback ${feedbackIndex} non trouvé dans ${path.basename(auditPath)}.`)
           process.exit(1)
         }
         const refined = await agent.refineItemFromFeedback(type, originalData, feedback)
@@ -304,26 +334,56 @@ async function main() {
     }
 
     case 'learn-audit': {
-      let [sagaId, type, id, feedbackIndexStr] = args.slice(1)
-      if (!isNaN(parseInt(id)) && feedbackIndexStr === undefined) {
-        feedbackIndexStr = id
-        id = type === 'plan' ? 'initial' : 'current'
+      const [sagaId, type, ...rest] = args.slice(1)
+      let id: string | undefined
+      let feedbackIndexStr: string
+
+      if (rest.length === 1) {
+        feedbackIndexStr = rest[0]
+      } else {
+        id = rest[0]
+        feedbackIndexStr = rest[1]
       }
+
       const feedbackIndex = parseInt(feedbackIndexStr)
-      if (!sagaId || !type || !id || isNaN(feedbackIndex)) {
-        console.error('❌ Usage : learn-audit <sagaId> <type> [id] <feedbackIndex>')
+      if (!sagaId || !type || isNaN(feedbackIndex)) {
+        console.error('❌ Usage : learn-audit <sagaId> <type> <feedbackIndex> [id]')
         process.exit(1)
       }
 
-      const auditPath = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId, `audit-${type}-${id}.json`)
+      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
+      let auditPath: string | undefined
+
+      if (id) {
+        auditPath = path.join(sagaDir, `audit-${type}-${id}.json`)
+      } else {
+        const defaultId = type === 'plan' ? 'initial' : 'current'
+        const candidatePaths = [
+          path.join(sagaDir, `audit-${type}-${defaultId}.json`),
+          path.join(sagaDir, `audit-${type}-manual.json`)
+        ]
+        for (const p of candidatePaths) {
+          try {
+            await fs.access(p)
+            auditPath = p
+            break
+          } catch {}
+        }
+      }
+
+      if (!auditPath) {
+        console.error(`❌ Aucun fichier d'audit trouvé pour ${type} (${sagaId}).`)
+        process.exit(1)
+      }
+
       try {
         const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
         const feedback = audit.feedbacks[feedbackIndex - 1]
         if (!feedback) {
-          console.error(`❌ Feedback ${feedbackIndex} non trouvé.`)
+          console.error(`❌ Feedback ${feedbackIndex} non trouvé dans ${path.basename(auditPath)}.`)
           process.exit(1)
         }
-        console.log(`🧠 Apprentissage du feedback : "${feedback.issue}"...`)
+        console.log(`🧠 Apprentissage du feedback : "${feedback.issue.slice(0, 50)}..."`)
         const lesson = await brain.registerLessonFromFeedback(feedback)
         feedback.processed = true
         await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
@@ -396,6 +456,74 @@ async function main() {
         displayAudit(finalId, type, audit)
       } catch (error: any) {
         console.error(`❌ Audit non trouvé : ${error.message}`)
+      }
+      break
+    }
+
+    case 'fix-all': {
+      const [sagaId, type, id] = args.slice(1)
+      if (!sagaId) {
+        console.error('❌ Usage : fix-all <sagaId> [type] [id]')
+        process.exit(1)
+      }
+
+      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
+
+      const applyFixToAudit = async (auditFile: string) => {
+        const auditPath = path.join(sagaDir, auditFile)
+        const parts = auditFile.replace('.json', '').split('-')
+        const aType = parts[1]
+        const aId = parts.slice(2).join('-')
+
+        let filePath: string
+        if (aType === 'plan') filePath = path.join(sagaDir, 'plan.json')
+        else if (aType === 'episode') filePath = path.join(sagaDir, `episode-${aId}.json`)
+        else return
+
+        try {
+          const rawAudit = await fs.readFile(auditPath, 'utf8')
+          const audit = JSON.parse(rawAudit)
+          const pendingFeedbacks = audit.feedbacks.filter((f: any) => !f.processed)
+          if (pendingFeedbacks.length === 0) return
+
+          console.log(`🧠 Résolution de ${pendingFeedbacks.length} feedbacks pour ${aType} (${aId})...`)
+          const originalData = JSON.parse(await fs.readFile(filePath, 'utf8'))
+          const refined = await agent.refineItemFromFeedbacks(aType, originalData, pendingFeedbacks)
+
+          // Apprentissage & Marquage
+          for (const f of pendingFeedbacks) {
+            await brain.registerLessonFromFeedback(f)
+            f.processed = true
+          }
+
+          await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
+          await fs.copyFile(filePath, `${filePath}.old`)
+          await fs.writeFile(filePath, JSON.stringify(refined, null, 2), 'utf8')
+          console.log(`✅ Mise à jour de ${aType} (${aId}) terminée !`)
+        } catch (error: any) {
+          console.error(`❌ Erreur sur ${auditFile} : ${error.message}`)
+        }
+      }
+
+      if (type) {
+        const finalId = id || (type === 'plan' ? 'initial' : 'current')
+        await applyFixToAudit(`audit-${type}-${finalId}.json`)
+      } else {
+        console.log(`🚀 Analyse globale des audits pour ${sagaId}...`)
+        try {
+          const files = await fs.readdir(sagaDir)
+          const auditFiles = files.filter((f) => f.startsWith('audit-') && f.endsWith('.json'))
+          if (auditFiles.length === 0) {
+            console.log("❓ Aucun audit n'a été trouvé.")
+          } else {
+            for (const file of auditFiles) {
+              await applyFixToAudit(file)
+            }
+            console.log('✨ Traitement batch terminé !')
+          }
+        } catch (error: any) {
+          console.error(`❌ Erreur batch : ${error.message}`)
+        }
       }
       break
     }
@@ -506,9 +634,10 @@ Commands:
   continue-plan <id> [nb]      Ajoute des épisodes à une saga
   
   audit-item <id> <type> [num] Analyse un élément (plan, episode)
+  fix-all <id> [type] [num]    Applique TOUS les feedbacks à un élément (ou toute la saga)
   feedback <id> <type> <msg>    Enregistre un feedback manuel utilisateur
-  apply-feedback <id> <type> <idx> Applique la correction via l'IA
-  learn-audit <id> <type> <idx> Transforme un feedback en leçon (Hippocampe)
+  apply-feedback <id> <type> <idx> [a_id] Applique la correction via l'IA
+  learn-audit <id> <type> <idx> [a_id] Transforme un feedback en leçon (Hippocampe)
   
   lessons             Liste toutes les leçons
   validate-lesson <id> Promeut une leçon Hippocampe -> Cortex

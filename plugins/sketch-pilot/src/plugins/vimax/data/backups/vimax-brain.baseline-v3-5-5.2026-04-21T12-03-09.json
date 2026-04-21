@@ -72,5 +72,5 @@
     "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
     "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
   ],
-  "version": "3.6.0"
+  "version": "3.5.5"
 }

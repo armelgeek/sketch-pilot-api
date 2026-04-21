@@ -1,0 +1,101 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant une montée dramatique et émotionnelle progressive qui reflète la complexité des interactions.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776724700670-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724700670
+      },
+      {
+        "directive": "L'introduction du protagoniste doit comporter un enjeu émotionnel fort dès le départ et chaque élément narratif doit renforcer une idée centrale cohérente.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776724700670-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724700670
+      },
+      {
+        "directive": "Assurez que la réconciliation finale soit progressive, impliquant des sacrifices ou des conflits significatifs pour renforcer son impact émotionnel.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776724700670-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724700670
+      },
+      {
+        "directive": "Le twist narratif et le tournant dramatique doivent être précédés d'une préparation psychologique adéquate pour maximiser leur impact.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776724700670-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724700670
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre l'enquête et le drame familial principal pour maintenir une cohérence narrative et créer une urgence dans les enjeux présentés.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776724700670-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724700670
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.5.4"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "id": "lesson-audit-1776725620519",
+        "agentName": "Global",
+        "directive": "1. Assurez-vous que chaque personnage principal possède des motivations claires et bien développées, afin de renforcer leur complexité et d'accroître l'impact dramatique de leurs actions.\n\n2. Introduisez des variations significatives dans la progression des événements durant la phase centrale de l'histoire pour éviter la répétitivité et maintenir l'intérêt du lecteur.\n\n3. Ajoutez un élément inattendu ou une révélation supplémentaire lors de la confrontation finale pour intensifier l'impact émotionnel de la scène.\n\n4. Équilibrez la progression des arcs émotionnels des personnages en intégrant des conflits intérieurs et des moments de rechute, afin de rendre les transitions vers la croissance personnelle plus crédibles et nuancées.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776725620520,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776725693486",
+        "agentName": "Global",
+        "directive": "1. Assurez-vous que chaque personnage a des motivations clairement développées pour éviter une passivité qui affaiblit l'impact dramatique de leurs actions.\n2. Variez la logique des événements dans la phase centrale pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises significatifs.\n3. Renforcez la scène de confrontation finale en y intégrant un élément inattendu ou une révélation supplémentaire pour amplifiez l'intensité dramatique.\n4. Équilibrez la transition des personnages vers des états d'indépendance ou de résilience en incluant des conflits intérieurs et des moments de rechute émotionnelle pour en renforcer la crédibilité.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776725693486,
+        "tags": ["narrative", "audit", "high"]
+      }
+    ],
+    "globalDirectives": []
+  }
+}

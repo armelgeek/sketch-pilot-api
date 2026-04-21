@@ -1,0 +1,112 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "directive": "Adoptez une narration concise et percutante, intégrant des détails atmosphériques riches et évitant les répétitions d'actions.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776720502677-0",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776720502677
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant suspense et trahison.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776720502677-1",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776720502677
+      },
+      {
+        "directive": "Instaurer une montée dramatique et émotionnelle progressive, en évitant les bonds temporels extrêmes et les confrontations directes immédiates.",
+        "category": "logic",
+        "confidence": 0.9,
+        "id": "trend-1776720502677-2",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776720502677
+      },
+      {
+        "directive": "Structurer les confrontations émotionnelles avec une progression où les personnages passent de la négation à l'acceptation, culminant dans un silence lourd.",
+        "category": "logic",
+        "confidence": 0.9,
+        "id": "trend-1776720502677-3",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776720502677
+      },
+      {
+        "directive": "Organiser les thèmes centraux du récit autour d'une idée forte et cohérente, assurant que chaque élément de l'histoire renforce cette notion.",
+        "category": "logic",
+        "confidence": 0.9,
+        "id": "trend-1776720502677-4",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776720502677
+      },
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.5.2"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "id": "lesson-audit-1776723090327",
+        "agentName": "Global",
+        "directive": "Augmentez la complexité de l'intrigue en intégrant des retournements de situation inattendus afin de maintenir le suspense et d'éviter la prévisibilité. Introduisez des personnages secondaires avec des intentions cachées pour enrichir le récit et surprendre le lecteur.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723090327,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776723198363",
+        "agentName": "Global",
+        "directive": "La résolution doit être progressive et nuancée, reflétant la complexité des conflits accumulés, par le biais d'un processus de réconciliation qui inclut la collaboration entre les protagonistes sur des projets concrets, tout en surmontant des obstacles.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723198363,
+        "tags": ["narrative", "audit", "medium"]
+      },
+      {
+        "id": "lesson-audit-1776723223556",
+        "agentName": "Global",
+        "directive": "Le protagoniste doit présenter une profondeur émotionnelle en développant des arcs narratifs liés à ses sacrifices et ses regrets. Utiliser des éléments tels que des flashbacks pour illustrer des souvenirs marquants et renforcer son attachement aux enjeux personnels et émotionnels de l'histoire.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723223556,
+        "tags": ["narrative", "audit", "medium"]
+      }
+    ],
+    "globalDirectives": []
+  }
+}

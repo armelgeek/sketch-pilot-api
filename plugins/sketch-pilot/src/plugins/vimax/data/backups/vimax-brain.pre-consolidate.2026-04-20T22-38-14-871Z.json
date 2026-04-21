@@ -1,0 +1,167 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes tout en intégrant des retournements de situation inattendus pour maintenir le suspense.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776723269724-0",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723269724
+      },
+      {
+        "directive": "Instaurer une montée dramatique et émotionnelle progressive, en structurant les confrontations avec une évolution de la négation à l'acceptation.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776723269724-1",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723269724
+      },
+      {
+        "directive": "Organisez les thèmes centraux du récit autour d'une idée forte et cohérente, garantissant que chaque élément renforce cette notion.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776723269724-2",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723269724
+      },
+      {
+        "directive": "La résolution des conflits doit être progressive et nuancée, reflétant la complexité des interactions entre personnages.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776723269724-3",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723269724
+      },
+      {
+        "directive": "Utilisez des métaphores spatiales pour les transitions et assurez une narration concise et percutante.",
+        "category": "undefined",
+        "confidence": 1,
+        "id": "trend-1776723269724-4",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776723269724
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.5.3"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "id": "lesson-audit-1776724660417",
+        "agentName": "Global",
+        "directive": "L'introduction du protagoniste doit comporter un enjeu émotionnel fort dès le départ afin de captiver immédiatement le public.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724660417,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724661487",
+        "agentName": "Global",
+        "directive": "La réconciliation finale doit être progressive et impliquer des sacrifices ou des conflits significatifs pour renforcer son impact émotionnel.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724661488,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724662835",
+        "agentName": "Global",
+        "directive": "Le protagoniste doit rencontrer des obstacles émotionnels significatifs qui rendent sa compréhension progressive plus complexe et crédible.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724662835,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724664304",
+        "agentName": "Global",
+        "directive": "Le retour d'un personnage doit générer une tension émotionnelle pleinement exploitée, avec une motivation claire qui résonne avec les enjeux narratifs.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724664304,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724665634",
+        "agentName": "Global",
+        "directive": "Le lien émotionnel entre l'enquête et le drame familial principal doit être renforcé pour maintenir une cohérence narrative.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724665634,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724666555",
+        "agentName": "Global",
+        "directive": "Le twist narratif doit être précédé d'une préparation psychologique adéquate pour maximiser son impact.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724666555,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724668501",
+        "agentName": "Global",
+        "directive": "Le tournant dramatique doit être précédé d'une spirale psychologique visible et inquiétante, permettant d'intensifier la tension et de préparer le public à la révélation.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724668501,
+        "tags": ["narrative", "audit", "high"]
+      },
+      {
+        "id": "lesson-audit-1776724669629",
+        "agentName": "Global",
+        "directive": "Renforcez l'urgence et les conséquences immédiates liées à l'envoi des premiers salaires pour accroître l'attachement et les enjeux narratifs.",
+        "category": "logic",
+        "confidence": 0.9,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776724669629,
+        "tags": ["narrative", "audit", "high"]
+      }
+    ],
+    "globalDirectives": []
+  }
+}
