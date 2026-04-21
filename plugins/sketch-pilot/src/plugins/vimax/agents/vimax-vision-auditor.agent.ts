@@ -16,6 +16,7 @@ export interface VisionAuditReport {
  * Agent multimodal capable d'"inspecter" le rendu visuel final.
  */
 export class VimaxVisionAuditor extends VimaxBaseAgent {
+  public id = 'vision-auditor'
   constructor(llm: LLMService) {
     super(llm)
   }
