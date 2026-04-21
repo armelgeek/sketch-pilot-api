@@ -10,6 +10,7 @@ import type { VimaxEvent } from '../types'
 // ─────────────────────────────────────────────
 
 export class VimaxEventExtractor extends VimaxBaseAgent {
+  public id = 'event-extractor'
   private getSystem(
     mode: 'series' | 'episode',
     targetDuration?: number,

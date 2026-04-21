@@ -10,6 +10,7 @@ import type { SagaIntent, SagaPlan, SeriesContext, StyleLock, VimaxRunOptions, V
 // ─────────────────────────────────────────────
 
 export class VimaxSagaPlanner extends VimaxBaseAgent {
+  public id = 'saga-planner'
   private styleLock: StyleLock | null = null
 
   constructor(llm: LLMService) {

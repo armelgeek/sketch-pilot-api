@@ -7,6 +7,7 @@ import type { SeriesContext } from '../types'
  * Se base sur le plan original (intentions) et la narration finale.
  */
 export class VimaxAnimationAgent extends VimaxBaseAgent {
+  public id = 'animation'
   private getSystem(context: SeriesContext): string {
     return `
 [RÔLE]

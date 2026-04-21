@@ -7,6 +7,7 @@ import type { FormattedOutput, VimaxScreenplay } from '../types'
  * Unifie les IDs, recalcule les timestamps, crée les index de recherche.
  */
 export class VimaxOutputFormatterAgent extends VimaxBaseAgent {
+  public id = 'output-formatter'
   async format(screenplay: VimaxScreenplay): Promise<FormattedOutput> {
     const totalDuration = screenplay.scenes.reduce((acc, s) => acc + (s.duration || 0), 0)
 

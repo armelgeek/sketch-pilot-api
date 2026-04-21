@@ -9,6 +9,7 @@ import { VimaxBaseAgent } from '../core/vimax-base.agent'
 // ─────────────────────────────────────────────
 
 export class VimaxSagaCompressor extends VimaxBaseAgent {
+  public id = 'compressor'
   private getCompressionSystem(guardrails: string[] = []): string {
     const guardrailDirective = guardrails.length > 0 ? `\n[GARDE-FOU NARRATIF] : ${guardrails.join(', ')}.` : ''
 

@@ -9,6 +9,7 @@ import type { CharacterProfile } from '../types'
 // ─────────────────────────────────────────────
 
 export class VimaxCharacterExtractor extends VimaxBaseAgent {
+  public id = 'character-extractor'
   private getSystem(): string {
     return `
 Tu es un expert en analyse de scripts cinématographiques.

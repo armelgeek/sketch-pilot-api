@@ -8,6 +8,7 @@ import { VimaxBaseAgent } from '../core/vimax-base.agent'
 // ─────────────────────────────────────────────
 
 export class VimaxScriptEnhancer extends VimaxBaseAgent {
+  public id = 'script-enhancer'
   private getSystem(): string {
     return `
 [Rôle]

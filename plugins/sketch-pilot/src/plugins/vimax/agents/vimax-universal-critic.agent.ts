@@ -7,6 +7,7 @@ import type { NarrativeAuditReport } from '../types'
  * Agent multitâche capable d'auditer chaque étape du pipeline Vimax.
  */
 export class VimaxUniversalCriticAgent extends VimaxBaseAgent {
+  public id = 'universal-critic'
   constructor(llm: LLMService) {
     super(llm)
   }

@@ -10,6 +10,7 @@ import type { SceneMemory, SeriesContext, VimaxEvent } from '../types'
 // ─────────────────────────────────────────────
 
 export class VimaxNarrationAgent extends VimaxBaseAgent {
+  public id = 'narration'
   private getSystem(
     mode: 'series' | 'episode',
     wordCount?: string,

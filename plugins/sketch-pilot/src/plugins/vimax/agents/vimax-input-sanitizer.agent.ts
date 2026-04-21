@@ -7,6 +7,7 @@ import type { InputAnalysis } from '../types'
  * Évite le "Garbage In -> Garbage Out".
  */
 export class VimaxInputSanitizerAgent extends VimaxBaseAgent {
+  public id = 'input-sanitizer'
   private getSystem(): string {
     return `
         Tu es un Expert Script Consultant (Input Sanitizer).

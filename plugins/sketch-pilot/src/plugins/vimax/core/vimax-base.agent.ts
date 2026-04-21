@@ -3,13 +3,15 @@ import * as path from 'node:path'
 import type { GenerationResult, LearningEpisode } from '../types'
 import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
+import type { VimaxPlugin } from './vimax-plugin.interface'
 
 // ─────────────────────────────────────────────
 // VimaxBaseAgent — Classe abstraite mère
 // Tous les agents héritent de cette classe.
 // ─────────────────────────────────────────────
 
-export abstract class VimaxBaseAgent {
+export abstract class VimaxBaseAgent implements VimaxPlugin {
+  public abstract id: string
   protected seriesId?: string
   protected brainMode: 'stable' | 'all' = 'all'
   protected metrics = {

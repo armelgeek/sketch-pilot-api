@@ -14,6 +14,7 @@ export interface SagaAuditReport {
  * Vérifie que le nouvel épisode respecte les faits établis précédemment.
  */
 export class VimaxSagaSentinel extends VimaxBaseAgent {
+  public id = 'saga-sentinel'
   constructor(llm: LLMService) {
     super(llm)
   }

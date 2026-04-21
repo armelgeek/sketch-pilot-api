@@ -26,6 +26,7 @@ interface RawScreenplayMeta {
 }
 
 export class VimaxScreenwriter extends VimaxBaseAgent {
+  public id = 'screenwriter'
   private getSceneSystem(): string {
     return `
 [RÔLE : Expert Cinématographique]

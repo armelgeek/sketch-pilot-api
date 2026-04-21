@@ -16,6 +16,7 @@ import type {
  * Relit l'ensemble des scènes d'un épisode pour détecter les contradictions.
  */
 export class VimaxContinuityAuditor extends VimaxBaseAgent {
+  public id = 'continuity-auditor'
   private getSystem(): string {
     return `
 Tu es un Auditor de Continuité (Script Supervisor) pour une série d'animation.

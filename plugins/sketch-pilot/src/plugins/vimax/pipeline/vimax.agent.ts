@@ -16,7 +16,9 @@ import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
 import { VimaxUniversalCriticAgent } from '../agents/vimax-universal-critic.agent'
 import { VimaxBrain } from '../core/vimax-brain'
 import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
+import { VimaxPluginRegistry } from '../core/vimax-plugin-registry'
 import type { LLMService } from '../core/llm.interface'
+import type { VimaxPlugin } from '../core/vimax-plugin.interface'
 import type {
   CharacterProfile,
   ReviewGate,
@@ -52,6 +54,7 @@ export class VimaxAgent {
   private outputFormatter: VimaxOutputFormatterAgent
   private critic: VimaxUniversalCriticAgent
   private brain: VimaxBrain
+  private registry: VimaxPluginRegistry
 
   private metrics = {
     totalCalls: 0,
@@ -61,21 +64,56 @@ export class VimaxAgent {
   }
 
   constructor(llm: LLMService) {
-    this.planner = new VimaxSagaPlanner(llm)
-    this.narration = new VimaxNarrationAgent(llm)
-    this.screenwriter = new VimaxScreenwriter(llm)
-    this.eventExtractor = new VimaxEventExtractor(llm)
-    this.compressor = new VimaxSagaCompressor(llm)
-    this.sagaSentinel = new VimaxSagaSentinel(llm)
-    this.enhancer = new VimaxScriptEnhancer(llm)
-    this.characterExtractor = new VimaxCharacterExtractor(llm)
-    this.dialogue = new VimaxDialogueAgent(llm)
-    this.animation = new VimaxAnimationAgent(llm)
-    this.auditor = new VimaxContinuityAuditor(llm)
-    this.inputSanitizer = new VimaxInputSanitizerAgent(llm)
-    this.outputFormatter = new VimaxOutputFormatterAgent(llm)
-    this.critic = new VimaxUniversalCriticAgent(llm)
+    this.registry = new VimaxPluginRegistry()
     this.brain = new VimaxBrain(llm)
+
+    // Register default agents as plugins
+    this.registerDefaultPlugins(llm)
+
+    // Initialize core agents pointers for legacy support (temporarily)
+    this.planner = this.registry.getPlugin<VimaxSagaPlanner>('saga-planner')!
+    this.narration = this.registry.getPlugin<VimaxNarrationAgent>('narration')!
+    this.screenwriter = this.registry.getPlugin<VimaxScreenwriter>('screenwriter')!
+    this.eventExtractor = this.registry.getPlugin<VimaxEventExtractor>('event-extractor')!
+    this.compressor = this.registry.getPlugin<VimaxSagaCompressor>('compressor')!
+    this.sagaSentinel = this.registry.getPlugin<VimaxSagaSentinel>('saga-sentinel')!
+    this.enhancer = this.registry.getPlugin<VimaxScriptEnhancer>('script-enhancer')!
+    this.characterExtractor = this.registry.getPlugin<VimaxCharacterExtractor>('character-extractor')!
+    this.dialogue = this.registry.getPlugin<VimaxDialogueAgent>('dialogue')!
+    this.animation = this.registry.getPlugin<VimaxAnimationAgent>('animation')!
+    this.auditor = this.registry.getPlugin<VimaxContinuityAuditor>('continuity-auditor')!
+    this.inputSanitizer = this.registry.getPlugin<VimaxInputSanitizerAgent>('input-sanitizer')!
+    this.outputFormatter = this.registry.getPlugin<VimaxOutputFormatterAgent>('output-formatter')!
+    this.critic = this.registry.getPlugin<VimaxUniversalCriticAgent>('universal-critic')!
+
+    // Lifecycle initialization
+    this.registry.getPlugins().forEach((p) => {
+      if (typeof p.onInitialize === 'function') p.onInitialize(this)
+    })
+  }
+
+  private registerDefaultPlugins(llm: LLMService) {
+    this.registry.register(new VimaxSagaPlanner(llm))
+    this.registry.register(new VimaxNarrationAgent(llm))
+    this.registry.register(new VimaxScreenwriter(llm))
+    this.registry.register(new VimaxEventExtractor(llm))
+    this.registry.register(new VimaxSagaCompressor(llm))
+    this.registry.register(new VimaxSagaSentinel(llm))
+    this.registry.register(new VimaxScriptEnhancer(llm))
+    this.registry.register(new VimaxCharacterExtractor(llm))
+    this.registry.register(new VimaxDialogueAgent(llm))
+    this.registry.register(new VimaxAnimationAgent(llm))
+    this.registry.register(new VimaxContinuityAuditor(llm))
+    this.registry.register(new VimaxInputSanitizerAgent(llm))
+    this.registry.register(new VimaxOutputFormatterAgent(llm))
+    this.registry.register(new VimaxUniversalCriticAgent(llm))
+  }
+
+  public registerPlugin(plugin: VimaxPlugin) {
+    this.registry.register(plugin)
+    if (typeof plugin.onInitialize === 'function') {
+      plugin.onInitialize(this)
+    }
   }
 
   public getBrain(): VimaxBrain {
@@ -101,6 +139,8 @@ export class VimaxAgent {
       a.setSeriesId(seriesId)
       a.setBrainMode(mode)
     })
+
+    await this.registry.triggerHook('onBeforePlanSaga', basicIdea, options)
 
     const analysis = await this.inputSanitizer.analyze(basicIdea)
     if (!analysis.isViable) {
@@ -143,6 +183,8 @@ export class VimaxAgent {
       plan,
       episodeEvents
     }
+
+    await this.registry.triggerHook('onAfterPlanSaga', sagaPlan)
     const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
     await fs.mkdir(sagaDir, { recursive: true })
     await fs.writeFile(path.join(sagaDir, 'plan.json'), JSON.stringify(sagaPlan, null, 2), 'utf8')
@@ -230,6 +272,8 @@ export class VimaxAgent {
       a.setBrainMode(mode)
     })
 
+    await this.registry.triggerHook('onBeforeEpisode', event, episodeIndex - 1, sagaPlan.options)
+
     const seriesContext: SeriesContext = {
       ...sagaPlan.options.seriesContext,
       intent: sagaPlan.plan.intent,
@@ -257,6 +301,8 @@ export class VimaxAgent {
     }
 
     const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options)
+
+    await this.registry.triggerHook('onAfterEpisode', episode)
 
     await fs.writeFile(path.join(sagaDir, `episode-${episodeIndex}.json`), JSON.stringify(episode, null, 2), 'utf8')
 
@@ -547,6 +593,8 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     for (let i = 0; i < sceneEvents.length; i++) {
       const event = sceneEvents[i]
 
+      await this.registry.triggerHook('onBeforeScene', event, i + 1)
+
       // 1. Narration de scène (Pass 1.5)
       const sceneResult = await this.narration.generateSceneNarration(
         event,
@@ -594,6 +642,9 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         cameraAction: sceneMeta.cameraAction,
         locationId: sceneMeta.locationId || 'default'
       })
+
+      const lastScene = intermediateScenes.at(-1)
+      await this.registry.triggerHook('onAfterScene', lastScene)
     }
 
     const durationFactor = (targetDuration || 60) / intermediateScenes.length

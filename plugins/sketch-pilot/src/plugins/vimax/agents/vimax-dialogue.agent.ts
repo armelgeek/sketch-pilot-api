@@ -6,6 +6,7 @@ import type { CharacterVoiceHistory, DialogueLine, SeriesContext } from '../type
  * Extrait ou génère des lignes de dialogue concises pour une scène.
  */
 export class VimaxDialogueAgent extends VimaxBaseAgent {
+  public id = 'dialogue'
   private getSystem(context: SeriesContext, voiceHistories: CharacterVoiceHistory[] = []): string {
     const voiceBlock =
       voiceHistories.length > 0
