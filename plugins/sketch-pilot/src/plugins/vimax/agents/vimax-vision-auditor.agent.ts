@@ -1,4 +1,5 @@
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
+import { VimaxVisionUtils } from '../utils/vision-utils'
 import type { LLMService } from '../core/llm.interface'
 
 export interface VisionAuditReport {
@@ -65,8 +66,16 @@ ${expectedCharacters.join(', ')}
 }
 `.trim()
 
+    let images: { data: string; mimeType: string }[] | undefined = undefined
+    try {
+      const img = await VimaxVisionUtils.imageUrlToBase64(imageUrl)
+      images = [img]
+    } catch {
+      console.warn(`[VimaxVisionAuditor] Impossible de charger l'image ${imageUrl}, passage en mode texte seul.`)
+    }
+
     const result = await this.generateStructured<VisionAuditReport>(
-      `[IMAGE_URL]\n${imageUrl}\n\n${prompt}`,
+      `[IMAGE_AUDIT_PROMPT]\n${prompt}`,
       this.getSystemPrompt(),
       {
         isValid: false,
@@ -74,7 +83,8 @@ ${expectedCharacters.join(', ')}
         visualDNA: { lighting: '', composition: '', styleAdherence: 0 },
         details: { expectation_vs_reality: '', identity_check: '', style_consistency: '' },
         suggestedCorrection: ''
-      }
+      },
+      images
     )
 
     return result.data

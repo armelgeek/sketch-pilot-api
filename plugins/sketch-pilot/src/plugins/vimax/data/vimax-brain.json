@@ -68,49 +68,39 @@
       "verified": true
     },
     {
-      "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente avec une montée dramatique progressive, intégrant des personnages avec des motivations complexes et des conflits significatifs pour enrichir le thème principal.",
-      "category": "logic",
-      "confidence": 1,
-      "id": "trend-1776871779445-0",
-      "agentName": "VimaxScreenwriter",
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776871779445
-    },
-    {
-      "directive": "Intégrez des descriptions visuelles dynamiques et précises, comme des conditions météorologiques et des détails environnementaux, pour garantir une continuité narrative fluide et immersive.",
+      "directive": "Intégrez des éléments narratifs et visuels dynamiques pour renforcer l'immersion et l'impact émotionnel, en assurant une continuité fluide avec des descriptions précises des personnages, des décors et des événements inattendus.",
       "category": "continuity",
       "confidence": 1,
-      "id": "trend-1776871779445-1",
+      "id": "trend-1776882825601-0",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776871779445
+      "lastUpdated": 1776882825601
     },
     {
-      "directive": "Incorporez des éléments de surprise et de retournements inattendus pour maintenir l'intérêt du lecteur et renforcer l'impact émotionnel de la narration.",
+      "directive": "Développez des personnages avec des motivations complexes et des conflits significatifs, intégrant des éléments de surprise pour enrichir la profondeur narrative et éviter les clichés.",
       "category": "logic",
       "confidence": 1,
-      "id": "trend-1776871779445-2",
+      "id": "trend-1776882825601-1",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776871779445
+      "lastUpdated": 1776882825601
     },
     {
-      "directive": "Évitez les clichés dans les interactions et introduisez des scénarios et personnages qui défient les attentes conventionnelles pour enrichir la profondeur narrative.",
+      "directive": "Utilisez des détails visuels et sensoriels pour renforcer l'atmosphère et le cadre de la scène, en positionnant stratégiquement les personnages et les éléments clés pour une cohérence visuelle.",
       "category": "style",
       "confidence": 1,
-      "id": "trend-1776871779445-3",
+      "id": "trend-1776882825601-2",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776871779445
+      "lastUpdated": 1776882825601
     }
   ],
   "globalDirectives": [
     "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
     "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
   ],
-  "version": "3.6.4"
+  "version": "3.6.5"
 }

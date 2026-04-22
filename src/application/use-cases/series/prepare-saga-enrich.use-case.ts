@@ -18,9 +18,12 @@ export class PrepareSagaEnrichUseCase extends IUseCase<PrepareSagaEnrichParams, 
   async execute(params: PrepareSagaEnrichParams) {
     try {
       console.info(`[PrepareSagaEnrich] Enriching series ${params.seriesId}...`)
+      const series = await this.seriesRepository.findById(params.seriesId)
       const agent = this.sagaProductionService.getAgent()
 
-      const enrichment = await agent.planner.enrichSaga(params.script)
+      const enrichment = await agent.planner.enrichSaga(params.script, {
+        referenceStyleImage: series?.referenceStyleImage ?? undefined
+      })
 
       // Map Vimax format to UI format
       const characterRegistry: Record<string, any> = {}

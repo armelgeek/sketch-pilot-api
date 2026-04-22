@@ -1,12 +1,21 @@
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
 import type { LLMService } from '../core/llm.interface'
 import type { VimaxAgent } from '../pipeline/vimax.agent'
-import type { SagaIntent, SagaPlan, SeriesContext, StyleLock, VimaxRunOptions, VisualAnchorState } from '../types'
+import type {
+  NarrativeThread,
+  SagaIntent,
+  SagaPlan,
+  SeriesContext,
+  StyleLock,
+  VimaxRunOptions,
+  VisualAnchorState
+} from '../types'
 import type { VimaxAssetExtractor } from './vimax-asset-extractor.agent'
 import type { VimaxAtmosphereExtractor } from './vimax-atmosphere-extractor.agent'
 import type { VimaxCharacterExtractor } from './vimax-character-extractor.agent'
 import type { VimaxLocationExtractor } from './vimax-location-extractor.agent'
 import type { VimaxNarrativeExtractor } from './vimax-narrative-extractor.agent'
+import type { VimaxStyleExtractor } from './vimax-style-extractor.agent'
 
 // ─────────────────────────────────────────────
 // VimaxSagaPlanner
@@ -23,6 +32,7 @@ export class VimaxSagaPlanner extends VimaxBaseAgent {
   private assetExtractor?: VimaxAssetExtractor
   private atmosphereExtractor?: VimaxAtmosphereExtractor
   private narrativeExtractor?: VimaxNarrativeExtractor
+  private styleExtractor?: VimaxStyleExtractor
 
   constructor(llm: LLMService) {
     super(llm)
@@ -34,10 +44,17 @@ export class VimaxSagaPlanner extends VimaxBaseAgent {
     this.assetExtractor = agent.assetExtractor
     this.atmosphereExtractor = agent.atmosphereExtractor
     this.narrativeExtractor = agent.narrativeExtractor
+    this.styleExtractor = agent.styleExtractor
   }
 
   setStyleLock(lock: StyleLock) {
     this.styleLock = lock
+    this.characterExtractor?.setStyleLock(lock)
+    this.locationExtractor?.setStyleLock(lock)
+  }
+
+  getStyleLock(): StyleLock | null {
+    return this.styleLock
   }
 
   // ─── Intent Router ─────────────────────────
@@ -66,13 +83,16 @@ Réponds UNIQUEMENT avec du JSON valide : { "intent": "narrative" | "motion" | "
     const identDirective =
       '- IDENTIFIANTS PERSONNAGES : Utilise IMPÉRATIVEMENT le format @PascalCase (ex: @Banane, @DetectiveSmith). AUCUN ESPACE, AUCUNE APOSTROPHE.'
     const formatInstruction =
-      '[FORMAT]\nRenvoie UNIQUEMENT du JSON valide : { "planned_script": "chaîne de caractères", "episodes": [ { "title": "...", "summary": "..." } ] }'
+      '[FORMAT]\nRenvoie UNIQUEMENT du JSON valide : { "title": "...", "planned_script": "...", "episodes": [ { "title": "...", "summary": "..." } ], "finalCliffhanger": "...", "unresolved_threads": [ { "id": "...", "title": "...", "description": "..." } ] }'
 
     const intentKey = typeof intent === 'string' ? intent : intent.tone || 'narrative'
 
     return `
 [RÔLE : Expert en Planification de Série - Mode ${(intentKey || 'narrative').toUpperCase()}]
 Tu es un expert chargé de transformer une idée brute en un script structuré et cinématique.
+
+[INVENTAIRE EXHAUSTIF OBLIGATOIRE]
+Le script DOIT nommer et identifier (via @Nom) TOUS les personnages, même les rôles secondaires, les figurants ou les unités collectives (ex: @Garde, @Foule, @Passant), dès qu'ils participent à une action. Ces identifiants sont la base du moteur de rendu visuel.
 
 ${identDirective}
 
@@ -103,7 +123,14 @@ ${bibleContext}
   async draftSaga(
     basicIdea: string,
     options: VimaxRunOptions = {}
-  ): Promise<{ intent: SagaIntent; script: string; episodes: any[] }> {
+  ): Promise<{
+    intent: SagaIntent
+    script: string
+    episodes: any[]
+    title: string
+    finalCliffhanger: string
+    unresolvedThreads: NarrativeThread[]
+  }> {
     const { targetEpisodeCount, maxScenes, targetDuration } = options
 
     // 1. Route intent
@@ -127,16 +154,31 @@ ${bibleContext}
     const bibleContext = this.getBibleContext({ seriesBible: options.seriesContext?.seriesBible })
 
     console.info('[VimaxSagaPlanner] ✍️ Expansion du script global...')
-    const expanded = await this.generateStructured<{ planned_script: string; episodes: any[] }>(
-      `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Évite les raccourcis narratifs ; prends le temps d'installer les enjeux et les émotions.${targetEpisodeCount ? ` Structure l'histoire en ${targetEpisodeCount} actes bien distincts.` : ''}\n\nRéponds uniquement en JSON.`,
+    const expanded = await this.generateStructured<{
+      title: string
+      planned_script: string
+      episodes: any[]
+      finalCliffhanger: string
+      unresolved_threads: Array<{ id: string; title: string; description: string }>
+    }>(
+      `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHANGER ORGANIQUE] : Le dernier épisode du batch actuel DOIT apporter une conclusion satisfaisante à l'arc principal TOUT EN révélant une conséquence imprévue, un secret lié aux événements passés ou un nouveau défi qui découle directement de l'histoire précédente (OUVERTURE). Identifie ce crochet dans le champ "finalCliffhanger" et liste les pistes narratives non résolues dans "unresolved_threads". Le crochet doit sembler être la "suite logique" et non un événement parachuté. Évite les raccourcis narratifs ; prends le temps d'installer les enjeux et les émotions.${targetEpisodeCount ? ` Structure l'histoire en ${targetEpisodeCount} actes bien distincts.` : ''}\n\nRéponds uniquement en JSON.`,
       this.getSpecializedSystem(intent, bibleContext),
-      { planned_script: basicIdea, episodes: [] }
+      {
+        title: 'Saga sans titre',
+        planned_script: basicIdea,
+        episodes: [],
+        finalCliffhanger: '',
+        unresolved_threads: []
+      }
     )
 
     return {
       intent,
+      title: expanded.data.title,
       script: expanded.data.planned_script,
-      episodes: expanded.data.episodes
+      episodes: expanded.data.episodes,
+      finalCliffhanger: expanded.data.finalCliffhanger,
+      unresolvedThreads: expanded.data.unresolved_threads.map((t) => ({ ...t, status: 'active' as const }))
     }
   }
 
@@ -146,41 +188,46 @@ ${bibleContext}
   async enrichSaga(script: string, options: VimaxRunOptions = {}): Promise<Partial<SagaPlan>> {
     console.info(`[VimaxSagaPlanner] 🔍 Orchestration des extractions...`)
 
-    const characterExtractor = this.characterExtractor
-    const locationExtractor = this.locationExtractor
-    const assetExtractor = this.assetExtractor
-    const atmosphereExtractor = this.atmosphereExtractor
     const narrativeExtractor = this.narrativeExtractor
 
+    if (this.styleLock) {
+      this.characterExtractor?.setStyleLock(this.styleLock)
+      this.locationExtractor?.setStyleLock(this.styleLock)
+    } else if (options.referenceStyleImage && this.styleExtractor) {
+      console.info("[VimaxSagaPlanner] 🎨 Extraction tardive du style à partir de l'image de référence...")
+      const lock = await this.styleExtractor.extractStyle(options.referenceStyleImage)
+      this.setStyleLock(lock)
+    }
+
     const [characterRegistry, locationRegistry, assetRegistry, atmosphereData, narrativeData] = await Promise.all([
-      characterExtractor
+      this.characterExtractor
         ? (async () => {
             console.info('[VimaxSagaPlanner] 🎭 Extraction des personnages...')
-            return await characterExtractor.extractCharacters(script)
+            return await this.characterExtractor!.extractCharacters(script)
           })()
         : Promise.resolve([]),
-      locationExtractor
+      this.locationExtractor
         ? (async () => {
             console.info('[VimaxSagaPlanner] 📍 Extraction des lieux...')
-            return await locationExtractor.extractLocations(script)
+            return await this.locationExtractor!.extractLocations(script)
           })()
         : Promise.resolve([]),
-      assetExtractor
+      this.assetExtractor
         ? (async () => {
             console.info('[VimaxSagaPlanner] 📦 Extraction des assets...')
-            return await assetExtractor.extractAssets(script)
+            return await this.assetExtractor!.extractAssets(script)
           })()
         : Promise.resolve([]),
-      atmosphereExtractor
+      this.atmosphereExtractor
         ? (async () => {
             console.info("[VimaxSagaPlanner] 🌫️ Extraction de l'atmosphère...")
-            return await atmosphereExtractor.extractAtmosphere(script)
+            return await this.atmosphereExtractor!.extractAtmosphere(script)
           })()
         : Promise.resolve({ atmosphere: {}, visualEvolution: {} }),
-      narrativeExtractor
+      this.narrativeExtractor
         ? (async () => {
             console.info('[VimaxSagaPlanner] 📖 Extraction de la narration...')
-            return await narrativeExtractor.extractNarrative(script)
+            return await this.narrativeExtractor!.extractNarrative(script)
           })()
         : Promise.resolve({ unresolvedThreads: [], roadmap: {}, relationshipMap: {} })
     ])
@@ -213,7 +260,7 @@ ${bibleContext}
   }
 
   /**
-   * Étend une saga existante en générant une suite cohérente.
+   * Étend une saga existante avec de nouveaux épisodes.
    */
   async extendSaga(existingPlan: SagaPlan, additionalCount: number, options: VimaxRunOptions = {}): Promise<SagaPlan> {
     const previousScript =
@@ -227,27 +274,35 @@ ${bibleContext}
     const bibleContext = this.getBibleContext({ seriesBible: options.seriesContext?.seriesBible })
 
     const prompt = `
-[MISSION : EXTENSION DE SAGA - PARTIE 2]
-Voici le script et le résumé des épisodes précédents d'une saga. 
-Ta mission est de générer une SUITE cohérente (Arc 2) de EXACTEMENT ${additionalCount} nouveaux épisodes.
+      [MISSION : EXTENSION DE SAGA - PARTIE 2]
+      Voici le script et le résumé des épisodes précédents d'une saga. 
+      Ta mission est de générer une SUITE cohérente (Arc 2) de EXACTEMENT ${additionalCount} nouveaux épisodes.
 
-[RAPPEL DU CONTEXTE PRÉCÉDENT]
-${previousScript}
+      [RAPPEL DU CONTEXTE PRÉCÉDENT]
+      ${previousScript}
 
-[RAPPEL DES ÉPISODES PRÉCÉDENTS]
-${previousEpisodes}
+      [RAPPEL DES ÉPISODES PRÉCÉDENTS]
+      ${previousEpisodes}
 
-Génère un script de suite et le plan des ${additionalCount} nouveaux épisodes. 
-Assure-toi que les personnages conservent leurs identifiants @PascalCase et que l'intrigue suit logiquement le cliffhanger ou la situation finale du dernier épisode.
+      Génère un script de suite et le plan des ${additionalCount} nouveaux épisodes. 
+      Assure-toi que les personnages conservent leurs identifiants @PascalCase et que l'intrigue suit logiquement le cliffhanger ou la situation finale du dernier épisode.
 
-Réponds uniquement en JSON.
+      Réponds uniquement en JSON.
 `.trim()
 
-    const expanded = await this.generateStructured<{ planned_script: string; episodes: any[] }>(
-      prompt,
-      this.getSpecializedSystem(intent, bibleContext),
-      { planned_script: '', episodes: [] }
-    )
+    const expanded = await this.generateStructured<{
+      title: string
+      planned_script: string
+      episodes: any[]
+      finalCliffhanger: string
+      unresolved_threads: Array<{ id: string; title: string; description: string }>
+    }>(prompt, this.getSpecializedSystem(intent, bibleContext), {
+      title: existingPlan.title,
+      planned_script: '',
+      episodes: [],
+      finalCliffhanger: '',
+      unresolved_threads: []
+    })
 
     const script = expanded.data.planned_script
     const episodes = expanded.data.episodes
@@ -265,12 +320,17 @@ Réponds uniquement en JSON.
 
     return {
       intent,
+      title: expanded.data.title,
       script,
       episodes,
+      finalCliffhanger: expanded.data.finalCliffhanger,
       characterRegistry,
       locationRegistry,
       assetRegistry,
-      unresolvedThreads: narrativeData.unresolvedThreads,
+      unresolvedThreads: [
+        ...existingPlan.unresolvedThreads.filter((t) => t.status === 'resolved'),
+        ...expanded.data.unresolved_threads.map((t) => ({ ...t, status: 'active' as const }))
+      ],
       roadmap: narrativeData.roadmap,
       atmosphere: atmosphereData.atmosphere,
       visualEvolution: atmosphereData.visualEvolution,
@@ -308,10 +368,23 @@ Réponds uniquement en JSON.
 `.trim()
       : ''
 
+    const isWhiteboard = this.styleLock?.visualStyle.toLowerCase().includes('whiteboard')
+    const systemRole = isWhiteboard
+      ? "[RÔLE : Dessinateur d'Animation Whiteboard]"
+      : '[RÔLE : Directeur de la Photographie & Directeur Visuel]'
+
+    const compositionDirective = isWhiteboard
+      ? '- COMPOSITION : Dessine @Nom au premier plan dans une action claire, avec les autres éléments au second plan. Utilise des lignes épurées.'
+      : "- COMPOSITION : La description DOIT inclure dans une seule phrase fluide : le sujet @Nom au premier plan avec une action précise, les personnages actifs au plan moyen, et l'environnement géographique avec son éclairage en arrière-plan."
+
+    const lightDirective = isWhiteboard
+      ? "- STYLE : Pas d'ombrage complexe. Fond blanc pur. Traits noirs."
+      : '- GRAMMAIRE DE LA LUMIÈRE : Interdiction de l\'expression "éclairage vif". Utilise : "lumière stroboscopique d\'alarme", "lumière rouge intermittente", "ombres dures projetées par le bas", "flash blanc aveuglant".'
+
     const system = `
-[RÔLE : Directeur de la Photographie & Directeur Visuel]
+${systemRole}
 ${styleBlock}
-- IDENTIFIANTS : Utilise UNIQUEMENT l'identifiant @Nom (ex: @Banane, @Alexandre). Fais correspondre exactement leur profil visuel.
+- IDENTIFIANTS : Utilise UNIQUEMENT l'identifiant @Nom (ex: @Banane, @Alexandre). Fais correspondre exactement leur profil visuel. [OBLIGATION] PROTECT THE IDENTITY : Ne simplifie jamais les traits physiques fournis ; ils sont la clé de la cohérence visuelle.
 - COMPOSITION : La description DOIT inclure dans une seule phrase fluide : le sujet @Nom au premier plan avec une action précise, les personnages actifs au plan moyen, et l'environnement géographique avec son éclairage en arrière-plan.
 - GRAMMAIRE DE LA LUMIÈRE : Interdiction de l'expression "éclairage vif". Utilise : "lumière stroboscopique d'alarme", "lumière rouge intermittente", "ombres dures projetées par le bas", "flash blanc aveuglant".
 - CAMÉRA NARRATIVE : Décris l'angle et le mouvement lié à l'intention (ex: plan serré désaxé pour du chaos, contre-plongée pour du pouvoir).${climaxDirective}
@@ -320,10 +393,9 @@ ${styleBlock}
 - Techniquement explicite : nomme les positions exactes, les vecteurs, les détails de l'environnement.
 - PAS de métaphores. Description visuelle pure.
 - LONGUEUR : 2-4 phrases maximum.
-- [ISOLATION] IGNORE TOUT ce qui est entre crochets [Action / Émotion]. Ces informations sont gérées à part. Ne décris PAS les expressions faciales ou les gestes mentionnés entre crochets.
-- [CONTINUITÉ LUMINEUSE] Assure-toi que l'éclairage et la profondeur de champ sont cohérents avec le contexte global de la série.
-- TU DOIS ABSOLUMENT intégrer les trois plans (Premier plan, Second plan, et Arrière-plan) dans une seule phrase fluide, narrative et cinématographique. 
-- INTERDICTION d'utiliser des crochets, des deux-points ou des tags rigides (ex: pas de "[FOREGROUND]:").
+- [CONTINUITÉ LUMINEUSE] Assure la cohérence avec le reste de la série.
+- [ISOLATION] IGNORE TOUT ce qui est entre crochets [Action / Émotion].
+- INTERDICTION d'utiliser des crochets ou des tags rigides.
 
 [FORMAT]
 Renvoie UNIQUEMENT du JSON valide : 
@@ -342,8 +414,12 @@ Renvoie UNIQUEMENT du JSON valide :
       ? `\n\n[LISTE DES PERSONNAGES]\n${characterContext}\n[/LISTE DES PERSONNAGES]`
       : ''
 
+    const styleDirective = this.styleLock?.visualStyle.toLowerCase().includes('whiteboard')
+      ? "Génère un imagePrompt de style WHITEBOARD ANIMATION (dessin au tableau blanc, traits noirs simples sur fond blanc, style croquis rapide, pas d'ombres complexes)."
+      : 'Génère un imagePrompt FLUIDE, NARRATIF ET CINÉMATOGRAPHIQUE respectant strictement le style verrouillé.'
+
     const result = await this.generateStructured<{ imagePrompt: string; visualAnchor: VisualAnchorState }>(
-      `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${characterSection}\n\nGénère un imagePrompt FLUIDE, RÉALISTE ET CINÉMATOGRAPHIQUE.
+      `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${characterSection}\n\n${styleDirective}
 Génère la description en une seule phrase narrative couvrant le sujet principal @Nom au premier plan, les éléments secondaires au plan moyen, et l'environnement lumineux avec sa profondeur en arrière-plan.
 \nRéponds UNIQUEMENT with du JSON.`,
       system,

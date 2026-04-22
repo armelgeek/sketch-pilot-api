@@ -37,13 +37,14 @@ export class SagaProductionService {
         console.info(`[SagaProductionService] 💾 Synchronisation du plan de saga ${plan.seriesId}...`)
 
         const dbData = VimaxSchemaMapper.mapPlanToDb(plan.plan)
-        const title = (plan.plan.intent as any)?.title || 'Saga sans titre'
+        const title = plan.plan.title || (plan.plan.intent as any)?.title || 'Saga sans titre'
         const userId = plan.options?.userId
 
         await this.seriesRepo.create({
           id: plan.seriesId,
           userId,
           title,
+          visualStyleLock: agent.planner.getStyleLock() || undefined,
           ...dbData
         })
       },
@@ -52,7 +53,7 @@ export class SagaProductionService {
         console.info(`[SagaProductionService] 💾 Synchronisation de l'épisode ${episode.id}...`)
         const userId = plan?.options?.userId || (this.agent.planner as any).userId
         // Persistence de l'épisode et mise à jour de la continuité
-        await this.syncEpisodeToDatabase(userId, episode, plan)
+        await Promise.all([this.syncEpisodeToDatabase(userId, episode, plan), this.saveEpisodeToLogs(episode)])
       }
     })
   }
@@ -124,6 +125,19 @@ export class SagaProductionService {
       this.seriesRepo.updateCharacterRegistry(seriesId, episode.characterProfiles),
       this.seriesRepo.appendEpisodeSummary(seriesId, episode.narration)
     ])
+  }
+
+  /**
+   * Sauvegarde un épisode dans le système de fichiers (Logs).
+   */
+  private async saveEpisodeToLogs(episode: VimaxEpisode) {
+    const seriesId = this.agent.planner.getSeriesId()
+    if (!seriesId) return
+
+    const sagaDir = await this.ensureSagaDirectory(seriesId)
+    const filePath = path.join(sagaDir, 'episodes', `episode-${episode.episodeNumber}.json`)
+    await fs.writeFile(filePath, JSON.stringify(episode, null, 2), 'utf8')
+    console.info(`[SagaProductionService] 💾 Épisode ${episode.episodeNumber} sauvegardé localement: ${filePath}`)
   }
 
   /**
@@ -217,6 +231,7 @@ export class SagaProductionService {
 
     const fullSagaPlan = {
       seriesId,
+      title: context.title,
       basicIdea: context.title, // Approximation
       options: { seriesId, userId: (context as any).userId, seriesContext: context },
       plan: planData,
@@ -225,6 +240,40 @@ export class SagaProductionService {
 
     await fs.writeFile(path.join(sagaDir, 'plan.json'), JSON.stringify(fullSagaPlan, null, 2), 'utf8')
     console.info(`✅ plan.json restauré pour ${seriesId}`)
+
+    // Restauration des épisodes depuis VideoRepo
+    const episodes = await this.videoRepo.findBySeriesId(seriesId)
+    for (const ep of episodes) {
+      const fullVideo = await this.videoRepo.findById(ep.id)
+      if (fullVideo) {
+        // Reconstruction manuelle du format VimaxEpisode (approximation)
+        const vimaxEp: Partial<VimaxEpisode | any> = {
+          id: ep.id,
+          seriesId,
+          episodeNumber: ep.episodeNumber,
+          summary: ep.topic,
+          narration: fullVideo.narrationLayer?.narration || ep.topic,
+          scenes: (fullVideo.scenes || []).map((s: any) => ({
+            id: s.id,
+            sceneNumber: s.sceneNumber,
+            narration: s.narration,
+            imagePrompt: s.imagePrompt,
+            locationId: s.locationId,
+            duration: s.duration
+          })),
+          characterProfiles: Object.entries(fullVideo.characterRegistry || {}).map(([id, p]: [string, any]) => ({
+            identifier: id,
+            ...p
+          }))
+        }
+        await fs.writeFile(
+          path.join(sagaDir, 'episodes', `episode-${ep.episodeNumber}.json`),
+          JSON.stringify(vimaxEp, null, 2),
+          'utf8'
+        )
+      }
+    }
+    console.info(`✅ ${episodes.length} épisodes restaurés pour ${seriesId}`)
   }
 
   /**

@@ -36,6 +36,8 @@ export class SeriesRepository {
     audioProvider?: string
     kokoroVoicePreset?: string
     plannedEpisodes?: { number: number; title: string; hook: string }[]
+    referenceStyleImage?: string
+    visualStyleLock?: any
     status?: string
   }) {
     const [result] = await db
@@ -243,6 +245,8 @@ export class SeriesRepository {
       roadmap: s.roadmap ?? undefined,
       narrationLayer: s.narrationLayer ?? undefined,
       tensionState: (s.narrationLayer as any)?.tensionState ?? undefined,
+      referenceStyleImage: s.referenceStyleImage ?? undefined,
+      visualStyleLock: s.visualStyleLock ?? undefined,
 
       // V21 Recency Bias
       lastEpisodeSummary: this.getLastEpisodeSummary(s.previousEpisodesContext || '')

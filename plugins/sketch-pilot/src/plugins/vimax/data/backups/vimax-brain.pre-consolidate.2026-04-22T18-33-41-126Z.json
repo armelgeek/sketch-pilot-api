@@ -1,0 +1,290 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente avec une montée dramatique progressive, intégrant des personnages avec des motivations complexes et des conflits significatifs pour enrichir le thème principal.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776871779445-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871779445
+      },
+      {
+        "directive": "Intégrez des descriptions visuelles dynamiques et précises, comme des conditions météorologiques et des détails environnementaux, pour garantir une continuité narrative fluide et immersive.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776871779445-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871779445
+      },
+      {
+        "directive": "Incorporez des éléments de surprise et de retournements inattendus pour maintenir l'intérêt du lecteur et renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776871779445-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871779445
+      },
+      {
+        "directive": "Évitez les clichés dans les interactions et introduisez des scénarios et personnages qui défient les attentes conventionnelles pour enrichir la profondeur narrative.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776871779445-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871779445
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.4"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Intégrer systématiquement des éléments de développement de personnage, tels que des flashbacks ou des dialogues introspectifs, pour enrichir le passé et les motivations du personnage principal.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Fournir un développement de personnage plus riche permet de créer un attachement émotionnel plus fort avec le public, rendant l'histoire plus engageante.",
+        "tags": ["@Rivo", "@Lila", "character-development", "emotional-depth", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776881623356,
+        "id": "lesson-narrative-1776881623356"
+      },
+      {
+        "directive": "Révélez les enjeux principaux progressivement dès le début de l'histoire pour maintenir l'intérêt du lecteur.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les histoires nécessitent une tension narrative constante. Révéler les enjeux dès le début aide à captiver le public et à maintenir leur intérêt tout au long du récit.",
+        "tags": ["@Lila", "narrative", "tension", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776881631132,
+        "id": "lesson-narrative-1776881631132"
+      },
+      {
+        "directive": "Évitez les clichés en introduisant des éléments innovants ou des retournements inattendus pour maintenir l'intérêt du public.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "L'utilisation de clichés peut rendre une histoire prévisible et moins engageante pour le public. Incorporer des éléments surprenants maintient l'intérêt et l'excitation.",
+        "tags": ["#Global", "action", "narrative", "!Style", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776881637981,
+        "id": "lesson-narrative-1776881637981"
+      },
+      {
+        "directive": "Lorsque vous développez un arc pour un personnage secondaire comme @Lila, assurez-vous d'inclure des détails sur son passé, ses motivations personnelles et son évolution tout au long de l'histoire.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Un arc de personnage bien développé enrichit l'histoire et renforce la contribution du personnage à la narration globale, améliorant ainsi l'engagement et la profondeur de l'intrigue.",
+        "tags": ["@Lila", "story", "character development", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776881645700,
+        "id": "lesson-narrative-1776881645700"
+      },
+      {
+        "directive": "Inclure des descriptions visuelles cohérentes des personnages clés dans les prompts d'image, et intégrer des éléments sensoriels qui renforcent l'atmosphère et le cadre de la scène.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'absence de représentation visuelle cohérente des personnages clés @Rivo et @Mysteriousfigure dans les prompts d'image peut nuire à l'immersion du lecteur. De plus, pour ancrer l'histoire dans son contexte, il est crucial d'intégrer des détails sensoriels et atmosphériques qui renforcent l'environnement tropical et l'activité portuaire.",
+        "tags": ["@Rivo", "@Mysteriousfigure", "#Toamasina", "!Visual", "atmosphere", "scene-2", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882655135,
+        "id": "lesson-scene-1776882655135"
+      },
+      {
+        "directive": "Ajouter des détails visuels spécifiques pour représenter le marché, tels que des étals colorés et des épices visibles en arrière-plan, ainsi que des indices visuels des colis dans le sac de Rivo.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La réponse actuelle manque de détails sur le marché coloré et les épices mentionnées dans le prompt original, ce qui conduit à une incohérence visuelle. Ajouter ces éléments renforcerait l'immersion et l'authenticité de la scène.",
+        "tags": ["@Rivo", "#Toamasina", "market", "color", "bicycle", "urban", "scene-3", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882665341,
+        "id": "lesson-scene-1776882665341"
+      },
+      {
+        "directive": "Inclure explicitement la présence et les actions des personnages @Oldwoman et @Mysteriousfigure dans le prompt d'image et d'animation pour renforcer la continuité visuelle et narrative.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Les personnages mentionnés dans le prompt original ne sont pas reflétés dans la réponse générée. Cela crée une dissonance entre la scène attendue et l'output fourni. En intégrant ces personnages, la scène devient plus cohérente et visuellement riche.",
+        "tags": ["@Rivo", "@Oldwoman", "@Mysteriousfigure", "#Café", "!Visual", "scene-4", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882681850,
+        "id": "lesson-scene-1776882681850"
+      },
+      {
+        "directive": "Inclure des détails sensoriels du décor, tels que le pavé craquelé, et préciser les interactions physiques entre les personnages pour renforcer l'immersion.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La description visuelle manque de détails essentiels présents dans le cadre, comme le pavé craquelé, et l'interaction physique, ce qui affaiblit l'immersion scénique.",
+        "tags": ["@Rivo", "@Oldwoman", "#Débris", "#Bâtiment", "interaction", "décor", "scene-5", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882688452,
+        "id": "lesson-scene-1776882688452"
+      },
+      {
+        "directive": "Inclure des détails visuels supplémentaires concernant la silhouette encapuchonnée, tels que sa taille, sa démarche, et des détails sur le marché de Toamasina comme les couleurs vives des étals, les odeurs épicées, et le bruit ambiant, pour renforcer l'immersion.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Le manque de détails visuels spécifiques concernant la silhouette encapuchonnée et le marché de Toamasina empêche de capturer pleinement l'atmosphère trépidante et mystérieuse recherchée.",
+        "tags": ["@Rivo", "#Toamasina", "action", "tension", "!Visual", "scene-6", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882693823,
+        "id": "lesson-scene-1776882693823"
+      },
+      {
+        "directive": "Pour créer une atmosphère visuelle plus oppressante, ajoutez des détails sur les ombres et les expressions faciales inquiètes : 'Des ombres allongées tombent lourdement sur le visage de Rivo, accentuant son anxiété, tandis que les yeux plissés de @Oldwoman transpercent l'air lourd et que @Mysteriousfigure disparaît dans un nuage d'obscurité mouvante.'",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Cela renforce la tension visuelle en ajoutant des éléments d'ombre et en soulignant les expressions faciales, ce qui est crucial pour maintenir l'atmosphère oppressante demandée par la critique.",
+        "tags": ["@Rivo", "@Oldwoman", "@Mysteriousfigure", "#Toamasina", "!Visual", "scene-7", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882699761,
+        "id": "lesson-scene-1776882699761"
+      },
+      {
+        "directive": "Intégrer des détails sensoriels et dynamiques dans la description visuelle, tels que des mouvements de foule, des objets emportés par le vent, et des interactions entre les personnages et leur environnement pour renforcer l'immersion et l'intensité du chaos.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène manque d'éléments visuels chaotiques qui correspondent à la tension décrite dans la narration. Inclure des détails sensoriels et dynamiques créerait une harmonie entre les différents aspects de la scène, augmentant ainsi l'immersion.",
+        "tags": ["@Rivo", "@Oldwoman", "#Marché", "chaos", "détails sensoriels", "!Visual", "scene-8", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882705115,
+        "id": "lesson-scene-1776882705115"
+      },
+      {
+        "directive": "Inclure des éléments visuels du marché (étals colorés, foule) autour de @Rivo pour renforcer l'ambiance, et s'assurer que le téléphone soit clairement visible avec le message lisible. Positionner @Rivo de manière centrale et visible, et inclure @Oldwoman et @Mysteriousfigure dans la composition visuelle pour plus de cohérence.",
+        "category": "visual",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène manque d'éléments visuels du marché qui encadrent @Rivo, ce qui affaiblit l'immersion et l'atmosphère. De plus, le message sur le téléphone doit être lisible pour améliorer l'impact narratif. Inclure les personnages mentionnés assure la continuité et la cohérence de la scène.",
+        "tags": [
+          "@Rivo",
+          "@Oldwoman",
+          "@Mysteriousfigure",
+          "#Toamasina",
+          "market",
+          "phone",
+          "central composition",
+          "scene-9",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882710585,
+        "id": "lesson-scene-1776882710585"
+      },
+      {
+        "directive": "Incluez des mots clés précis pour renforcer la présence visuelle des personnages principaux et des éléments dynamiques dans le cadre, comme 'Rivo traverse le marché sous les éclats vibrants de la lumière stroboscopique, chaque flash révélant @Oldwoman dans l'ombre et @Mysteriousfigure se dissiper dans une onde visuelle tangible.'",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène manque de directives claires pour visualiser les personnages principaux et les éléments dynamiques. L'utilisation de mots clés visuels précis renforcera la visibilité des personnages et l'ambiance dynamique souhaitée.",
+        "tags": ["@Rivo", "@Oldwoman", "@Mysteriousfigure", "#Marché", "!Visual", "dynamisme", "scene-10", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882716544,
+        "id": "lesson-scene-1776882716544"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

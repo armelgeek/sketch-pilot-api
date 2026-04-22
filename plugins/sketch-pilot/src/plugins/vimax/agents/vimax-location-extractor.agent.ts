@@ -9,15 +9,31 @@ import type { LocationState } from '../types'
 
 export class VimaxLocationExtractor extends VimaxBaseAgent {
   public id = 'location-extractor'
+  private styleLock: any | null = null
+
+  setStyleLock(lock: any) {
+    this.styleLock = lock
+  }
 
   private getSystem(): string {
+    const styleBlock = this.styleLock
+      ? `
+[STYLE VISUEL LOCKÉ - OBLIGATOIRE]
+- Style : ${this.styleLock.visualStyle}
+- Termes requis : ${this.styleLock.mandatoryTerms.join(', ')}
+- Termes interdits : ${this.styleLock.forbiddenTerms.join(', ')}
+`.trim()
+      : ''
+
     return `
 Tu es un expert en repérage cinématographique et analyse spatiale.
+${styleBlock}
 Analyse le script fourni et extrais tous les lieux (locations) distincts.
 
 [DIRECTIVES]
 - Identifie chaque lieu par un nom concis et unique.
-- Pour chaque lieu, fournis une description atmosphérique et visuelle riche.
+- Pour chaque lieu, fournis une description atmosphérique et visuelle riche RESPECTANT LE STYLE LOCKÉ.
+- lastImagePrompt : Génère une description visuelle de base qui servira de référence pour ce lieu. Applique strictement le style (ex: si whiteboard, décris comme "dessin au tableau blanc").
 - Précise l'état actuel du lieu tel que décrit dans le script.
 
 [FORMAT]
@@ -27,9 +43,9 @@ Réponds UNIQUEMENT du JSON valide :
     {
       "id": "nom-du-lieu-kebab-case",
       "name": "Nom du Lieu",
-      "atmosphere": "Description de l'ambiance et du style visuel",
-      "lastImagePrompt": "Description visuelle de base pour la génération d'images",
-      "evolution": "État initial tel que décrit",
+      "atmosphere": "...",
+      "lastImagePrompt": "...",
+      "evolution": "...",
       "modifications": []
     }
   ]

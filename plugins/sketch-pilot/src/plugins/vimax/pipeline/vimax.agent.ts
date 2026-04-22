@@ -17,6 +17,7 @@ import { VimaxSagaPlanner } from '../agents/vimax-saga-planner.agent'
 import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
 import { VimaxScreenwriter } from '../agents/vimax-screenwriter.agent'
 import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
+import { VimaxStyleExtractor } from '../agents/vimax-style-extractor.agent'
 import { VimaxUniversalCriticAgent } from '../agents/vimax-universal-critic.agent'
 import { VimaxBrain } from '../core/vimax-brain'
 import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
@@ -62,6 +63,7 @@ export class VimaxAgent {
   public outputFormatter: VimaxOutputFormatterAgent
   public critic: VimaxUniversalCriticAgent
   public brain: VimaxBrain
+  public styleExtractor: VimaxStyleExtractor
   public registry: VimaxPluginRegistry
   public readonly llm: LLMService
 
@@ -74,8 +76,10 @@ export class VimaxAgent {
 
   constructor(llm: LLMService) {
     this.llm = llm
-    this.registry = new VimaxPluginRegistry()
+    this.narrativeExtractor = new VimaxNarrativeExtractor(llm)
     this.brain = new VimaxBrain(llm)
+    this.styleExtractor = new VimaxStyleExtractor(llm)
+    this.registry = new VimaxPluginRegistry()
 
     // Register default agents as plugins
     this.registerDefaultPlugins(llm)
@@ -160,6 +164,14 @@ export class VimaxAgent {
 
     await this.registry.triggerHook('onBeforePlanSaga', this, basicIdea, options)
 
+    // 🎨 Style Lock Logic (Vision-Driven)
+    if (options.referenceStyleImage) {
+      console.info("[VimaxAgent] 🎨 Extraction du style à partir de l'image de référence (Mode Planning)...")
+      const styleLock = await this.styleExtractor.extractStyle(options.referenceStyleImage)
+      this.planner.setStyleLock(styleLock)
+      console.info(`[VimaxAgent] ✨ Style extrait : ${styleLock.visualStyle}`)
+    }
+
     const analysis = await this.inputSanitizer.analyze(basicIdea)
     if (!analysis.isViable) {
       throw new Error(`Idée non viable : ${analysis.issues.join(', ')}`)
@@ -196,6 +208,8 @@ export class VimaxAgent {
 
     const sagaPlan = {
       seriesId,
+      title: plan.title,
+      finalCliffhanger: plan.finalCliffhanger,
       basicIdea,
       options,
       plan,
@@ -303,6 +317,13 @@ export class VimaxAgent {
 
     await this.registry.triggerHook('onBeforeEpisode', this, event, episodeIndex - 1, sagaPlan.options)
 
+    // 🎨 Hydratation du StyleLock depuis le contexte persistant
+    const persistence = sagaPlan.options?.seriesContext
+    if (persistence?.visualStyleLock) {
+      console.info(`[VimaxAgent] 🎨 Restauration du StyleLock : ${persistence.visualStyleLock.visualStyle}`)
+      this.planner.setStyleLock(persistence.visualStyleLock)
+    }
+
     const seriesContext: SeriesContext = {
       ...sagaPlan.options.seriesContext,
       intent: sagaPlan.plan.intent,
@@ -329,7 +350,7 @@ export class VimaxAgent {
       seriesContext.lastEpisodeBridge = lastEpData.bridge
     }
 
-    const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options)
+    const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options, sagaPlan)
 
     await this.registry.triggerHook('onAfterEpisode', this, episode, sagaPlan)
 
@@ -527,7 +548,8 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     event: VimaxEvent,
     index: number,
     context: SeriesContext,
-    options: VimaxRunOptions
+    options: VimaxRunOptions,
+    sagaPlan?: any
   ): Promise<VimaxEpisode> {
     const prefix = `episode-${index + 1}`
 
@@ -570,8 +592,23 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     const continuity = new VimaxContinuityEngine()
     if (context.lastEpisodeBridge) continuity.setBridge(context.lastEpisodeBridge)
 
-    const charContext = this.characterExtractor.formatForPrompt(profiles)
-    const scenes = await this.buildScenes(sceneEvents, context, charContext, profiles, continuity, options)
+    // Fusion des profils extraits avec le registre global (Source de Vérité)
+    const globalRegistry = (sagaPlan?.plan?.characterRegistry || []) as CharacterProfile[]
+    const mergedProfiles = profiles.map((p) => {
+      const global = globalRegistry.find((g) => g.identifier === p.identifier)
+      if (global) {
+        return {
+          ...p,
+          portrait_prompt: global.portrait_prompt || p.portrait_prompt,
+          static_features: global.static_features || p.static_features
+          // On garde les dynamic_features de l'extraction car elles sont spécifiques à l'épisode
+        }
+      }
+      return p
+    })
+
+    const charContext = this.characterExtractor.formatForPrompt(mergedProfiles)
+    const scenes = await this.buildScenes(sceneEvents, context, charContext, mergedProfiles, continuity, options)
 
     // Bridge pour l'épisode suivant
     let bridge: any
@@ -612,16 +649,59 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     const tensionCurve = continuity.tension.buildCurve(sceneEvents.length, context.intent || 'narrative')
     let lastVisualAnchor: VisualAnchorState | null = null
 
+    // 0. Style Lock Logic (Vision-Driven)
+    if (options.referenceStyleImage) {
+      console.info("[VimaxAgent] 🎨 Extraction du style à partir de l'image de référence...")
+      const styleLock = await this.styleExtractor.extractStyle(options.referenceStyleImage)
+      this.planner.setStyleLock(styleLock)
+      console.info(`[VimaxAgent] ✨ Style extrait : ${styleLock.visualStyle}`)
+    } else {
+      // Fallback ou style bible
+      const bible = typeof context.seriesBible === 'string' ? null : context.seriesBible
+      const visualStyle = options.visualStyle || bible?.visualStyle || 'Standard'
+
+      this.planner.setStyleLock({
+        visualStyle,
+        colorPalette: options.colorPalette || [],
+        mandatoryTerms: visualStyle.toLowerCase().includes('whiteboard')
+          ? ['whiteboard sketch', 'simple black and white lines', 'hand-drawn sketch']
+          : [],
+        forbiddenTerms: visualStyle.toLowerCase().includes('whiteboard')
+          ? ['realistic', 'photorealistic', 'cinematic lighting', 'textures', '3d', 'render', 'shaded']
+          : []
+      })
+    }
+
+    // 0.1 Character Identity Locking (Per Person)
+    if (options.referencePortraits && profiles.length > 0) {
+      console.info('[VimaxAgent] 👥 Vérification des identités personnages...')
+      for (const profile of profiles) {
+        const reference = options.referencePortraits[profile.identifier]
+        if (reference && !profile.portrait_prompt?.includes('[LOCKED]')) {
+          console.info(`[VimaxAgent] 👤 Raffinement chirurgical de l'identité pour ${profile.identifier}...`)
+          const refinedPrompt = await this.characterExtractor.refineCharacterIdentity(profile.identifier, reference)
+          profile.portrait_prompt = `${refinedPrompt} [LOCKED]`
+        }
+      }
+      // Re-formater le contexte après verrouillage
+      characterContext = this.characterExtractor.formatForPrompt(profiles)
+    }
+
     for (let i = 0; i < sceneEvents.length; i++) {
       const event = sceneEvents[i]
 
       await this.registry.triggerHook('onBeforeScene', this, event, i + 1, options)
 
       // 1. Narration de scène (Pass 1.5)
+      const durationFactor = (options.targetDuration || 60) / sceneEvents.length
+      const wordsPerSecond = 140 / 60 // Base 140 WPM
+      const maxWords = Math.floor(durationFactor * wordsPerSecond)
+      const targetWordCount = `${Math.max(5, maxWords - 5)}-${maxWords} mots`
+
       const sceneResult = await this.narration.generateSceneNarration(
         event,
         context,
-        undefined,
+        targetWordCount,
         options.maxScenes,
         i === sceneEvents.length - 1,
         sceneMemories,

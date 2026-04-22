@@ -1,0 +1,14 @@
+{
+  "videoId": "173a9988-8cfc-4f9a-9cbe-e5aa46e890b5-ep1",
+  "jobId": "0a0624ca-2a90-4452-a2df-8233bb33786d",
+  "phases": {
+    "script_generation": { "name": "script_generation", "completed": true, "completedAt": "2026-04-22T15:50:20.861Z" },
+    "asset_generation": { "name": "asset_generation", "completed": false },
+    "narration_generation": { "name": "narration_generation", "completed": false },
+    "video_assembly": { "name": "video_assembly", "completed": false },
+    "upload": { "name": "upload", "completed": false },
+    "completed": { "name": "completed", "completed": true, "completedAt": "2026-04-22T15:50:21.398Z" }
+  },
+  "createdAt": "2026-04-22T15:48:19.735Z",
+  "updatedAt": "2026-04-22T15:50:21.398Z"
+}

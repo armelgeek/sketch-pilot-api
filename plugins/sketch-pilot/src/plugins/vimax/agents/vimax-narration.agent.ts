@@ -20,9 +20,9 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
     totalScenes?: number,
     intentReminder = ''
   ): string {
-    const defaultWordCount = mode === 'series' ? '300-500 mots' : '50-80 mots'
+    const defaultWordCount = mode === 'series' ? '300-500 mots' : '15-25 mots'
     const finalWordCount = wordCount || defaultWordCount
-    const lengthGuide = `OBJECTIF : ${finalWordCount} pour ce segment.`
+    const lengthGuide = `[CONTRAINTE CRITIQUE DE DURÉE] : Ta narration NE DOIT PAS dépassER ${finalWordCount}.`
 
     const granularity =
       mode === 'series' ? 'arc narratif majeur (un épisode complet).' : 'beat de niveau scène (une scène unique).'
@@ -58,6 +58,8 @@ ${this.getBibleContext(context)}
 ${memoryBlock}
 
 ${tensionProgression}
+
+[INTERDICTION D'HALLUCINATION] : Tu ne dois JAMAIS inventer de nouveaux noms propres de personnages. Utilise UNIQUEMENT les identifiants @Nom fournis dans le contexte ou le script global. Si un nouveau personnage est nécessaire pour l'action, utilise un rôle générique sans l'@ (ex: "un soldat", "le chauffeur") ou demande explicitement un identifiant au directeur visuel.
 
 [FORMAT]
 Renvoie UNIQUEMENT du JSON valide : { "narration": "la narration ici" }

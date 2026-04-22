@@ -73,6 +73,8 @@ export const series = pgTable('series', {
   threads: jsonb('threads').$type<any[]>().default([]),
   roadmap: jsonb('roadmap').$type<any>().default({}),
   narrationLayer: jsonb('narration_layer').$type<any>(),
+  referenceStyleImage: text('reference_style_image'),
+  visualStyleLock: jsonb('visual_style_lock').$type<any>(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

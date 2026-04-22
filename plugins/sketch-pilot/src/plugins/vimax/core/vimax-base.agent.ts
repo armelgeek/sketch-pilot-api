@@ -92,7 +92,8 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
   protected async generate(
     prompt: string,
     system: string,
-    mime: 'text/plain' | 'application/json' = 'text/plain'
+    mime: 'text/plain' | 'application/json' = 'text/plain',
+    images?: { data: string; mimeType: string }[]
   ): Promise<string> {
     const startTime = Date.now()
     const prunedPrompt = this.enforceTokenBudget(prompt)
@@ -129,7 +130,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
       console.log(`\n[LLM CALL] ${this.id} (${this.constructor.name}) - ID: ${episodeId}`)
     }
 
-    const raw = await this.llm.generateContent(prunedPrompt, finalSystem, mime)
+    const raw = await this.llm.generateContent(prunedPrompt, finalSystem, mime, images)
     const duration = Date.now() - startTime
 
     this.metrics.durationMs += duration
@@ -147,7 +148,8 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
       timestamp: Date.now(),
       durationMs: duration,
       status: 'pending',
-      appliedLessonIds
+      appliedLessonIds,
+      images
     })
 
     if (process.env.DEBUG_LLM) {
@@ -184,6 +186,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     prompt: string,
     system: string,
     fallback: T,
+    images?: { data: string; mimeType: string }[],
     maxRetries = 2
   ): Promise<GenerationResult<T>> {
     let retryCount = 0
@@ -194,13 +197,14 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
         // Note: On passe l'episodeId pour que generate puisse l'utiliser (ou on laisse generate en créer un nouveau)
         // Pour simplifier, on laisse generate créer son propre épisode et on le récupérera via le dernier fichier créé si besoin,
         // MAIS le mieux est de modifier generate pour accepter un ID optionnel.
-        const raw = await this.generate(prompt, system, 'application/json')
+        const raw = await this.generate(prompt, system, 'application/json', images)
         const data = this.parseJSON<T>(raw)
 
         return {
           data,
           confidence: retryCount === 0 ? 'high' : 'low',
-          retryCount
+          retryCount,
+          images
         }
       } catch (error: any) {
         // TAG FAILURE : Si on est ici, c'est un échec de parsing

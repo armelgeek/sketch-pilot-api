@@ -318,7 +318,7 @@ export class VimaxAdminController implements Routes {
               metadata.status = planContent.status || 'stable'
             }
 
-            const episodesDir = path.join(sagaDir, entry.name)
+            const episodesDir = path.join(sagaDir, entry.name, 'episodes')
             const files = await fs.readdir(episodesDir).catch(() => [])
             const epCount = files.filter((f) => f.startsWith('episode-') && f.endsWith('.json')).length
 
@@ -361,11 +361,12 @@ export class VimaxAdminController implements Routes {
         const videoRepo = new VideoRepository()
         const dbVideos = await videoRepo.findBySeriesId(id)
 
-        const files = await fs.readdir(sagaDir).catch(() => [])
+        const episodesDir = path.join(sagaDir, 'episodes')
+        const epFiles = await fs.readdir(episodesDir).catch(() => [])
         const episodes = []
-        for (const file of files) {
+        for (const file of epFiles) {
           if (file.startsWith('episode-') && file.endsWith('.json')) {
-            const ep = JSON.parse(await fs.readFile(path.join(sagaDir, file), 'utf8'))
+            const ep = JSON.parse(await fs.readFile(path.join(episodesDir, file), 'utf8'))
 
             // Enrich with DB data (images, status)
             const dbVideo = dbVideos.find((v) => v.episodeNumber === ep.episodeNumber)
@@ -389,10 +390,26 @@ export class VimaxAdminController implements Routes {
         }
 
         const audits = []
-        for (const file of files) {
+
+        // Load from root saga directory (legacy/mixed)
+        const rootFiles = await fs.readdir(sagaDir).catch(() => [])
+        for (const file of rootFiles) {
           if (file.startsWith('audit-') && file.endsWith('.json')) {
             const audit = JSON.parse(await fs.readFile(path.join(sagaDir, file), 'utf8'))
             audits.push({ file, ...audit })
+          }
+        }
+
+        // Load from specialized audits/ directory
+        const auditsDir = path.join(sagaDir, 'audits')
+        const auditFiles = await fs.readdir(auditsDir).catch(() => [])
+        for (const file of auditFiles) {
+          if (file.startsWith('audit-') && file.endsWith('.json')) {
+            const audit = JSON.parse(await fs.readFile(path.join(auditsDir, file), 'utf8'))
+            // Éviter les doublons si déjà chargé depuis le root
+            if (!audits.some((a: any) => a.file === file)) {
+              audits.push({ file: `audits/${file}`, ...audit })
+            }
           }
         }
 
@@ -604,13 +621,12 @@ export class VimaxAdminController implements Routes {
         const fullVideo = await videoRepo.findById(dbVideo.id)
         if (!fullVideo || !fullVideo.scenes) return c.json({ error: 'Scenes not found' }, 404)
 
-        const files = await fs.readdir(path.join(process.cwd(), 'vimax-logs', 'sagas', id)).catch(() => [])
+        const episodesDir = path.join(process.cwd(), 'vimax-logs', 'sagas', id, 'episodes')
+        const files = await fs.readdir(episodesDir).catch(() => [])
         const epFileName = files.find((f) => f === `episode-${episodeNumber}.json`)
         if (!epFileName) return c.json({ error: 'Episode log not found' }, 404)
 
-        const epLog = JSON.parse(
-          await fs.readFile(path.join(process.cwd(), 'vimax-logs', 'sagas', id, epFileName), 'utf8')
-        )
+        const epLog = JSON.parse(await fs.readFile(path.join(episodesDir, epFileName), 'utf8'))
 
         const audits = []
         for (const scene of fullVideo.scenes) {
@@ -630,6 +646,7 @@ export class VimaxAdminController implements Routes {
           'vimax-logs',
           'sagas',
           id,
+          'audits',
           `audit-visual-ep${episodeNumber}-${Date.now()}.json`
         )
         await fs.writeFile(
@@ -838,20 +855,27 @@ export class VimaxAdminController implements Routes {
       if (planExists) {
         const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
         const audit = await critic.auditSagaPlan(plan)
-        const auditPath = path.join(sagaDir, `audit-plan-${Date.now()}.json`)
+        const auditPath = path.join(sagaDir, 'audits', `audit-plan-${Date.now()}.json`)
         await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
       }
     }
 
     if (section === 'all') {
-      const files = await fs.readdir(sagaDir).catch(() => [])
-      for (const file of files) {
-        if (file.startsWith('episode-') && file.endsWith('.json')) {
-          const epPath = path.join(sagaDir, file)
-          const ep = JSON.parse(await fs.readFile(epPath, 'utf8'))
+      const episodesDir = path.join(sagaDir, 'episodes')
+      const rootFiles = await fs.readdir(sagaDir).catch(() => [])
+      const subFiles = await fs.readdir(episodesDir).catch(() => [])
+
+      const allFiles = [
+        ...rootFiles.map((f) => ({ path: path.join(sagaDir, f), name: f })),
+        ...subFiles.map((f) => ({ path: path.join(episodesDir, f), name: f }))
+      ]
+
+      for (const file of allFiles) {
+        if (file.name.startsWith('episode-') && file.name.endsWith('.json')) {
+          const ep = JSON.parse(await fs.readFile(file.path, 'utf8'))
           const audit = await critic.auditEpisode(ep)
-          const epId = file.replace('episode-', '').replace('.json', '')
-          const auditPath = path.join(sagaDir, `audit-episode-${epId}-${Date.now()}.json`)
+          const epId = file.name.replace('episode-', '').replace('.json', '')
+          const auditPath = path.join(sagaDir, 'audits', `audit-episode-${epId}-${Date.now()}.json`)
           await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
         }
       }

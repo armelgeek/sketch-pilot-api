@@ -501,7 +501,17 @@ export class VimaxBrain {
     sceneNumber: number,
     critique: string
   ): Promise<boolean> {
-    const episodePath = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId, `episode-${episodeNumber}.json`)
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
+    // On cherche d'abord dans le dossier spécialisé 'episodes/', puis à la racine (legacy)
+    let episodePath = path.join(sagaDir, 'episodes', `episode-${episodeNumber}.json`)
+    const existsInSubdir = await fs
+      .access(episodePath)
+      .then(() => true)
+      .catch(() => false)
+
+    if (!existsInSubdir) {
+      episodePath = path.join(sagaDir, `episode-${episodeNumber}.json`)
+    }
 
     try {
       const episodeData = JSON.parse(await fs.readFile(episodePath, 'utf8'))

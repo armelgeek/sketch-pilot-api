@@ -67,7 +67,12 @@ export class OpenAILLMService implements LLMService {
     this.modelId = config.modelId || 'gpt-4o'
   }
 
-  async generateContent(prompt: string, systemInstruction?: string, responseMimeType?: string): Promise<string> {
+  async generateContent(
+    prompt: string,
+    systemInstruction?: string,
+    responseMimeType?: string,
+    images?: { data: string; mimeType: string }[]
+  ): Promise<string> {
     return withRetry(
       async () => {
         const messages: any[] = []
@@ -75,7 +80,21 @@ export class OpenAILLMService implements LLMService {
         if (systemInstruction) {
           messages.push({ role: 'system', content: systemInstruction })
         }
-        messages.push({ role: 'user', content: prompt })
+
+        const userContent: any[] = [{ type: 'text', text: prompt }]
+
+        if (images && images.length > 0) {
+          for (const img of images) {
+            userContent.push({
+              type: 'image_url',
+              image_url: {
+                url: `data:${img.mimeType};base64,${img.data}`
+              }
+            })
+          }
+        }
+
+        messages.push({ role: 'user', content: userContent })
 
         const options: any = {
           model: this.modelId,

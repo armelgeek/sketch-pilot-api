@@ -12,6 +12,7 @@ type PrepareSagaDraftParams = {
   description?: string
   language?: string
   totalEpisodes?: number
+  referenceStyleImage?: string
 }
 
 export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, any> {
@@ -42,7 +43,8 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
       // For now, let's just generate the draft
       const draft = await agent.planner.draftSaga(idea, {
         userId: params.userId,
-        targetEpisodeCount: params.totalEpisodes
+        targetEpisodeCount: params.totalEpisodes,
+        referenceStyleImage: params.referenceStyleImage
       })
 
       // Create or Update series entry
@@ -58,6 +60,7 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
         })),
         language: params.language || 'fr',
         totalEpisodes: String(draft.episodes.length),
+        referenceStyleImage: params.referenceStyleImage,
         status: 'draft' as const
       }
 

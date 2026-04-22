@@ -15,8 +15,9 @@ export class VimaxLLMAdapter implements LLMService {
   async generateContent(
     prompt: string,
     systemInstruction?: string,
-    responseMimeType?: 'text/plain' | 'application/json'
+    responseMimeType?: 'text/plain' | 'application/json',
+    images?: { data: string; mimeType: string }[]
   ): Promise<string> {
-    return this.globalLLM.generateContent(prompt, systemInstruction, responseMimeType)
+    return this.globalLLM.generateContent(prompt, systemInstruction, responseMimeType, images)
   }
 }

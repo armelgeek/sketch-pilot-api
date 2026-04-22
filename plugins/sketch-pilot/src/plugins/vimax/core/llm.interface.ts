@@ -7,6 +7,7 @@ export interface LLMService {
   generateContent: (
     prompt: string,
     systemInstruction?: string,
-    responseMimeType?: 'text/plain' | 'application/json'
+    responseMimeType?: 'text/plain' | 'application/json',
+    images?: { data: string; mimeType: string }[]
   ) => Promise<string>
 }

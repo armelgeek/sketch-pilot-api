@@ -25,6 +25,7 @@ export interface GenerationResult<T> {
   data: T
   confidence: 'high' | 'low' | 'fallback'
   retryCount: number
+  images?: { data: string; mimeType: string }[]
 }
 
 export interface ContinuityReport {
@@ -155,6 +156,7 @@ export interface VisualAtmosphere {
 }
 
 export interface SagaPlan {
+  title: string
   intent: SagaIntent | string
   script: string
   episodes: Array<{
@@ -164,6 +166,7 @@ export interface SagaPlan {
     eventDescription: string
     hook?: string
   }>
+  finalCliffhanger?: string
   characterRegistry: CharacterProfile[]
   locationRegistry: LocationState[]
   assetRegistry: AssetProfile[]
@@ -312,6 +315,8 @@ export interface VimaxRunOptions {
   reviewGates?: ReviewGate['stage'][]
 
   brainMode?: 'stable' | 'all'
+  referenceStyleImage?: string // URL ou Base64 de l'image de référence globale
+  referencePortraits?: Record<string, string> // Map @Nom -> URL/Base64 portrait
 }
 
 export interface SceneRoleRegistry {
@@ -385,6 +390,7 @@ export interface LearningEpisode {
   evaluation?: EvaluationReport
   learningApplied?: boolean
   narration?: string
+  images?: { data: string; mimeType: string }[]
 }
 
 export interface EvaluationReport {
