@@ -288,7 +288,7 @@ export class NanoBananaEngine {
       if (internalContext) systemInstruction = `${internalContext}\n\n${systemInstruction}`
 
       if (masterStyleUrl && !isPortrait) {
-        systemInstruction = `MASTER STYLE PRIORITY: Use the "Master Style" reference image ONLY for artistic rendering (linework, colors, textures), lighting, and general atmospheric vibe. ⚠️ IMPORTANT: If a character is visible in the "Master Style" but NOT mentioned in the text prompt or @VisualState, DO NOT include them. Follow the TEXT PROMPT strictly for character identity and count.\n\n${systemInstruction}`
+        systemInstruction = `MASTER STYLE PRIORITY: Use the "Master Style" reference image for general artistic rendering (colors, lighting, vibe). ⚠️ IMPORTANT: If the TEXT PROMPT or VISUAL DNA specifies a different medium (e.g. Whiteboard, Sketch, Stick Figure), PRIORITIZE the medium of the prompt over the Master Style. Also, if a character is visible in the "Master Style" but NOT mentioned in the text prompt, DO NOT include them.\n\n${systemInstruction}`
       }
 
       if (isPortrait) {
@@ -451,6 +451,7 @@ export class NanoBananaEngine {
     const dnaParts: string[] = []
 
     if (context) {
+      if (context.visualStyle) dnaParts.push(`STYLE: ${context.visualStyle}`)
       if (context.colorPalette) dnaParts.push(`PALETTE: ${context.colorPalette}`)
       if (context.symbolicMotifs?.length > 0) dnaParts.push(`MOTIFS: ${context.symbolicMotifs.join(', ')}`)
       if (context.cameraStyle) dnaParts.push(`CAMERA: ${context.cameraStyle}`)

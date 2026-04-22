@@ -68,39 +68,59 @@
       "verified": true
     },
     {
-      "directive": "Intégrez des éléments narratifs et visuels dynamiques pour renforcer l'immersion et l'impact émotionnel, en assurant une continuité fluide avec des descriptions précises des personnages, des décors et des événements inattendus.",
-      "category": "continuity",
-      "confidence": 1,
-      "id": "trend-1776882825601-0",
-      "agentName": "VimaxScreenwriter",
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776882825601
-    },
-    {
-      "directive": "Développez des personnages avec des motivations complexes et des conflits significatifs, intégrant des éléments de surprise pour enrichir la profondeur narrative et éviter les clichés.",
+      "directive": "Développer des personnages avec des motivations complexes, des luttes internes et des liens émotionnels forts avec les sous-intrigues pour renforcer l'engagement du lecteur.",
       "category": "logic",
       "confidence": 1,
-      "id": "trend-1776882825601-1",
+      "id": "trend-1776889174002-0",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776882825601
+      "lastUpdated": 1776889174002
     },
     {
-      "directive": "Utilisez des détails visuels et sensoriels pour renforcer l'atmosphère et le cadre de la scène, en positionnant stratégiquement les personnages et les éléments clés pour une cohérence visuelle.",
-      "category": "style",
+      "directive": "Intégrer des variations et des révélations inattendues dans la progression narrative pour maintenir l'intérêt et éviter les clichés.",
+      "category": "logic",
       "confidence": 1,
-      "id": "trend-1776882825601-2",
+      "id": "trend-1776889174002-1",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776882825601
+      "lastUpdated": 1776889174002
+    },
+    {
+      "directive": "Assurer une continuité narrative fluide avec des transitions cohérentes, en liant toutes les intrigues à un thème central dès le début.",
+      "category": "continuity",
+      "confidence": 1,
+      "id": "trend-1776889174002-2",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776889174002
+    },
+    {
+      "directive": "Incorporer des détails sensoriels et des descriptions visuelles pour renforcer l'immersion et l'atmosphère dans chaque scène.",
+      "category": "style",
+      "confidence": 1,
+      "id": "trend-1776889174002-3",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776889174002
+    },
+    {
+      "directive": "Varier le rythme en intégrant des réflexions personnelles et des développements relationnels, tout en explorant les conséquences émotionnelles des événements.",
+      "category": "style",
+      "confidence": 1,
+      "id": "trend-1776889174002-4",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776889174002
     }
   ],
   "globalDirectives": [
     "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
     "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
   ],
-  "version": "3.6.5"
+  "version": "3.6.7"
 }

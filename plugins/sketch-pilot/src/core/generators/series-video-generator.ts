@@ -205,6 +205,8 @@ export interface SeriesContext {
     level?: number
     type?: 'build' | 'sustain' | 'spike' | 'release'
   }
+  thumbnailUrl?: string
+  visualStyle?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

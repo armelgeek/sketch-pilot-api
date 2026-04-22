@@ -20,9 +20,9 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
     totalScenes?: number,
     intentReminder = ''
   ): string {
-    const defaultWordCount = mode === 'series' ? '300-500 mots' : '15-25 mots'
+    const defaultWordCount = mode === 'series' ? '300-500 mots' : '40-70 mots'
     const finalWordCount = wordCount || defaultWordCount
-    const lengthGuide = `[CONTRAINTE CRITIQUE DE DURÉE] : Ta narration NE DOIT PAS dépassER ${finalWordCount}.`
+    const lengthGuide = `[CONTRÔLE DE DURÉE] : Ta narration doit idéalement faire environ ${finalWordCount}.`
 
     const granularity =
       mode === 'series' ? 'arc narratif majeur (un épisode complet).' : 'beat de niveau scène (une scène unique).'
@@ -42,11 +42,10 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
 Tu es un scénariste de sagas cinématographiques à haute tension.
 Génère une NARRATION BRUTE et percutante pour l'événement fourni.
 
-[CONTRAINTE DE LONGUEUR CRITIQUE]
+[GUIDE DE RÉDACTION]
 ${lengthGuide}
-- TU DOIS ÊTRE CONCIS.
-- SI TU DÉPASSES LE NOMBRE DE MOTS DEMANDÉ, LA SÉRIE SERA ANNULÉE.
-- Évite les adjectifs inutiles. Concentre-toi sur l'action et le subtexte.
+- Développe une prose immersive, sensorielle et fluide.
+- Évite les clichés et concentre-toi sur le subtexte et l'ambiance.
 
 ${intentReminder}
 

@@ -24,10 +24,10 @@ export class VimaxStyleExtractor extends VimaxBaseAgent {
 Analyse l'image de référence fournie et extrais un "StyleLock" JSON pour guider un générateur d'images IA.
 
 [DIRECTIVES]
-1. STYLE VISUEL : Donne un nom technique précis à l'esthétique (ex: "Whiteboard Sketch", "Noir & Blanc minimaliste", "Aquarelle pastel").
+1. STYLE VISUEL : Donne un nom technique précis à l'esthétique (ex: "Whiteboard Sketch", "Stick Figure drawing", "Noir & Blanc minimaliste").
 2. PALETTE : Liste les couleurs dominantes.
-3. TERMES OBLIGATOIRES : Mots-clés indispensables pour reproduire ce support (ex: "lignes noires", "croquis main", "fond blanc uni").
-4. TERMES INTERDITS : Mots-clés à bannir pour éviter tout drift vers le réalisme (ex: "photoréalisme", "ombrage 3D", "dégradés", "textures complexes").
+3. TERMES OBLIGATOIRES : Mots-clés indispensables pour reproduire ce support (ex: "personnage en bâton", "traits noirs", "croquis main", "fond blanc uni", "minimalisme").
+4. TERMES INTERDITS : Mots-clés à bannir pour éviter tout drift vers le réalisme (ex: "photoréalisme", "ombrage 3D", "dégradés", "textures complexes", "visage détaillé").
 
 [FORMAT JSON OBLIGATOIRE]
 {

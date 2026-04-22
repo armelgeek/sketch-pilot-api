@@ -163,13 +163,23 @@ export class VimaxAgent {
     })
 
     await this.registry.triggerHook('onBeforePlanSaga', this, basicIdea, options)
-
+    console.log('[REFERENCE IMAGE]', options)
     // 🎨 Style Lock Logic (Vision-Driven)
     if (options.referenceStyleImage) {
       console.info("[VimaxAgent] 🎨 Extraction du style à partir de l'image de référence (Mode Planning)...")
       const styleLock = await this.styleExtractor.extractStyle(options.referenceStyleImage)
       this.planner.setStyleLock(styleLock)
       console.info(`[VimaxAgent] ✨ Style extrait : ${styleLock.visualStyle}`)
+
+      // [V47] Promote style reference as Master Style for the engine
+      if (options.seriesContext) {
+        options.seriesContext.thumbnailUrl = options.referenceStyleImage
+        // Sync Visual DNA attributes for the engine
+        options.seriesContext.colorPalette = styleLock.colorPalette.join(', ')
+        options.seriesContext.cameraStyle = styleLock.visualStyle
+        // Store mandatory terms in motifs for persistent enforcement
+        options.seriesContext.symbolicMotifs = styleLock.mandatoryTerms
+      }
     }
 
     const analysis = await this.inputSanitizer.analyze(basicIdea)
@@ -677,10 +687,15 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       console.info('[VimaxAgent] 👥 Vérification des identités personnages...')
       for (const profile of profiles) {
         const reference = options.referencePortraits[profile.identifier]
-        if (reference && !profile.portrait_prompt?.includes('[LOCKED]')) {
-          console.info(`[VimaxAgent] 👤 Raffinement chirurgical de l'identité pour ${profile.identifier}...`)
-          const refinedPrompt = await this.characterExtractor.refineCharacterIdentity(profile.identifier, reference)
-          profile.portrait_prompt = `${refinedPrompt} [LOCKED]`
+        if (reference) {
+          // [V47] Ensure the reference image is used as the character's visual anchor
+          profile.thumbnailUrl = reference
+
+          if (!profile.portrait_prompt?.includes('[LOCKED]')) {
+            console.info(`[VimaxAgent] 👤 Raffinement chirurgical de l'identité pour ${profile.identifier}...`)
+            const refinedPrompt = await this.characterExtractor.refineCharacterIdentity(profile.identifier, reference)
+            profile.portrait_prompt = `${refinedPrompt} [LOCKED]`
+          }
         }
       }
       // Re-formater le contexte après verrouillage

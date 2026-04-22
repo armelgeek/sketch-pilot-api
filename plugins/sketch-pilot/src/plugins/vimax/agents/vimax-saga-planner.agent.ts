@@ -91,8 +91,10 @@ Réponds UNIQUEMENT avec du JSON valide : { "intent": "narrative" | "motion" | "
 [RÔLE : Expert en Planification de Série - Mode ${(intentKey || 'narrative').toUpperCase()}]
 Tu es un expert chargé de transformer une idée brute en un script structuré et cinématique.
 
-[INVENTAIRE EXHAUSTIF OBLIGATOIRE]
-Le script DOIT nommer et identifier (via @Nom) TOUS les personnages, même les rôles secondaires, les figurants ou les unités collectives (ex: @Garde, @Foule, @Passant), dès qu'ils participent à une action. Ces identifiants sont la base du moteur de rendu visuel.
+[EXIGENCES DE DENSITÉ NARRATIVE]
+- BIBLE NARRATIVE (planned_script) : Ne te limite pas à un résumé. Rédige une bible narrative dense (Bible Arcs) détaillant chaque acte, les confrontations majeures, les enjeux dramatiques et l'évolution psychologique des protagonistes.
+- LISTE COMPLÈTE DES INTERVENANTS : Identifie explicitement TOUS les personnages (@PascalCase) dès leur première apparition et assure-toi qu'ils ont un rôle défini dans le script.
+- ARC COMPLET : Le script doit couvrir toute l'histoire, de l'incident déclencheur à la résolution (ou au cliffhanger), sans éluder les étapes de transition.
 
 ${identDirective}
 
@@ -161,7 +163,10 @@ ${bibleContext}
       finalCliffhanger: string
       unresolved_threads: Array<{ id: string; title: string; description: string }>
     }>(
-      `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en un script complet.${lengthHint} Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHANGER ORGANIQUE] : Le dernier épisode du batch actuel DOIT apporter une conclusion satisfaisante à l'arc principal TOUT EN révélant une conséquence imprévue, un secret lié aux événements passés ou un nouveau défi qui découle directement de l'histoire précédente (OUVERTURE). Identifie ce crochet dans le champ "finalCliffhanger" et liste les pistes narratives non résolues dans "unresolved_threads". Le crochet doit sembler être la "suite logique" et non un événement parachuté. Évite les raccourcis narratifs ; prends le temps d'installer les enjeux et les émotions.${targetEpisodeCount ? ` Structure l'histoire en ${targetEpisodeCount} actes bien distincts.` : ''}\n\nRéponds uniquement en JSON.`,
+      `<IDÉE_DE_BASE>\n${basicIdea}\n</IDÉE_DE_BASE>\n\nDéveloppe cette idée en une BIBLE NARRATIVE COMPLÈTE ET DÉTAILLÉE.${lengthHint} 
+[CONSIGNE DE PROFONDEUR] : Le champ "planned_script" doit être extrêmement riche. Décris précisément l'arc narratif global, les motivations de chaque personnage (@PascalCase), les environnements traversés et la progression de la tension dramatique. Ne fais aucune ellipse sur les moments clés.
+
+Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHANGER ORGANIQUE] : Le dernier épisode du batch actuel DOIT apporter une conclusion satisfaisante à l'arc principal TOUT EN révélant une conséquence imprévue, un secret lié aux événements passés ou un nouveau défi qui découle directement de l'histoire précédente (OUVERTURE). Identifie ce crochet dans le champ "finalCliffhanger" et liste les pistes narratives non résolues dans "unresolved_threads". Le crochet doit sembler être la "suite logique" et non un événement parachuté. Évite les raccourcis narratifs ; prends le temps d'installer les enjeux et les émotions.${targetEpisodeCount ? ` Structure l'histoire en ${targetEpisodeCount} actes bien distincts.` : ''}\n\nRéponds uniquement en JSON.`,
       this.getSpecializedSystem(intent, bibleContext),
       {
         title: 'Saga sans titre',
@@ -368,7 +373,9 @@ ${bibleContext}
 `.trim()
       : ''
 
-    const isWhiteboard = this.styleLock?.visualStyle.toLowerCase().includes('whiteboard')
+    const vs = this.styleLock?.visualStyle.toLowerCase() || ''
+    const isWhiteboard =
+      vs.includes('whiteboard') || vs.includes('bâton') || vs.includes('stick figure') || vs.includes('croquis')
     const systemRole = isWhiteboard
       ? "[RÔLE : Dessinateur d'Animation Whiteboard]"
       : '[RÔLE : Directeur de la Photographie & Directeur Visuel]'
@@ -385,14 +392,13 @@ ${bibleContext}
 ${systemRole}
 ${styleBlock}
 - IDENTIFIANTS : Utilise UNIQUEMENT l'identifiant @Nom (ex: @Banane, @Alexandre). Fais correspondre exactement leur profil visuel. [OBLIGATION] PROTECT THE IDENTITY : Ne simplifie jamais les traits physiques fournis ; ils sont la clé de la cohérence visuelle.
-- COMPOSITION : La description DOIT inclure dans une seule phrase fluide : le sujet @Nom au premier plan avec une action précise, les personnages actifs au plan moyen, et l'environnement géographique avec son éclairage en arrière-plan.
-- GRAMMAIRE DE LA LUMIÈRE : Interdiction de l'expression "éclairage vif". Utilise : "lumière stroboscopique d'alarme", "lumière rouge intermittente", "ombres dures projetées par le bas", "flash blanc aveuglant".
+${compositionDirective}
+${lightDirective}
 - CAMÉRA NARRATIVE : Décris l'angle et le mouvement lié à l'intention (ex: plan serré désaxé pour du chaos, contre-plongée pour du pouvoir).${climaxDirective}
 - FLASHBACK : Si la narration indique un souvenir ou un reflet du passé, applique un style "FLASHBACK" (lumière surexposée, léger flou, couleurs désaturées).
 - CAUSALITÉ : Décris les ACTIONS concrètes qui provoquent le danger (ex: une barre de fer tombe, une étincelle jaillit).
 - Techniquement explicite : nomme les positions exactes, les vecteurs, les détails de l'environnement.
 - PAS de métaphores. Description visuelle pure.
-- LONGUEUR : 2-4 phrases maximum.
 - [CONTINUITÉ LUMINEUSE] Assure la cohérence avec le reste de la série.
 - [ISOLATION] IGNORE TOUT ce qui est entre crochets [Action / Émotion].
 - INTERDICTION d'utiliser des crochets ou des tags rigides.
@@ -414,8 +420,8 @@ Renvoie UNIQUEMENT du JSON valide :
       ? `\n\n[LISTE DES PERSONNAGES]\n${characterContext}\n[/LISTE DES PERSONNAGES]`
       : ''
 
-    const styleDirective = this.styleLock?.visualStyle.toLowerCase().includes('whiteboard')
-      ? "Génère un imagePrompt de style WHITEBOARD ANIMATION (dessin au tableau blanc, traits noirs simples sur fond blanc, style croquis rapide, pas d'ombres complexes)."
+    const styleDirective = isWhiteboard
+      ? "Génère un imagePrompt de style CROQUIS / WHITEBOARD (traits de feutre noirs simples, fond blanc, style croquis rapide). PRÉSERVE l'identité visuelle de @Nom (cheveux, vêtements) mais dessine-les dans ce médium minimaliste (ex: traits simplifiés pour les yeux)."
       : 'Génère un imagePrompt FLUIDE, NARRATIF ET CINÉMATOGRAPHIQUE respectant strictement le style verrouillé.'
 
     const result = await this.generateStructured<{ imagePrompt: string; visualAnchor: VisualAnchorState }>(

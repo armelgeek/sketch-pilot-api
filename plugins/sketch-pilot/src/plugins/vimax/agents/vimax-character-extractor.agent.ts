@@ -35,7 +35,8 @@ NE FILTRE AUCUN RÔLE : Même les personnages secondaires, les figurants nommés
 
 [DIRECTIVE DE STYLE]
 Le champ "portrait_prompt" DOIT ABSOLUMENT intégrer les termes requis du STYLE LOCKÉ. 
-Exemple si whiteboard : "portrait croquis main au feutre noir, lignes épurées, fond blanc".
+Exemple si whiteboard/sketch : "personnage dessiné au feutre noir, lignes claires, [IDENTITÉ : ${this.styleLock ? 'intègre ici les traits de @Nom' : 'traits physiques'}], fond blanc".
+L'identité visuelle (cheveux, yeux, accessoires) doit être préservée mais ADAPTÉE au médium (ex: ne pas demander de réalisme photo si c'est un croquis).
 
 [FORMAT]
 Réponds UNIQUEMENT du JSON valide :

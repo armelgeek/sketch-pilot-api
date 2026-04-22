@@ -198,6 +198,11 @@ export interface SeriesContext {
   seriesBible?: SeriesBible | string
   intent?: SagaIntent | string
   characterStates?: CharacterState[]
+  thumbnailUrl?: string
+  colorPalette?: string
+  cameraStyle?: string
+  symbolicMotifs?: string[]
+  visualStyle?: string
 }
 
 export interface VimaxSeries {
@@ -262,6 +267,7 @@ export interface CharacterProfile {
   static_features?: string
   dynamic_features?: string
   portrait_prompt?: string
+  thumbnailUrl?: string
 }
 
 export interface CharacterVoiceHistory {

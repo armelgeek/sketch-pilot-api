@@ -1,0 +1,162 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Intégrez des éléments narratifs et visuels dynamiques pour renforcer l'immersion et l'impact émotionnel, en assurant une continuité fluide avec des descriptions précises des personnages, des décors et des événements inattendus.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776882825601-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882825601
+      },
+      {
+        "directive": "Développez des personnages avec des motivations complexes et des conflits significatifs, intégrant des éléments de surprise pour enrichir la profondeur narrative et éviter les clichés.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776882825601-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882825601
+      },
+      {
+        "directive": "Utilisez des détails visuels et sensoriels pour renforcer l'atmosphère et le cadre de la scène, en positionnant stratégiquement les personnages et les éléments clés pour une cohérence visuelle.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776882825601-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776882825601
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.5"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Inclure des éléments visuels indiquant le bruit de l'hélicoptère en arrière-plan, telles que des vibrations ou des ondulations de l'air autour des personnages et de l'hélicoptère.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Cela permet de mieux traduire l'intensité sonore de l'hélicoptère, qui est une partie essentielle de l'atmosphère de la scène.",
+        "tags": ["@Ava", "@Leo", "@Camille", "#Amazonie", "!Visual", "scene-4", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776886161220,
+        "id": "lesson-scene-1776886161219"
+      },
+      {
+        "directive": "Inclure des éléments visuels qui représentent le bruit de l'environnement, comme l'hélicoptère, en utilisant des effets visuels (par ex. vibrations, flou de mouvement).",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Les utilisateurs s'attendent à une représentation visuelle du son, ce qui renforce l'immersion et la compréhension de l'environnement.",
+        "tags": ["@Ava", "@Leo", "@Camille", "#Amazonie", "hélicoptère", "bruit", "scene-4", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776886186106,
+        "id": "lesson-scene-1776886186106"
+      },
+      {
+        "directive": "Assurez-vous que tous les personnages mentionnés dans la narration sont visuellement présents dans l'image, notamment @Camille dans cet exemple. Utilisez des détails visuels pour l'incorporer visiblement dans la scène.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La narration mentionne @Camille tenant une torche, mais l'image omet sa présence, créant une incohérence entre la narration et l'image. Cela perturbe la continuité visuelle et narrative.",
+        "tags": ["@Ava", "@Leo", "@Camille", "#Visual", "horizon", "fumée", "#temple_exterior_001", "scene-11", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776886675045,
+        "id": "lesson-scene-1776886675045"
+      },
+      {
+        "directive": "Inclure tous les personnages mentionnés dans le prompt initial dans la scène visuelle et s'assurer que l'arrière-plan correspond à la narration décrite.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène visuelle doit refléter la narration décrite dans le prompt pour éviter les incohérences et améliorer l'immersion du spectateur. Camille, bien qu'indiquée dans le prompt initial, manquait dans la scène, perturbant la continuité.",
+        "tags": ["@Ava", "@Leo", "@Camille", "horizon", "!Visual", "scene-11", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776886717104,
+        "id": "lesson-scene-1776886717104"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

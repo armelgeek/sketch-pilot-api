@@ -396,7 +396,7 @@ export class VimaxAdminController implements Routes {
         for (const file of rootFiles) {
           if (file.startsWith('audit-') && file.endsWith('.json')) {
             const audit = JSON.parse(await fs.readFile(path.join(sagaDir, file), 'utf8'))
-            audits.push({ file, ...audit })
+            audits.push({ file, location: 'root', ...audit })
           }
         }
 
@@ -408,7 +408,7 @@ export class VimaxAdminController implements Routes {
             const audit = JSON.parse(await fs.readFile(path.join(auditsDir, file), 'utf8'))
             // Éviter les doublons si déjà chargé depuis le root
             if (!audits.some((a: any) => a.file === file)) {
-              audits.push({ file: `audits/${file}`, ...audit })
+              audits.push({ file, location: 'audits', ...audit })
             }
           }
         }
@@ -791,7 +791,7 @@ export class VimaxAdminController implements Routes {
     this.controller.openapi(
       createRoute({
         method: 'post',
-        path: '/v1/admin/vimax/sagas/{id}/audits/{fileName}/narrative/processed',
+        path: '/v1/admin/vimax/audits/{id}/{fileName}/narrative/processed',
         tags: ['Vimax Admin'],
         summary: 'Mark a narrative feedback in an audit report as processed',
         security: [{ Bearer: [] }],
@@ -821,7 +821,17 @@ export class VimaxAdminController implements Routes {
         const { id, fileName } = c.req.valid('param')
         const { issue } = await c.req.json()
         const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', id)
-        const auditPath = path.join(sagaDir, fileName)
+
+        // Robust path resolution: check audits/ directory first then root
+        let auditPath = path.join(sagaDir, 'audits', fileName)
+        const exists = await fs
+          .access(auditPath)
+          .then(() => true)
+          .catch(() => false)
+
+        if (!exists) {
+          auditPath = path.join(sagaDir, fileName)
+        }
 
         try {
           const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
@@ -834,7 +844,66 @@ export class VimaxAdminController implements Routes {
             }
           }
           return c.json({ success: false, message: 'Feedback not found in audit' }, 404)
-        } catch {
+        } catch (error: any) {
+          console.error(`[VimaxAdmin] Error processing narrative feedback: ${error.message}`)
+          return c.json({ success: false, message: 'Audit file not found' }, 404)
+        }
+      }
+    )
+
+    // NEW: POST /v1/admin/vimax/sagas/{id}/audits/{fileName}/scenes/{sceneIndex}/processed
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/admin/vimax/audits/{id}/{fileName}/scenes/{sceneIndex}/processed',
+        tags: ['Vimax Admin'],
+        summary: 'Mark a visual scene audit as processed',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({
+            id: z.string(),
+            fileName: z.string(),
+            sceneIndex: z.string()
+          })
+        },
+        responses: {
+          200: {
+            description: 'Success',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id, fileName, sceneIndex } = c.req.valid('param')
+        const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', id)
+
+        // Robust path resolution: check audits/ directory first then root
+        let auditPath = path.join(sagaDir, 'audits', fileName)
+        const exists = await fs
+          .access(auditPath)
+          .then(() => true)
+          .catch(() => false)
+
+        if (!exists) {
+          auditPath = path.join(sagaDir, fileName)
+        }
+
+        try {
+          const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
+          const idx = Number.parseInt(sceneIndex, 10)
+
+          if (audit.audits) {
+            // Visual audit uses .audits array for scenes
+            const sceneAudit = audit.audits.find((s: any) => s.sceneNumber === idx)
+            if (sceneAudit) {
+              sceneAudit.processed = true
+              await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
+              return c.json({ success: true })
+            }
+          }
+          return c.json({ success: false, message: 'Scene not found in visual audit' }, 404)
+        } catch (error: any) {
+          console.error(`[VimaxAdmin] Error processing visual feedback: ${error.message}`)
           return c.json({ success: false, message: 'Audit file not found' }, 404)
         }
       }

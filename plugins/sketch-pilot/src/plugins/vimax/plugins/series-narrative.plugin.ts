@@ -25,7 +25,7 @@ export class SeriesNarrativePlugin implements VimaxPlugin {
       agent.narration.addDirective(`
         🚨 PONT NARRATIF (Bridge): 
         L'épisode précédent s'est arrêté sur ce cliffhanger : "${bridge.unresolvedCliffhanger}".
-        Vous DEVEZ commencer cet épisode en résolvant ou en prolongeant TOUT DE SUITE cette tension.
+        Assure une transition fluide ou une résolution de cette tension.
         Objets actifs en main : ${bridge.activeObjects.join(', ') || 'Aucun'}.
       `)
     }
