@@ -10,17 +10,55 @@ export class VimaxSchemaMapper {
    * Transforme un tableau de profils en un Record indexé par ID ou Nom.
    * Nettoie les préfixes @ ou # pour les clés de l'objet.
    */
-  public static toRecord<T extends { id?: string; name?: string; identifier?: string }>(items: T[]): Record<string, T> {
+  public static toRecord<T extends { id?: string; name?: string; identifier?: string; displayName?: string }>(
+    items: T[]
+  ): Record<string, T> {
     const record: Record<string, T> = {}
     for (const item of items) {
-      // Priorité à l'ID, puis au nom, puis à l'identifiant (cas des personnages).
-      const rawKey = item.id || item.name || item.identifier
+      // 1. Détermination de la clé candidate (Priorité à l'identifiant métier sur l'UUID technique)
+      const rawKey = item.identifier || item.name || item.id
       if (!rawKey) continue
 
-      // Nettoyage du préfixe @ ou # pour la clé technique
-      const cleanKey = rawKey.startsWith('@') || rawKey.startsWith('#') ? rawKey.slice(1) : rawKey
+      // 2. Normalisation de la clé : minuscule et nettoyage des préfixes
+      // On veut une clé stable pour le Record (ex: "clara")
+      let cleanKey = rawKey.toLowerCase().trim()
+      if (cleanKey.startsWith('@') || cleanKey.startsWith('#')) {
+        cleanKey = cleanKey.slice(1)
+      }
+      cleanKey = cleanKey.replaceAll(/\s+/g, '') // "Victor Leclerc" -> "victorleclerc"
 
-      record[cleanKey] = item
+      // 3. Gestion des doublons et fusion intelligente
+      const existing = record[cleanKey]
+      if (existing) {
+        // Simple merge par défaut
+        const merged = { ...existing, ...item }
+
+        // PROTECTION : Si le nouvel item a un displayName "pauvre" (numérique ou égal à la clé brute),
+        // on préfère garder l'ancien s'il était de meilleure qualité.
+        if (
+          item.displayName &&
+          !isNaN(Number(item.displayName)) &&
+          existing.displayName &&
+          isNaN(Number(existing.displayName))
+        ) {
+          merged.displayName = existing.displayName
+        }
+
+        // PROTECTION : Si le nom technique est générique (@0), on garde l'ancien nom (@clara)
+        if (
+          item.name &&
+          item.name.startsWith('@') &&
+          !isNaN(Number(item.name.slice(1))) &&
+          existing.name &&
+          !existing.name.startsWith('@0')
+        ) {
+          merged.name = existing.name
+        }
+
+        record[cleanKey] = merged
+      } else {
+        record[cleanKey] = item
+      }
     }
     return record
   }
@@ -49,5 +87,52 @@ export class VimaxSchemaMapper {
       symbolicMotifs: plan.atmosphere?.symbolicMotifs || [],
       visualEvolution: plan.visualEvolution || {}
     }
+  }
+
+  /**
+   * Mappe les données de la DB (SeriesContext) vers un SagaPlan compatible Vimax.
+   */
+  public static mapDbToSagaPlan(db: any): any {
+    return {
+      intent: {
+        title: db.title || '',
+        globalTone: db.videoGenre || '',
+        centralConflict: '',
+        climaxAction: '',
+        resolutionGoal: ''
+      },
+      script: db.globalContext || '',
+      characterRegistry: Object.values(db.characterRegistry || {}),
+      locationRegistry: Object.values(db.locationRegistry || {}),
+      assetRegistry: Object.values(db.assetRegistry || {}),
+      episodes: (db.plannedEpisodes || []).map((ep: any) => ({
+        episodeNumber: ep.number,
+        title: ep.title,
+        summary: ep.hook,
+        eventDescription: ep.hook
+      })),
+      unresolvedThreads: db.unresolvedThreads || [],
+      roadmap: db.roadmap || {},
+      atmosphere: {
+        weatherState: db.weatherState,
+        timeOfDay: db.timeOfDay,
+        colorPalette: db.colorPalette,
+        cameraStyle: db.cameraStyle,
+        symbolicMotifs: db.symbolicMotifs
+      },
+      visualEvolution: db.visualEvolution || {},
+      relationshipMap: db.relationshipMap || {}
+    }
+  }
+
+  /**
+   * Extrait les événements d'épisode à partir du contexte DB.
+   */
+  public static mapDbToEpisodeEvents(db: any): any[] {
+    return (db.plannedEpisodes || []).map((ep: any) => ({
+      description: ep.hook || ep.title || 'Pas de description',
+      duration: 60, // Fallback
+      isClimax: false // Fallback
+    }))
   }
 }

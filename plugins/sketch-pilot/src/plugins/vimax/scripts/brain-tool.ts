@@ -1,8 +1,10 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import dotenv from 'dotenv'
+import { SeriesRepository } from '../../../../../../src/infrastructure/repositories/series.repository'
 import { LessonStore } from '../core/lesson-store'
 import { VimaxBrain } from '../core/vimax-brain'
+import { VimaxSchemaMapper } from '../utils/vimax-schema-mapper'
 import type { NarrativeFeedbackItem } from '../types'
 
 /**
@@ -40,6 +42,7 @@ async function main() {
 
   const { VimaxAgent } = await import('../pipeline/vimax.agent')
   const agent = new VimaxAgent(llm)
+  const repo = new SeriesRepository()
 
   switch (command) {
     case 'stats': {
@@ -117,15 +120,17 @@ async function main() {
     }
 
     case 'inspect': {
-      const epIdToInspect = args[1]
-      if (!epIdToInspect) {
-        console.error('❌ Episode ID requis : inspect <epId>')
+      const sagaId = args[1]
+      const epIdToInspect = args[2]
+
+      if (!sagaId || !epIdToInspect) {
+        console.error('❌ Usage : inspect <sagaId> <epId>')
         process.exit(1)
       }
 
-      console.log(`\n🔎 Recherche des prompts pour l'épisode : ${epIdToInspect}...`)
+      console.log(`\n🔎 Recherche des prompts pour la saga ${sagaId} / épisode : ${epIdToInspect}...`)
       try {
-        const promptDir = path.join(process.cwd(), 'vimax-logs', 'prompts')
+        const promptDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId, 'prompts')
         try {
           await fs.access(promptDir)
         } catch {
@@ -194,7 +199,7 @@ async function main() {
           data = JSON.parse(await fs.readFile(path.join(sagaDir, 'plan.json'), 'utf8'))
         } else if (type === 'episode') {
           const finalId = id || 'current'
-          data = JSON.parse(await fs.readFile(path.join(sagaDir, `episode-${finalId}.json`), 'utf8'))
+          data = JSON.parse(await fs.readFile(path.join(sagaDir, 'episodes', `episode-${finalId}.json`), 'utf8'))
         } else {
           console.error(`❌ Type ${type} nécessite une implémentation de chargement spécifique.`)
           process.exit(1)
@@ -237,7 +242,7 @@ async function main() {
       }
 
       const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
-      const auditPath = path.join(sagaDir, `audit-${type}-manual.json`)
+      const auditPath = path.join(sagaDir, 'audits', `audit-${type}-manual.json`)
 
       let audit: any = { score: 0, globallyCoherent: true, feedbacks: [] }
       try {
@@ -307,7 +312,7 @@ async function main() {
 
       let filePath: string
       if (type === 'plan') filePath = path.join(sagaDir, 'plan.json')
-      else if (type === 'episode') filePath = path.join(sagaDir, `episode-${id}.json`)
+      else if (type === 'episode') filePath = path.join(sagaDir, 'episodes', `episode-${id}.json`)
       else {
         console.error(`❌ Raffinement non supporté pour ${type}`)
         process.exit(1)
@@ -449,7 +454,14 @@ async function main() {
         process.exit(1)
       }
       const finalId = id || (type === 'plan' ? 'initial' : 'current')
-      const auditPath = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId, `audit-${type}-${finalId}.json`)
+      const auditPath = path.join(
+        process.cwd(),
+        'vimax-logs',
+        'sagas',
+        sagaId,
+        'audits',
+        `audit-${type}-${finalId}.json`
+      )
       try {
         const raw = await fs.readFile(auditPath, 'utf8')
         const audit = JSON.parse(raw)
@@ -477,7 +489,7 @@ async function main() {
 
         let filePath: string
         if (aType === 'plan') filePath = path.join(sagaDir, 'plan.json')
-        else if (aType === 'episode') filePath = path.join(sagaDir, `episode-${aId}.json`)
+        else if (aType === 'episode') filePath = path.join(sagaDir, 'episodes', `episode-${aId}.json`)
         else return
 
         try {
@@ -562,6 +574,41 @@ async function main() {
       break
     }
 
+    case 'prepare-logs': {
+      const sagaId = args[1]
+      if (!sagaId) {
+        console.error('❌ Usage : prepare-logs <sagaId>')
+        process.exit(1)
+      }
+      console.log(`\n🔄 Reconstruction des logs pour la saga ${sagaId}...`)
+      // Usage direct via SagaProductionService si possible
+      // Sinon on peut le faire via l'agent ou manuellement
+      // Ici on va supposer que brain-tool a accès au service
+      // (En réalité brain-tool instancie son propre agent, on va donc appeler syncLogsFromDatabase ici)
+      const context = await repo.getSeriesContext(sagaId)
+      if (!context) {
+        console.error(`❌ Saga ${sagaId} non trouvée en base de données.`)
+        process.exit(1)
+      }
+
+      const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', sagaId)
+      await fs.mkdir(path.join(sagaDir, 'episodes'), { recursive: true })
+      await fs.mkdir(path.join(sagaDir, 'audits'), { recursive: true })
+
+      const planData = VimaxSchemaMapper.mapDbToSagaPlan(context)
+      const episodeEvents = VimaxSchemaMapper.mapDbToEpisodeEvents(context)
+      const fullSagaPlan = {
+        seriesId: sagaId,
+        basicIdea: context.title,
+        options: { seriesId: sagaId, userId: (context as any).userId, seriesContext: context },
+        plan: planData,
+        episodeEvents
+      }
+      await fs.writeFile(path.join(sagaDir, 'plan.json'), JSON.stringify(fullSagaPlan, null, 2), 'utf8')
+      console.log(`✅ plan.json restauré.`)
+      break
+    }
+
     case 'sagas': {
       const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas')
       try {
@@ -597,7 +644,7 @@ async function main() {
         console.log(`💡 Idée : ${plan.basicIdea}`)
         console.log(`\n🎞️ ÉPISODES :`)
         for (let i = 0; i < plan.episodeEvents.length; i++) {
-          const epFilePath = path.join(sagaPath, `episode-${i + 1}.json`)
+          const epFilePath = path.join(sagaPath, 'episodes', `episode-${i + 1}.json`)
           let status = '⏳'
           try {
             await fs.access(epFilePath)
@@ -649,6 +696,7 @@ Commands:
   
   sagas               Liste toutes les séries/sagas
   view <id>           Affiche l'état d'avancement d'une saga
+  prepare-logs <id>   Restaure les fichiers JSON depuis la DB
   stats               Statistiques globales du cerveau
   inspect <epId>      Prompts réels envoyés au LLM (Debug)
       `)

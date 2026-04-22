@@ -27,7 +27,6 @@ import {
 } from '../types/video-script.types'
 import { runFfmpeg } from '../utils/ffmpeg-utils'
 import { TaskQueue } from '../utils/task-queue'
-import { AnchorEngine } from './anchor-engine'
 import { SeriesVideoGenerator } from './generators/series-video-generator'
 import { VideoGeneratorFactory } from './generators/video-generator.factory'
 import { PolyptychEngine } from './polyptych-engine'
@@ -50,7 +49,6 @@ export class NanoBananaEngine {
   private _llmService?: LLMService
   private readonly outputDir: string
   private readonly projectLocationCache: Map<string, string> = new Map()
-  private readonly locationAnchors: Map<string, AnchorEngine> = new Map()
   private readonly characterDNA: Map<string, string> = new Map()
   private currentOptions: VideoGenerationOptions = videoGenerationOptionsSchema.parse({
     aspectRatio: '16:9',
@@ -441,35 +439,12 @@ export class NanoBananaEngine {
 
     const effectiveRefs = [...referenceImages]
 
-    // --- VISUAL COHERENCE SYSTEM (AnchorEngine) ---
+    // --- VISUAL COHERENCE SYSTEM (Registry-based) ---
     const locationId =
       scene.locationId && scene.locationId !== 'default'
         ? SeriesVideoGenerator.normalizeId(scene.locationId)
         : 'default'
     console.log('[LOCATION ID]', locationId)
-    if (!this.locationAnchors.has(locationId)) {
-      this.locationAnchors.set(locationId, new AnchorEngine({ reanchorThreshold: 4, maxChainLength: 8 }))
-    }
-    const anchorEngine = this.locationAnchors.get(locationId)!
-
-    /**
-     * [V46 Experiment] Dynamic Location Reference:
-     * We no longer pre-warm the AnchorEngine from the projectLocationCache (Registry).
-     * This forces the FIRST scene of EACH location in the current script to become
-     * the new Base Anchor, ensuring the current generation flow defines the look.
-     */
-    /*
-    if (this.projectLocationCache.has(locationId) && !anchorEngine.getState().baseAnchor) {
-      const baseImageData = this.projectLocationCache.get(locationId)!
-      anchorEngine.registerBaseAnchor(baseImageData, `base-${locationId}`)
-    }
-    */
-
-    // 2. Add anchors from the engine to generation references
-    const engineAnchors = anchorEngine.getNextAnchors()
-    for (const anchor of engineAnchors) {
-      effectiveRefs.push({ name: anchor.name, data: anchor.url })
-    }
 
     // --- VISUAL DNA & STYLE CONTINUITY ---
     const context = (this.promptManager as any).seriesContext
@@ -490,17 +465,7 @@ export class NanoBananaEngine {
       console.info(`[NanoBanana] 🧬 DNA: ${dnaInstruction}`)
     }
 
-    // [V4] Visual State Management: Register Base, Delta, and Locks
-    if ((scene as any).visualDelta || (scene as any).visualBaseState || (scene as any).visualStateLock) {
-      anchorEngine.registerDelta(
-        (scene as any).visualDelta || {},
-        (scene as any).visualBaseState,
-        (scene as any).visualStateLock
-      )
-    }
-    const evolutionHints = anchorEngine.getEvolutionHints()
-
-    // Legacy Continuity Support (Previous Frame Chaining)
+    // [V4] Legacy Continuity Support (Previous Frame Chaining)
     if (scene.continueFromPrevious && lastSceneB64) {
       console.info(`[NanoBanana] 🔗 CONTINUITY: Adding previous scene as reference anchor.`)
       effectiveRefs.push({ name: 'PREVIOUS_SCENE_FRAME', data: lastSceneB64 })
@@ -521,7 +486,7 @@ export class NanoBananaEngine {
         effectiveRefs.push({ name: 'ORIGINAL_SCENE', data: currentImageB64 })
       }
 
-      const shouldGenerateVariants = options.enableVariants && anchorEngine.isReanchorStep()
+      const shouldGenerateVariants = options.enableVariants
       const variantCount = shouldGenerateVariants ? 3 : 1
       const variantsDir = path.join(outputDir, 'variants')
 
@@ -551,7 +516,7 @@ export class NanoBananaEngine {
               },
               dnaInstruction,
               currentSeed,
-              evolutionHints
+              undefined
             )
             await sharp(tempBg).resize(width, height, { fit: 'cover' }).webp().toFile(currentTarget)
 
@@ -591,51 +556,12 @@ export class NanoBananaEngine {
       }
     }
 
-    // Store in location cache and update AnchorEngine chain
-    if (fs.existsSync(imagePath)) {
+    // [V47] Master Style Promotion: If this is the FIRST scene and no thumbnail exists,
+    // promote it as the absolute aesthetic truth for the entire series/episode.
+    if (context && !context.thumbnailUrl && fs.existsSync(imagePath)) {
       const b64 = fs.readFileSync(imagePath).toString('base64')
-
-      if (scene.locationId) {
-        const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
-        // [V47] Triple-Lock Promotion: Cache + Registry + Anchor
-        const registry = (this.promptManager as any).seriesContext?.locationRegistry
-
-        if (!this.projectLocationCache.has(locId)) {
-          console.info(`[NanoBanana] 🚀 CACHE PROMOTION: ${locId}`)
-          this.projectLocationCache.set(locId, b64)
-        }
-
-        if (registry) {
-          const loc = registry[locId] || registry[scene.locationId]
-          if (loc && !loc.thumbnailUrl) {
-            console.info(`[NanoBanana] 👑 REGISTRY PROMOTION: ${locId}`)
-            loc.thumbnailUrl = b64 // Seed with B64 for immediate visual sync
-          }
-        }
-      }
-
-      // 3. Register the result in the engine to advance the progressive chain
-      if (scene.locationId) {
-        const locId = SeriesVideoGenerator.normalizeId(scene.locationId)
-        const anchorEngine = this.locationAnchors.get(locId)
-        const context = (this.promptManager as any).seriesContext
-
-        // [V48] Master Style Promotion: If this is the FIRST scene and no thumbnail exists,
-        // promote it as the absolute aesthetic truth for the entire series/episode.
-        if (context && !context.thumbnailUrl) {
-          console.info(`[NanoBanana] 🎨 MASTER STYLE PROMOTION: Setting global series DNA from first scene result.`)
-          context.thumbnailUrl = b64
-        }
-
-        if (anchorEngine) {
-          // If no base anchor exists yet, this is our absolute reference for this location
-          if (!anchorEngine.getState().baseAnchor) {
-            anchorEngine.registerBaseAnchor(b64, scene.id)
-          } else {
-            anchorEngine.registerGenerationResult(b64, scene.id)
-          }
-        }
-      }
+      console.info(`[NanoBanana] 🎨 MASTER STYLE PROMOTION: Setting global series DNA from first scene result.`)
+      context.thumbnailUrl = b64
     }
 
     await this.generateThumbnail(imagePath, path.join(outputDir, 'thumbnail.jpg'))

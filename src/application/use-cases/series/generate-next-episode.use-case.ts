@@ -29,7 +29,7 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
     super()
   }
 
-  async execute({ userId, seriesId, planId }: GenerateNextEpisodeParams): Promise<GenerateNextEpisodeResponse> {
+  async execute({ userId, seriesId }: GenerateNextEpisodeParams): Promise<GenerateNextEpisodeResponse> {
     try {
       const series = await this.seriesRepository.findByIdAndUserId(seriesId, userId)
       if (!series) {
@@ -62,10 +62,8 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
       const planned = plannedEpisodes.find((e) => e.number === nextEpisodeNumber)
 
       let topic = ''
-      let displayTitle = `Épisode ${nextEpisodeNumber}`
 
       if (planned) {
-        displayTitle = planned.title
         const isFirst = nextEpisodeNumber === 1
         const intensityInstr = isFirst
           ? "🚨 OUVERTURE SAGA : Ne commencez pas par un résumé. Plongez dans l'action avec une intensité sensorielle maximale (froid, bruit, odeur, tension)."
@@ -84,29 +82,11 @@ export class GenerateNextEpisodeUseCase extends IUseCase<GenerateNextEpisodePara
       // We use the SagaProductionService to produce the high-fidelity script and scenes
       console.info(`[GenerateNextEpisode] ⚡ Orchestrating Vimax for episode ${nextEpisodeNumber}...`)
       const vimaxEpisode = await this.sagaProductionService.generateEpisode(userId, seriesId, nextEpisodeNumber)
-
-      const result = await this.generateVideoUseCase.execute({
-        userId,
-        planId,
-        topic,
-        options: {
-          seriesId,
-          type: 'series',
-          title: displayTitle,
-          episodeNumber: nextEpisodeNumber,
-          scriptOnly: false, // Now we have a real script from Vimax
-          vimaxData: vimaxEpisode // Pass the generated episode data if needed
-        } as any
-      })
-
-      if (!result.success) {
-        return { success: false, error: result.error }
-      }
+      console.info('[VIMAX EPISODE]', vimaxEpisode)
 
       return {
         success: true,
-        jobId: result.jobId,
-        videoId: result.videoId,
+        videoId: vimaxEpisode.id,
         episodeNumber: nextEpisodeNumber,
         topic
       }

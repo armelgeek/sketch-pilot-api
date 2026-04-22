@@ -135,7 +135,7 @@ export class VimaxBrain {
       }
     }
 
-    // 2. PHASE D'APPRENTISSAGE PAR L'ÉCHEC
+    // 2. PHASE D'APPRENTISSAGE PAR L'ÉCHEC (Multi-facettes)
     const failures = episodes.filter(
       (ep) => (ep.status === 'failure' || (ep.evaluation && !ep.evaluation.isValid)) && !ep.learningApplied
     )
@@ -146,7 +146,7 @@ export class VimaxBrain {
       return this.massThematicLearning(failures)
     }
 
-    console.log(`[VimaxBrain] Apprentissage standard (${failures.length} épisodes)...`)
+    console.log(`[VimaxBrain] Apprentissage multi-facettes (${failures.length} échecs)...`)
 
     // NOUVEAU V2 : Audit Visuel pour les épisodes qui ont des images
     for (const ep of episodes.filter((e) => e.status === 'success' && (e as any).renderedImages)) {
@@ -159,11 +159,33 @@ export class VimaxBrain {
     )
     if (updatedFailures.length === 0) return 0
 
-    // Vérification budget avant de commencer
-    if (this.checkBudgetExceeded()) return 0
+    // Catégorisation par aspect
+    const aspects = {
+      Narrative: ['saga-planner', 'narration', 'script-enhancer', 'event-extractor', 'input-sanitizer'],
+      Visual: ['atmosphere-extractor', 'character-extractor', 'location-extractor', 'asset-extractor'],
+      Cinematic: ['screenwriter', 'dialogue', 'animation', 'output-formatter']
+    }
 
-    const newLessonPartials = await this.refinery.refine(updatedFailures)
-    const count = await this.applyLessons(newLessonPartials, updatedFailures)
+    let totalNewLessons = 0
+
+    for (const [theme, agents] of Object.entries(aspects)) {
+      const themeFailures = updatedFailures.filter((f) => agents.includes(f.agentName))
+      if (themeFailures.length > 0) {
+        console.log(`[VimaxBrain] Raffinement spécifique [${theme}] (${themeFailures.length} épisodes)...`)
+        if (this.checkBudgetExceeded()) break
+
+        const newLessonPartials = await this.refinery.refine(themeFailures, theme)
+        totalNewLessons += await this.applyLessons(newLessonPartials, themeFailures)
+      }
+    }
+
+    // On traite le reste (agents non classés) de façon générique
+    const remainingFailures = updatedFailures.filter((f) => !Object.values(aspects).flat().includes(f.agentName))
+    if (remainingFailures.length > 0 && !this.checkBudgetExceeded()) {
+      console.log(`[VimaxBrain] Raffinement générique (${remainingFailures.length} épisodes)...`)
+      const genericPartials = await this.refinery.refine(remainingFailures)
+      totalNewLessons += await this.applyLessons(genericPartials, remainingFailures)
+    }
 
     // Darwinisme : Fin de vie des leçons inefficaces
     await this.scoreLessons(episodes)
@@ -171,7 +193,7 @@ export class VimaxBrain {
     // Nettoyage après apprentissage
     await this.cleanupOldEpisodes()
 
-    return count
+    return totalNewLessons
   }
 
   private checkBudgetExceeded(): boolean {
@@ -233,7 +255,6 @@ export class VimaxBrain {
         })
         count++
       }
-
       // Marathon Hardening : On marque l'épisode comme traité quoi qu'il arrive (success ou shadow fail)
       if (relevantFailure) {
         relevantFailure.learningApplied = true
@@ -248,9 +269,21 @@ export class VimaxBrain {
    */
   async getPerformanceStats(): Promise<any> {
     const episodes = await this.loadEpisodes()
-    if (episodes.length === 0) return { sagas: {}, totalAvg: 0 }
+    if (episodes.length === 0) return { sagas: {}, aspects: {}, totalAvg: 0 }
+
+    const aspects: Record<string, string[]> = {
+      Narrative: ['saga-planner', 'narration', 'script-enhancer', 'event-extractor', 'input-sanitizer'],
+      Visual: ['atmosphere-extractor', 'character-extractor', 'location-extractor', 'asset-extractor'],
+      Cinematic: ['screenwriter', 'dialogue', 'animation', 'output-formatter']
+    }
 
     const sagas: Record<string, { count: number; totalScore: number; avg: number; scores: number[] }> = {}
+    const aspectStats: Record<string, { count: number; totalScore: number; avg: number }> = {
+      Narrative: { count: 0, totalScore: 0, avg: 0 },
+      Visual: { count: 0, totalScore: 0, avg: 0 },
+      Cinematic: { count: 0, totalScore: 0, avg: 0 }
+    }
+
     let grandTotalScore = 0
     let evaluatedCount = 0
 
@@ -267,18 +300,32 @@ export class VimaxBrain {
         sagas[seriesId].scores.push(score)
         grandTotalScore += score
         evaluatedCount++
+
+        // Aspect tracking
+        for (const [aspect, agents] of Object.entries(aspects)) {
+          if (agents.includes(ep.agentName)) {
+            aspectStats[aspect].count++
+            aspectStats[aspect].totalScore += score
+            break
+          }
+        }
       }
     })
 
     // Calcul des moyennes
     Object.keys(sagas).forEach((id) => {
       const s = sagas[id]
-      const scores = s.scores
-      s.avg = scores.length > 0 ? Math.round(s.totalScore / scores.length) : 0
+      s.avg = s.scores.length > 0 ? Math.round(s.totalScore / s.scores.length) : 0
+    })
+
+    Object.keys(aspectStats).forEach((aspect) => {
+      const s = aspectStats[aspect]
+      s.avg = s.count > 0 ? Math.round(s.totalScore / s.count) : 0
     })
 
     return {
       sagas,
+      aspects: aspectStats,
       totalAvg: evaluatedCount > 0 ? Math.round(grandTotalScore / evaluatedCount) : 0,
       totalCount: episodes.length,
       evaluatedCount
@@ -286,8 +333,8 @@ export class VimaxBrain {
   }
 
   private async saveEpisode(episode: LearningEpisode): Promise<void> {
-    const dir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
-    const episodes = await this.loadEpisodes() // Un peu lourd, on pourrait optimiser
+    const dir = path.join(process.cwd(), 'vimax-logs', 'sagas')
+    // optimization: skip loadEpisodes() if possible, but keep findPath for now
 
     const findPath = async (currentDir: string): Promise<string | null> => {
       const entries = await fs.readdir(currentDir, { withFileTypes: true })
@@ -395,8 +442,65 @@ export class VimaxBrain {
     return false
   }
 
+  /**
+   * Intègre un feedback humain spécifique pour une scène précise.
+   */
+  async processSceneFeedback(
+    seriesId: string,
+    episodeNumber: number,
+    sceneNumber: number,
+    critique: string
+  ): Promise<boolean> {
+    const episodePath = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId, `episode-${episodeNumber}.json`)
+
+    try {
+      const episodeData = JSON.parse(await fs.readFile(episodePath, 'utf8'))
+      // On cherche la scène dans les scènes de l'épisode
+      const scene = episodeData.scenes?.find((s: any) => s.sceneNumber === sceneNumber)
+
+      // On crée un épisode d'apprentissage synthétique pour cette scène
+      const syntheticEpisode: LearningEpisode = {
+        id: `scene-feedback-${seriesId}-${episodeNumber}-${sceneNumber}-${Date.now()}`,
+        agentName: 'VimaxScreenwriter', // L'agent responsable du visuel et de la mise en scène
+        systemPrompt: 'Analyse de scène spécifique',
+        userPrompt: scene?.imagePrompt || scene?.visualPrompt || scene?.narration || 'Contexte de scène inconnu',
+        response: JSON.stringify(scene),
+        timestamp: Date.now(),
+        durationMs: 0,
+        evaluation: {
+          score: 0,
+          isValid: false,
+          issues: ['Critique utilisateur sur scène spécifique'],
+          critique: `[SCÈNE ${sceneNumber}] ${critique}`,
+          source: 'human'
+        },
+        status: 'failure'
+      }
+
+      console.log(`[VimaxBrain] Apprentissage ciblé sur la scène ${sceneNumber} de l'épisode ${episodeNumber}...`)
+      const [lessonPartial] = await this.refinery.refine([syntheticEpisode], 'Visual')
+
+      if (lessonPartial) {
+        await this.store.addLesson({
+          ...lessonPartial,
+          id: `lesson-scene-${Date.now()}`,
+          agentName: 'VimaxScreenwriter',
+          confidence: 1,
+          successCount: 1,
+          failCount: 0,
+          tags: [...(lessonPartial.tags || []), `scene-${sceneNumber}`, `ep-${episodeNumber}`],
+          lastUpdated: Date.now()
+        } as any)
+        return true
+      }
+    } catch (error) {
+      console.error(`[VimaxBrain] Erreur lors du processing du feedback de scène:`, error)
+    }
+    return false
+  }
+
   private async findEpisodePath(episodeId: string): Promise<string | null> {
-    const rootDir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+    const rootDir = path.join(process.cwd(), 'vimax-logs', 'sagas')
     const find = async (dir: string): Promise<string | null> => {
       const entries = await fs.readdir(dir, { withFileTypes: true })
       for (const entry of entries) {
@@ -606,8 +710,8 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
     }
   }
 
-  private async loadEpisodes(): Promise<LearningEpisode[]> {
-    const dir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+  public async loadEpisodes(): Promise<LearningEpisode[]> {
+    const dir = path.join(process.cwd(), 'vimax-logs', 'sagas')
     return this.readEpisodesRecursively(dir)
   }
 

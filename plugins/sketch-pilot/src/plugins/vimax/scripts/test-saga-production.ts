@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import { SeriesRepository } from '../../../../../../src/infrastructure/repositories/series.repository'
+import { VideoRepository } from '../../../../../../src/infrastructure/repositories/video.repository'
 import { LLMServiceFactory } from '../../../services/llm'
 import { SagaProductionService } from '../services/saga-production.service'
 
@@ -25,7 +26,8 @@ async function test() {
   })
 
   const repo = new SeriesRepository()
-  const service = new SagaProductionService(llm, repo)
+  const videoRepo = new VideoRepository()
+  const service = new SagaProductionService(llm, repo, videoRepo)
 
   // On ajoute un écouteur local pour vérifier le "temps réel"
   service.getAgent().registry.register({
@@ -52,7 +54,7 @@ async function test() {
 
     // Tester la production complète (Pass 0 + Episodes)
     // On limite à 1 épisode pour le test
-    const series = await service.produceFullSaga(idea, {
+    const series = await service.produceFullSaga('test-user', idea, {
       targetEpisodeCount: 1,
       brainMode: 'all'
     })

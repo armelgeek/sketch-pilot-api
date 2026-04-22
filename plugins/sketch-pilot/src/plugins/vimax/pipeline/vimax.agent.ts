@@ -63,6 +63,7 @@ export class VimaxAgent {
   public critic: VimaxUniversalCriticAgent
   public brain: VimaxBrain
   public registry: VimaxPluginRegistry
+  public readonly llm: LLMService
 
   private metrics = {
     totalCalls: 0,
@@ -72,6 +73,7 @@ export class VimaxAgent {
   }
 
   constructor(llm: LLMService) {
+    this.llm = llm
     this.registry = new VimaxPluginRegistry()
     this.brain = new VimaxBrain(llm)
 
@@ -156,7 +158,7 @@ export class VimaxAgent {
       a.setBrainMode(mode)
     })
 
-    await this.registry.triggerHook('onBeforePlanSaga', basicIdea, options)
+    await this.registry.triggerHook('onBeforePlanSaga', this, basicIdea, options)
 
     const analysis = await this.inputSanitizer.analyze(basicIdea)
     if (!analysis.isViable) {
@@ -200,8 +202,8 @@ export class VimaxAgent {
       episodeEvents
     }
 
-    await this.registry.triggerHook('onAfterPlanSaga', sagaPlan)
-    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
+    await this.registry.triggerHook('onAfterPlanSaga', this, sagaPlan)
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
     await fs.mkdir(sagaDir, { recursive: true })
     await fs.writeFile(path.join(sagaDir, 'plan.json'), JSON.stringify(sagaPlan, null, 2), 'utf8')
 
@@ -212,7 +214,7 @@ export class VimaxAgent {
    * Étend une saga existante avec de nouveaux épisodes.
    */
   async extendSaga(seriesId: string, additionalCount = 4): Promise<void> {
-    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
     const planPath = path.join(sagaDir, 'plan.json')
 
     if (!(await fs.stat(planPath).catch(() => null))) {
@@ -266,15 +268,26 @@ export class VimaxAgent {
   /**
    * Génération d'un épisode unique à partir d'un plan existant.
    */
-  async runSingleEpisode(seriesId: string, episodeIndex: number): Promise<VimaxEpisode> {
-    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
-    const planPath = path.join(sagaDir, 'plan.json')
+  async runSingleEpisode(seriesId: string, episodeIndex: number, providedPlan?: any): Promise<VimaxEpisode> {
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
+    let sagaPlan = providedPlan
 
-    if (!(await fs.stat(planPath).catch(() => null))) {
-      throw new Error(`Plan non trouvé pour la saga ${seriesId}`)
+    if (providedPlan) {
+      const planPath = path.join(sagaDir, 'plan.json')
+      await fs.mkdir(sagaDir, { recursive: true })
+      // On s'assure que le plan est toujours présent sur disque pour les outils d'audit
+      await fs.writeFile(planPath, JSON.stringify(providedPlan, null, 2), 'utf8')
+    } else {
+      const planPath = path.join(sagaDir, 'plan.json')
+      if (!(await fs.stat(planPath).catch(() => null))) {
+        throw new Error(`Plan non trouvé pour la saga ${seriesId}`)
+      }
+      sagaPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
     }
 
-    const sagaPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+    // Sécurité : S'assurer que le dossier de logs existe pour l'épisode
+    await fs.mkdir(sagaDir, { recursive: true })
+
     const event = sagaPlan.episodeEvents[episodeIndex - 1]
 
     if (!event) {
@@ -288,7 +301,7 @@ export class VimaxAgent {
       a.setBrainMode(mode)
     })
 
-    await this.registry.triggerHook('onBeforeEpisode', event, episodeIndex - 1, sagaPlan.options)
+    await this.registry.triggerHook('onBeforeEpisode', this, event, episodeIndex - 1, sagaPlan.options)
 
     const seriesContext: SeriesContext = {
       ...sagaPlan.options.seriesContext,
@@ -318,9 +331,11 @@ export class VimaxAgent {
 
     const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options)
 
-    await this.registry.triggerHook('onAfterEpisode', episode)
+    await this.registry.triggerHook('onAfterEpisode', this, episode, sagaPlan)
 
-    await fs.writeFile(path.join(sagaDir, `episode-${episodeIndex}.json`), JSON.stringify(episode, null, 2), 'utf8')
+    const outputDir = path.join(sagaDir, 'episodes')
+    await fs.mkdir(outputDir, { recursive: true })
+    await fs.writeFile(path.join(outputDir, `episode-${episodeIndex}.json`), JSON.stringify(episode, null, 2), 'utf8')
 
     return episode
   }
@@ -460,7 +475,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
 
     // Persistance si un sagaDir est fourni
     if (options.sagaDir && options.id) {
-      const auditPath = path.join(options.sagaDir, `audit-${type}-${options.id}.json`)
+      const auditPath = path.join(options.sagaDir, 'audits', `audit-${type}-${options.id}.json`)
       await fs.mkdir(path.dirname(auditPath), { recursive: true })
       await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
       console.log(`✅ Audit ${type} persisté : ${auditPath}`)
@@ -473,7 +488,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
    * Audit narratif complet d'une saga.
    */
   async auditSagaNarrative(seriesId: string): Promise<any> {
-    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
     const planPath = path.join(sagaDir, 'plan.json')
 
     if (!(await fs.stat(planPath).catch(() => null))) {
@@ -489,7 +504,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
    */
   async runSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<VimaxSeries> {
     const seriesId = await this.planSaga(basicIdea, options)
-    const sagaDir = path.join('vimax-logs', 'sagas', seriesId)
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
     const sagaPlan = JSON.parse(await fs.readFile(path.join(sagaDir, 'plan.json'), 'utf8'))
 
     const episodes: VimaxEpisode[] = []
@@ -556,15 +571,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     if (context.lastEpisodeBridge) continuity.setBridge(context.lastEpisodeBridge)
 
     const charContext = this.characterExtractor.formatForPrompt(profiles)
-    const scenes = await this.buildScenes(
-      sceneEvents,
-      context,
-      charContext,
-      profiles,
-      continuity,
-      options.targetDuration,
-      options.maxScenes
-    )
+    const scenes = await this.buildScenes(sceneEvents, context, charContext, profiles, continuity, options)
 
     // Bridge pour l'épisode suivant
     let bridge: any
@@ -597,8 +604,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     characterContext: string,
     profiles: CharacterProfile[],
     continuity: VimaxContinuityEngine,
-    targetDuration?: number,
-    maxScenes?: number
+    options: VimaxRunOptions
   ): Promise<VimaxScene[]> {
     if (sceneEvents.length === 0) return []
     const intermediateScenes: any[] = []
@@ -609,14 +615,14 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     for (let i = 0; i < sceneEvents.length; i++) {
       const event = sceneEvents[i]
 
-      await this.registry.triggerHook('onBeforeScene', event, i + 1)
+      await this.registry.triggerHook('onBeforeScene', this, event, i + 1, options)
 
       // 1. Narration de scène (Pass 1.5)
       const sceneResult = await this.narration.generateSceneNarration(
         event,
         context,
         undefined,
-        maxScenes,
+        options.maxScenes,
         i === sceneEvents.length - 1,
         sceneMemories,
         i + 1,
@@ -660,10 +666,10 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       })
 
       const lastScene = intermediateScenes.at(-1)
-      await this.registry.triggerHook('onAfterScene', lastScene)
+      await this.registry.triggerHook('onAfterScene', this, lastScene)
     }
 
-    const durationFactor = (targetDuration || 60) / intermediateScenes.length
+    const durationFactor = (options.targetDuration || 60) / intermediateScenes.length
     return intermediateScenes.map((s, idx) => ({
       ...s,
       id: `scene-${idx + 1}`,
@@ -677,7 +683,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
   private async saveIntermediate(name: string, data: any): Promise<void> {
     try {
       const seriesId = this.planner.getSeriesId() || 'pending'
-      const logDir = path.join(process.cwd(), 'vimax-logs', 'intermediate', seriesId)
+      const logDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId, 'intermediate')
       await fs.mkdir(logDir, { recursive: true })
       await fs.writeFile(path.join(logDir, `${name}.json`), JSON.stringify(data, null, 2), 'utf8')
     } catch (error) {
@@ -690,7 +696,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       if (typeof agent.getLastPromptData !== 'function') return
       const data = agent.getLastPromptData()
       const seriesId = this.planner.getSeriesId() || 'pending'
-      const promptDir = path.join(process.cwd(), 'vimax-logs', 'prompts', seriesId)
+      const promptDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId, 'prompts')
       await fs.mkdir(promptDir, { recursive: true })
       await fs.writeFile(path.join(promptDir, `${stepName}-${Date.now()}.json`), JSON.stringify(data, null, 2), 'utf8')
     } catch (error) {

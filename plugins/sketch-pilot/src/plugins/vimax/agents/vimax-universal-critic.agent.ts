@@ -115,7 +115,7 @@ Renvoie UNIQUEMENT du JSON valide :
     context?: string
   ): Promise<NarrativeAuditReport> {
     const prompt = `
-[MISSION : CRITIQUE VISUELLE (${type.toUpperCase()})]
+[MISSION : CRITIQUE VISUELLE (${(type || 'visual').toUpperCase()})]
 <PROMPT>${promptContent}</PROMPT>
 ${context ? `<CONTEXTE>${context}</CONTEXTE>` : ''}
 `.trim()

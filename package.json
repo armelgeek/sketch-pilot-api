@@ -45,6 +45,7 @@
     "vimax:episodes": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts episodes",
     "vimax:sagas": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts sagas",
     "vimax:view": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts view",
+    "vimax:prepare-logs": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts prepare-logs",
     "vimax:learn": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts learn",
     "vimax:audit-plan": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts audit-plan",
     "vimax:audit-item": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts audit-item",

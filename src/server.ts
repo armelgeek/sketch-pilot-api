@@ -14,7 +14,8 @@ import {
   SeriesController,
   UserController,
   VideoAdminController,
-  VideosController
+  VideosController,
+  VimaxAdminController
 } from './infrastructure/controllers'
 import { AuthController } from './infrastructure/controllers/auth.controller'
 import 'dotenv/config'
@@ -32,7 +33,8 @@ const app = new App([
   new PromptController(),
   new CharacterModelController(),
   new PricingController(),
-  new SeriesController()
+  new SeriesController(),
+  new VimaxAdminController()
 ]).getApp()
 
 let videoWorker: any = null

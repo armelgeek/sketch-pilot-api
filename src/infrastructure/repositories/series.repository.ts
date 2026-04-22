@@ -198,6 +198,7 @@ export class SeriesRepository {
 
     return {
       seriesId: s.id,
+      userId: s.userId,
       title: s.title,
       description: s.description || '',
       globalContext: lastVideo?.globalContext || s.globalContext || s.description || '',

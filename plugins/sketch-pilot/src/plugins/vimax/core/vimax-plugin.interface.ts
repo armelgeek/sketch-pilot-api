@@ -17,7 +17,7 @@ export interface VimaxPlugin {
   onAfterPlanSaga?: (agent: any, plan: any) => Promise<void>
 
   onBeforeEpisode?: (agent: any, event: any, index: number, options: any) => Promise<void>
-  onAfterEpisode?: (agent: any, episode: any) => Promise<void>
+  onAfterEpisode?: (agent: any, episode: any, plan?: any) => Promise<void>
 
   onBeforeScene?: (agent: any, event: any, sceneNumber: number, options: any) => Promise<void>
   onAfterScene?: (agent: any, scene: any) => Promise<void>

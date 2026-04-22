@@ -373,7 +373,7 @@ export class LessonStore {
     return `
 [LEÇONS APPRISES & RÈGLES DE RIGUEUR]
 Les exécutions précédentes ont révélé des points d'amélioration. Respecte ABSOLUMENT ces nouvelles directives :
-${lessons.map((l) => `- [${l.category.toUpperCase()}] ${l.directive}`).join('\n')}
+${lessons.map((l) => `- [${(l.category || 'general').toUpperCase()}] ${l.directive}`).join('\n')}
 `.trim()
   }
 }

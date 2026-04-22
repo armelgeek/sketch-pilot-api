@@ -1,6 +1,7 @@
 import * as path from 'node:path'
 import dotenv from 'dotenv'
 import { SeriesRepository } from '../../../../../../src/infrastructure/repositories/series.repository'
+import { VideoRepository } from '../../../../../../src/infrastructure/repositories/video.repository'
 import { LLMServiceFactory } from '../../../services/llm'
 import { SagaProductionService } from '../services/saga-production.service'
 
@@ -39,14 +40,14 @@ async function main() {
   })
 
   // Use the central Saga Production Service
-  const sagaService = new SagaProductionService(globalLLM, new SeriesRepository())
+  const sagaService = new SagaProductionService(globalLLM, new SeriesRepository(), new VideoRepository())
 
   if (isProd) sagaService.getAgent().setBrainMode('stable')
 
   try {
     // --- PASS 0: PLANNING ---
     console.log("📝 [Pass 0] Planification de l'arc narratif...")
-    const seriesId = await sagaService.createSaga(idea, {
+    const seriesId = await sagaService.createSaga('cli-user', idea, {
       userId: 'cli-user',
       targetEpisodeCount: episodeCount,
       brainMode: isProd ? 'stable' : 'all'
@@ -68,7 +69,7 @@ async function main() {
 
       // --- PASS 1: NARRATION ---
       console.log(`📖 [Pass 1] Rédaction de la narration...`)
-      const episode = await sagaService.generateEpisode(seriesId, i)
+      const episode = await sagaService.generateEpisode('cli-user', seriesId, i)
 
       console.log(`✅ [Pass 1] Narration terminée.`)
       console.log(`🎭 Résumé : ${episode.summary}`)

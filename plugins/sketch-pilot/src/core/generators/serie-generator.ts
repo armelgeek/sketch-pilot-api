@@ -1,4 +1,5 @@
 import { SeriesRepository } from '../../../../../src/infrastructure/repositories/series.repository'
+import { VideoRepository } from '../../../../../src/infrastructure/repositories/video.repository'
 import { SagaProductionService } from '../../plugins/vimax/services/saga-production.service'
 import type { EnrichedScene, ImagePrompt, VideoGenerationOptions } from '../../types/video-script.types'
 import type { SceneMemory } from '../scene-memory'
@@ -15,7 +16,7 @@ export class SerieGenerator extends VideoGenerator {
     this.seriesContext = seriesContext
 
     // Initialize the central Saga Production Service
-    this.sagaService = new SagaProductionService(config.llm, new SeriesRepository())
+    this.sagaService = new SagaProductionService(config.llm, new SeriesRepository(), new VideoRepository())
   }
 
   public getType(): string {
@@ -31,7 +32,7 @@ export class SerieGenerator extends VideoGenerator {
     console.info(`[SerieGenerator] 🧠 Vimax Proxy Mode: Pre-generating full saga for topic: ${topic}`)
 
     // We run the full saga generation upfront via the central service
-    this.preGeneratedSaga = await this.sagaService.produceFullSaga(topic, {
+    this.preGeneratedSaga = await this.sagaService.produceFullSaga(topic, topic, {
       ...options,
       seriesId: this.seriesContext.seriesId,
       seriesContext: this.seriesContext

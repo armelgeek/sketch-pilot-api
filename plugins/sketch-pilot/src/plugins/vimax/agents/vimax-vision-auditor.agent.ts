@@ -9,6 +9,12 @@ export interface VisionAuditReport {
     composition: string
     styleAdherence: number
   }
+  details?: {
+    expectation_vs_reality: string
+    identity_check: string
+    style_consistency: string
+  }
+  suggestedCorrection?: string
 }
 
 /**
@@ -26,27 +32,49 @@ export class VimaxVisionAuditor extends VimaxBaseAgent {
    */
   async auditImage(imageUrl: string, narration: string, expectedCharacters: string[]): Promise<VisionAuditReport> {
     const prompt = `
-[MISSION : AUDIT DE CONSISTENCE VISUELLE]
-Tu es un superviseur VFX et continuité. Compare l'image générée avec la narration suivante.
+[MISSION : AUDIT DE CONTINUITÉ ET CONSISTENCE VISUELLE]
+Tu es un superviseur VFX et expert en continuité. Ta mission est d'inspecter l'image générée et de la comparer à la narration attendue.
 
-[NARRATION]
+[NARRATION ATTENDUE]
 ${narration}
 
 [PERSONNAGES ATTENDUS]
 ${expectedCharacters.join(', ')}
 
-[INSTRUCTIONS]
-1. Identité : Les personnages sont-ils identifiables et conformes ?
-2. Composition : Le cadrage respecte-t-il les intentions cinématographiques ?
-3. Style : Y a-t-il un drift artistique (ex: passage au réalisme alors qu'on veut de l'animation) ?
+[DIRECTIVES D'ANALYSE]
+1. Attentes vs Réalité : Détaille précisément ce qui manque ou ce qui diffère par rapport au texte.
+2. Identité : Vérifie si chaque personnage @Nom est présent et conforme à son profil.
+3. Composition : Le cadrage (Angle, Type de plan) est-il cohérent ?
+4. Style : Détecte tout drift (ex: passage à un style photo alors qu'on veut du storyboard).
 
-Réponds en JSON uniquement.
+[FORMAT DE RÉPONSE JSON OBLIGATOIRE]
+{
+  "isValid": boolean,
+  "issues": ["liste des problèmes précis détectés"],
+  "visualDNA": {
+    "lighting": "description courte (ex: Cinématique sombre, Naturel)",
+    "composition": "description courte (ex: Gros plan, Plan américain, Contre-plongée)",
+    "styleAdherence": number (score 0-100)
+  },
+  "details": {
+    "expectation_vs_reality": "Analyse détaillée des différences entre la narration et l'image",
+    "identity_check": "Vérification précise des personnages",
+    "style_consistency": "Analyse de l'adhérence stylistique"
+  },
+  "suggestedCorrection": "Action concrète pour corriger le drift (ex: Ajouter une directive de style dans le profil du personnage)"
+}
 `.trim()
 
     const result = await this.generateStructured<VisionAuditReport>(
-      `${prompt}\n\n[IMAGE_URL]\n${imageUrl}`,
+      `[IMAGE_URL]\n${imageUrl}\n\n${prompt}`,
       this.getSystemPrompt(),
-      { isValid: false, issues: [], visualDNA: { lighting: '', composition: '', styleAdherence: 0 } }
+      {
+        isValid: false,
+        issues: [],
+        visualDNA: { lighting: '', composition: '', styleAdherence: 0 },
+        details: { expectation_vs_reality: '', identity_check: '', style_consistency: '' },
+        suggestedCorrection: ''
+      }
     )
 
     return result.data

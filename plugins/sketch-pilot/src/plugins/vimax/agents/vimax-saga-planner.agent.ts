@@ -71,7 +71,7 @@ Réponds UNIQUEMENT avec du JSON valide : { "intent": "narrative" | "motion" | "
     const intentKey = typeof intent === 'string' ? intent : intent.tone || 'narrative'
 
     return `
-[RÔLE : Expert en Planification de Série - Mode ${intentKey.toUpperCase()}]
+[RÔLE : Expert en Planification de Série - Mode ${(intentKey || 'narrative').toUpperCase()}]
 Tu es un expert chargé de transformer une idée brute en un script structuré et cinématique.
 
 ${identDirective}

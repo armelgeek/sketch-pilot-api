@@ -20,6 +20,7 @@ import type { Routes } from '../../domain/types'
 export class SeriesController implements Routes {
   public controller: OpenAPIHono
   private seriesRepository: SeriesRepository
+  private videoRepository: VideoRepository
   private prepareSeriesUseCase: PrepareSeriesUseCase
   private suggestSeriesConceptUseCase: SuggestSeriesConceptUseCase
   private regenerateSeriesCharacterImageUseCase: RegenerateSeriesCharacterImageUseCase
@@ -35,6 +36,7 @@ export class SeriesController implements Routes {
   constructor() {
     this.controller = new OpenAPIHono()
     this.seriesRepository = new SeriesRepository()
+    this.videoRepository = new VideoRepository()
     this.suggestSeriesConceptUseCase = new SuggestSeriesConceptUseCase()
     this.regenerateSeriesCharacterImageUseCase = new RegenerateSeriesCharacterImageUseCase()
     this.regenerateSeriesAssetImageUseCase = new RegenerateSeriesAssetImageUseCase()
@@ -55,7 +57,7 @@ export class SeriesController implements Routes {
       apiKey: process.env.OPENAI_API_KEY || ''
     })
 
-    this.sagaProductionService = new SagaProductionService(llmService, this.seriesRepository)
+    this.sagaProductionService = new SagaProductionService(llmService, this.seriesRepository, this.videoRepository)
     // Update use cases with the service
     this.generateNextEpisodeUseCase = new GenerateNextEpisodeUseCase(this.sagaProductionService)
     this.prepareSeriesUseCase = new PrepareSeriesUseCase(this.sagaProductionService)

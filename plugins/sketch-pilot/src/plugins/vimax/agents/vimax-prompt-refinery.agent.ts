@@ -6,10 +6,38 @@ import type { LearningEpisode, Lesson } from '../types'
  * Analyse les épisodes d'apprentissage pour en extraire des leçons et des patches de prompt.
  */
 export class VimaxPromptRefinery extends VimaxBaseAgent {
-  private getSystem(): string {
+  public id = 'prompt-refinery'
+
+  private getSystem(theme?: string): string {
+    let focusInstructions = ''
+    if (theme === 'Narrative') {
+      focusInstructions = `
+[FOCUS NARRATIF]
+- Analyse la structure du plan, les résumés d'épisodes et la fluidité de l'histoire.
+- Détecte les arcs brisés, les cliffhangers mal placés ou les summaries trop vagues.
+- Produis des directives sur la structure logique et le rythme narratif (!logic).
+`
+    } else if (theme === 'Visual') {
+      focusInstructions = `
+[FOCUS VISUEL]
+- Analyse la qualité des prompts d'images, des descriptions de personnages et de l'atmosphère.
+- Détecte le "drift" stylistique, le manque de détails sensoriels ou les contradictions visuelles.
+- Produis des directives sur le style, les éclairages et la persistance physique (!style, !visual).
+`
+    } else if (theme === 'Cinematic') {
+      focusInstructions = `
+[FOCUS CINÉMATOGRAPHIQUE]
+- Analyse les mouvements de caméra, le jeu d'acteur (acting) et l'animation.
+- Détecte les cadrages monotones, les descriptions d'actions physiquement impossibles ou le manque de dynamisme.
+- Produis des directives sur la mise en scène et le mouvement (!style).
+`
+    }
+
     return `
 Tu es le VimaxPromptRefinery, un Meta-Agent expert en ingénierie de prompt et en auto-amélioration.
-Ta mission est d'analyser des "épisodes" d'exécution d'autres agents (ce qu'ils ont reçu, ce qu'ils ont répondu, et pourquoi ça a échoué) pour synthétiser des directives correctives.
+Ta mission est d'analyser des "épisodes" d'exécution d'autres agents pour synthétiser des directives correctives.
+
+${focusInstructions}
 
 [MÉTHODOLOGIE]
 1. IDENTIFICATION : Pourquoi l'agent a-t-il échoué ? (Confusion de personnage, format JSON invalide, répétition, ton inapproprié).
@@ -21,8 +49,8 @@ Pour chaque leçon, ajoute des tags sémantiques :
 - Identifiants de personnages : @Nom
 - Lieux : #Lieu
 - Style : !Style
+- Visuel : !Visual
 - Si la règle est universelle (ex: format JSON, ton général), marque l'agentName comme "Global" et ajoute le tag "#Global".
-- Les tags servent à diffuser la connaissance entre agents (ex: une leçon sur @Armel apprise par le Screenwriter sera utile au Dialogue).
 
 [FORMAT DE RÉPONSE]
 Renvoie UNIQUEMENT du JSON :
@@ -43,7 +71,7 @@ Renvoie UNIQUEMENT du JSON :
   /**
    * Analyse une série d'épisodes en échec pour en extraire des leçons.
    */
-  async refine(episodes: LearningEpisode[]): Promise<Partial<Lesson>[]> {
+  async refine(episodes: LearningEpisode[], theme?: string): Promise<Partial<Lesson>[]> {
     if (episodes.length === 0) return []
 
     const failuresContext = episodes
@@ -51,6 +79,7 @@ Renvoie UNIQUEMENT du JSON :
         `
 [ÉPISODE ${i + 1}]
 Agent: ${ep.agentName}
+Aspect: ${theme || 'Général'}
 User Prompt: ${ep.userPrompt}
 Response: ${ep.response}
 Issues: ${ep.evaluation?.issues.join(', ') || 'Inconnu'}
@@ -60,12 +89,12 @@ Critique: ${ep.evaluation?.critique || 'N/A'}
       .join('\n\n---\n\n')
 
     const prompt = `
-Voici une liste d'échecs récents rencontrés par nos agents. 
-Analyse-les et propose des directives correctives (Prompts Patches) pour améliorer leurs futurs résultats.
+Voici une liste d'échecs récents rencontrés par nos agents dans l'aspect [${theme || 'Général'}]. 
+Analyse-les et propose des directives correctives (Prompts Patches) extrêmement ciblées.
 
 ${failuresContext}
 `.trim()
-    const result = await this.generateStructured<{ lessons: any[] }>(prompt, this.getSystem(), { lessons: [] })
+    const result = await this.generateStructured<{ lessons: any[] }>(prompt, this.getSystem(theme), { lessons: [] })
 
     return result.data.lessons.map((l: any) => ({
       ...l,

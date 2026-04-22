@@ -163,9 +163,12 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
   private async recordEpisode(episode: LearningEpisode): Promise<void> {
     try {
       let episodesDir = path.join(process.cwd(), 'vimax-logs', 'learning-episodes')
+
       if (episode.seriesId) {
-        episodesDir = path.join(episodesDir, episode.seriesId)
+        // Nouvelle structure unifiée : vimax-logs/sagas/[seriesId]/brain-data/
+        episodesDir = path.join(process.cwd(), 'vimax-logs', 'sagas', episode.seriesId, 'brain-data')
       }
+
       await fs.mkdir(episodesDir, { recursive: true })
       const filePath = path.join(episodesDir, `${episode.id}.json`)
       await fs.writeFile(filePath, JSON.stringify(episode, null, 2), 'utf8')

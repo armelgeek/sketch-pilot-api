@@ -6,6 +6,7 @@ import { SeriesContinuityPlugin } from '../plugins/series-continuity.plugin'
 import { SeriesNarrativePlugin } from '../plugins/series-narrative.plugin'
 import { VimaxSchemaMapper } from '../utils/vimax-schema-mapper'
 import type { SeriesRepository } from '../../../../../../src/infrastructure/repositories/series.repository'
+import type { VideoRepository } from '../../../../../../src/infrastructure/repositories/video.repository'
 import type { LLMService } from '../../../services/llm'
 import type { VimaxEpisode, VimaxRunOptions, VimaxSeries } from '../types'
 
@@ -19,7 +20,8 @@ export class SagaProductionService {
 
   constructor(
     llmService: LLMService,
-    private readonly seriesRepo: SeriesRepository
+    private readonly seriesRepo: SeriesRepository,
+    private readonly videoRepo: VideoRepository
   ) {
     const adapter = new VimaxLLMAdapter(llmService)
     this.agent = new VimaxAgent(adapter)
@@ -46,10 +48,11 @@ export class SagaProductionService {
         })
       },
 
-      onAfterEpisode: async (agent, episode) => {
+      onAfterEpisode: async (agent, episode, plan) => {
         console.info(`[SagaProductionService] 💾 Synchronisation de l'épisode ${episode.id}...`)
+        const userId = plan?.options?.userId || (this.agent.planner as any).userId
         // Persistence de l'épisode et mise à jour de la continuité
-        await this.syncEpisodeToDatabase(episode)
+        await this.syncEpisodeToDatabase(userId, episode, plan)
       }
     })
   }
@@ -57,14 +60,68 @@ export class SagaProductionService {
   /**
    * Synchronise les données d'un épisode généré vers les tables relationnelles.
    */
-  private async syncEpisodeToDatabase(episode: VimaxEpisode) {
+  private async syncEpisodeToDatabase(userId: string, episode: VimaxEpisode, plan?: any) {
     const seriesId = this.agent.planner.getSeriesId()
     if (!seriesId) return
 
+    // 1. Création de l'entrée "Vidéo" (v8.0 Sequencer Metadata)
+    const videoId = episode.id // On utilise l'ID généré par Vimax
+
+    // 2. Mapping vers le format VideoScript (NanoBanana / Legacy Compatibility)
+    const script = {
+      titles: [episode.summary.slice(0, 50)],
+      topic: episode.summary,
+      fullNarration: episode.narration,
+      totalDuration: episode.scenes.reduce((acc, s) => acc + (s.duration || 5), 0),
+      sceneCount: episode.scenes.length,
+      scenes: episode.scenes.map((s, idx) => ({
+        id: s.id,
+        sceneNumber: idx + 1,
+        narration: s.narration,
+        imagePrompt: s.imagePrompt,
+        locationId: s.locationId,
+        charactersInScene: s.charactersInScene || []
+      })),
+      seriesMetadata: {
+        episodeSummary: episode.summary,
+        characterContinuity: VimaxSchemaMapper.toRecord(episode.characterProfiles)
+      }
+    }
+
+    await this.videoRepo.create({
+      id: videoId,
+      userId,
+      seriesId,
+      episodeNumber: episode.episodeNumber,
+      topic: episode.summary,
+      title: `Épisode ${episode.episodeNumber} : ${episode.summary.slice(0, 50)}`,
+      status: 'draft',
+      progress: 100,
+      script, // Sauvegarde pour compatibilité avec GenerateScenesUseCase
+      globalContext: plan?.plan?.script || plan?.script || '',
+      previousEpisodesContext: '',
+      characterRegistry: VimaxSchemaMapper.toRecord(episode.characterProfiles),
+      narrationLayer: {
+        narration: episode.narration,
+        summary: episode.summary
+      }
+    })
+
+    // 3. Synchronisation des Scènes (Relational Layer)
+    const scenes = (episode.scenes || []).map((s, idx) => ({
+      ...s,
+      videoId,
+      sceneNumber: idx + 1,
+      timeRange: { start: s.startTime, end: s.startTime + s.duration },
+      duration: s.duration,
+      narration: s.narration,
+      imagePrompt: s.imagePrompt,
+      locationId: s.locationId
+    }))
+
     await Promise.all([
-      // Mise à jour des registres (Personnages, Lieux)
+      this.videoRepo.saveScenes(videoId, scenes),
       this.seriesRepo.updateCharacterRegistry(seriesId, episode.characterProfiles),
-      // On pourrait aussi extraire les lieux des scènes ici
       this.seriesRepo.appendEpisodeSummary(seriesId, episode.narration)
     ])
   }
@@ -86,7 +143,29 @@ export class SagaProductionService {
     console.info(
       `[SagaProductionService] 🎞️ Génération de l'épisode ${episodeNumber} pour la saga ${seriesId} par ${userId}`
     )
-    return await this.agent.runSingleEpisode(seriesId, episodeNumber)
+
+    // HYDRATATION DE L'AGENT DEPUIS LA DB (Fix: Plan non trouvé sur disque)
+    const context = await this.seriesRepo.getSeriesContext(seriesId)
+    if (!context) {
+      throw new Error(`Série ${seriesId} introuvable en base de données.`)
+    }
+
+    const planData = VimaxSchemaMapper.mapDbToSagaPlan(context)
+    const episodeEvents = VimaxSchemaMapper.mapDbToEpisodeEvents(context)
+
+    const fullSagaPlan = {
+      seriesId,
+      options: {
+        seriesId,
+        userId,
+        brainMode: 'all', // Défaut par sécurité
+        seriesContext: context
+      },
+      plan: planData,
+      episodeEvents
+    }
+
+    return await this.agent.runSingleEpisode(seriesId, episodeNumber, fullSagaPlan)
   }
 
   /**
@@ -109,6 +188,43 @@ export class SagaProductionService {
       console.error(`[SagaProductionService] Impossible de charger le plan pour ${seriesId}:`, error)
       throw new Error(`Plan introuvable pour la saga ${seriesId}`)
     }
+  }
+
+  /**
+   * Assure que la structure de dossiers pour une saga existe.
+   */
+  public async ensureSagaDirectory(seriesId: string): Promise<string> {
+    const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', seriesId)
+    await fs.mkdir(path.join(sagaDir, 'episodes'), { recursive: true })
+    await fs.mkdir(path.join(sagaDir, 'brain-data'), { recursive: true })
+    await fs.mkdir(path.join(sagaDir, 'audits'), { recursive: true })
+    await fs.mkdir(path.join(sagaDir, 'prompts'), { recursive: true })
+    await fs.mkdir(path.join(sagaDir, 'intermediate'), { recursive: true })
+    return sagaDir
+  }
+
+  /**
+   * Reconstruit les logs locaux à partir des données de la base de données.
+   */
+  public async syncLogsFromDatabase(seriesId: string): Promise<void> {
+    console.info(`[SagaProductionService] 🔄 Synchronisation des logs depuis la base de données pour ${seriesId}...`)
+    const context = await this.seriesRepo.getSeriesContext(seriesId)
+    if (!context) throw new Error(`Saga ${seriesId} non trouvée en DB.`)
+
+    const sagaDir = await this.ensureSagaDirectory(seriesId)
+    const planData = VimaxSchemaMapper.mapDbToSagaPlan(context)
+    const episodeEvents = VimaxSchemaMapper.mapDbToEpisodeEvents(context)
+
+    const fullSagaPlan = {
+      seriesId,
+      basicIdea: context.title, // Approximation
+      options: { seriesId, userId: (context as any).userId, seriesContext: context },
+      plan: planData,
+      episodeEvents
+    }
+
+    await fs.writeFile(path.join(sagaDir, 'plan.json'), JSON.stringify(fullSagaPlan, null, 2), 'utf8')
+    console.info(`✅ plan.json restauré pour ${seriesId}`)
   }
 
   /**
