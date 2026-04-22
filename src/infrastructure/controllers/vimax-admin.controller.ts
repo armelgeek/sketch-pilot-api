@@ -689,6 +689,139 @@ export class VimaxAdminController implements Routes {
         return c.json({ success })
       }
     )
+
+    // NEW: POST /v1/admin/vimax/sagas/{id}/audits/{fileName}/scenes/{sceneNum}/processed
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/admin/vimax/sagas/{id}/audits/{fileName}/scenes/{sceneNum}/processed',
+        tags: ['Vimax Admin'],
+        summary: 'Mark a scene in an audit report as processed',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({
+            id: z.string(),
+            fileName: z.string(),
+            sceneNum: z.string()
+          })
+        },
+        responses: {
+          200: {
+            description: 'Success',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id, fileName, sceneNum } = c.req.valid('param')
+        const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', id)
+        const auditPath = path.join(sagaDir, fileName)
+
+        try {
+          const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
+          if (audit.audits) {
+            const sceneAudit = audit.audits.find((s: any) => s.sceneNumber === Number.parseInt(sceneNum))
+            if (sceneAudit) {
+              sceneAudit.processed = true
+              await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
+              return c.json({ success: true })
+            }
+          }
+          return c.json({ success: false, message: 'Scene not found in audit' }, 404)
+        } catch {
+          return c.json({ success: false, message: 'Audit file not found' }, 404)
+        }
+      }
+    )
+
+    // NEW: POST /v1/admin/vimax/sagas/{id}/learn-narrative
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/admin/vimax/sagas/{id}/learn-narrative',
+        tags: ['Vimax Admin'],
+        summary: 'Learn from a narrative feedback',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({ id: z.string() }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  feedback: z.any()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Success',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id } = c.req.valid('param')
+        const { feedback } = await c.req.json()
+        const agent = await this.getVimaxAgent()
+        const success = await agent.brain.processNarrativeFeedback(id, feedback)
+        return c.json({ success })
+      }
+    )
+
+    // NEW: POST /v1/admin/vimax/sagas/{id}/audits/{fileName}/narrative/processed
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/admin/vimax/sagas/{id}/audits/{fileName}/narrative/processed',
+        tags: ['Vimax Admin'],
+        summary: 'Mark a narrative feedback in an audit report as processed',
+        security: [{ Bearer: [] }],
+        request: {
+          params: z.object({
+            id: z.string(),
+            fileName: z.string()
+          }),
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  issue: z.string()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Success',
+            content: { 'application/json': { schema: z.object({ success: z.boolean() }) } }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { id, fileName } = c.req.valid('param')
+        const { issue } = await c.req.json()
+        const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', id)
+        const auditPath = path.join(sagaDir, fileName)
+
+        try {
+          const audit = JSON.parse(await fs.readFile(auditPath, 'utf8'))
+          if (audit.feedbacks) {
+            const feedback = audit.feedbacks.find((f: any) => f.issue === issue)
+            if (feedback) {
+              feedback.processed = true
+              await fs.writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8')
+              return c.json({ success: true })
+            }
+          }
+          return c.json({ success: false, message: 'Feedback not found in audit' }, 404)
+        } catch {
+          return c.json({ success: false, message: 'Audit file not found' }, 404)
+        }
+      }
+    )
   }
 
   private async runGranularAudit(agent: VimaxAgent, seriesId: string, section: 'plan' | 'all') {

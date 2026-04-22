@@ -1,0 +1,127 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.0"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Assurez-vous que les éléments visuels de la narration, comme la pluie et le mouvement des essuie-glaces, soient explicitement inclus dans les prompts d'image et d'animation.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La continuité visuelle est cruciale pour maintenir la cohérence de la scène. L'absence de représentation visuelle d'éléments clés comme la pluie et les essuie-glaces peut créer une dissonance avec le récit et perturber l'immersion du spectateur.",
+        "tags": [
+          "@Clara",
+          "@Antoine",
+          "pluie",
+          "essuie-glaces",
+          "#route-campagne-pluvieuse",
+          "!Visual",
+          "scene-1",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776859324221,
+        "id": "lesson-scene-1776859324220"
+      },
+      {
+        "directive": "Ajouter des détails visuels dynamiques tels que la pluie battante et le mouvement des essuie-glaces dans la description d'image pour aligner avec la narration.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène visuelle doit refléter les éléments dynamiques décrits dans la narration pour assurer une cohérence et une immersion complètes.",
+        "tags": [
+          "@Clara",
+          "@Antoine",
+          "#route-campagne-pluvieuse",
+          "action",
+          "pluie",
+          "essuie-glaces",
+          "!Visual",
+          "scene-1",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776860213827,
+        "id": "lesson-scene-1776860213826"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

@@ -443,6 +443,56 @@ export class VimaxBrain {
   }
 
   /**
+   * Intègre un feedback narratif (saga ou épisode) pour distillation.
+   */
+  async processNarrativeFeedback(seriesId: string, feedback: any): Promise<boolean> {
+    try {
+      console.log(`[VimaxBrain] Apprentissage narratif pour la saga ${seriesId}...`)
+
+      // On crée un épisode d'apprentissage synthétique pour ce feedback
+      const syntheticEpisode: LearningEpisode = {
+        id: `narrative-feedback-${seriesId}-${Date.now()}`,
+        agentName: 'VimaxSagaPlanner', // L'agent responsable de la structure narrative
+        systemPrompt: 'Analyse narrative globale',
+        userPrompt: feedback.issue || 'Contexte narratif inconnu',
+        response: JSON.stringify(feedback),
+        timestamp: Date.now(),
+        durationMs: 0,
+        evaluation: {
+          score: 0,
+          isValid: false,
+          issues: [feedback.rationale],
+          critique: `${feedback.correction}. Exemple: ${feedback.example}`,
+          source: 'human'
+        },
+        status: 'failure'
+      }
+
+      // Distillation
+      const [lessonPartial] = await this.refinery.refine([syntheticEpisode])
+
+      if (lessonPartial) {
+        await this.store.addLesson({
+          ...lessonPartial,
+          id: `lesson-narrative-${Date.now()}`,
+          agentName: 'VimaxSagaPlanner',
+          confidence: 1,
+          successCount: 1,
+          failCount: 0,
+          tags: [...(lessonPartial.tags || []), 'narrative'],
+          lastUpdated: Date.now()
+        } as any)
+
+        console.log(`[VimaxBrain] Nouvelle leçon narrative ajoutée.`)
+        return true
+      }
+    } catch (error) {
+      console.error(`[VimaxBrain] Erreur lors du processing feedback narratif:`, error)
+    }
+    return false
+  }
+
+  /**
    * Intègre un feedback humain spécifique pour une scène précise.
    */
   async processSceneFeedback(

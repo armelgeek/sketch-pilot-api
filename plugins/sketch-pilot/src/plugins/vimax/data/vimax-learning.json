@@ -1,27 +1,5 @@
 {
   "version": "1.0.0",
-  "lessons": [
-    {
-      "directive": "Assurez-vous que les éléments visuels de la narration, comme la pluie et le mouvement des essuie-glaces, soient explicitement inclus dans les prompts d'image et d'animation.",
-      "category": "continuity",
-      "agentName": "VimaxScreenwriter",
-      "explanation": "La continuité visuelle est cruciale pour maintenir la cohérence de la scène. L'absence de représentation visuelle d'éléments clés comme la pluie et les essuie-glaces peut créer une dissonance avec le récit et perturber l'immersion du spectateur.",
-      "tags": [
-        "@Clara",
-        "@Antoine",
-        "pluie",
-        "essuie-glaces",
-        "#route-campagne-pluvieuse",
-        "!Visual",
-        "scene-1",
-        "ep-1"
-      ],
-      "confidence": 1,
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776859324221,
-      "id": "lesson-scene-1776859324220"
-    }
-  ],
+  "lessons": [],
   "globalDirectives": []
 }
