@@ -1,0 +1,152 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et assurez que chaque élément narratif renforce une idée centrale avec des retournements inattendus pour maintenir l'intérêt du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776860755937-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776860755937
+      },
+      {
+        "directive": "Intégrez des détails visuels dynamiques et explicites tels que la pluie battante et le mouvement des essuie-glaces dans les prompts d'image pour assurer une continuité narrative.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776860755937-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776860755937
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.1"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Incorporer des éléments de conflit externe ou interne dans les interactions entre personnages pour augmenter la tension dramatique.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "La tension dramatique est cruciale dans la narration pour maintenir l'engagement du lecteur; des conflits additionnels la rendent plus palpable.",
+        "tags": ["@clara", "@antoine", "tension", "#Global", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776869412302,
+        "id": "lesson-narrative-1776869412301"
+      },
+      {
+        "directive": "Incorporer une diversité de tons émotionnels dans les dialogues pour améliorer le dynamisme et l'impact dramatique.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les dialogues manquants en variété émotionnelle peuvent rendre les interactions monotones et réduire l'engagement du spectateur.",
+        "tags": ["#Global", "dialogue", "emotion", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776870630434,
+        "id": "lesson-narrative-1776870630434"
+      },
+      {
+        "directive": "Intégrer systématiquement des réflexions intérieures et des dialogues introspectifs pour approfondir les arcs émotionnels.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "L'ajout de réflexions intérieures permet de donner plus de profondeur et de réalisme aux émotions des personnages, enrichissant ainsi leur développement émotionnel.",
+        "tags": ["@clara", "@antoine", "#Global", "émotion", "!Style", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776870650652,
+        "id": "lesson-narrative-1776870650652"
+      },
+      {
+        "directive": "Assure-toi que chaque scène a un cadre unique, en variant les conditions météorologiques et les lieux pour éviter la monotonie.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Utiliser des environnements variés enrichit l'expérience narrative et maintient l'intérêt visuel et émotionnel des utilisateurs.",
+        "tags": ["#Weather", "#Visual", "variation", "environment", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776870683263,
+        "id": "lesson-narrative-1776870683263"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

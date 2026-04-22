@@ -1,0 +1,181 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique progressive incluant des révélations et retournements inattendus pour maintenir l'intérêt du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776871308057-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871308057
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations et luttes internes complexes, en intégrant des conflits significatifs et arcs narratifs individuels qui enrichissent et complètent le thème principal.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776871308057-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871308057
+      },
+      {
+        "directive": "Incorporez des éléments de conflit interne et externe et évitez les clichés dans les interactions, tout en introduisant des scénarios et personnages qui défient les attentes conventionnelles.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776871308057-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871308057
+      },
+      {
+        "directive": "Intégrez des détails visuels dynamiques et conditions variées pour assurer une continuité narrative fluide, avec au moins deux thèmes principaux pour une balance équilibrée.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776871308057-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871308057
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.3"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Ajouter des détails visuels de la pluie et des essuie-glaces en action pour correspondre à la scène décrite.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La réponse de l'agent ne reflète pas les conditions météorologiques cruciales de la scène, comme la pluie et le mouvement des essuie-glaces, ce qui cause une rupture de la continuité visuelle.",
+        "tags": [
+          "@Clara",
+          "@Antoine",
+          "#route-campagne-pluvieuse",
+          "!Visual",
+          "pluie",
+          "essuie-glaces",
+          "scene-1",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871437441,
+        "id": "lesson-scene-1776871437441"
+      },
+      {
+        "directive": "Inclure une description visuelle claire du porche abritant les personnages pour éviter toute confusion sur le décor.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Le prompt doit clairement établir la présence physique du porche pour maintenir la continuité visuelle et conceptuelle dans la scène.",
+        "tags": ["@Antoine", "@Clara", "action", "!Visual", "#Porche", "scene-3", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871466787,
+        "id": "lesson-scene-1776871466787"
+      },
+      {
+        "directive": "Inclure une description explicite de la pluie battante comme élément visuel clé dans le prompt d'image pour garantir sa présence dans le rendu final.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La pluie est un élément crucial de la scène, renforçant l'atmosphère dramatique et la connexion entre les personnages. Son absence visuelle peut nuire à l'impact émotionnel et à la cohérence de la scène.",
+        "tags": ["@Clara", "@Antoine", "#porch", "pluie", "!Visual", "scene-4", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871476151,
+        "id": "lesson-scene-1776871476151"
+      },
+      {
+        "directive": "Inclure explicitement la visualisation de l'éclair frappant le sol et illuminant la scène dans le prompt d'image.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène et la narration décrivent un éclair frappant le sol, mais cette visualisation est absente du prompt d'image. Pour maintenir la continuité visuelle et narrative, il est crucial de décrire cet éclair dans le prompt d'image.",
+        "tags": ["@Clara", "@Antoine", "#Orage", "éclair", "pluie", "lumière stroboscopique", "scene-5", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776871532883,
+        "id": "lesson-scene-1776871532883"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

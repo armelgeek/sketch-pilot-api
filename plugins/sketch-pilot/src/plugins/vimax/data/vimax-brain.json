@@ -68,29 +68,49 @@
       "verified": true
     },
     {
-      "directive": "Construisez des personnages avec des motivations complexes et assurez que chaque élément narratif renforce une idée centrale avec des retournements inattendus pour maintenir l'intérêt du lecteur.",
+      "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente avec une montée dramatique progressive, intégrant des personnages avec des motivations complexes et des conflits significatifs pour enrichir le thème principal.",
       "category": "logic",
       "confidence": 1,
-      "id": "trend-1776860755937-0",
+      "id": "trend-1776871779445-0",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776860755937
+      "lastUpdated": 1776871779445
     },
     {
-      "directive": "Intégrez des détails visuels dynamiques et explicites tels que la pluie battante et le mouvement des essuie-glaces dans les prompts d'image pour assurer une continuité narrative.",
+      "directive": "Intégrez des descriptions visuelles dynamiques et précises, comme des conditions météorologiques et des détails environnementaux, pour garantir une continuité narrative fluide et immersive.",
       "category": "continuity",
       "confidence": 1,
-      "id": "trend-1776860755937-1",
+      "id": "trend-1776871779445-1",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776860755937
+      "lastUpdated": 1776871779445
+    },
+    {
+      "directive": "Incorporez des éléments de surprise et de retournements inattendus pour maintenir l'intérêt du lecteur et renforcer l'impact émotionnel de la narration.",
+      "category": "logic",
+      "confidence": 1,
+      "id": "trend-1776871779445-2",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776871779445
+    },
+    {
+      "directive": "Évitez les clichés dans les interactions et introduisez des scénarios et personnages qui défient les attentes conventionnelles pour enrichir la profondeur narrative.",
+      "category": "style",
+      "confidence": 1,
+      "id": "trend-1776871779445-3",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776871779445
     }
   ],
   "globalDirectives": [
     "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
     "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
   ],
-  "version": "3.6.1"
+  "version": "3.6.4"
 }
