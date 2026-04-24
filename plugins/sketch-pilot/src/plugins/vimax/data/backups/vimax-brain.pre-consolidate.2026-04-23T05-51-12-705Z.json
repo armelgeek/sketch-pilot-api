@@ -1,0 +1,375 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Développer des personnages avec des motivations complexes et des luttes internes, intégrant des sous-intrigues émotionnelles pour renforcer l'engagement narratif.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776891372691-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776891372691
+      },
+      {
+        "directive": "Intégrer des variations et des révélations inattendues dans la progression narrative pour éviter la répétition et maintenir l'intérêt du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776891372691-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776891372691
+      },
+      {
+        "directive": "Assurer une continuité narrative fluide avec des transitions cohérentes, en liant toutes les intrigues à un thème central et suivant l'évolution émotionnelle des personnages principaux.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776891372691-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776891372691
+      },
+      {
+        "directive": "Incorporer des détails sensoriels et des éléments visuels pour renforcer l'immersion et l'atmosphère, tout en maintenant un rythme varié avec des développements relationnels et émotionnels.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776891372691-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776891372691
+      },
+      {
+        "directive": "Assurer que chaque personnage a un style de dialogue distinct et que toutes les scènes comportent des éléments de conflit pour maintenir la tension dramatique.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776891372691-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776891372691
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.8"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Inclure des descriptions visuelles claires et cohérentes de chaque personnage et leur interaction avec l'environnement, en veillant à ce que tous les personnages mentionnés dans le prompt soient visibles dans la scène.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène manque de cohérence visuelle entre le prompt utilisateur et l'animation générée. Tous les personnages mentionnés doivent être présents et avoir des actions ou positions clairement définies.",
+        "tags": ["@Leo", "@Maya", "@Charlie", "@Zane", "#Planquesecrete", "!Visual", "scene-1", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923194576,
+        "id": "lesson-scene-1776923194576"
+      },
+      {
+        "directive": "Inclure une directive pour un gros plan sur @Leo en accentuant l'éclairage sur ses yeux pour souligner son regard déterminé.",
+        "category": "visual",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Un gros plan sur les yeux de @Leo avec un éclairage focalisé amplifierait la tension dramatique et accentuerait sa quête silencieuse.",
+        "tags": ["@Leo", "#Planquesecrete", "focalisation", "éclairage", "scene-2", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923199855,
+        "id": "lesson-scene-1776923199855"
+      },
+      {
+        "directive": "Assurez-vous d'inclure tous les personnages mentionnés dans le prompt visuel et de souligner les éléments spécifiques tels que le regard perçant et la voix chuchotante dans la description visuelle.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Les personnages mentionnés dans le prompt doivent être présents dans la réponse pour maintenir la cohérence narrative. Des détails spécifiques comme le regard perçant et la voix chuchotante doivent être visuellement représentés pour renforcer l'immersion.",
+        "tags": ["@Maya", "@Leo", "@Charlie", "@Zane", "#PlanqueSecrète", "!Visual", "scene-3", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923207178,
+        "id": "lesson-scene-1776923207178"
+      },
+      {
+        "directive": "Ajouter des effets de lumière spécifiques pour accentuer le caractère mythique de @Zane avec des yeux flamboyants et un sourire en coin plus marqué, en utilisant des contrastes lumineux pour renforcer ces éléments visuels.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Pour rendre @Zane plus mythique et captivant, les effets visuels doivent être accentués par une utilisation stratégique des contrastes et des lumières, soulignant ses traits distinctifs.",
+        "tags": ["@Zane", "#PlanqueSecrete", "!Visual", "lumière", "contraste", "scene-5", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923214184,
+        "id": "lesson-scene-1776923214184"
+      },
+      {
+        "directive": "Incorporer des descriptions visuelles détaillées pour chaque personnage présent dans la scène, en utilisant des comparaisons ou des métaphores pour rendre chaque présence unique et mémorable, tout en renforçant l'éclairage et l'atmosphère.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Le manque de détails distincts pour chaque personnage et une utilisation plus créative de l'éclairage peuvent entraîner une confusion visuelle et une perte de tension dramatique dans des scènes complexes.",
+        "tags": [
+          "@Detectivesmith",
+          "@Leo",
+          "@Maya",
+          "@Charlie",
+          "@Zane",
+          "#PlanqueSecrete",
+          "tension",
+          "!style",
+          "!visual",
+          "scene-7",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923221329,
+        "id": "lesson-scene-1776923221329"
+      },
+      {
+        "directive": "Ajouter une indication d'éclairage focalisé sur @Detectivesmith pour mettre en valeur son expression et renforcer l'atmosphère de tension.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'éclairage focalisé permet de créer un contraste visuel qui isole le personnage principal et augmente l'effet dramatique et la tension de la scène.",
+        "tags": ["@Detectivesmith", "#Planquesecrete", "!Visual", "éclairage", "tension", "scene-6", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923226242,
+        "id": "lesson-scene-1776923226242"
+      },
+      {
+        "directive": "Inclure des détails explicites sur les expressions faciales des personnages pour renforcer l'atmosphère de tension et d'imminence du chaos, et assurer que tous les personnages mentionnés dans le prompt utilisateur sont présents dans la scène pour maintenir la cohérence narrative.",
+        "category": "continuity",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'omission de détails sur les expressions faciales peut affaiblir l'impact visuel d'une scène tendue. De plus, omettre des personnages mentionnés dans le prompt peut créer des incohérences dans la narration.",
+        "tags": [
+          "@Detectivesmith",
+          "@Leo",
+          "@Maya",
+          "@Charlie",
+          "@Zane",
+          "#PlanqueSecrète",
+          "!Visual",
+          "atmosphère",
+          "expression",
+          "cohérence",
+          "scene-8",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923232389,
+        "id": "lesson-scene-1776923232389"
+      },
+      {
+        "directive": "Incorporer des détails de mouvement rapide, comme des lignes de vitesse ou un flou de mouvement sur les mains de @Charlie, pour accentuer l'action frénétique, et intégrer visuellement @Leo, @Maya, et @Zane autour de la table dans l'image.",
+        "category": "visual",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "La scène manque de représentation visuelle des autres personnages présents dans la narration, ce qui crée une incohérence entre la description textuelle et l'image. Le flou de mouvement sur les mains renforce l'impression de vitesse et d'urgence.",
+        "tags": ["@Charlie", "@Leo", "@Maya", "@Zane", "!Visual", "#PlanqueSecrète", "scene-4", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923242319,
+        "id": "lesson-scene-1776923242319"
+      },
+      {
+        "directive": "Éviter la répétition des tensions internes en les utilisant pour provoquer des développements significatifs ou des révélations sur les personnages.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les tensions répétitives sans résolution ou développement peuvent ennuyer le public et nuire à l'évolution de l'intrigue. Les transformer en opportunités narratives maintient l'intérêt et engage le spectateur.",
+        "tags": ["@Charlie", "@Leo", "#Global", "action", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923274781,
+        "id": "lesson-narrative-1776923274781"
+      },
+      {
+        "directive": "Évite de rendre les dialogues trop explicites ; laisse les motivations des personnages être révélées par leurs actions et interactions.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les dialogues trop explicites peuvent nuire à la subtilité et à la profondeur des personnages, rendant la narration moins engageante et nuancée.",
+        "tags": ["@Leo", "!Style", "action", "interaction", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923286864,
+        "id": "lesson-narrative-1776923286864"
+      },
+      {
+        "directive": "Inclure une variété de cadres et d'environnements dans chaque épisode pour éviter la monotonie.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "La répétition excessive des mêmes cadres ou environnements dans des scènes successives peut rendre un épisode monotone et ennuyeux. En introduisant des variations, l'agent peut maintenir l'intérêt des spectateurs.",
+        "tags": ["@Maya", "!Visual", "#Global", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923300177,
+        "id": "lesson-narrative-1776923300177"
+      },
+      {
+        "directive": "Incorpore dans les scénarios des conflits internes et des désaccords pour garantir une évolution dynamique de la tension dramatique.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Une tension dramatique linéaire peut rendre l'histoire monotone. Introduire des conflits internes et des désaccords enrichit la dynamique et maintient l'intérêt.",
+        "tags": ["@Zane", "@Charlie", "drama", "!Style", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923307294,
+        "id": "lesson-narrative-1776923307294"
+      },
+      {
+        "directive": "Assure-toi que chaque personnage principal, comme @detectivesmith, dispose d'un développement multidimensionnel incluant des dilemmes personnels ou des liens significatifs avec d'autres personnages.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Pour éviter que les personnages apparaissent passifs et unidimensionnels, il est essentiel de leur donner des dilemmes moraux ou des connexions personnelles qui enrichissent la trame narrative.",
+        "tags": ["@detectivesmith", "@maya", "#NarrativeDevelopment", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923314103,
+        "id": "lesson-narrative-1776923314103"
+      },
+      {
+        "directive": "Évite l'utilisation répétitive des mêmes métaphores et descriptions. Introduis de nouvelles images et détails sensoriels pour chaque scène.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "L'utilisation répétitive de métaphores et de descriptions similaires réduit l'impact narratif et peut rendre le texte monotone.",
+        "tags": ["#Global", "!Style", "narrative", "descriptions", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923319630,
+        "id": "lesson-narrative-1776923319630"
+      },
+      {
+        "directive": "Éviter les tropes évidents en cherchant des motivations et des arcs narratifs uniques pour les personnages principaux.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "L'utilisation de clichés rend les personnages prévisibles et peut diminuer l'engagement du public. Enrichir les motivations des personnages crée des histoires plus captivantes et originales.",
+        "tags": ["@Leo", "#Général", "narrative", "character development", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923336528,
+        "id": "lesson-narrative-1776923336528"
+      },
+      {
+        "directive": "Toujours intégrer des arcs narratifs personnels pour chaque personnage principal afin d'éviter les stéréotypes. Utiliser des flashbacks ou des développements contextuels pour approfondir leur histoire.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Cette règle est nécessaire pour enrichir les personnages et les rendre plus complexes et mémorables, évitant ainsi qu'ils ne restent de simples stéréotypes.",
+        "tags": ["@Maya", "@Zane", "#Global", "character development", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923345687,
+        "id": "lesson-narrative-1776923345687"
+      },
+      {
+        "directive": "Assurez-vous que chaque arc narratif comporte une introduction, un développement, et une résolution satisfaisante.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les arcs narratifs doivent avoir une progression claire et offrir une résolution satisfaisante pour maintenir l'engagement et la compréhension du lecteur.",
+        "tags": ["@Charlie", "arc narratif", "trahison", "résolution", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923351463,
+        "id": "lesson-narrative-1776923351462"
+      },
+      {
+        "directive": "Inclure systématiquement des moments de vulnérabilité ou d'interaction personnelle pour les personnages principaux afin de renforcer le lien émotionnel avec le public.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "L'ajout de scènes montrant la vie personnelle ou les vulnérabilités d'un personnage crée un lien émotionnel plus fort avec le public, en les rendant plus relatables et humains.",
+        "tags": ["@Zane", "#Famille", "émotion", "interaction", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923358525,
+        "id": "lesson-narrative-1776923358525"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

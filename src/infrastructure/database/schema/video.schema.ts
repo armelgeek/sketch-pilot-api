@@ -43,6 +43,9 @@ export const videos = pgTable('videos', {
   // Script / scenes data
   script: jsonb('script'),
   narrationLayer: jsonb('narration_layer').$type<any>(),
+  // Automation & Quality
+  score: integer('score'), // 0-100 qualitative grade
+  feedback: jsonb('feedback').$type<any>(), // Detailed critique from auditing
   // @deprecated Use video_scenes table instead
   scenes: jsonb('scenes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

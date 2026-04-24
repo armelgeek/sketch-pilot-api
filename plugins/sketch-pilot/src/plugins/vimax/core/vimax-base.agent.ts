@@ -240,6 +240,12 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     const hasAt = clean.startsWith('@')
     let base = hasAt ? clean.slice(1) : clean
 
+    // Détection d'index numérique (ex: "@0", "1")
+    // Si l'identifiant est purement numérique, on ne peut pas l'utiliser tel quel.
+    if (!isNaN(Number(base))) {
+      return `@Personnage${base}`
+    }
+
     // Enlever tout ce qui n'est pas alphanumérique (espaces, apostrophes, etc.)
     base = base.replaceAll(/[^a-z0-9]/gi, '')
 

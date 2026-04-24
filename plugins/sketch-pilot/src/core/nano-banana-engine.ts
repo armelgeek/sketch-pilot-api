@@ -190,7 +190,23 @@ export class NanoBananaEngine {
 
     // 1. Resolve effective reference images
     const baseImages = await this.promptManager.resolveCharacterImages()
-    const rawActiveCharacters = scene.charactersInScene || []
+
+    // --- Hardened Character Extraction (v12.0) ---
+    // Check multiple potential fields for active characters
+    const charactersFromSchema = scene.charactersInScene || []
+    const charactersFromAlias = (scene as any).characters || []
+    const charactersFromProjections = (scene as any).projections?.characters || []
+
+    // Extract mentions from narration as a robust fallback
+    const narrationMentions = scene.narration?.match(/@\w+/g) || []
+
+    const rawActiveCharacters = [...new Set([...charactersFromSchema])]
+    console.log('characters', scene)
+
+    console.log('charactersFromSchema', charactersFromSchema)
+    console.log('charactersFromAlias', charactersFromAlias)
+    console.log('charactersFromProjections', charactersFromProjections)
+    console.log('narrationMentions', narrationMentions)
     // Normalize IDs to match registry handles (@slug)
     const activeCharacters = rawActiveCharacters.map((id) =>
       id.startsWith('@')
@@ -201,8 +217,8 @@ export class NanoBananaEngine {
             .replaceAll(/[\s\-_]+/g, '')}`
     )
 
-    //console.info('[GENERATE IMAGE REFERENCE CHARACTERS]', rawActiveCharacters)
-    //console.log('[BASE IMAGE TO FILTER]', JSON.stringify(baseImages))
+    console.info('[GENERATE IMAGE REFERENCE CHARACTERS]', rawActiveCharacters)
+    console.log('[BASE IMAGE TO FILTER]', JSON.stringify(baseImages))
     // Filter registry images: only keep those whose name matches an active character
     // or if they are "LOCATION" anchors, or if they are the special "BASE_ANCHOR"
     const filteredBaseImages = baseImages.filter((img) => {
@@ -217,7 +233,7 @@ export class NanoBananaEngine {
       }
       return true // Keep generic images (unlikely to be character models if no name)
     })
-    //console.log('[FILTERED BASE IMAGES]', filteredBaseImages)
+    console.log('[FILTERED BASE IMAGES]', filteredBaseImages)
 
     const characterImages = refs || []
     const allBaseImages = await this.downloadAndEncodeImages([...filteredBaseImages, ...characterImages])
@@ -273,9 +289,33 @@ export class NanoBananaEngine {
       undefined
     )
 
+    const visualStyleLock = (this.promptManager as any).seriesContext?.visualStyleLock
+
     let systemInstruction = await this.promptManager.buildImageSystemInstruction(
       hasReferenceImages || !!sequelBridgeUrl
     )
+
+    // [V48] Style Enforcement Logic: If a StyleLock is present, enforce it at the model level
+    if (visualStyleLock) {
+      console.info(`[NanoBanana] 🛡️ STYLE LOCK: Enforcing ${visualStyleLock.visualStyle}...`)
+      const mandatory = visualStyleLock.mandatoryTerms?.length
+        ? `- MANDATORY (Must include): ${visualStyleLock.mandatoryTerms.join(', ')}`
+        : ''
+      const forbidden = visualStyleLock.forbiddenTerms?.length
+        ? `- FORBIDDEN (Do NOT use): ${visualStyleLock.forbiddenTerms.join(', ')}`
+        : ''
+
+      const styleEnforcement = `
+### 🛡️ STRICT STYLE ENFORCEMENT (OBLIGATOIRE) 🛡️
+You MUST adhere strictly to the following artistic DNA. Ignore any default "realistic", "cinematic" or "photographic" tendencies unless explicitly requested by the style.
+- STYLE : ${visualStyleLock.visualStyle}
+${mandatory}
+${forbidden}
+- NOTE : If the prompt says "cinématographique", interpret it based on the MEDIUM (${visualStyleLock.visualStyle}), NOT as a request for realism.
+`.trim()
+
+      systemInstruction = `${styleEnforcement}\n\n${systemInstruction}`
+    }
 
     // 3. Inject Visual DNA & Internal Context
     if (visualDNA || internalContext || masterStyleUrl) {

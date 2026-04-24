@@ -118,6 +118,7 @@ export interface VideoGeneratorConfig {
     characterRegistry: Record<string, any>
     locationRegistry: Record<string, any>
     assetRegistry: Record<string, any>
+    visualStyleLock?: any
   }
   // Standalone registries
   characterRegistry?: Record<string, any>

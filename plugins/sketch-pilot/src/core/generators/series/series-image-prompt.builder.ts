@@ -328,7 +328,17 @@ export async function buildImagePrompt(ctx: ImagePromptContext): Promise<ImagePr
   const effectiveLocationId = scene.locationId || previousScene?.locationId
 
   // Active characters (normalized set for fast lookup)
-  const activeCharacters = new Set((scene.charactersInScene || []).map((id: string) => normalizeId(id).toLowerCase()))
+  // --- Hardened Character Extraction (v12.0) ---
+  const charactersFromSchema = scene.charactersInScene || []
+  const charactersFromAlias = (scene as any).characters || []
+  const charactersFromProjections = (scene as any).projections?.characters || []
+  const narrationMentions = scene.narration.match(/@\w+/g) || []
+
+  const rawActiveCharacters = [
+    ...new Set([...charactersFromSchema, ...charactersFromAlias, ...charactersFromProjections, ...narrationMentions])
+  ]
+
+  const activeCharacters = new Set(rawActiveCharacters.map((id: string) => normalizeId(id).toLowerCase()))
   const activeCharacterNames = Array.from(activeCharacters)
 
   // ─── Build all stages ────────────────────────────────────────────────────────

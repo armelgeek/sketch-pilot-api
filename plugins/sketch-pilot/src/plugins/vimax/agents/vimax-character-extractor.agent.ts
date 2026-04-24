@@ -44,9 +44,9 @@ Réponds UNIQUEMENT du JSON valide :
   "characters": [
     {
       "index": 0,
-      "identifier": "@PascalCase",
-      "static_features": "Description physique permanente",
-      "dynamic_features": "Humeur/Pose actuelle",
+      "identifier": "@NomDuPersonnage",
+      "static_features": "Description physique permanente (vêtements, traits, accessoires)",
+      "dynamic_features": "Humeur/Pose actuelle pour ce segment",
       "portrait_prompt": "Prompt d'identité absolue incluant le STYLE LOCKÉ"
     }
   ]

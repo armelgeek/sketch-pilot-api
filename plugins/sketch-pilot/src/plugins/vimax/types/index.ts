@@ -194,6 +194,8 @@ export interface SeriesContext {
   tensionCurve?: number[]
   lastEpisodeSummary?: string
   lastEpisodeBridge?: EpisodeBridge
+  lastEpisodeFinalImage?: string
+  lastEpisodeFinalScene?: any
   previousEpisodes?: any[]
   seriesBible?: SeriesBible | string
   intent?: SagaIntent | string
@@ -203,6 +205,7 @@ export interface SeriesContext {
   cameraStyle?: string
   symbolicMotifs?: string[]
   visualStyle?: string
+  visualStyleLock?: StyleLock
 }
 
 export interface VimaxSeries {
@@ -260,6 +263,7 @@ export interface VimaxScene {
 
 export interface CharacterProfile {
   identifier: string // @Nom
+  index?: number
   physicalDescription: string
   personalityTraits: string[]
   roleInSaga: string

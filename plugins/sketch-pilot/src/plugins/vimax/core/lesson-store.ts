@@ -170,7 +170,10 @@ export class LessonStore {
 
     if (tags.length > 0) {
       const taggedLessons = lessons.filter((l) => l.tags?.some((t) => tags.includes(t)))
-      if (taggedLessons.length > 0) return taggedLessons
+      const generalLessons = lessons.filter((l) => !l.tags || l.tags.length === 0)
+
+      // On retourne les deux : leçons spécifiques + leçons générales
+      return [...new Set([...taggedLessons, ...generalLessons])]
     }
 
     return lessons

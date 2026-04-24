@@ -135,4 +135,30 @@ export class VimaxSchemaMapper {
       isClimax: false // Fallback
     }))
   }
+
+  /**
+   * Mappe les résultats d'un épisode (VimaxEpisode) vers un objet de mise à jour pour le context de la série.
+   */
+  public static mapEpisodeToContextUpdate(episode: any, currentContext: any) {
+    const lastImage = episode.scenes?.at(-1)?.imageUrl
+
+    // Fusion des registres
+    const characterRegistry = { ...(currentContext.characterRegistry || {}) }
+    if (episode.characterProfiles) {
+      const episodeCharacters = this.toRecord(episode.characterProfiles)
+      Object.assign(characterRegistry, episodeCharacters)
+    }
+
+    return {
+      lastEpisodeNumber: episode.episodeNumber,
+      episodeNumber: episode.episodeNumber + 1,
+      lastEpisodeFinalImage: lastImage || currentContext.lastEpisodeFinalImage,
+      lastEpisodeFinalScene: episode.scenes?.at(-1) || currentContext.lastEpisodeFinalScene,
+      lastEpisodeSummary: episode.summary,
+      characterRegistry,
+      // On peut ajouter la persistence des lieux et assets si nécessaire
+      locationRegistry: currentContext.locationRegistry || {},
+      assetRegistry: currentContext.assetRegistry || {}
+    }
+  }
 }

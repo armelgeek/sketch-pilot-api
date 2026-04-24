@@ -179,6 +179,9 @@ export class VimaxAgent {
         options.seriesContext.cameraStyle = styleLock.visualStyle
         // Store mandatory terms in motifs for persistent enforcement
         options.seriesContext.symbolicMotifs = styleLock.mandatoryTerms
+
+        // [V50] Explicitly persist the StyleLock object in the context
+        options.seriesContext.visualStyleLock = styleLock
       }
     }
 
@@ -358,6 +361,9 @@ export class VimaxAgent {
       const lastFile = filteredFiles.at(-1)!
       const lastEpData = JSON.parse(await fs.readFile(path.join(sagaDir, lastFile), 'utf8'))
       seriesContext.lastEpisodeBridge = lastEpData.bridge
+      // [V48] Restore last technical metadata for Sequel Bridge (image + scene context)
+      seriesContext.lastEpisodeFinalImage = lastEpData.scenes?.at(-1)?.imageUrl
+      seriesContext.lastEpisodeFinalScene = lastEpData.scenes?.at(-1)
     }
 
     const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options, sagaPlan)
@@ -381,14 +387,14 @@ export class VimaxAgent {
     console.log(`[VimaxAgent] Raffinement de ${type} via feedback : "${feedback.issue}"...`)
 
     const instruction = `
-[MISSION : RAFFINEMENT SUITE À AUDIT]
-L'audit a identifié le problème suivant : "${feedback.issue}".
-Raison : ${feedback.rationale}
-Correction à appliquer : ${feedback.correction}
-${feedback.example ? `Exemple de mise en œuvre : ${feedback.example}` : ''}
+      [MISSION : RAFFINEMENT SUITE À AUDIT]
+      L'audit a identifié le problème suivant : "${feedback.issue}".
+      Raison : ${feedback.rationale}
+      Correction à appliquer : ${feedback.correction}
+      ${feedback.example ? `Exemple de mise en œuvre : ${feedback.example}` : ''}
 
-Consigne : Mets à jour l'objet fourni pour intégrer cette correction. 
-Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
+      Consigne : Mets à jour l'objet fourni pour intégrer cette correction. 
+      Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
 `.trim()
 
     let refined: any
@@ -601,6 +607,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
 
     const continuity = new VimaxContinuityEngine()
     if (context.lastEpisodeBridge) continuity.setBridge(context.lastEpisodeBridge)
+    if (context.lastEpisodeFinalImage) continuity.setLastEpisodeFinalImage?.(context.lastEpisodeFinalImage)
 
     // Fusion des profils extraits avec le registre global (Source de Vérité)
     const globalRegistry = (sagaPlan?.plan?.characterRegistry || []) as CharacterProfile[]
@@ -610,7 +617,8 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         return {
           ...p,
           portrait_prompt: global.portrait_prompt || p.portrait_prompt,
-          static_features: global.static_features || p.static_features
+          static_features: global.static_features || p.static_features,
+          thumbnailUrl: global.thumbnailUrl || p.thumbnailUrl
           // On garde les dynamic_features de l'extraction car elles sont spécifiques à l'épisode
         }
       }
@@ -634,7 +642,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       narration: fullNarration,
       scenes,
       bridge,
-      characterProfiles: profiles,
+      characterProfiles: mergedProfiles,
       eventIndex: index,
       eventDescription: event.description,
       screenplay: {
@@ -660,13 +668,15 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     let lastVisualAnchor: VisualAnchorState | null = null
 
     // 0. Style Lock Logic (Vision-Driven)
+    const existingLock = this.planner.getStyleLock()
+
     if (options.referenceStyleImage) {
       console.info("[VimaxAgent] 🎨 Extraction du style à partir de l'image de référence...")
       const styleLock = await this.styleExtractor.extractStyle(options.referenceStyleImage)
       this.planner.setStyleLock(styleLock)
       console.info(`[VimaxAgent] ✨ Style extrait : ${styleLock.visualStyle}`)
-    } else {
-      // Fallback ou style bible
+    } else if (!existingLock) {
+      // Fallback ou style bible — Uniquement si aucun style n'a été restauré du contexte
       const bible = typeof context.seriesBible === 'string' ? null : context.seriesBible
       const visualStyle = options.visualStyle || bible?.visualStyle || 'Standard'
 
@@ -750,14 +760,12 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       const animMeta = await this.animation.generateAnimation(sceneResult.narration, event.description, [], context)
 
       intermediateScenes.push({
+        ...sceneMeta,
         sceneNumber: i + 1,
         narration: sceneResult.narration,
         imagePrompt: visual.imagePrompt,
         animationPrompt: animMeta.animationPrompt,
-        acting: animMeta.acting,
-        tensionState: sceneMeta.tensionState,
-        cameraAction: sceneMeta.cameraAction,
-        locationId: sceneMeta.locationId || 'default'
+        acting: animMeta.acting
       })
 
       const lastScene = intermediateScenes.at(-1)
@@ -769,9 +777,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       ...s,
       id: `scene-${idx + 1}`,
       duration: durationFactor,
-      startTime: idx * durationFactor,
-      charactersInScene: [],
-      simulationPatch: { charactersPatch: {}, worldPatch: {} }
+      startTime: idx * durationFactor
     })) as VimaxScene[]
   }
 

@@ -798,7 +798,11 @@ export const completeVideoScriptSchema = z.object({
       newAssets: z.record(z.string()).optional().describe('Map of newly discovered story assets [name]: [description]'),
       threadUpdates: z.array(threadSchema).optional().describe('New or updated plot threads for the saga ledger'),
       roadmapUpdate: sagaRoadmapSchema.optional().describe('Progress update on the series-wide milestones'),
-      narrationLayer: narrationLayerSchema.optional()
+      narrationLayer: narrationLayerSchema.optional(),
+      visualStyleLock: z
+        .any()
+        .optional()
+        .describe('Strict visual DNA and style constraints (mandatory/forbidden terms)')
     })
     .optional()
     .describe('Episodic metadata for series-mode videos'),

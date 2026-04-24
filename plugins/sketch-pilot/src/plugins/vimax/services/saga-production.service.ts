@@ -179,7 +179,18 @@ export class SagaProductionService {
       episodeEvents
     }
 
-    return await this.agent.runSingleEpisode(seriesId, episodeNumber, fullSagaPlan)
+    const result = await this.agent.runSingleEpisode(seriesId, episodeNumber, fullSagaPlan)
+
+    // [V48] Persistence Hook: Sync episode results back to the database for inter-episode continuity
+    console.info(`[SagaProductionService] 🔄 Sauvegarde de la continuité pour l'épisode ${episodeNumber}...`)
+    const updates = VimaxSchemaMapper.mapEpisodeToContextUpdate(result, context)
+    await this.seriesRepo.update(seriesId, updates)
+
+    // Update summary history for narrative context window
+    const summaryHeader = `Episode ${episodeNumber}: ${result.summary}`
+    await this.seriesRepo.appendEpisodeSummary(seriesId, summaryHeader)
+
+    return result
   }
 
   /**

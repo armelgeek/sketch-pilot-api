@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { serve } from '@hono/node-server'
+import { startBrainLearningWorker } from '@/infrastructure/workers/brain-learning.worker'
 import { startVideoGenerationWorker } from '@/infrastructure/workers/video-generation.worker'
 import { App } from './app'
 
@@ -38,11 +39,14 @@ const app = new App([
 ]).getApp()
 
 let videoWorker: any = null
+let brainWorker: any = null
+
 if (process.env.ENABLE_VIDEO_WORKER !== 'false') {
   try {
     videoWorker = startVideoGenerationWorker()
+    brainWorker = startBrainLearningWorker()
   } catch (error) {
-    console.warn('[Server] Video worker could not start (Redis may not be available):', error)
+    console.warn('[Server] Workers could not start (Redis may not be available):', error)
   }
 }
 
@@ -55,6 +59,14 @@ const gracefulShutdown = async (signal: string) => {
       console.info('[Server] Video worker closed successfully.')
     } catch (error) {
       console.error('[Server] Error closing video worker:', error)
+    }
+  }
+  if (brainWorker) {
+    try {
+      await brainWorker.close()
+      console.info('[Server] Brain learning worker closed successfully.')
+    } catch (error) {
+      console.error('[Server] Error closing brain learning worker:', error)
     }
   }
   process.exit(0)

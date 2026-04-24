@@ -42,10 +42,11 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
 Tu es un scénariste de sagas cinématographiques à haute tension.
 Génère une NARRATION BRUTE et percutante pour l'événement fourni.
 
-[GUIDE DE RÉDACTION]
-${lengthGuide}
-- Développe une prose immersive, sensorielle et fluide.
-- Évite les clichés et concentre-toi sur le subtexte et l'ambiance.
+- RÈGLE D'OR : Écris pour l'ÉCRAN, pas pour un livre.
+- Narration VISCÉRALE, BRUTE, IMMÉDIATE.
+- Utilise des verbes d'action forts. Évite les adjectifs poétiques ou abstraits.
+- Concentre-toi sur ce qui se PASSE physiquement et ce qu'on RESSENT viscéralement.
+- Interdiction de faire de la "belle prose". On veut du rythme et de l'impact.
 
 ${intentReminder}
 

@@ -1,0 +1,307 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Développez des personnages multidimensionnels avec des motivations complexes, en intégrant des sous-intrigues émotionnelles et des dilemmes personnels pour renforcer l'engagement narratif et éviter les stéréotypes.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776923482685-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923482685
+      },
+      {
+        "directive": "Assurez une continuité et une cohérence narratives en intégrant des transitions fluides, en liant toutes les intrigues à un thème central et en incluant des arcs narratifs personnels et des évolutions émotionnelles significatives.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776923482685-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923482685
+      },
+      {
+        "directive": "Incorporez des détails sensoriels et visuels variés pour renforcer l'immersion et l'atmosphère, tout en évitant la répétition des descriptions et en utilisant des métaphores et comparaisons pour rendre chaque scène unique.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776923482685-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923482685
+      },
+      {
+        "directive": "Incluez des variations et des révélations inattendues dans la progression narrative pour maintenir l'intérêt du lecteur, en intégrant des retournements et des surprises pour éviter la monotonie.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776923482685-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923482685
+      },
+      {
+        "directive": "Assurez que chaque personnage a un style de dialogue distinct et évitez les dialogues trop explicites ; les motivations doivent être révélées par les actions et interactions des personnages pour maintenir la tension dramatique.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776923482685-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776923482685
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.9"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Utiliser un éclairage dramatique pour accentuer les détails visuels importants, comme la sculpture, afin de créer une ambiance inspirante.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'éclairage stroboscopique d'alarme peut détourner l'attention des éléments visuels clés. Un éclairage dramatique concentré sur la sculpture créera une atmosphère plus réaliste et captivante.",
+        "tags": ["@Juliettemontrose", "@Gabrieldelacroix", "#Vernissage", "!Visual", "!Style", "scene-1", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935650971,
+        "id": "lesson-scene-1776935650971"
+      },
+      {
+        "directive": "Intégrer des descriptions sensorielles précises pour les toiles vibrantes, telles que des contrastes de couleurs saisissants ou des motifs dynamiques, afin de renforcer l'atmosphère de tension dans la scène.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'utilisateur a demandé des détails visuels supplémentaires pour accentuer les toiles vibrantes. Ajouter des éléments sensoriels comme des couleurs contrastées et des motifs mouvants peut rendre les toiles plus immersives et renforcer la tension subtile recherchée.",
+        "tags": ["@Gabrieldelacroix", "@Juliettemontrose", "toiles vibrantes", "!Visual", "scene-2", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935662953,
+        "id": "lesson-scene-1776935662953"
+      },
+      {
+        "directive": "Pour renforcer la tension palpable entre les personnages dans une scène, ajoute des détails visuels réalistes tels que des micro-expressions, des gestes subtils, ou des variations de lumière et d'ombres qui accentuent l'émotion silencieuse.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Les micro-expressions et les détails d'éclairage peuvent enrichir la profondeur émotionnelle d'une scène de tension silencieuse, rendant l'interaction plus immersive pour le spectateur.",
+        "tags": [
+          "@Juliettemontrose",
+          "@Gabrieldelacroix",
+          "#vernissage",
+          "interaction",
+          "tension",
+          "!style",
+          "!visual",
+          "scene-3",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935686614,
+        "id": "lesson-scene-1776935686614"
+      },
+      {
+        "directive": "Inclure des détails visuels explicites sur les expressions faciales et le langage corporel des personnages pour refléter l'émotion décrite, comme les yeux pétillants de Juliette et l'attitude captivante de Gabriel.",
+        "category": "visual",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "Les prompts visuels doivent traduire précisément les émotions des personnages pour renforcer l'immersion et soutenir la narration émotionnelle. L'ajout de détails sur les expressions faciales permet de refléter directement le texte et d'améliorer l'interaction émotionnelle perçue.",
+        "tags": [
+          "@Juliettemontrose",
+          "@Gabrieldelacroix",
+          "expressions faciales",
+          "connexion émotionnelle",
+          "scene-4",
+          "ep-1"
+        ],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935693875,
+        "id": "lesson-scene-1776935693875"
+      },
+      {
+        "directive": "Renforcez l'intensité visuelle avec des effets d'ombre et de lumière pour accentuer la tension et la rivalité entre les personnages.",
+        "category": "visual",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'ajout d'effets visuels tels que des ombres dramatiques ou une variation de l'éclairage peuvent intensifier l'atmosphère dramatique, soulignant les expressions faciales et les tensions entre les personnages.",
+        "tags": ["@Juliettemontrose", "@Gabrieldelacroix", "#Tension", "!Visual", "scene-5", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935702479,
+        "id": "lesson-scene-1776935702478"
+      },
+      {
+        "directive": "Inclure des détails sensoriels supplémentaires concernant les expressions faciales et les gestes pour chaque personnage afin de renforcer la tension émotionnelle.",
+        "category": "style",
+        "agentName": "VimaxScreenwriter",
+        "explanation": "L'absence de détails sur les expressions faciales ou les gestes réduit l'impact émotionnel de la scène, en particulier lorsque la tension est censée être élevée. Des descriptions précises peuvent aider à transmettre le sous-texte émotionnel et le drame interne des personnages.",
+        "tags": ["@Juliettemontrose", "@Gabrieldelacroix", "!Visual", "tension", "scene-6", "ep-1"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935710157,
+        "id": "lesson-scene-1776935710157"
+      },
+      {
+        "directive": "Utilisez un langage naturel et authentique pour les dialogues entre @JulietteMontrose et @GabrielDelacroix, tout en maintenant l'émotion appropriée.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les dialogues trop poétiques peuvent sembler artificiels et nuisent à la crédibilité des échanges. Un langage naturel maintient l'authenticité tout en préservant l'émotion.",
+        "tags": ["@JulietteMontrose", "@GabrielDelacroix", "dialogue", "!Style", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935786509,
+        "id": "lesson-narrative-1776935786509"
+      },
+      {
+        "directive": "Éviter la redondance en s'assurant que chaque scène apporte de nouvelles informations ou un développement significatif.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les scènes redondantes peuvent diminuer l'impact émotionnel et l'engagement du lecteur. En consolidant les scènes qui se répètent, l'histoire reste dynamique et captivante.",
+        "tags": ["#Narration", "!Structuration", "tension", "connexion", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935804776,
+        "id": "lesson-narrative-1776935804776"
+      },
+      {
+        "directive": "Toujours développer les motifs de tension en incluant des éléments contextuels et des interactions indirectes qui enrichissent le conflit.",
+        "category": "logic",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Cela permettra de donner de la profondeur aux tensions mentionnées, rendant l'histoire plus engageante et crédible.",
+        "tags": ["@montrose", "@delacroix", "tension", "conflit", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935810524,
+        "id": "lesson-narrative-1776935810524"
+      },
+      {
+        "directive": "Intégrer dans chaque prompt une invitation explicite à dépasser les clichés en apportant un élément unique ou un twist inattendu.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Éviter les histoires prévisibles en incitant à l’innovation et à la créativité dans la réinvention des clichés.",
+        "tags": ["@Juliette", "@Gabriel", "#AmourImpossible", "#Innovation", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935818190,
+        "id": "lesson-narrative-1776935818190"
+      },
+      {
+        "directive": "Inclure systématiquement des motivations et des arcs narratifs pour chaque personnage secondaire afin de les enrichir au-delà de leur fonction scénaristique.",
+        "category": "logic",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Les personnages secondaires doivent avoir des motivations et des histoires personnelles pour éviter d'être perçus comme de simples outils narratifs.",
+        "tags": ["@ClaireMontrose", "@Elena", "development", "#Global", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935827202,
+        "id": "lesson-narrative-1776935827202"
+      },
+      {
+        "directive": "Incorporer des rebondissements inattendus à des moments clés pour maintenir l'engagement et surprendre le spectateur.",
+        "category": "style",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Maintenir un rythme imprévisible est crucial pour garder l'intérêt du spectateur, en évitant une progression trop linéaire et attendue.",
+        "tags": ["action", "#NarrativeStructure", "!Surprise", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935835598,
+        "id": "lesson-narrative-1776935835598"
+      },
+      {
+        "directive": "Évitez les résolutions rapides en introduisant des obstacles et des conséquences pour chaque choix majeur de personnage.",
+        "category": "continuity",
+        "agentName": "VimaxSagaPlanner",
+        "explanation": "Pour maintenir l'engagement du lecteur et la crédibilité du récit, il est essentiel de montrer que les actions des personnages ont des conséquences tangibles, et que la réconciliation ou la résolution des conflits nécessite un développement narratif approprié.",
+        "tags": ["@Gabriel", "narrative", "consequence", "conflict", "narrative"],
+        "confidence": 1,
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935840717,
+        "id": "lesson-narrative-1776935840717"
+      }
+    ],
+    "globalDirectives": []
+  }
+}

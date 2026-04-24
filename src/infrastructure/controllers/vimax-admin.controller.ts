@@ -3,6 +3,9 @@ import * as path from 'node:path'
 import process from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { LLMServiceFactory } from '@sketch-pilot/services/llm'
+import { desc } from 'drizzle-orm'
+import { db } from '@/infrastructure/database/db'
+import { vimaxLearningTransactions } from '@/infrastructure/database/schema/vimax.schema'
 import type { Routes } from '@/domain/types'
 import { VimaxUniversalCriticAgent } from '../../../plugins/sketch-pilot/src/plugins/vimax/agents/vimax-universal-critic.agent'
 import { VimaxVisionAuditor } from '../../../plugins/sketch-pilot/src/plugins/vimax/agents/vimax-vision-auditor.agent'
@@ -906,6 +909,38 @@ export class VimaxAdminController implements Routes {
           console.error(`[VimaxAdmin] Error processing visual feedback: ${error.message}`)
           return c.json({ success: false, message: 'Audit file not found' }, 404)
         }
+      }
+    )
+
+    // NEW: GET /v1/admin/vimax/learning-transactions
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/v1/admin/vimax/learning-transactions',
+        tags: ['Vimax Admin'],
+        summary: 'List recent learning transactions',
+        security: [{ Bearer: [] }],
+        responses: {
+          200: {
+            description: 'Success',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  transactions: z.array(z.any())
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const transactions = await db
+          .select()
+          .from(vimaxLearningTransactions)
+          .orderBy(desc(vimaxLearningTransactions.createdAt))
+          .limit(50)
+
+        return c.json({ transactions })
       }
     )
   }

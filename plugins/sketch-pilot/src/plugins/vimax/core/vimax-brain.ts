@@ -14,7 +14,7 @@ import type { LLMService } from './llm.interface'
  */
 export class VimaxBrain {
   private refinery: VimaxPromptRefinery
-  private visionAuditor: VimaxVisionAuditor
+  public visionAuditor: VimaxVisionAuditor
   private sagaSentinel: VimaxSagaSentinel
   private store: LessonStore
   private maxTokensPerCycle: number = 50000 // Défaut : 50k tokens par cycle (~0.15$)
@@ -50,12 +50,28 @@ export class VimaxBrain {
    * Pipeline d'apprentissage autonome (Shadow Loop).
    * Analyse les derniers épisodes et met à jour le store.
    */
-  async autonomousLearning(options?: { seriesId?: string }): Promise<number> {
+  async autonomousLearning(options?: { seriesId?: string }): Promise<{
+    newLessonsCount: number
+    totalScore: number
+    narrativeScore: number
+    visualScore: number
+    logicScore: number
+    tokenUsage: number
+    lessons: string[]
+  }> {
     await this.store.load()
     let episodes = await this.loadEpisodes()
     if (episodes.length === 0) {
       await this.cleanupOldEpisodes()
-      return 0
+      return {
+        newLessonsCount: 0,
+        totalScore: 0,
+        narrativeScore: 0,
+        visualScore: 0,
+        logicScore: 0,
+        tokenUsage: 0,
+        lessons: []
+      }
     }
 
     if (options?.seriesId) {
@@ -135,11 +151,21 @@ export class VimaxBrain {
       }
     }
 
-    // 2. PHASE D'APPRENTISSAGE PAR L'ÉCHEC (Multi-facettes)
     const failures = episodes.filter(
       (ep) => (ep.status === 'failure' || (ep.evaluation && !ep.evaluation.isValid)) && !ep.learningApplied
     )
-    if (failures.length === 0) return successes.length
+    if (failures.length === 0) {
+      const stats = await this.getPerformanceStats()
+      return {
+        newLessonsCount: successes.length,
+        totalScore: stats.totalAvg,
+        narrativeScore: stats.aspects.Narrative?.avg || 0,
+        visualScore: stats.aspects.Visual?.avg || 0,
+        logicScore: stats.aspects.Cinematic?.avg || 0,
+        tokenUsage: this.refinery.getMetrics().estimatedTokens,
+        lessons: []
+      }
+    }
 
     // THRESHOLD : Si on a trop d'échecs, on passe en mode "Thematic Scaling"
     if (failures.length > 50) {
@@ -157,7 +183,18 @@ export class VimaxBrain {
     const updatedFailures = episodes.filter(
       (ep) => ep.status === 'failure' || (ep.evaluation && !ep.evaluation.isValid)
     )
-    if (updatedFailures.length === 0) return 0
+    if (updatedFailures.length === 0) {
+      const stats = await this.getPerformanceStats()
+      return {
+        newLessonsCount: 0,
+        totalScore: stats.totalAvg,
+        narrativeScore: stats.aspects.Narrative?.avg || 0,
+        visualScore: stats.aspects.Visual?.avg || 0,
+        logicScore: stats.aspects.Cinematic?.avg || 0,
+        tokenUsage: this.refinery.getMetrics().estimatedTokens,
+        lessons: []
+      }
+    }
 
     // Catégorisation par aspect
     const aspects = {
@@ -193,7 +230,17 @@ export class VimaxBrain {
     // Nettoyage après apprentissage
     await this.cleanupOldEpisodes()
 
-    return totalNewLessons
+    const stats = await this.getPerformanceStats()
+
+    return {
+      newLessonsCount: totalNewLessons,
+      totalScore: stats.totalAvg,
+      narrativeScore: stats.aspects.Narrative?.avg || 0,
+      visualScore: stats.aspects.Visual?.avg || 0,
+      logicScore: stats.aspects.Cinematic?.avg || 0,
+      tokenUsage: this.refinery.getMetrics().estimatedTokens,
+      lessons: [] // To be populated with actual IDs if needed
+    }
   }
 
   private checkBudgetExceeded(): boolean {
@@ -208,7 +255,15 @@ export class VimaxBrain {
   /**
    * Traitement de masse pour 50+ feedbacks.
    */
-  private async massThematicLearning(failures: LearningEpisode[]): Promise<number> {
+  private async massThematicLearning(failures: LearningEpisode[]): Promise<{
+    newLessonsCount: number
+    totalScore: number
+    narrativeScore: number
+    visualScore: number
+    logicScore: number
+    tokenUsage: number
+    lessons: string[]
+  }> {
     console.log(`[VimaxBrain] MODE SCALING : Traitement thématique de ${failures.length} épisodes...`)
 
     // On convertit temporairement en "leçons candidates" pour le clustering
@@ -229,7 +284,17 @@ export class VimaxBrain {
       await this.store.addLesson(trend)
     }
 
-    return trendLessons.length
+    const stats = await this.getPerformanceStats()
+
+    return {
+      newLessonsCount: trendLessons.length,
+      totalScore: stats.totalAvg,
+      narrativeScore: stats.aspects.Narrative?.avg || 0,
+      visualScore: stats.aspects.Visual?.avg || 0,
+      logicScore: stats.aspects.Cinematic?.avg || 0,
+      tokenUsage: this.refinery.getMetrics().estimatedTokens,
+      lessons: trendLessons.map((l) => l.id)
+    }
   }
 
   private async applyLessons(partials: any[], failures: LearningEpisode[]): Promise<number> {
@@ -700,20 +765,31 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
     const backupPath = await this.store.createSnapshot('pre-consolidate')
     console.log(`[VimaxBrain] Snapshot de sécurité créé : ${path.basename(backupPath)}`)
 
-    // On utilise la consolidation thématique pour un nettoyage de masse
-    const consolidated = await this.refinery.thematicConsolidate(allLessons)
+    // 1. Groupement par agent pour éviter la fuite d'identité
+    const agents = [...new Set(allLessons.map((l) => l.agentName))]
+    const consolidatedSet: Lesson[] = []
+
+    console.log(`[VimaxBrain] Consolidation multi-agents (${agents.length} agents détectés)...`)
+
+    for (const agentName of agents) {
+      const agentLessons = allLessons.filter((l) => l.agentName === agentName)
+      if (agentLessons.length > 0) {
+        console.log(`[VimaxBrain]   -> Distillation pour ${agentName} (${agentLessons.length} leçons)...`)
+        const result = await this.refinery.thematicConsolidate(agentLessons, agentName)
+        consolidatedSet.push(...result)
+      }
+    }
 
     console.log(
-      `[VimaxBrain] Consolidation terminée : ${allLessons.length} -> ${consolidated.length} leçons distillées.`
+      `[VimaxBrain] Consolidation terminée : ${allLessons.length} -> ${consolidatedSet.length} leçons distillées.`
     )
 
     // On préserve les leçons validées manuellement (Sacrées)
     const verified = allLessons.filter((l) => l.verified)
 
     // On prépare le nouveau set pour le Cortex
-    // (On pourrait faire un merge plus fin, mais ici on remplace par la distillation LLM)
     const newStableSet = [...verified]
-    for (const l of consolidated) {
+    for (const l of consolidatedSet) {
       // On évite les doublons avec les verified
       if (!newStableSet.some((v) => v.directive === l.directive)) {
         newStableSet.push(l)
@@ -728,7 +804,7 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
 
     // On incrémente la version du Brain automatiquement
     const newVer = await this.store.incrementVersion()
-    console.log(`[VimaxBrain] Vimax Brain v${newVer} distillé et stabilisé. 🚀`)
+    console.log(`[VimaxBrain] Vimax Brain v${newVer} distillé et stabilisé par agent. 🚀`)
   }
 
   /**

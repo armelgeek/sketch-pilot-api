@@ -29,12 +29,28 @@ export class VimaxVisionAuditor extends VimaxBaseAgent {
   }
 
   /**
-   * Audit d'une image générée par rapport à sa narration.
+   * Audit d'une image générée par rapport à sa narration et son style verrouillé.
    */
-  async auditImage(imageUrl: string, narration: string, expectedCharacters: string[]): Promise<VisionAuditReport> {
+  async auditImage(
+    imageUrl: string,
+    narration: string,
+    expectedCharacters: string[],
+    styleLock?: { visualStyle: string; mandatoryTerms?: string[]; forbiddenTerms?: string[] }
+  ): Promise<VisionAuditReport> {
+    const styleBlock = styleLock
+      ? `
+[STYLE VERROUILLÉ (OBLIGATOIRE)]
+- STYLE : ${styleLock.visualStyle}
+- TERMES OBLIGATOIRES : ${styleLock.mandatoryTerms?.join(', ') || 'Néant'}
+- TERMES INTERDITS : ${styleLock.forbiddenTerms?.join(', ') || 'Néant'} (Toute trace de photoréalisme si le style est non-photo est un échec d'audit)
+`.trim()
+      : ''
+
     const prompt = `
 [MISSION : AUDIT DE CONTINUITÉ ET CONSISTENCE VISUELLE]
 Tu es un superviseur VFX et expert en continuité. Ta mission est d'inspecter l'image générée et de la comparer à la narration attendue.
+
+${styleBlock}
 
 [NARRATION ATTENDUE]
 ${narration}

@@ -7,7 +7,12 @@ import { DelayedError, UnrecoverableError, Worker, type Job } from 'bullmq'
 import { checkpointStorage } from '@/application/services/checkpoint-storage.service'
 import { CHECKPOINT_PHASES, checkpointService } from '@/application/services/video-checkpoint.service'
 import { VideoGenerationService } from '@/application/services/video-generation.service'
-import { getVideoQueue, redisClient, type VideoJobData } from '@/infrastructure/config/queue.config'
+import {
+  getBrainLearningQueue,
+  getVideoQueue,
+  redisClient,
+  type VideoJobData
+} from '@/infrastructure/config/queue.config'
 import { uploadBuffer, uploadFile, uploadVideoToMinio } from '@/infrastructure/config/storage.config'
 import { CharacterModelRepository } from '@/infrastructure/repositories/character-model.repository'
 import { CreditsRepository } from '@/infrastructure/repositories/credits.repository'
@@ -1458,6 +1463,28 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
         thumbnailUrl,
         duration
       })
+
+      // 7.5. TRIGGER AUTONOMOUS BRAIN LEARNING (v48)
+      try {
+        const blQueue = getBrainLearningQueue()
+        await blQueue.add(
+          `brain-learning-${videoId}`,
+          {
+            seriesId: seriesId || videoId,
+            videoId,
+            userId,
+            episodeNumber: (videoRecord.episodeNumber as number) || 1
+          },
+          {
+            removeOnComplete: true,
+            removeOnFail: false,
+            attempts: 2
+          }
+        )
+        console.info(`[VideoWorker] 🧠 Brain learning job queued for video ${videoId}`)
+      } catch (error) {
+        console.warn(`[VideoWorker] Failed to queue brain learning job:`, error)
+      }
 
       // 8. FINAL SUCCESS: DEDUCT CREDITS (User's request: only on success)
       const currentMasterCost = (videoRecord.options as any)?.masterAssetsCost || masterAssetsCost || 0

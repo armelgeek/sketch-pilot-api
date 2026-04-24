@@ -375,10 +375,19 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
 
     const vs = this.styleLock?.visualStyle.toLowerCase() || ''
     const isWhiteboard =
-      vs.includes('whiteboard') || vs.includes('bâton') || vs.includes('stick figure') || vs.includes('croquis')
-    const systemRole = isWhiteboard
-      ? "[RÔLE : Dessinateur d'Animation Whiteboard]"
-      : '[RÔLE : Directeur de la Photographie & Directeur Visuel]'
+      vs.includes('whiteboard') ||
+      vs.includes('bâton') ||
+      vs.includes('stick figure') ||
+      vs.includes('croquis') ||
+      vs.includes('dessin') ||
+      vs.includes('illustration') ||
+      vs.includes('comics') ||
+      vs.includes('manga') ||
+      vs.includes('animation 2d')
+
+    const role = isWhiteboard
+      ? "Tu es le Directeur de l'Illustration et Concept Artist."
+      : 'Tu es le Directeur de la Photographie et Superviseur VFX.'
 
     const compositionDirective = isWhiteboard
       ? '- COMPOSITION : Dessine @Nom au premier plan dans une action claire, avec les autres éléments au second plan. Utilise des lignes épurées.'
@@ -389,7 +398,7 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
       : '- GRAMMAIRE DE LA LUMIÈRE : Interdiction de l\'expression "éclairage vif". Utilise : "lumière stroboscopique d\'alarme", "lumière rouge intermittente", "ombres dures projetées par le bas", "flash blanc aveuglant".'
 
     const system = `
-${systemRole}
+${role}
 ${styleBlock}
 - IDENTIFIANTS : Utilise UNIQUEMENT l'identifiant @Nom (ex: @Banane, @Alexandre). Fais correspondre exactement leur profil visuel. [OBLIGATION] PROTECT THE IDENTITY : Ne simplifie jamais les traits physiques fournis ; ils sont la clé de la cohérence visuelle.
 ${compositionDirective}
@@ -422,7 +431,7 @@ Renvoie UNIQUEMENT du JSON valide :
 
     const styleDirective = isWhiteboard
       ? "Génère un imagePrompt de style CROQUIS / WHITEBOARD (traits de feutre noirs simples, fond blanc, style croquis rapide). PRÉSERVE l'identité visuelle de @Nom (cheveux, vêtements) mais dessine-les dans ce médium minimaliste (ex: traits simplifiés pour les yeux)."
-      : 'Génère un imagePrompt FLUIDE, NARRATIF ET CINÉMATOGRAPHIQUE respectant strictement le style verrouillé.'
+      : `Génère un imagePrompt FLUIDE ET NARRATIF respectant strictement le style verrouillé. ${this.styleLock ? '' : 'Adoptez une esthétique CINÉMATOGRAPHIQUE par défaut.'}`
 
     const result = await this.generateStructured<{ imagePrompt: string; visualAnchor: VisualAnchorState }>(
       `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${characterSection}\n\n${styleDirective}

@@ -135,10 +135,12 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
       // Map Vimax format to the expected UI format
       const characterRegistry: Record<string, any> = {}
       for (const char of characterProfiles) {
-        characterRegistry[char.identifier] = {
-          fullName: char.identifier.replace(/^@/, ''),
-          description: `${char.physicalDescription}\n${char.personalityTraits?.join(', ') || ''}`,
-          portraitPrompt: char.physicalDescription
+        // Handle identifiers like @Elena or numerical fallbacks like @Personnage0
+        const id = char.identifier || `@Personnage${char.index}`
+        characterRegistry[id] = {
+          fullName: id.replace(/^@/, ''),
+          description: char.static_features || char.physicalDescription || '', // Support both formats
+          portraitPrompt: char.portrait_prompt || char.static_features || char.physicalDescription || ''
         }
       }
 

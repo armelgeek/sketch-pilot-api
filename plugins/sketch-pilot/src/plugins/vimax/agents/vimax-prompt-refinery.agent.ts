@@ -166,23 +166,24 @@ Renvoie le set minimal de leçons consolidées (JSON).
    * Consolidation thématique pour gérer la masse (10 000+ feedbacks).
    * Regroupe les leçons/critiques par thèmes et distille une "Méga-Leçon".
    */
-  async thematicConsolidate(lessons: Lesson[]): Promise<Lesson[]> {
+  async thematicConsolidate(lessons: Lesson[], contextAgent?: string): Promise<Lesson[]> {
     if (lessons.length === 0) return []
 
     const prompt = `
 [MISSION : CONSOLIDATION THÉMATIQUE DE MASSE]
-Tu reçois une liste de ${lessons.length} leçons ou feedbacks.
-Ton but est de détecter les TENDANCES LOURDES et de les fusionner en un petit nombre de règles de fer (max 5).
+Tu reçois une liste de ${lessons.length} leçons ou feedbacks${contextAgent ? ` pour l'agent [${contextAgent}]` : ''}.
+Ton but est de détecter les TENDANCES LOURDES et de les fusionner en un petit nombre de règles de fer (max 10).
 
 [MÉTHODE]
 1. CLUSTERING : Regroupe les leçons par thématique (ex: Rigueur JSON, Rythme, Physique, Dialogue).
-2. DARWINISME : Si 80% des feedbacks pointent le même défaut, crée une "Méga-Leçon" prioritaire.
+2. DARWINISME : Si plusieurs feedbacks pointent le même défaut, crée une "Méga-Leçon" prioritaire.
 3. ÉLAGAGE : Supprime les leçons isolées ou contradictoires avec la tendance de masse.
 
-[LEÇONS À CONSOLIDER]
-${lessons.map((l) => `- [${l.category}] ${l.directive} (Confidence: ${l.confidence})`).join('\n')}
 
-Renvoie du JSON : { "consolidated": [{ "directive": "...", "category": "...", "confidence": 1.0 }] }
+[LEÇONS À CONSOLIDER]
+${lessons.map((l) => `- [${l.category}] ${l.directive} (Agent: ${l.agentName}, Tags: ${l.tags?.join(', ') || 'aucun'})`).join('\n')}
+
+Renvoie du JSON : { "consolidated": [{ "directive": "...", "category": "...", "tags": [...], "confidence": 1.0 }] }
 `.trim()
 
     const result = await this.generateStructured<{ consolidated: any[] }>(prompt, this.getSystem(), {
@@ -192,7 +193,7 @@ Renvoie du JSON : { "consolidated": [{ "directive": "...", "category": "...", "c
     return result.data.consolidated.map((c, i) => ({
       ...c,
       id: `trend-${Date.now()}-${i}`,
-      agentName: lessons[0]?.agentName || 'Global',
+      agentName: contextAgent || lessons[0]?.agentName || 'Global',
       successCount: 1,
       failCount: 0,
       lastUpdated: Date.now()

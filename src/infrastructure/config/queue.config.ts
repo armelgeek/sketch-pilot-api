@@ -37,6 +37,7 @@ export const redisConnectionOptions = getRedisConnectionOptions()
 export const redisClient = new Redis(redisConnectionOptions)
 
 export const VIDEO_QUEUE_NAME = 'video-generation'
+export const BRAIN_LEARNING_QUEUE_NAME = 'vimax-brain-learning'
 
 let videoQueue: Queue | null = null
 let videoQueueEvents: QueueEvents | null = null
@@ -57,6 +58,17 @@ export function getVideoQueueEvents(): QueueEvents {
     })
   }
   return videoQueueEvents
+}
+
+let brainLearningQueue: Queue | null = null
+
+export function getBrainLearningQueue(): Queue {
+  if (!brainLearningQueue) {
+    brainLearningQueue = new Queue(BRAIN_LEARNING_QUEUE_NAME, {
+      connection: redisConnectionOptions
+    })
+  }
+  return brainLearningQueue
 }
 
 export interface VideoJobData {
@@ -111,4 +123,11 @@ export interface VideoJobData {
     unresolvedThreads?: string[]
     vimaxData?: any
   }
+}
+
+export interface BrainLearningJobData {
+  seriesId: string
+  videoId: string
+  userId: string
+  episodeNumber?: number
 }

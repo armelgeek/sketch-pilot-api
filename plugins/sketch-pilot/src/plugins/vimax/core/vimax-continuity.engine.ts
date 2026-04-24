@@ -186,9 +186,14 @@ export class VimaxContinuityEngine {
   public voices = new DialogueContinuityGuard()
 
   public bridge: EpisodeBridge | null = null
+  public lastEpisodeFinalImage: string | null = null
 
   setBridge(bridge: EpisodeBridge) {
     this.bridge = bridge
+  }
+
+  setLastEpisodeFinalImage(url: string) {
+    this.lastEpisodeFinalImage = url
   }
 
   formatFullContinuityBlock(): string {

@@ -68,59 +68,59 @@
       "verified": true
     },
     {
-      "directive": "Développer des personnages avec des motivations complexes, des luttes internes et des liens émotionnels forts avec les sous-intrigues pour renforcer l'engagement du lecteur.",
-      "category": "logic",
-      "confidence": 1,
-      "id": "trend-1776889174002-0",
-      "agentName": "VimaxScreenwriter",
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776889174002
-    },
-    {
-      "directive": "Intégrer des variations et des révélations inattendues dans la progression narrative pour maintenir l'intérêt et éviter les clichés.",
-      "category": "logic",
-      "confidence": 1,
-      "id": "trend-1776889174002-1",
-      "agentName": "VimaxScreenwriter",
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776889174002
-    },
-    {
-      "directive": "Assurer une continuité narrative fluide avec des transitions cohérentes, en liant toutes les intrigues à un thème central dès le début.",
+      "directive": "Assurez une cohérence et une fluidité narratives en liant toutes les intrigues à un thème central, intégrant des transitions fluides, des arcs narratifs personnels et des évolutions émotionnelles significatives, tout en évitant la redondance.",
       "category": "continuity",
       "confidence": 1,
-      "id": "trend-1776889174002-2",
+      "id": "trend-1776935866920-0",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776889174002
+      "lastUpdated": 1776935866920
     },
     {
-      "directive": "Incorporer des détails sensoriels et des descriptions visuelles pour renforcer l'immersion et l'atmosphère dans chaque scène.",
-      "category": "style",
+      "directive": "Développez des personnages complexes et multidimensionnels avec des motivations claires, en intégrant des sous-intrigues émotionnelles, des luttes internes et des dilemmes personnels pour renforcer l'engagement narratif et éviter les stéréotypes.",
+      "category": "logic",
       "confidence": 1,
-      "id": "trend-1776889174002-3",
+      "id": "trend-1776935866920-1",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776889174002
+      "lastUpdated": 1776935866920
     },
     {
-      "directive": "Varier le rythme en intégrant des réflexions personnelles et des développements relationnels, tout en explorant les conséquences émotionnelles des événements.",
+      "directive": "Incorporez des détails sensoriels et visuels variés pour renforcer l'immersion et l'atmosphère, tout en utilisant des métaphores et comparaisons pour rendre chaque scène unique et éviter la répétition.",
       "category": "style",
       "confidence": 1,
-      "id": "trend-1776889174002-4",
+      "id": "trend-1776935866920-2",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776889174002
+      "lastUpdated": 1776935866920
+    },
+    {
+      "directive": "Maintenez l'intérêt du lecteur en incluant des variations, des retournements et des révélations inattendues dans la progression narrative, évitant la monotonie et introduisant des surprises.",
+      "category": "logic",
+      "confidence": 1,
+      "id": "trend-1776935866920-3",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776935866920
+    },
+    {
+      "directive": "Assurez que chaque personnage a un style de dialogue distinct et évitez les dialogues trop explicites ; les motivations doivent être révélées par les actions et interactions des personnages pour maintenir la tension dramatique.",
+      "category": "style",
+      "confidence": 1,
+      "id": "trend-1776935866920-4",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1776935866920
     }
   ],
   "globalDirectives": [
     "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
     "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
   ],
-  "version": "3.6.7"
+  "version": "3.6.10"
 }
