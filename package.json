@@ -60,6 +60,8 @@
     "vimax:lessons": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts lessons",
     "vimax:refine-lesson": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts refine-lesson",
     "vimax:delete-lesson": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts delete-lesson",
+    "vimax:learn-youtube": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts learn-youtube",
+    "vimax:learn-text": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts learn-text",
     "vimax:help": "tsx plugins/sketch-pilot/src/plugins/vimax/scripts/brain-tool.ts help"
   },
   "simple-git-hooks": {

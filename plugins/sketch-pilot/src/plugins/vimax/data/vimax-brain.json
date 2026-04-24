@@ -68,59 +68,119 @@
       "verified": true
     },
     {
-      "directive": "Assurez une cohérence et une fluidité narratives en liant toutes les intrigues à un thème central, intégrant des transitions fluides, des arcs narratifs personnels et des évolutions émotionnelles significatives, tout en évitant la redondance.",
+      "directive": "Développez des personnages complexes avec des motivations claires et multidimensionnelles intégrant des sous-intrigues émotionnelles pour renforcer l'engagement narratif.",
+      "category": "logic",
+      "tags": ["personnages", "sous-intrigues", "émotion"],
+      "confidence": 1,
+      "id": "trend-1777027654478-0",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027654478
+    },
+    {
+      "directive": "Assurez une progression narrative dynamique avec des variations, retournements et révélations inattendues pour maintenir l'intérêt du lecteur et éviter la monotonie.",
+      "category": "logic",
+      "tags": ["progression", "retournements", "révélations"],
+      "confidence": 1,
+      "id": "trend-1777027654478-1",
+      "agentName": "VimaxScreenwriter",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027654478
+    },
+    {
+      "directive": "Intégrez toutes les intrigues à un thème central avec des transitions fluides et une montée dramatique, tout en évitant la redondance pour assurer la cohérence narrative.",
       "category": "continuity",
+      "tags": ["thème central", "transition", "cohérence"],
       "confidence": 1,
-      "id": "trend-1776935866920-0",
+      "id": "trend-1777027654478-2",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776935866920
+      "lastUpdated": 1777027654478
     },
     {
-      "directive": "Développez des personnages complexes et multidimensionnels avec des motivations claires, en intégrant des sous-intrigues émotionnelles, des luttes internes et des dilemmes personnels pour renforcer l'engagement narratif et éviter les stéréotypes.",
-      "category": "logic",
-      "confidence": 1,
-      "id": "trend-1776935866920-1",
-      "agentName": "VimaxScreenwriter",
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776935866920
-    },
-    {
-      "directive": "Incorporez des détails sensoriels et visuels variés pour renforcer l'immersion et l'atmosphère, tout en utilisant des métaphores et comparaisons pour rendre chaque scène unique et éviter la répétition.",
+      "directive": "Incorporez des détails sensoriels et visuels variés avec des métaphores et comparaisons pour renforcer l'immersion et rendre chaque scène unique.",
       "category": "style",
+      "tags": ["visuel", "métaphores", "immersion"],
       "confidence": 1,
-      "id": "trend-1776935866920-2",
+      "id": "trend-1777027654478-3",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776935866920
+      "lastUpdated": 1777027654478
     },
     {
-      "directive": "Maintenez l'intérêt du lecteur en incluant des variations, des retournements et des révélations inattendues dans la progression narrative, évitant la monotonie et introduisant des surprises.",
-      "category": "logic",
-      "confidence": 1,
-      "id": "trend-1776935866920-3",
-      "agentName": "VimaxScreenwriter",
-      "successCount": 1,
-      "failCount": 0,
-      "lastUpdated": 1776935866920
-    },
-    {
-      "directive": "Assurez que chaque personnage a un style de dialogue distinct et évitez les dialogues trop explicites ; les motivations doivent être révélées par les actions et interactions des personnages pour maintenir la tension dramatique.",
+      "directive": "Assurez que chaque personnage a un style de dialogue distinct, révélant leurs motivations à travers actions et interactions, pour maintenir la tension dramatique.",
       "category": "style",
+      "tags": ["dialogue", "motivation", "tension"],
       "confidence": 1,
-      "id": "trend-1776935866920-4",
+      "id": "trend-1777027654478-4",
       "agentName": "VimaxScreenwriter",
       "successCount": 1,
       "failCount": 0,
-      "lastUpdated": 1776935866920
+      "lastUpdated": 1777027654478
+    },
+    {
+      "directive": "Utilise des cliffhangers, des rebondissements et des éléments de surprise pour maintenir l'intérêt et l'engagement du public tout au long de la narration.",
+      "category": "logic",
+      "tags": ["suspense", "surprise", "engagement", "rebondissement"],
+      "confidence": 1,
+      "id": "trend-1777027660007-0",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027660007
+    },
+    {
+      "directive": "Structure les narrations en trois actes avec des transitions fluides et des scènes clés pour créer un rythme narratif équilibré et soutenu.",
+      "category": "flow",
+      "tags": ["structure", "transition", "rythme", "scènes clés"],
+      "confidence": 1,
+      "id": "trend-1777027660007-1",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027660007
+    },
+    {
+      "directive": "Développe des personnages profonds et évolutifs avec des dialogues authentiques, des conflits internes et externes, et des dilemmes moraux pour enrichir l'expérience narrative.",
+      "category": "logic",
+      "tags": ["personnage", "développement", "authenticité", "conflit", "dilemme moral"],
+      "confidence": 1,
+      "id": "trend-1777027660007-2",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027660007
+    },
+    {
+      "directive": "Varie le ton et privilégie l'économie de mots pour renforcer l'impact émotionnel et la clarté des messages dans le récit.",
+      "category": "style",
+      "tags": ["émotion", "concision", "clarté"],
+      "confidence": 1,
+      "id": "trend-1777027660007-3",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027660007
+    },
+    {
+      "directive": "Incorpore des moments de tension et de relâchement pour gérer le rythme de l'histoire et maintenir l'attention du public.",
+      "category": "flow",
+      "tags": ["tension", "relâchement", "rythme"],
+      "confidence": 1,
+      "id": "trend-1777027660007-4",
+      "agentName": "VimaxNarrationAgent",
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777027660007
     }
   ],
   "globalDirectives": [
     "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
     "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
   ],
-  "version": "3.6.10"
+  "version": "3.6.11"
 }

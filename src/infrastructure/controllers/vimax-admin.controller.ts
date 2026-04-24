@@ -107,6 +107,49 @@ export class VimaxAdminController implements Routes {
       }
     )
 
+    // POST /v1/admin/vimax/learn-text
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/v1/admin/vimax/learn-text',
+        tags: ['Vimax Admin'],
+        summary: 'Learn lessons from a raw text/transcription',
+        security: [{ Bearer: [] }],
+        request: {
+          body: {
+            content: {
+              'application/json': {
+                schema: z.object({
+                  label: z.string(),
+                  text: z.string()
+                })
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Learning complete',
+            content: {
+              'application/json': {
+                schema: z.object({
+                  success: z.boolean(),
+                  lessonCount: z.number(),
+                  lessons: z.array(z.string())
+                })
+              }
+            }
+          }
+        }
+      }),
+      async (c: any) => {
+        const { label, text } = await c.req.json()
+        const agent = await this.getVimaxAgent()
+        const result = await agent.brain.learnFromText(text, label)
+        return c.json({ success: true, ...result })
+      }
+    )
+
     // GET /v1/admin/vimax/stats
     this.controller.openapi(
       createRoute({

@@ -2,7 +2,9 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { VimaxPromptRefinery } from '../agents/vimax-prompt-refinery.agent'
 import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
+import { VimaxTranscriptionAnalyst } from '../agents/vimax-transcription-analyst.agent'
 import { VimaxVisionAuditor } from '../agents/vimax-vision-auditor.agent'
+import { YoutubeExtractor } from '../utils/youtube-extractor'
 import type { LearningEpisode, Lesson, NarrativeFeedbackItem } from '../types'
 import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
@@ -16,6 +18,7 @@ export class VimaxBrain {
   private refinery: VimaxPromptRefinery
   public visionAuditor: VimaxVisionAuditor
   private sagaSentinel: VimaxSagaSentinel
+  private transcriptionAnalyst: VimaxTranscriptionAnalyst
   private store: LessonStore
   private maxTokensPerCycle: number = 50000 // Défaut : 50k tokens par cycle (~0.15$)
   private seriesId?: string
@@ -27,6 +30,7 @@ export class VimaxBrain {
     this.refinery = new VimaxPromptRefinery(llm)
     this.visionAuditor = new VimaxVisionAuditor(llm)
     this.sagaSentinel = new VimaxSagaSentinel(llm)
+    this.transcriptionAnalyst = new VimaxTranscriptionAnalyst(llm)
     this.store = LessonStore.getInstance()
     if (options?.maxTokensPerCycle) {
       this.maxTokensPerCycle = options.maxTokensPerCycle
@@ -805,6 +809,49 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
     // On incrémente la version du Brain automatiquement
     const newVer = await this.store.incrementVersion()
     console.log(`[VimaxBrain] Vimax Brain v${newVer} distillé et stabilisé par agent. 🚀`)
+  }
+
+  /**
+   * Apprentissage à partir d'un texte fourni manuellement (Source-based Learning).
+   */
+  async learnFromText(
+    text: string,
+    sourceLabel: string
+  ): Promise<{
+    lessonCount: number
+    lessons: string[]
+  }> {
+    console.log(`[VimaxBrain] Apprentissage par texte de référence: ${sourceLabel} (${text.length} caractères)`)
+
+    // 1. Analyse par l'agent spécialisé
+    const lessons = await this.transcriptionAnalyst.analyze(text, sourceLabel)
+
+    // 2. Enregistrement dans le store
+    await this.store.load()
+    for (const lesson of lessons) {
+      await this.store.addLesson(lesson)
+    }
+
+    console.log(`[VimaxBrain] ✓ ${lessons.length} nouvelles leçons de référence apprises.`)
+
+    return {
+      lessonCount: lessons.length,
+      lessons: lessons.map((l) => l.directive)
+    }
+  }
+
+  /**
+   * Apprentissage à partir d'une vidéo YouTube (Reference Learning).
+   */
+  async learnFromYoutube(
+    url: string,
+    lang = 'fr'
+  ): Promise<{
+    lessonCount: number
+    lessons: string[]
+  }> {
+    const transcription = await YoutubeExtractor.extractTranscription(url, lang)
+    return this.learnFromText(transcription, url)
   }
 
   /**

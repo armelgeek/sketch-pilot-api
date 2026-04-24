@@ -84,6 +84,59 @@ async function main() {
       break
     }
 
+    case 'learn-text': {
+      const label = args[1]
+      const filePath = args[2]
+      if (!label) {
+        console.error("Usage: fs.readFile(path.resolve(filePath), 'utf-8')")
+        break
+      }
+
+      let text = ''
+      if (filePath) {
+        text = await fs.readFile(path.resolve(filePath), 'utf-8')
+      } else {
+        console.log('Collez votre texte puis appuyez sur Ctrl+D (ou entrez une ligne vide pour finir si interactif)...')
+        // Note: Dans un environnement non-interactif, stdin est préférable
+        text = await new Promise<string>((resolve) => {
+          let data = ''
+          process.stdin.resume()
+          process.stdin.setEncoding('utf8')
+          process.stdin.on('data', (chunk) => {
+            data += chunk
+          })
+          process.stdin.on('end', () => {
+            resolve(data)
+          })
+        })
+      }
+
+      if (!text || text.trim().length === 0) {
+        console.error('Erreur: Aucun texte fourni.')
+        break
+      }
+
+      console.log(`[Brain] Apprentissage par texte pour "${label}"...`)
+      const result = await brain.learnFromText(text, label)
+      console.log(`✅ Analyse terminée. ${result.lessonCount} nouvelles leçons apprises.`)
+      result.lessons.forEach((l) => console.log(`   - ${l}`))
+      break
+    }
+
+    case 'learn-youtube': {
+      const url = args[1]
+      const lang = args[2] || 'fr'
+      if (!url) {
+        console.error('Usage: learn-youtube <youtube_url> [lang]')
+        break
+      }
+      console.log(`[Brain] Apprentissage par référence YouTube pour ${url}...`)
+      const result = await brain.learnFromYoutube(url, lang)
+      console.log(`✅ Extraction terminée. ${result.lessonCount} nouvelles leçons apprises par référence.`)
+      result.lessons.forEach((l) => console.log(`   - ${l}`))
+      break
+    }
+
     case 'episodes': {
       const filterSeriesId = args[1]
       let episodes = await (brain as any).loadEpisodes()

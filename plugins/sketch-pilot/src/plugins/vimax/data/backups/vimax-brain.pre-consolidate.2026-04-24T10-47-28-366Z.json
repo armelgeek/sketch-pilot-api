@@ -1,0 +1,376 @@
+{
+  "cortex": {
+    "lessons": [
+      {
+        "id": "test-experimental-lesson",
+        "agentName": "VimaxScreenwriter",
+        "directive": "Utilise des métaphores spatiales pour les transitions.",
+        "origin": "audit",
+        "confidence": 1,
+        "successCount": 100,
+        "failCount": 0,
+        "timestamp": 1713645200000,
+        "tags": ["experimental"],
+        "verified": true
+      },
+      {
+        "directive": "Construisez des personnages avec des motivations complexes et des luttes internes, tout en intégrant des conflits significatifs pour renforcer l'impact émotionnel de la narration.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Introduisez des variations significatives dans la progression des événements pour éviter la répétition et maintenir l'intérêt du lecteur à travers des retournements et des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Ajoutez un élément inattendu ou une révélation lors de la confrontation finale pour intensifier l'impact émotionnel et renforcer la cohérence narrative.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez que chaque élément narratif renforce une idée centrale cohérente, avec une montée dramatique et émotionnelle progressive.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Renforcez le lien émotionnel entre les sous-intrigues et les enjeux principaux pour créer une urgence narrative et maintenir l'engagement du lecteur.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776725745822-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 101,
+        "failCount": 0,
+        "lastUpdated": 1776725745822,
+        "verified": true
+      },
+      {
+        "directive": "Assurez une cohérence et une fluidité narratives en liant toutes les intrigues à un thème central, intégrant des transitions fluides, des arcs narratifs personnels et des évolutions émotionnelles significatives, tout en évitant la redondance.",
+        "category": "continuity",
+        "confidence": 1,
+        "id": "trend-1776935866920-0",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935866920
+      },
+      {
+        "directive": "Développez des personnages complexes et multidimensionnels avec des motivations claires, en intégrant des sous-intrigues émotionnelles, des luttes internes et des dilemmes personnels pour renforcer l'engagement narratif et éviter les stéréotypes.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776935866920-1",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935866920
+      },
+      {
+        "directive": "Incorporez des détails sensoriels et visuels variés pour renforcer l'immersion et l'atmosphère, tout en utilisant des métaphores et comparaisons pour rendre chaque scène unique et éviter la répétition.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776935866920-2",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935866920
+      },
+      {
+        "directive": "Maintenez l'intérêt du lecteur en incluant des variations, des retournements et des révélations inattendues dans la progression narrative, évitant la monotonie et introduisant des surprises.",
+        "category": "logic",
+        "confidence": 1,
+        "id": "trend-1776935866920-3",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935866920
+      },
+      {
+        "directive": "Assurez que chaque personnage a un style de dialogue distinct et évitez les dialogues trop explicites ; les motivations doivent être révélées par les actions et interactions des personnages pour maintenir la tension dramatique.",
+        "category": "style",
+        "confidence": 1,
+        "id": "trend-1776935866920-4",
+        "agentName": "VimaxScreenwriter",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1776935866920
+      }
+    ],
+    "globalDirectives": [
+      "S'assurer que toute sortie JSON est strictement conforme au schéma demandé.",
+      "Utiliser systématiquement les personnages @PascalCase comme ancres de continuité."
+    ],
+    "version": "3.6.10"
+  },
+  "hippocampus": {
+    "version": "1.0.0",
+    "lessons": [
+      {
+        "directive": "Utilise des cliffhangers pour maintenir l'intérêt du public.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["suspense", "engagement"],
+        "id": "ref-1777024339219-0",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024339219
+      },
+      {
+        "directive": "Privilégie l'économie de mots pour renforcer l'impact des messages.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["concision", "clarté"],
+        "id": "ref-1777024339219-1",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024339222
+      },
+      {
+        "directive": "Intègre des punchlines pour marquer les esprits et créer des moments mémorables.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["humour", "impact"],
+        "id": "ref-1777024339219-2",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024339223
+      },
+      {
+        "directive": "Structure les narrations en trois actes pour une progression naturelle.",
+        "category": "flow",
+        "confidence": 1,
+        "tags": ["narration", "structure"],
+        "id": "ref-1777024339219-3",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024339223
+      },
+      {
+        "directive": "Varie le ton pour adapter le message aux différentes émotions du récit.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["émotion", "engagement"],
+        "id": "ref-1777024339219-4",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024339224
+      },
+      {
+        "directive": "Utilise des transitions fluides pour garder un rythme soutenu.",
+        "category": "flow",
+        "confidence": 1,
+        "tags": ["transition", "rythme"],
+        "id": "ref-1777024339219-5",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024339225
+      },
+      {
+        "directive": "Utilise un personnage central qui évolue au fil de l'histoire, permettant aux spectateurs de s'identifier à ses luttes et à ses triomphes.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["personnage", "évolution", "identification"],
+        "id": "ref-1777024549215-0",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549216
+      },
+      {
+        "directive": "Incorpore des éléments de surprise pour maintenir l'intérêt et l'engagement du public, comme des rebondissements inattendus dans les interactions entre les personnages.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["surprise", "rebondissement", "engagement"],
+        "id": "ref-1777024549215-1",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549217
+      },
+      {
+        "directive": "Gère le rythme de l'histoire en alternant entre des moments de tension et des moments de relâchement pour maintenir l'attention du public.",
+        "category": "flow",
+        "confidence": 1,
+        "tags": ["rythme", "tension", "relâchement"],
+        "id": "ref-1777024549215-2",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549217
+      },
+      {
+        "directive": "Utilise des dialogues naturels et authentiques pour renforcer la crédibilité des personnages et rendre les interactions plus touchantes.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["dialogue", "authenticité", "crédibilité"],
+        "id": "ref-1777024549215-3",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549218
+      },
+      {
+        "directive": "Crée des conflits internes et externes pour enrichir le développement du personnage et créer des arcs narratifs plus profonds.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["conflit", "développement", "arc narratif"],
+        "id": "ref-1777024549215-4",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549219
+      },
+      {
+        "directive": "Déploie des moments de vulnérabilité pour humaniser les personnages et établir des connexions émotionnelles avec le public.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["vulnérabilité", "émotion", "connexion"],
+        "id": "ref-1777024549215-5",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549219
+      },
+      {
+        "directive": "Incorpore des références culturelles ou des éléments de la vie quotidienne pour renforcer la pertinence et l'authenticité du récit.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["références culturelles", "authenticité", "pertinence"],
+        "id": "ref-1777024549215-6",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549220
+      },
+      {
+        "directive": "Maintiens un dialogue interne du protagoniste pour permettre au public de comprendre ses pensées et ses émotions, renforçant ainsi l'empathie.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["dialogue interne", "empathie", "pensées"],
+        "id": "ref-1777024549215-7",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549220
+      },
+      {
+        "directive": "Utilise des scènes clés pour marquer des transitions importantes dans l'histoire, créant ainsi un rythme narratif qui guide le public.",
+        "category": "flow",
+        "confidence": 1,
+        "tags": ["scènes clés", "transitions", "rythme narratif"],
+        "id": "ref-1777024549215-8",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777024549221
+      },
+      {
+        "directive": "Utiliser des personnages contrastés pour créer des dynamiques intéressantes et imprévisibles.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["character development", "contrast"],
+        "id": "ref-1777027633204-0",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633206
+      },
+      {
+        "directive": "Introduire des éléments de surprise pour maintenir l'intérêt du public.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["surprise", "engagement"],
+        "id": "ref-1777027633204-1",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633208
+      },
+      {
+        "directive": "Incorporer des moments de tension suivis de résolutions pour donner du rythme à l'histoire.",
+        "category": "flow",
+        "confidence": 1,
+        "tags": ["tension", "resolution", "pacing"],
+        "id": "ref-1777027633204-2",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633210
+      },
+      {
+        "directive": "Utiliser des occurrences quotidiennes pour ancrer l'histoire dans la réalité et rendre les personnages relatables.",
+        "category": "style",
+        "confidence": 1,
+        "tags": ["realism", "relatability"],
+        "id": "ref-1777027633204-3",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633211
+      },
+      {
+        "directive": "Maintenir une narration concise et directe pour éviter la confusion et garder l'attention du public.",
+        "category": "flow",
+        "confidence": 1,
+        "tags": ["conciseness", "clarity"],
+        "id": "ref-1777027633204-4",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633213
+      },
+      {
+        "directive": "Développer progressivement les relations entre les personnages pour créer un sentiment d'évolution et de réalisme.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["relationship development", "realism"],
+        "id": "ref-1777027633204-5",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633214
+      },
+      {
+        "directive": "Inclure des dilemmes moraux ou personnels pour enrichir la profondeur narrative et susciter l'empathie.",
+        "category": "logic",
+        "confidence": 1,
+        "tags": ["moral dilemma", "depth"],
+        "id": "ref-1777027633204-6",
+        "agentName": "VimaxNarrationAgent",
+        "successCount": 1,
+        "failCount": 0,
+        "lastUpdated": 1777027633217
+      }
+    ],
+    "globalDirectives": []
+  }
+}
