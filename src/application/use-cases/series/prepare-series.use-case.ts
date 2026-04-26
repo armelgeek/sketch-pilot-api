@@ -160,11 +160,22 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
         characterRegistry: characterRegistry as any,
         locationRegistry: locationRegistry as any,
         suggestedEpisodes: (sagaPlan.episodes || []).map((ep: any, index: number) => ({
-          number: index + 1,
-          title: ep.title,
-          hook: ep.summary
+          number: ep.episodeNumber || index + 1,
+          title: ep.title || `Épisode ${ep.episodeNumber || index + 1}`,
+          hook: ep.summary || ep.eventDescription,
+          dramaticFunction: ep.dramaticFunction,
+          actPosition: ep.actPosition,
+          keyRevelation: ep.keyRevelation,
+          tensionTarget: ep.tensionTarget,
+          paceTarget: ep.paceTarget,
+          impactedCharacters: ep.impactedCharacters,
+          isDailyLife: ep.isDailyLife,
+          isChoral: ep.isChoral,
+          scenes: ep.scenes
         })),
-        suggestedTitles: (sagaPlan.episodes || []).map((ep: any) => ep.title),
+        suggestedTitles: (sagaPlan.episodes || []).map(
+          (ep: any, index: number) => ep.title || `Épisode ${ep.episodeNumber || index + 1}`
+        ),
         totalEpisodes: sagaPlan.episodes?.length || 5,
         videoGenre: (sagaPlan.intent as any)?.genre || 'cinematic'
       }

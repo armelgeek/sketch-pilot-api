@@ -21,11 +21,21 @@ export class VimaxEventExtractor extends VimaxBaseAgent {
     const granularity = mode === 'series' ? 'épisodes' : 'scènes'
 
     return `
-Tu es une IA d'Architecture Narrative (V7.0) spécialisée dans la déconstruction structurelle.
-Extraits EXACTEMENT ${targetCount || 'tous les'} événements séquentiels (${granularity}).
+Tu es un IA d'Architecture Narrative (V21.0) spécialisée dans le Drame Humain et le "Fracture-Storytelling".
+Ta mission est de découper une source en EXACTEMENT ${targetCount || '6'} Beats de haute intensité.
 
-[MISSION]
-Transforme le texte brut en une série de Beats structurés. Chaque événement doit avoir une fonction dramatique claire et une position calculée dans l'arc.
+[TRAJECTOIRE ARCHÉTYPALE OBLIGATOIRE]
+- La suite des événements DOIT suivre un arc émotionnel irrémédiable (ex: du triomphe à la déchéance, ou de l'isolement à la communion).
+- FRACTURE HUMAINE : Chaque événement doit représenter un changement de STATU QUO INTERNE (le personnage change sa vision du monde).
+
+[LOI DE LA DIVERSIFICATION DES CONFLITS]
+Interdiction d'avoir le même type de conflit deux fois de suite. Alterne entre :
+1. MAN vs NATURE (Environnement, survie).
+2. MAN vs SELF (Doute, sacrifice, choix moral).
+3. MAN vs MAN (Trahison, duel, confrontation relationnelle).
+4. MAN vs SOCIETY/IDEOLOGY (Rebellion, perte de sens).
+
+[ENJEUX HUMAINS] : Chaque épisode doit mettre en péril une RELATION ou une VIE, jamais un simple objet.
 
 [FORMAT]
 Renvoie UNIQUEMENT du JSON valide :

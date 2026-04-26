@@ -200,16 +200,7 @@ export class VimaxAgent {
     }
 
     const plan = await this.planner.planSaga(analysis.enrichedIdea, options)
-
-    // [V7.0] Éviter la ré-interprétation LLM en injectant le blueprint dans l'extraction
-    let episodeEvents = await this.eventExtractor.extractEvents(
-      plan.script,
-      'series',
-      options.targetDuration,
-      options.maxScenes,
-      options.targetEpisodeCount,
-      `BASE TOI SUR LE BLUEPRINT SUIVANT :\n${JSON.stringify(plan.blueprint, null, 2)}`
-    )
+    let episodeEvents = plan.episodeEvents || []
 
     // Audit structurel 3.0 avec Blueprint V7.0
     const planAudit = await this.sagaSentinel.auditEventPlan(
@@ -650,13 +641,16 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         }
       }))
       // Mark last scene as true
-      if (sceneEvents.length > 0) sceneEvents.at(-1).isLast = true
+      if (sceneEvents.length > 0) {
+        const last = sceneEvents.at(-1)
+        if (last) last.isLast = true
+      }
     } else {
       sceneEvents = await this.eventExtractor.extractEvents(
         enhancedScript,
         'episode',
         options.targetDuration,
-        options.maxScenes
+        6 // [V21.0] Restored to 6 scenes for narrative clarity
       )
     }
 
@@ -767,6 +761,8 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       characterContext = this.characterExtractor.formatForPrompt(profiles)
     }
 
+    let lastLocationId: string | null = null
+
     for (let i = 0; i < sceneEvents.length; i++) {
       const event = sceneEvents[i]
       await this.registry.triggerHook('onBeforeScene', this, event, i + 1, options)
@@ -790,12 +786,22 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         if (impact.directive.ellipticalHint) isElliptical = true
       }
 
-      // 1. Narration de scène (Pass 1.5)
-      const durationFactor = (options.targetDuration || 60) / sceneEvents.length
-      const wordsPerSecond = 140 / 60 // Base 140 WPM
-      const maxWords = Math.max(5, Math.floor(durationFactor * wordsPerSecond))
-      const minWords = Math.max(3, Math.floor(maxWords * 0.7))
-      const targetWordCount = `${minWords}-${maxWords} mots`
+      // [V21.0] RESTORED 6-SCENE PACING (10s per scene)
+      if (sceneEvents.length === 6) {
+        if (i === 2 || i === 3)
+          paceWeight = 1.3 // Scènes pivot
+        else paceWeight = 1 // Intro/Actions/Resolution
+      }
+
+      // [V12.0] Location Continuity & Break Detection
+      context.locationChanged = lastLocationId !== null && event.locationId !== lastLocationId
+      lastLocationId = event.locationId || null
+      if (context.plannedSceneContext) {
+        context.plannedSceneContext.locationId = event.locationId
+      }
+
+      // 1. Narration de scène (Pass 1.5) - [V12.0] Trailer Concision
+      const targetWordCount = '10-15 mots'
 
       const sceneResult = await this.narration.generatePolishedNarration(
         event,

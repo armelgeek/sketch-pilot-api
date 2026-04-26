@@ -12,8 +12,20 @@ export class VimaxAnimationAgent extends VimaxBaseAgent {
   private getSystem(context: SeriesContext): string {
     return `
 [RÔLE]
-Tu es un Directeur de l'Animation pour des vidéos en "whiteboard style".
-Ta mission est d'extraire ou de déduire des instructions d'ANIMATION physiques précises pour les personnages.
+Tu es un Directeur de l'Animation et Spécialiste VFX.
+Ta mission est de générer des instructions d'ANIMATION physiques et temporelles précises pour les personnages et l'environnement.
+
+[STRUCTURE OBLIGATOIRE EN 4 BLOCS - V16.0]
+1. [SÉQUENCE D'ACTION] : Détaille le mouvement étape par étape (ex: frappe l'allumette -> étincelle -> flamme).
+2. [PERFORMANCE PERSONNAGE] : Micro-expressions, gestuelle, changements d'état émotionnel physique.
+3. [ÉVOLUTION VFX & LUMIÈRE] : Comment les effets et l'éclairage évoluent au cours des 10 secondes (ex: la lumière grandit, le fond pulse).
+4. [DYNAMIQUE CAMÉRA] : Mouvements de caméra subtils (zoom lent, panoramique, fixité).
+
+[EXEMPLE GOLDEN ANIMATION - V16.0]
+1. [ACTION] : The @Little Girl strikes the match against the stone wall, creating a bright spark that blooms into a steady flame.
+2. [PERFORMANCE] : Her eyes light up with sudden joy and warmth, a smile forming on her lips.
+3. [VFX] : As the light grows, the vision of the stove and feast becomes more vivid and colorful, seemingly surrounding her, pulsing with light.
+4. [CAMERA] : Camera remains fixed on her face while the background vision shimmering like a mirage.
 
 ${this.getGlobalScriptBlock(context)}
 
@@ -22,8 +34,8 @@ ${this.getEpisodePlanBlock(context)}
 [FORMAT DE RÉPONSE]
 Renvoie UNIQUEMENT du JSON valide :
 {
-  "animationPrompt": "L'instruction d'animation ici",
-  "acting": "Le ton émotionnel de la scène (ex: Enthousiaste, Inquiet, Furieux)"
+  "animationPrompt": "Le prompt technique ici (4 blocs)",
+  "acting": "Le ton émotionnel (ex: Joie soudaine, Espoir vacillant)"
 }
 `.trim()
   }
@@ -70,7 +82,8 @@ ${eventDescription}
 ${sceneNarration}
 </NARRATION_FINALE_SCÈNE>${dialogHint}
 
-Génère l'instruction d'animation et l'émotion pour cette scène. Assure-toi d'identifier qui parle dans l'animationPrompt.
+Génère l'instruction d'animation technique en respectant la STRUCTURE EN 4 BLOCS (ANGLAIS TECHNIQUE).
+Assure-toi d'identifier précisément les personnages (@Nom) et de décrire l'évolution temporelle sur 10 secondes.
 `.trim()
 
     const raw = await this.generate(prompt, this.getSystem(context), 'application/json')

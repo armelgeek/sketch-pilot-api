@@ -39,9 +39,8 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
       const agent = this.sagaProductionService.getAgent()
       const idea = `Saga: ${params.title}. Description: ${params.description || ''}`
 
-      // If seriesId is provided, we might want to extend it
-      // For now, let's just generate the draft
-      const draft = await agent.planner.draftSaga(idea, {
+      // Use the more robust planSaga instead of draftSaga to ensure all episodes are planned
+      const draft = await agent.planner.planSaga(idea, {
         userId: params.userId,
         targetEpisodeCount: params.totalEpisodes,
         referenceStyleImage: params.referenceStyleImage
@@ -54,9 +53,9 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
         description: params.description,
         globalContext: draft.script,
         plannedEpisodes: draft.episodes.map((ep: any, index: number) => ({
-          number: index + 1,
-          title: ep.title,
-          hook: ep.summary,
+          number: ep.episodeNumber || index + 1,
+          title: ep.title || `Épisode ${ep.episodeNumber || index + 1}`,
+          hook: ep.summary || ep.eventDescription,
           dramaticFunction: ep.dramaticFunction,
           actPosition: ep.actPosition,
           keyRevelation: ep.keyRevelation,
@@ -91,20 +90,7 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
         seriesId,
         intent: draft.intent,
         script: draft.script,
-        episodes: draft.episodes.map((ep: any, index: number) => ({
-          number: index + 1,
-          title: ep.title,
-          hook: ep.summary,
-          dramaticFunction: ep.dramaticFunction,
-          actPosition: ep.actPosition,
-          keyRevelation: ep.keyRevelation,
-          tensionTarget: ep.tensionTarget,
-          paceTarget: ep.paceTarget,
-          impactedCharacters: ep.impactedCharacters,
-          isDailyLife: ep.isDailyLife,
-          isChoral: ep.isChoral,
-          scenes: ep.scenes
-        }))
+        episodes: seriesData.plannedEpisodes
       }
     } catch (error) {
       return {

@@ -14,12 +14,14 @@ import type {
   SeriesContext,
   StyleLock,
   TransmediaMap,
+  VimaxEvent,
   VimaxRunOptions,
   VisualAnchorState
 } from '../types'
 import type { VimaxAssetExtractor } from './vimax-asset-extractor.agent'
 import type { VimaxAtmosphereExtractor } from './vimax-atmosphere-extractor.agent'
 import type { VimaxCharacterExtractor } from './vimax-character-extractor.agent'
+import type { VimaxEventExtractor } from './vimax-event-extractor.agent'
 import type { VimaxLocationExtractor } from './vimax-location-extractor.agent'
 import type { VimaxNarrativeExtractor } from './vimax-narrative-extractor.agent'
 import type { VimaxStyleExtractor } from './vimax-style-extractor.agent'
@@ -40,6 +42,7 @@ export class VimaxSagaPlanner extends VimaxBaseAgent {
   private atmosphereExtractor?: VimaxAtmosphereExtractor
   private narrativeExtractor?: VimaxNarrativeExtractor
   private styleExtractor?: VimaxStyleExtractor
+  private eventExtractor?: VimaxEventExtractor
 
   constructor(llm: LLMService) {
     super(llm)
@@ -52,6 +55,7 @@ export class VimaxSagaPlanner extends VimaxBaseAgent {
     this.atmosphereExtractor = agent.atmosphereExtractor
     this.narrativeExtractor = agent.narrativeExtractor
     this.styleExtractor = agent.styleExtractor
+    this.eventExtractor = agent.eventExtractor
   }
 
   setStyleLock(lock: StyleLock) {
@@ -140,75 +144,39 @@ Réponds UNIQUEMENT avec du JSON :
       '- IDENTIFIANTS PERSONNAGES : Utilise IMPÉRATIVEMENT le format @PascalCase (ex: @Banane, @DetectiveSmith). AUCUN ESPACE, AUCUNE APOSTROPHE.'
     const formatInstruction = `
 [FORMAT RÉPONSE : ARCHITECTURE V7.0]
-Renvoie UNIQUEMENT du JSON valide respectant cette structure de "Partition Musicale" :
+Renvoie UNIQUEMENT du JSON valide respectant cette structure de "Partition Musicale". 
 {
   "title": "Titre spectaculaire",
-  "planned_script": "Synopsis littéraire développé",
+  "planned_script": "Synopsis littéraire extrêmement détaillé de toute la saga.",
   "blueprint": {
-    "theme": "La question philosophique centrale (ex: 'Le prix de la vengeance')",
-    "premise": "Prémisse en une phrase",
-    "audienceContract": "Ce qu'on promet au spectateur (ex: 'Un crescendo de paranoïa')",
+    "theme": "Question philosophique",
+    "premise": "Prémisse",
+    "audienceContract": "Promesse",
     "characterArcs": [
       {
         "identifier": "@Nom",
-        "primaryTrauma": "L'incident originel",
-        "initialState": "État psychologique au début",
-        "targetTransformation": "État à la résolution",
-        "milestones": [
-          { "atSceneIndex": 1, "psychologicalState": "...", "motivationShift": "...", "internalConflictStatus": "..." }
-        ]
+        "primaryTrauma": "...",
+        "initialState": "...",
+        "targetTransformation": "..."
       }
     ],
     "beatSheet": [
       {
         "index": 1,
-        "title": "Nom du Beat",
-        "summary": "Résumé de l'action",
-        "function": "opening_image | theme_stated | setup | catalyst | debate | break_into_two | b_story | fun_and_games | midpoint | bad_guys_close_in | all_is_lost | dark_night | break_into_three | finale | final_image",
+        "title": "Beat name",
+        "summary": "...",
+        "function": "opening_image | setup | catalyst | etc.",
         "act": 1,
-        "percentageInSaga": 1,
-        "tensionTarget": 3,
-        "paceTarget": "slow | medium | fast | staccato",
-        "impactedCharacters": ["@Nom"],
-        "unlockedDebts": ["Promesse faite au spectateur"],
-        "resolvedDebts": ["Promesse tenue"]
+        "percentageInSaga": 0,
+        "tensionTarget": 5,
+        "paceTarget": "slow | medium | fast"
       }
     ]
   },
-  "episodes": [
-    { 
-      "title": "Titre de l'épisode", 
-      "summary": "Pitch de l'épisode (HOOK)", 
-      "dramaticFunction": "opening_image | catalyst | midpoint | etc.",
-      "actPosition": "Acte 1 | Acte 2 | Acte 3",
-      "keyRevelation": "Ce que le spectateur apprend de crucial",
-      "tensionTarget": 1-10,
-      "paceTarget": "slow | medium | fast | staccato",
-      "impactedCharacters": ["@Nom"],
-      "isDailyLife": false, 
-      "isChoral": false, 
-      "absentProtagonists": [],
-      "scenes": [
-        {
-          "sceneNumber": 1,
-          "function": "établissement | confrontation | etc.",
-          "objective": "Objectif narratif précis (Show, Don't Tell)",
-          "characterState": { "@Nom": "État émotionnel et physique" },
-          "openPromises": ["Promesse narrative créée"],
-          "resolvedPromises": ["Dette narrrative résolue"],
-          "tensionTarget": 1-10,
-          "paceTarget": "lent | rapide | staccato",
-          "obligatory": "Contrainte narrative stricte (ex: l'incident doit arriver à la fin)",
-          "prepares": "Ce dont la scène suivante a besoin",
-          "locationId": "@Lieu",
-          "characters": ["@Nom"]
-        }
-      ]
-    }
-  ],
   "finalCliffhanger": "...",
   "unresolved_threads": [ { "id": "...", "title": "...", "description": "..." } ]
-}`
+}
+`
 
     const intentKey = typeof intent === 'string' ? intent : intent.tone || 'narrative'
     const universe = CharacterUniverseStore.getInstance()
@@ -230,7 +198,13 @@ Si l'idée de l'utilisateur s'y prête, n'hésite pas à réutiliser ou à faire
 - BIBLE NARRATIVE (planned_script) : Ne te limite pas à un résumé. Rédige une bible narrative dense (Bible Arcs) détaillant chaque acte, les confrontations majeures, les enjeux dramatiques et l'évolution psychologique des protagonistes.
 - LISTE COMPLÈTE DES INTERVENANTS : Identifie explicitement TOUS les personnages (@PascalCase) dès leur première apparition et assure-toi qu'ils ont un rôle défini dans le script.
 - ARC COMPLET : Le script doit couvrir toute l'histoire, de l'incident déclencheur à la résolution.
-- VARIÉTÉ HUMAINE (V5.5) : Alterne entre moments extraordinaires et moments du quotidien (isDailyLife). Utilise l'absence des leaders pour révéler d'autres personnages (absentProtagonists). Casse la linéarité avec des épisodes choraux (isChoral).
+
+[LOI DE L'ÉVOLUTION ACCÉLÉRÉE - V10.0]
+- INTERDICTION DE LA STAGNATION : Interdiction formelle de répéter le même enjeu sur deux épisodes.
+- CHAQUE ÉPISODE est une FRACTURE : Le monde ou le personnage doit être radicalement différent entre le début et la fin de chaque épisode.
+- TRAILER-STYLE SAGA : Planifie cette saga comme une succession de chocs épiques, pas comme une série lente. Chaque battement du "beatSheet" doit être un changement de destin irréversible.
+
+- VARIÉTÉ HUMAINE (V5.5) : Alterne entre moments extraordinaires et moments du quotidien (isDailyLife). Utilisez l'absence des leaders pour révéler d'autres personnages (absentProtagonists). Casse la linéarité avec des épisodes choraux (isChoral).
 
 ${identDirective}
 
@@ -355,9 +329,9 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
       title: expanded.data.title,
       script: expanded.data.planned_script,
       blueprint: expanded.data.blueprint,
-      episodes: expanded.data.episodes,
+      episodes: [], // Sera rempli par Pass 2
       finalCliffhanger: expanded.data.finalCliffhanger,
-      unresolvedThreads: expanded.data.unresolved_threads.map((t) => ({ ...t, status: 'active' as const }))
+      unresolvedThreads: (expanded.data.unresolved_threads || []).map((t: any) => ({ ...t, status: 'active' as const }))
     }
   }
 
@@ -424,26 +398,165 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
   }
 
   /**
-   * Wrapper pour backward compatibility - appelle draftSaga puis enrichSaga.
+   * Orchestration Séquentielle 3-Pass (V8.0)
+   * 1. Bible & Blueprint (Draft)
+   * 2. Roadmap Extraction (Event Decomposition)
+   * 3. Scene Detailing (Per-episode loop)
    */
   async planSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<SagaPlan> {
+    // PASS 1 : Bible & Blueprint
     const draft = await this.draftSaga(basicIdea, options)
+
+    // PASS 2 : Décomposition en Épisodes (Roadmap)
+    console.info(
+      `[VimaxSagaPlanner] 🛣️ Stage 2: Extraction de la roadmap (${options.targetEpisodeCount || 'auto'} épisodes)...`
+    )
+
+    if (!this.eventExtractor) {
+      throw new Error('[VimaxSagaPlanner] VimaxEventExtractor is required for multi-episode planning.')
+    }
+
+    const episodeEvents = await this.eventExtractor.extractEvents(
+      draft.script,
+      'series',
+      options.targetDuration,
+      options.maxScenes,
+      options.targetEpisodeCount,
+      `BASE TOI SUR CE BLUEPRINT :\n${JSON.stringify(draft.blueprint, null, 2)}`
+    )
+
+    // PASS 3 : Planification des Scènes par Épisode (Deep Planning)
+    console.info(`[VimaxSagaPlanner] 🎬 Stage 3: Detailing scenes for ${episodeEvents.length} episodes...`)
+
+    const episodes = []
+    for (const event of episodeEvents) {
+      console.info(`   - Planning scenes for Episode ${event.index + 1}: ${event.description.slice(0, 30)}...`)
+      const scenes = await this.planEpisodeScenes(event, draft.script, options)
+      episodes.push({
+        episodeNumber: event.index + 1,
+        eventIndex: event.index,
+        title: event.description,
+        summary: event.description,
+        eventDescription: event.description,
+        hook: event.description,
+        dramaticFunction: event.dramaticFunction,
+        actPosition: `${event.actPosition?.act || 1}`,
+        tensionTarget: event.tensionTarget || 5,
+        paceTarget: event.paceTarget || 'medium',
+        impactedCharacters: (event.characterImpacts || []).map((i) => i.identifier),
+        isDailyLife: event.isDailyLife,
+        isChoral: event.isChoral,
+        absentProtagonists: event.absentProtagonists,
+        scenes
+      })
+      for (const scene of scenes) {
+        console.info(`     > Scène ${scene.sceneNumber}: ${scene.objective}`)
+      }
+      // Update event with detailed scenes for later use
+      event.scenes = scenes
+    }
+
     const enrichment = await this.enrichSaga(draft.script, options)
 
-    console.info('[VimaxSagaPlanner] ✅ Planification de saga terminée.')
+    console.info('[VimaxSagaPlanner] ✅ Planification de saga multi-pass terminée.')
 
     const plan: SagaPlan = {
       ...draft,
       ...enrichment,
+      episodes,
+      episodeEvents,
       basicIdea,
-      options,
-      episodeEvents: [] // Initialisé à vide, sera rempli par l'extracteur d'événements
+      options
     } as any
 
     // Alias legacy
-    ;(plan as any).plan = draft.episodes
+    ;(plan as any).plan = {
+      ...draft,
+      episodes: plan.episodes
+    }
 
     return plan
+  }
+
+  /**
+   * Stage 3 : Planifie les scènes détaillées pour un épisode spécifique.
+   * Isole l'épisode pour éviter la saturation du LLM.
+   */
+  async planEpisodeScenes(
+    episodeEvent: VimaxEvent,
+    globalScript: string,
+    options: VimaxRunOptions = {}
+  ): Promise<any[]> {
+    const system = `
+Tu es le Scénariste de Détail de Vimax Architecture (v21.0).
+Ta mission est de découper un ÉPISODE de saga en EXACTEMENT 6 scènes ultra-détaillées (10s par scène).
+
+[CONTEXTE GLOBAL DE LA SAGA]
+${globalScript.slice(0, 2000)}
+
+[ÉPISODE À DÉTAILLER]
+- Description : ${episodeEvent.description}
+- Fonction Dramatique : ${episodeEvent.dramaticFunction}
+- Tension Cible : ${episodeEvent.tensionTarget}/10
+
+[DIRECTIVES DE SCÈNE]
+Pour chaque scène, fournis :
+1. objective : L'objectif dramatique précis.
+2. characters : Liste des IDs @PascalCase présents.
+3. characterState : L'état physique/émotionnel (ex: "haletant", "regard froid").
+4. locationId : L'identifiant @Lieu.
+5. function : établissement | confrontation | pivot | révélation | climax.
+6. framing : Plan large | Plan moyen | Gros plan | Très gros plan.
+7. cameraAngle : Plongée | Contre-plongée | Face | Profil | Holandais.
+8. focusSubject : Le sujet central précis de la scène (ex: "Le couteau sur la table", "Le regard de @Nom", "La porte qui s'entrouvre").
+9. tensionTarget : 1-10.
+10. obligatory : Contrainte visuelle ou narrative.
+
+[LOI DU STORYTELLING ÉVOCATEUR - V22.0]
+- CLARTÉ NARRATIVE : Chaque scène doit être un maillon INTELLIGIBLE d'une histoire.
+- IMAGERIE PHYSIQUE : L'objective doit utiliser une imagerie forte (ex: "La flamme danse dans le vent", "Lucas déchire sa chemise pour bander sa plaie").
+- BANNIS : "présenter", "découvrir", "réfléchir", "tension", "ambiance".
+- LOI DU CHANGEMENT D'ÉTAT : Un personnage doit radicalement changer d'état entre la Scène 1 et la Scène 6. Planifie une trajectoire de FRACTURE.
+
+[LOI DU ZÉRO DOUBLON] : Interdiction absolue de répéter le même verbe d'action ou le même objet focal sur plus d'une scène par épisode.
+
+[MODE TRAILER : 1 SCÈNE = 1 CHAPITRE ÉMOTIONNEL]
+Tu travailles sur 6 scènes (10s chacune). Chaque bloc doit marquer un saut temporel ou émotionnel clair (Ellipse).
+
+[FORMAT RÉPONSE JSON]
+{
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "function": "...",
+      "objective": "...",
+      "framing": "...",
+      "cameraAngle": "...",
+      "focusSubject": "...",
+      "characters": ["@Nom"],
+      "characterState": { "@Nom": "..." },
+      "locationId": "@Lieu",
+      "tensionTarget": 5,
+      "paceTarget": "medium",
+      "obligatory": "...",
+      "prepares": "ce qui suit"
+    }
+  ]
+}
+`.trim()
+
+    const result = await this.generateStructured<{ scenes: any[] }>(
+      `Détaille les scènes pour l'épisode : "${episodeEvent.description}"`,
+      system,
+      { scenes: [] }
+    )
+
+    return result.data.scenes.map((s, i) => ({
+      ...s,
+      sceneNumber: s.sceneNumber || i + 1,
+      tensionTarget: s.tensionTarget || episodeEvent.tensionTarget || 5,
+      paceTarget: s.paceTarget || episodeEvent.paceTarget || 'medium'
+    }))
   }
 
   /**
@@ -541,7 +654,8 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
     const anchorData = typeof previousAnchor === 'string' ? previousAnchor : JSON.stringify(previousAnchor, null, 2)
 
     const anchorSection = previousAnchor
-      ? `\n\n[RÉFÉRENCE VISUELLE PRÉCÉDENTE]\n${anchorData}\n\n[DIRECTIVE] Utilise cet état pour maintenir la cohérence de l'ÉCLAIRAGE, de l'AXE CAMÉRA et de la POSITION des personnages. Assure-toi que la nouvelle scène est spatialement cohérente avec la précédente.`
+      ? `\n\n[RÉFÉRENCE VISUELLE PRÉCÉDENTE]\n${anchorData}\n\n[DIRECTIVE] Utilise cet état pour maintenir la cohérence de l'AXE CAMÉRA et de la POSITION des personnages. 
+${context.locationChanged ? "[RUPTURE VISUELLE OBLIGATOIRE] : Le lieu a changé. IGNORE la lumière de la scène précédente. Crée un contraste de lumière et d'atmosphère RADICAL par rapport à l'anchor précédente." : 'Assure-toi que la nouvelle scène est spatialement et lumineusement cohérente avec la précédente.'}`
       : ''
 
     const climaxDirective = isClimax
@@ -589,12 +703,15 @@ ${styleBlock}
 - STRICT PRESENCE : Ne dessine JAMAIS de personnage qui n'est pas explicitement mentionné dans la narration. L'ajout d'un personnage non mentionné est une erreur grave.
 ${compositionDirective}
 ${lightDirective}
-- CAMÉRA NARRATIVE : Adapte le cadrage à l'intention de la narration. Si un détail est accentué (ex: "ses mains tremblent", "les lunettes glissent"), passe en GROS PLAN (close-up) sur ce détail. Sinon, utilise un plan moyen ou large pour installer l'environnement.
-- GESTUELLE : Accorde une importance capitale aux micro-mouvements et expressions mentionnés (lunettes qui glissent, crispation, regard fuyant).
-- FLASHBACK : Si la narration indique un souvenir ou un reflet du passé, applique un style "FLASHBACK" (lumière surexposée, léger flou, couleurs désaturées).
-- ATMOSPHÈRE & MYSTÈRE : Pour les moments de découverte ou de tension, utilise des ombres denses, des rais de lumière (god rays) et des contrastes forts pour accentuer le sentiment de mystère éveillé.
-- CAUSALITÉ : Décris les ACTIONS concrètes qui provoquent le danger (ex: une barre de fer tombe, une étincelle jaillit).
-- Techniquement explicite : nomme les positions exactes, les vecteurs, les détails de l'environnement.
+- CAMÉRA TECHNIQUE : Utilise impérativement le cadrage [FRAMING], l'angle [CAMERA_ANGLE] et le sujet focal [FOCUS_SUBJECT] demandés.
+- FOCUS VISUEL : Met en avant le [FOCUS_SUBJECT] au premier plan.
+- CAMÉRA NARRATIVE : Adapte le cadrage aux détails de la narration. Si un détail est accentué, passe en GROS PLAN si le [FRAMING] global le permet.
+- [LOI DES 3 PLANS] : Décris EXPLICITEMENT : 1. Premier Plan (Sujet focal @Nom) | 2. Plan Moyen (Action/Interaction) | 3. Arrière-Plan (Profondeur/Décor).
+- [BANNISSEMENT DES ADJECTIFS] : Interdiction absolue d'utiliser : "sombre", "mystérieux", "épique", "angoissant", "magnifique". 
+- OBLIGATION DE PREUVE PHYSIQUE : Remplace l'adjectif par un fait (ex: au lieu de "sombre", dis "murs de béton brut noirs, une seule ampoule nue").
+- GRAMMAIRE DE LA LUMIÈRE : Nomme impérativement une SOURCE et une COULEUR (ex: "néon bleu glacial", "lueurs d'incendie orange", "faisceau de lampe torche blanc").
+- CAUSALITÉ VISUELLE : Décris les ACTIONS concrètes (ex: une barre de fer tombe, une étincelle jaillit).
+- [LOI DE L'INNOVATION VISUELLE] : INTERDICTION ABSOLUE de répéter les mêmes sources de lumière (ex: néon, bougie), les mêmes couleurs dominantes ou les mêmes objets de décor que la scène précédente si le lieu a changé. Chaque prompt doit être une découverte visuelle.
 - PAS de métaphores. Description visuelle pure.
 - [CONTINUITÉ LUMINEUSE] Assure la cohérence avec le reste de la série.
 - [ISOLATION] IGNORE TOUT ce qui est entre crochets [Action / Émotion].
@@ -604,34 +721,62 @@ ${this.getGlobalScriptBlock(context)}
 
 ${this.getEpisodePlanBlock(context)}
 
-[FORMAT]
-Renvoie UNIQUEMENT du JSON valide : 
-{ 
-  "imagePrompt": "...", 
-  "visualAnchor": {
-    "dominantLight": "...",
-    "cameraAxis": "...",
-    "characterPositions": { "@Nom": "position..." },
-    "activeProps": ["prop1", "prop2"]
-  }
-}
+[EXEMPLE GOLDEN 1 - VUE LARGE / DÉTAIL DÉCOR]
+dimly lit ancient city street, winter storm, thick uneven snow, stone buildings, gas lamp orange glow, wet cobblestones, Wide shot, eye level, @Little Girl, cylindrical brown body, large blue eyes, bundle of matches, standing center, trembling, faces toward right, @Passersby walking away in background, backs turned, 3D animation render, Pixar style, 8K, sharp focus, cold blue dominant light, warm orange accent from lamp, long eerie shadows, 16:9 cinematic ratio, no text, no watermark.
+
+[EXEMPLE GOLDEN 2 - GROS PLAN / VFX MIRAGE]
+dark alleyway at night, deep shadows, floating embers, translucent outline of an ornate black iron stove, shimmering table with golden plates superimposed, Close-up, @Little Girl, thin wooden fingers, holding single burning matchstick between fingers and camera, face bathed in flickering golden light, match flame foreground, glowing mirage of black Victorian iron stove in soft-focus background, 3D animation render, 8K, depth of field, cinematic lighting, warm flickering golden light from match flame, cool dark blue shadows, 16:9 cinematic ratio, no text, no watermark.
 `.trim()
 
     const characterSection = characterContext
       ? `\n\n[LISTE DES PERSONNAGES]\n${characterContext}\n[/LISTE DES PERSONNAGES]`
       : ''
 
-    const styleDirective = isWhiteboard
-      ? "Génère un imagePrompt de style CROQUIS / WHITEBOARD (traits de feutre noirs simples, fond blanc, style croquis rapide). PRÉSERVE l'identité visuelle de @Nom (cheveux, vêtements) mais dessine-les dans ce médium minimaliste (ex: traits simplifiés pour les yeux)."
-      : `Génère un imagePrompt FLUIDE ET NARRATIF respectant strictement le style verrouillé. ${this.styleLock ? '' : 'Adoptez une esthétique CINÉMATOGRAPHIQUE par défaut.'}`
+    const visualStyleTag = this.styleLock?.visualStyle || '3D animation render, Pixar style, 8K, unreal engine 5 style'
+
+    // TEMPLATE FINAL V18.1
+    const styleDirective = `[LOI DU LANGAGE MACHINE - V18.1]
+Tu dois générer un prompt technique UNIFIÉ, sans en-tête ni crochet.
+STRUCTURE INTERNE OBLIGATOIRE (tags séparés par des virgules) :
+1. DÉCOR (climat, heure, architecture).
+2. VUE (cadrage, angle).
+3. PERSONNAGE (Id, physique, action brusque).
+4. RELATION (position relative).
+5. QUALITÉ (${visualStyleTag}, 8K, cinematic).
+6. LUMIÈRE (Source + couleur).
+7. FORMAT (16:9).
+8. NÉGATIFS.
+
+INTERDICTION de mettre des labels comme "[DECOR] :". Génère juste la suite de tags.`
+
+    const framingDirective = context.plannedSceneContext?.framing
+      ? `\n[FRAMING] : ${context.plannedSceneContext.framing}`
+      : ''
+    const angleDirective = context.plannedSceneContext?.cameraAngle
+      ? `\n[CAMERA_ANGLE] : ${context.plannedSceneContext.cameraAngle}`
+      : ''
+    const focusDirective = context.plannedSceneContext?.focusSubject
+      ? `\n[FOCUS_SUBJECT] : ${context.plannedSceneContext.focusSubject}`
+      : ''
 
     const result = await this.generateStructured<{ imagePrompt: string; visualAnchor: VisualAnchorState }>(
-      `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${characterSection}\n\n${styleDirective}${correctionHint ? `\n\n[CONSIGNE DE CORRECTION PRIORITAIRE] :\n${correctionHint}` : ''}
-Génère la description en une seule phrase narrative couvrant le sujet principal @Nom au premier plan, les éléments secondaires au plan moyen, et l'environnement lumineux avec sa profondeur en arrière-plan.
+      `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${framingDirective}${angleDirective}${focusDirective}${characterSection}\n\n${styleDirective}${correctionHint ? `\n\n[CONSIGNE DE CORRECTION PRIORITAIRE] :\n${correctionHint}` : ''}
+\nGénère le prompt technique final unifié (tags sans labels).
+[IMPORTANT] : Traduis la description finale en ANGLAIS TECHNIQUE pour la machine.
+\n[FORMAT RÉPONSE JSON]
+{ 
+  "imagePrompt": "...", 
+  "visualAnchor": {
+    "dominantLight": "...",
+    "cameraAxis": "...",
+    "characterPositions": { "@Nom": "@Lieu, position..." },
+    "activeProps": ["prop1"]
+  }
+}
 \nRéponds UNIQUEMENT with du JSON.`,
       system,
       {
-        imagePrompt: narrationSegment,
+        imagePrompt: '',
         visualAnchor: {
           dominantLight: 'neutral',
           cameraAxis: 'standard',

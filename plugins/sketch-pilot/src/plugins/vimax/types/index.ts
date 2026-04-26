@@ -383,6 +383,20 @@ export interface SeriesContext {
     paceTarget?: string
     impactedCharacters?: string[]
   }
+  /** Le plan de la scène courante (depuis plannedEpisodes[].scenes en DB) */
+  plannedSceneContext?: {
+    sceneNumber?: number
+    function?: string
+    objective?: string
+    framing?: string
+    cameraAngle?: string
+    focusSubject?: string
+    characterState?: Record<string, string>
+    obligatory?: string
+    locationId?: string
+  }
+  /** Indique que le lieu a changé par rapport à la scène précédente (V12.0) */
+  locationChanged?: boolean
   /** Le blueprint narratif complet (V7.0) */
   blueprint?: any
 }
@@ -490,6 +504,7 @@ export interface LocationState {
 export interface VimaxEvent {
   index: number
   description: string
+  locationId?: string
   duration: number
   isClimax: boolean
   dramaticFunction?: DramaticFunction

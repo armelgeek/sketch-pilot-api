@@ -55,6 +55,12 @@ ${audienceBlock}
 ${platform === 'tiktok' ? '- TIKTOK MODE : Cuts rapides, gros plans fréquents, énergie maximum dès la seconde 0.' : ''}
 ${platform === 'cinema' ? '- CINEMA MODE : Compositions soignées, plans larges, dilatation temporelle autorisée.' : ''}
 
+[TRAILER STYLE : LE CHOC VISUEL]
+- CHAQUE SCÈNE DOIT ÊTRE UNE CLAQUE : Privilégie les angles extrêmes (Plongée totale, Contre-plongée, Angle Hollandais).
+- LUMIÈRE : Utilise des ambiances tranchées (Stroboscopie, clair-obscur, néons saturés).
+- ZERO ABSTRACTION : Interdiction d'utiliser "tension", "mystère", "ambiance" dans les champs textuels. Décris des FAITS PHYSIQUES.
+- [LOI DE LA FRACTURE] : Les champs "scenePurpose" et "sceneDelta" doivent décrire un changement d'état PHYSIQUE ou RELATIONNEL irréversible.
+
 ${this.getGlobalScriptBlock(context)}
 
 ${this.getBlueprintBlock(context)}
@@ -107,7 +113,7 @@ Renvoie UNIQUEMENT du JSON valide :
     "episodeSummary": "chaîne de caractères",
     "cliffhanger": { "type": "revelation|peril|choice|betrayal|unknown", "description": "chaîne de caractères", "audienceQuestion": "chaîne de caractères" },
     "characterContinuity": { "@Nom": { "description": "chaîne de caractères", "status": "chaîne de caractères" } },
-    "locationContinuity": { "location-id": { "description": "chaîne de caractères", "atmosphere": "chaîne de caractères" } }
+    "locationContinuity": { "location-id": { "description": "chaîne de caractères", "physicalState": "chaîne de caractères" } }
   },
   "titles": ["Titre 1", "Titre 2", "Titre 3"]
 }
@@ -134,7 +140,7 @@ Renvoie UNIQUEMENT du JSON valide :
     if (forceClimax || sceneNumber === totalScenes) {
       cameraRule = `[OBLIGATION] SCÈNE ${sceneNumber} (FINALE) : shake + slow-motion (high intensity). Impact physique maximum.`
     } else if (sceneNumber === 1) {
-      cameraRule = `SCÈNE 1 (INTRO) : handheld (low intensity). Pose l'ambiance.`
+      cameraRule = `SCÈNE 1 (INTRO) : handheld (low intensity). Établit la géographie.`
     } else {
       // Distribution dynamique des mouvements pour les scènes intermédiaires
       const intermediateMoves = ['push-in', 'slow-zoom', 'shake', 'breathing', 'pan-right', 'pan-left']
@@ -242,7 +248,7 @@ Renvoie du JSON :
 
     // PacingDirector : Corrélation forcée entre tension et pacing
     // T2 -> P2, T5 -> P5, T10 -> P9
-    const tension = parsed.tensionState.level
+    const tension = parsed.tensionState?.level ?? 5
     if (tension >= 9) {
       parsed.pacing = 9
     } else {
@@ -251,7 +257,7 @@ Renvoie du JSON :
 
     return {
       ...parsed,
-      charactersInScene: parsed.charactersInScene.map((id: string) => this.normalizeIdentifier(id))
+      charactersInScene: (parsed.charactersInScene || []).map((id: string) => this.normalizeIdentifier(id))
     }
   }
 

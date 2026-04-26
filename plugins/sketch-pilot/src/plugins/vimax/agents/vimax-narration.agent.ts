@@ -18,7 +18,7 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
     this.setPersonality({
       temperature: 0.8,
       rolePersona:
-        "Tu es un narrateur cinématographique de génie. Ton écriture est viscérale, sensorielle et atmosphérique. Tu pratiques le 'Show, Don't Tell' à l'extrême. Tu es le maître de l'ambiance."
+        "Tu es un narrateur cinématographique Expert en Réalisme Physique. Ton écriture est ancrée dans le tangible, le biologique et l'action brute. Tu bannis toute poésie abstraite ou métaphore au profit de la Clarté Évocatrice."
     })
   }
 
@@ -51,11 +51,9 @@ export class VimaxNarrationAgent extends VimaxBaseAgent {
     const grammar = ni.grammar
 
     return `
-- VOIX (${voice.type.toUpperCase()}) : Tu es un narrateur ${voice.type} avec une distance ${voice.distance}. Focalisation : ${voice.focalCharacter || 'Omnisciente'}. Ton : ${voice.tone}.
-- RYTHME : Style ${rhythm.style.toUpperCase()}. ${rhythm.sentenceVariety ? 'Alterne phrases longues et courtes (respiration).' : 'Garde un rythme régulier.'} ${rhythm.useNominalPhrases ? 'Utilise la phrase nominale pour un impact brutal.' : ''}
-- TEMPS : Écris principalement au ${grammar.dominantTense.replace('_', ' ')}. ${grammar.tenseSwitching ? 'Tu peux changer de temps pour les flashbacks ou souvenirs.' : 'Garde ce temps strictement.'}
-- DENSITÉ : Narration ${ni.density}. ${ni.density === 'sparse' ? "Laisse de l'espace, peu de détails par phrase." : ni.density === 'dense' ? "Beaucoup d'informations et de textures par phrase." : 'Équilibre information et atmosphère.'}
-- TAGS TTS ELEVENLABS : ${rhythm.elevenLabsTags ? 'OBLIGATOIRE : Insère des tags <break time="0.5s" /> ou <break time="1.0s" /> pour marquer les silences dramatiques et les ruptures de rythme.' : "N'utilise aucun tag SSML."}
+- RYTHME : Phrases courtes et complètes (Sujet + Verbe). ÉVITE la phrase nominale saccadée qui perd le sens.
+- TEMPS : Écris au ${grammar.dominantTense.replace('_', ' ')}.
+- DENSITÉ : Narration ${ni.density}. Priorise la clarté de l'action sur la texture atmosphérique.
 `.trim()
   }
 
@@ -86,13 +84,14 @@ ${platform === 'tiktok' ? '- TIKTOK : Vocabulaire punchy, pas de fioritures, acc
 ${platform === 'cinema' ? '- CINEMA : Richesse lexicale, silences suggestifs, atmosphères contemplatives, profondeur.' : ''}
 `.trim()
 
-    const defaultWordCount = mode === 'series' ? '300-500 mots' : '40-70 mots'
+    const defaultWordCount = mode === 'series' ? '150-250 mots' : '5-10 mots'
     const finalWordCount = wordCount || defaultWordCount
     const lengthGuide = `
-[CONTRÔLE DE DURÉE STRICT] 
-- Cible : ${finalWordCount}.
-- CONSIGNE : Sois extrêmement concis. Chaque mot superflu réduit la qualité visuelle. 
-- PENALTY : Si tu dépasses la limite, la narration sera tronquée.`.trim()
+[CONTRÔLE DE CLARTÉ ULTRA-STRICT] 
+- CIBLE : ${finalWordCount}.
+- INTERDICTION : Pas de fragments nominaux sans verbe (ex: "Brouillard dense. Lucas."). Utilise des actions.
+- ÉPURE : Supprime les adjectifs vagues (épais, lourd, sombre). Préfère les verbes de manifestation physique.
+`.trim()
 
     const granularity =
       mode === 'series' ? 'arc narratif majeur (un épisode complet).' : 'beat de niveau scène (une scène unique).'
@@ -124,15 +123,20 @@ ${platform === 'cinema' ? '- CINEMA : Richesse lexicale, silences suggestifs, at
     const structuralContext = event ? this.getStructuralContext(event) : ''
 
     return `
-Tu es un scénariste de sagas cinématographiques à haute tension.
-Génère une NARRATION BRUTE et percutante pour l'événement fourni.
+Tu es un Expert en Storytelling Cinématique. Ton but est de rendre l'action INTELLIGIBLE, ÉMOTIONNELLE et PERCUTANTE. Adopte le standard d'Or "Evocative Clarity".
 
-- RÈGLE D'OR : Écris pour l'ÉCRAN, pas pour un livre. Bannis la littérature, cherche la VÉRITÉ PHYSIQUE.
-- PRINCIPE "SHOW, DON'T TELL" ABSOLU : Interdiction formelle d'utiliser des adjectifs d'état ou des verbes de perception vague (ex: "sembler", "paraître", "donner l'impression"). Décris l'ACTION ou le DÉTAIL qui le prouve.
-- INTERDICTION DES MÉTAPHORES ABSTRAITES : Bannis "pression latente", "intrigue insondable", "silence pesant", "murmure hypnotique". Préfère : "une goutte de sueur", "un grincement d'acier", "le souffle court".
-- Narration VISCÉRALE, BRUTE, IMMÉDIATE. Rythme cardiaque.
-- Utilise des verbes de MANIFESTATION (tremble, s'assombrit, scintille) au lieu de verbes de Description.
-- CHERCHE LA SUBSTANCE : Ne te limite pas aux actions. Capture l'atmosphère par les SENS (le froid qui pique, l'odeur du fer).
+[LOI DE LA CLARTÉ ÉVOCATRICE - V23.0]
+1. ZERO ABSTRACTION : Interdiction absolue de parler de "doute", "secrets", "anxiété", "tension", "palpable", "passé". Si on ne peut pas le toucher ou le voir, ça n'existe pas.
+2. VERBE D'ACTION OBLIGATOIRE : Pas de phrase sans un verbe qui bouge quelque chose physiquement.
+3. PAS DE MÉTAPHORES : Ne dis pas "le martèlement forge ses doutes" (ABSTRAIT). Dis "Lucas sursaute à chaque coup de marteau".
+4. FLOW NARRATIF : Chaque phrase doit s'emboîter logiquement pour former une histoire claire.
+
+[ÉCHANTILLON GOLDEN - LE STANDARD D'OR V22.1] : 
+- In the freezing shadows of the old city, she offered matches to those hurrying home.
+- Finding no comfort, she curled into a small corner, seeking shelter from the falling snow.
+- With each match struck, a world of warmth and wonder bloomed before her tired eyes.
+- When dawn broke, she remained there with a smile, finally free from the cold.
+- She lit them all to stay with her grandmother, wrapped in a golden, eternal embrace.
 
 ${wordBank}
 ${negativePrompt}
@@ -358,7 +362,6 @@ ${plan.impactedCharacters?.length ? `- PERSONNAGES CLÉS IMPLIQUÉS : ${plan.imp
       this.getSystem('series', undefined, context, [], undefined, undefined, '', event),
       'application/json'
     )
-
     const parsed = this.parseJSONSafe<{ narration: string }>(raw, { narration: event.description })
     const rawNarration = parsed.narration
 
@@ -494,7 +497,7 @@ SI UN PERSONNAGE EST BLESSÉ OU UN LIEU MODIFIÉ DANS LE BLOC DE COHÉRENCE, TU 
     const narrativeContext = {
       moment: sceneNumber === 1 ? 'opening' : sceneNumber === totalScenes ? 'resolution' : 'any',
       genres: [genre],
-      tension: sceneMemories.length > 0 ? sceneMemories.at(-1).tensionLevel * 10 : 50
+      tension: sceneMemories.length > 0 ? sceneMemories.at(-1)!.tensionLevel * 10 : 50
     }
 
     // PASS 1 : Génération Brute
@@ -531,8 +534,8 @@ ${dna.forbidden.join(', ')}
 [CONSIGNES DE POLISSAGE] :
 1. Remplace les verbes faibles par des verbes d'action issus de la Word Bank.
 2. Élimine TOUS les clichés bannis.
-3. STRUCTURE LE RYTHME : Alterne phrases nominales (impact) et phrases complexes (durée).
-4. TAGS ELEVENLABS : Insère des <break time="0.3s" /> après les points si le rythme est STACCATO. Insère <break time="1.2s" /> pour un silence lourd.
+3. STRUCTURE LE RYTHME : Fais des phrases COURTES mais COMPLÈTES (Sujet + Verbe). Évite le style haché.
+4. TAGS ELEVENLABS : Insère des <break time="0.3s" /> après les points si le rythme est rapide. Insère <break time="1.2s" /> pour un silence lourd.
 5. POV : Assure-toi que la narration ne dérive pas d'un personnage à l'autre. Reste dans la tête du focalisateur.
 6. DENSITÉ : Si la scène est une révélation, isole l'information. Si c'est de l'action, densifie les verbes de manifestation.
 7. CONTRAINTE LONGUEUR : Ne dépasse JAMAIS le volume de la narration brute. Raccourcis si possible.
@@ -556,19 +559,20 @@ ${this.getEpisodePlanBlock(context)}
       polishedNarration = polishedResult.narration
     }
 
-    // PASS 3 : Subtexte & Atmosphère (V4.5 - Director's Cut) — TOUJOURS ACTIF
+    // PASS 3 : Durcissement du Réalisme (V23.0 - Physical Fact Enforcement) — TOUJOURS ACTIF
     const subtextSystem = `
-Tu es le Réalisateur de Vimax. Ton but est d'injecter du **SUBTEXTE** et de l'**ATMOSPHÈRE** dans la narration.
-Ne change pas l'action, change la PERCEPTION.
+Tu es le Contrôleur de Réalisme de Vimax. Ton but est de PURGER la narration de toute "poésie de remplissage".
+Ne change pas l'histoire, supprime les abstractions.
 
-[CRITÈRE DE RÉUSSITE - RÉALISME HUMAIN] :
-- Remplace toute métaphore abstraite par un fait biologique (ex: "la peur" -> "les mains moites").
-- Supprime les adverbes en "-ment".
-- ÉCONOMISATION : Utilise le minimum de mots pour le maximum d'impact. Pas de fioritures.
-- ARCHÉTYPES : Alignement sur la structure "${context.intent && typeof context.intent !== 'string' ? context.intent.archetypeBlueprint?.structure : 'Standard'}" et le rôle "${context.intent && typeof context.intent !== 'string' ? context.intent.archetypeBlueprint?.protagonistArchetype : 'Hero'}".
-- SOUS-TEXTE : Ce que le personnage ne dit pas est plus important que ce qu'il fait.
-- ÉCONOMIE NARRATIVE : Chaque détail doit servir le thème principal : "${context.intent && typeof context.intent !== 'string' ? context.intent.authorialSignature?.themes?.[0] : 'None'}".
-- DÉFI CONCISION : Élimine les adverbes. Garde un rythme nerveux.
+[CRITÈRES DE PURGE] :
+1. ÉLIMINE les phrases nominales (ex: "Brouillard dense"). Remplace par une action (ex: "Le brouillard avale la rue").
+2. ÉLIMINE les sentiments abstraits (doutes, secrets, passé, anxiété, tension, palpable).
+3. REMPLACE les métaphores par des faits biologiques (sueur, souffle, muscle, regard).
+4. ÉPURE : Moins d'adjectifs, plus de verbes précis.
+
+[EXEMPLE DE PURGE V23.0] :
+❌ "Lucas avance, fingers glacés. Brume exhalant secrets anciens. Poids des non-dits."
+✅ "Lucas bouscule la brume. Ses doigts engourdis grattent la brique rouge. Il fixe la porte close."
 
 ${this.getGlobalScriptBlock(context)}
 
