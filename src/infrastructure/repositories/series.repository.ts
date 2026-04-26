@@ -39,6 +39,8 @@ export class SeriesRepository {
     referenceStyleImage?: string
     visualStyleLock?: any
     status?: string
+    blueprint?: any
+    authorialSignature?: any
   }) {
     const [result] = await db
       .insert(series)
@@ -186,7 +188,8 @@ export class SeriesRepository {
       .map((p) => ({
         number: p.episodeNumber,
         title: p.title,
-        hook: p.hook
+        hook: p.hook,
+        ...((p.metadata as any) || {})
       }))
       .sort((a, b) => a.number - b.number)
 
@@ -247,6 +250,8 @@ export class SeriesRepository {
       tensionState: (s.narrationLayer as any)?.tensionState ?? undefined,
       referenceStyleImage: s.referenceStyleImage ?? undefined,
       visualStyleLock: s.visualStyleLock ?? undefined,
+      blueprint: s.blueprint ?? undefined,
+      authorialSignature: s.authorialSignature ?? undefined,
 
       // V21 Recency Bias
       lastEpisodeSummary: this.getLastEpisodeSummary(s.previousEpisodesContext || '')

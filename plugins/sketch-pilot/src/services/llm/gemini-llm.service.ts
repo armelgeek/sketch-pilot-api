@@ -71,7 +71,8 @@ export class GeminiLLMService implements LLMService {
     prompt: string,
     systemInstruction?: string,
     responseMimeType?: string,
-    images?: { data: string; mimeType: string }[]
+    images?: { data: string; mimeType: string }[],
+    options?: { temperature?: number; topP?: number; maxOutputTokens?: number }
   ): Promise<string> {
     return withRetry(
       async () => {
@@ -94,7 +95,9 @@ export class GeminiLLMService implements LLMService {
           config: {
             systemInstruction,
             responseMimeType: (responseMimeType as any) || 'text/plain',
-            temperature: 0.8
+            temperature: options?.temperature ?? 0.8,
+            topP: options?.topP,
+            maxOutputTokens: options?.maxOutputTokens
           }
         })
 

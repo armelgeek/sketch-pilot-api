@@ -2,14 +2,26 @@
  * LLM Service Interface and Factory
  */
 
+export interface LLMOptions {
+  temperature?: number
+  topP?: number
+  maxOutputTokens?: number
+}
+
 export interface LLMService {
   generateContent: (
     prompt: string,
     systemInstruction?: string,
     responseMimeType?: string,
-    images?: { data: string; mimeType: string }[]
+    images?: { data: string; mimeType: string }[],
+    options?: LLMOptions
   ) => Promise<string>
-  streamContent: (prompt: string, systemInstruction?: string, responseMimeType?: string) => AsyncIterable<string>
+  streamContent: (
+    prompt: string,
+    systemInstruction?: string,
+    responseMimeType?: string,
+    options?: LLMOptions
+  ) => AsyncIterable<string>
 }
 
 export type LLMProvider = 'gemini' | 'grok' | 'claude' | 'haiku' | 'openai'

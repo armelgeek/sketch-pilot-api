@@ -167,13 +167,35 @@ export class SagaProductionService {
     const planData = VimaxSchemaMapper.mapDbToSagaPlan(context)
     const episodeEvents = VimaxSchemaMapper.mapDbToEpisodeEvents(context)
 
+    // Résoudre le plan de l'épisode courant depuis le roadmap persisté
+    const plannedEpisodes = (context.plannedEpisodes as any[]) || []
+    const thisEpisodePlan = plannedEpisodes.find((e: any) => e.number === episodeNumber)
+
     const fullSagaPlan = {
       seriesId,
       options: {
         seriesId,
         userId,
         brainMode: 'all', // Défaut par sécurité
-        seriesContext: context
+        seriesContext: {
+          ...context,
+          // [FIX] Injecter le script global de la saga dans le contexte de l'agent
+          globalScript: (context as any).globalContext || '',
+          // [FIX] Injecter le plan précis de l'épisode courant avec métadonnées V7.0
+          plannedEpisodeContext: thisEpisodePlan
+            ? {
+                title: thisEpisodePlan.title,
+                hook: thisEpisodePlan.hook,
+                dramaticFunction: thisEpisodePlan.dramaticFunction,
+                actPosition: thisEpisodePlan.actPosition,
+                keyRevelation: thisEpisodePlan.keyRevelation,
+                tensionTarget: thisEpisodePlan.tensionTarget,
+                paceTarget: thisEpisodePlan.paceTarget,
+                impactedCharacters: thisEpisodePlan.impactedCharacters
+              }
+            : undefined,
+          blueprint: context.blueprint || {}
+        }
       },
       plan: planData,
       episodeEvents

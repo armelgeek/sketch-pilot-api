@@ -5,6 +5,13 @@ import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
 import type { VimaxPlugin } from './vimax-plugin.interface'
 
+export interface AgentPersonality {
+  temperature?: number // Créativité vs Rigueur (0.0 à 1.0)
+  topP?: number
+  rolePersona?: string // "Tu es imprévisible" vs "Tu es méthodique"
+  focusWindow?: number // Taille du contexte utile
+}
+
 // ─────────────────────────────────────────────
 // VimaxBaseAgent — Classe abstraite mère
 // Tous les agents héritent de cette classe.
@@ -22,6 +29,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
   }
 
   protected pluginDirectives: string[] = []
+  protected personality: AgentPersonality = { temperature: 0.8 }
 
   protected lastPromptData = {
     system: '',
@@ -37,6 +45,10 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
 
   public setBrainMode(mode: 'stable' | 'all') {
     this.brainMode = mode
+  }
+
+  public setPersonality(personality: Partial<AgentPersonality>) {
+    this.personality = { ...this.personality, ...personality }
   }
 
   public getSeriesId(): string | undefined {
@@ -93,7 +105,8 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     prompt: string,
     system: string,
     mime: 'text/plain' | 'application/json' = 'text/plain',
-    images?: { data: string; mimeType: string }[]
+    images?: { data: string; mimeType: string }[],
+    narrativeContext?: any // [V48] Architecte Narratif
   ): Promise<string> {
     const startTime = Date.now()
     const prunedPrompt = this.enforceTokenBudget(prompt)
@@ -103,15 +116,51 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     await store.load()
 
     const promptTags = this.extractContextTags(prunedPrompt)
-    const learnedDirectives = store.formatDirectives(this.id, promptTags, this.brainMode)
+    const learnedDirectives = store.formatDirectives(
+      this.id,
+      promptTags,
+      this.brainMode,
+      this.seriesId,
+      narrativeContext
+    )
 
     // Pour l'analyse post-saga, on récupère les IDs des leçons appliquées
-    const contextRelevant = store.getLessonsFor(this.id, promptTags, this.brainMode)
+    const contextRelevant = store.getLessonsFor(this.id, promptTags, this.brainMode, this.seriesId, narrativeContext)
     const appliedLessonIds = contextRelevant.map((l) => l.id)
 
     // Fusion des systèmes prompts : Base + Leçons + Plugins
     let finalSystem = system
-    if (learnedDirectives) finalSystem += `\n\n${learnedDirectives}`
+
+    // [V3] Dynamic Directive Pruning
+    // Si le système prompt global + leçons dépasse un certain seuil, on élague les leçons les moins pertinentes.
+    const MAX_SYSTEM_CHARS = 30000 // Environ 7.5k tokens dévolus aux règles
+    let directives = learnedDirectives
+
+    if (finalSystem.length + (directives?.length || 0) > MAX_SYSTEM_CHARS) {
+      console.warn(`[${this.id}] System prompt budget exceeded. Pruning lessons...`)
+      // On récupère les leçons brutes pour un élagage intelligent
+      const relevantLessons = store.getLessonsFor(this.id, promptTags, this.brainMode, this.seriesId)
+      // Priorité 1 : Mismatch de tags (mais inclus car général) -> Priorité 2 : Succès/Fail ratio
+      const sorted = relevantLessons.sort((a, b) => {
+        const scoreA = (a.successCount || 0) - (a.failCount || 0)
+        const scoreB = (b.successCount || 0) - (b.failCount || 0)
+        return scoreB - scoreA
+      })
+
+      // On reconstruit jusqu'à ce que ça loge
+      let prunedDirectives = '\n[LEÇONS PRIORITAIRES]\n'
+      for (const l of sorted) {
+        const entry = `- [${(l.category || 'general').toUpperCase()}] ${l.directive}\n`
+        if (finalSystem.length + prunedDirectives.length + entry.length < MAX_SYSTEM_CHARS) {
+          prunedDirectives += entry
+        } else {
+          break
+        }
+      }
+      directives = prunedDirectives.trim()
+    }
+
+    if (directives) finalSystem += `\n\n${directives}`
     if (this.pluginDirectives.length > 0) {
       finalSystem += `\n\n[CONSIGNES SPÉCIFIQUES PLUGINS] :\n${this.pluginDirectives.join('\n')}`
     }
@@ -130,7 +179,15 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
       console.log(`\n[LLM CALL] ${this.id} (${this.constructor.name}) - ID: ${episodeId}`)
     }
 
-    const raw = await this.llm.generateContent(prunedPrompt, finalSystem, mime, images)
+    // [V48] Injection du Persona si défini
+    const systemInstruction = this.personality.rolePersona
+      ? `${finalSystem}\n\n[PERSONNALITÉ DE L'AGENT]\n${this.personality.rolePersona}`
+      : finalSystem
+
+    const raw = await this.llm.generateContent(prunedPrompt, systemInstruction, mime, images, {
+      temperature: this.personality.temperature,
+      topP: this.personality.topP
+    })
     const duration = Date.now() - startTime
 
     this.metrics.durationMs += duration
@@ -187,7 +244,8 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     system: string,
     fallback: T,
     images?: { data: string; mimeType: string }[],
-    maxRetries = 2
+    maxRetries = 2,
+    narrativeContext?: any // [V48] Architecte Narratif
   ): Promise<GenerationResult<T>> {
     let retryCount = 0
 
@@ -197,7 +255,7 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
         // Note: On passe l'episodeId pour que generate puisse l'utiliser (ou on laisse generate en créer un nouveau)
         // Pour simplifier, on laisse generate créer son propre épisode et on le récupérera via le dernier fichier créé si besoin,
         // MAIS le mieux est de modifier generate pour accepter un ID optionnel.
-        const raw = await this.generate(prompt, system, 'application/json', images)
+        const raw = await this.generate(prompt, system, 'application/json', images, narrativeContext)
         const data = this.parseJSON<T>(raw)
 
         return {
@@ -224,7 +282,8 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     return {
       data: fallback,
       confidence: 'fallback',
-      retryCount: maxRetries
+      retryCount: maxRetries,
+      fallbackReached: true
     }
   }
 

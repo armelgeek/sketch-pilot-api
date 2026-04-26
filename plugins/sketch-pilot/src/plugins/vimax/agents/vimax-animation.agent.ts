@@ -8,11 +8,16 @@ import type { SeriesContext } from '../types'
  */
 export class VimaxAnimationAgent extends VimaxBaseAgent {
   public id = 'animation'
+
   private getSystem(context: SeriesContext): string {
     return `
 [RÔLE]
 Tu es un Directeur de l'Animation pour des vidéos en "whiteboard style".
 Ta mission est d'extraire ou de déduire des instructions d'ANIMATION physiques précises pour les personnages.
+
+${this.getGlobalScriptBlock(context)}
+
+${this.getEpisodePlanBlock(context)}
 
 [FORMAT DE RÉPONSE]
 Renvoie UNIQUEMENT du JSON valide :
@@ -20,6 +25,25 @@ Renvoie UNIQUEMENT du JSON valide :
   "animationPrompt": "L'instruction d'animation ici",
   "acting": "Le ton émotionnel de la scène (ex: Enthousiaste, Inquiet, Furieux)"
 }
+`.trim()
+  }
+
+  private getGlobalScriptBlock(context: SeriesContext): string {
+    if (!context.globalScript) return ''
+    const truncated = context.globalScript.slice(0, 1500)
+    return `
+[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE ANIMATION]
+${truncated}${context.globalScript.length > 1500 ? '\n[...]' : ''}
+`.trim()
+  }
+
+  private getEpisodePlanBlock(context: SeriesContext): string {
+    const plan = context.plannedEpisodeContext
+    if (!plan) return ''
+    return `
+[PLAN DE L'ÉPISODE PRÉVU]
+- TITRE : ${plan.title || 'Inconnu'}
+- HOOK : ${plan.hook || 'Inconnu'}
 `.trim()
   }
 

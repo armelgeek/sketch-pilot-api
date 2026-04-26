@@ -1,11 +1,17 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { VimaxAnomalyDetector } from '../agents/vimax-anomaly-detector.agent'
+import { VimaxContradictionScanner } from '../agents/vimax-contradiction-scanner.agent'
+import { VimaxKnowledgeGapDetector } from '../agents/vimax-knowledge-gap-detector.agent'
+import { VimaxMetaCognitionAgent } from '../agents/vimax-metacognition.agent'
 import { VimaxPromptRefinery } from '../agents/vimax-prompt-refinery.agent'
 import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
 import { VimaxTranscriptionAnalyst } from '../agents/vimax-transcription-analyst.agent'
 import { VimaxVisionAuditor } from '../agents/vimax-vision-auditor.agent'
 import { YoutubeExtractor } from '../utils/youtube-extractor'
-import type { LearningEpisode, Lesson, NarrativeFeedbackItem } from '../types'
+import type { LearningEpisode, Lesson, NarrativeFeedbackItem, SagaIntent } from '../types'
+import { ArchiveStore } from './archive-store'
+import { CharacterUniverseStore } from './character-universe-store'
 import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
 
@@ -19,6 +25,12 @@ export class VimaxBrain {
   public visionAuditor: VimaxVisionAuditor
   private sagaSentinel: VimaxSagaSentinel
   private transcriptionAnalyst: VimaxTranscriptionAnalyst
+  private amygdala: VimaxAnomalyDetector
+  private prefrontal: VimaxMetaCognitionAgent
+  private gapDetector: VimaxKnowledgeGapDetector
+  private scanner: VimaxContradictionScanner
+  private archive: ArchiveStore
+  private characterUniverse: CharacterUniverseStore
   private store: LessonStore
   private maxTokensPerCycle: number = 50000 // Défaut : 50k tokens par cycle (~0.15$)
   private seriesId?: string
@@ -31,6 +43,12 @@ export class VimaxBrain {
     this.visionAuditor = new VimaxVisionAuditor(llm)
     this.sagaSentinel = new VimaxSagaSentinel(llm)
     this.transcriptionAnalyst = new VimaxTranscriptionAnalyst(llm)
+    this.amygdala = new VimaxAnomalyDetector(llm)
+    this.prefrontal = new VimaxMetaCognitionAgent(llm)
+    this.gapDetector = new VimaxKnowledgeGapDetector(llm)
+    this.scanner = new VimaxContradictionScanner(llm)
+    this.archive = ArchiveStore.getInstance()
+    this.characterUniverse = CharacterUniverseStore.getInstance()
     this.store = LessonStore.getInstance()
     if (options?.maxTokensPerCycle) {
       this.maxTokensPerCycle = options.maxTokensPerCycle
@@ -42,6 +60,7 @@ export class VimaxBrain {
     this.refinery.setSeriesId(id)
     this.visionAuditor.setSeriesId(id)
     this.sagaSentinel.setSeriesId(id)
+    this.amygdala.setSeriesId(id)
   }
 
   public setBrainMode(mode: 'stable' | 'all') {
@@ -62,8 +81,11 @@ export class VimaxBrain {
     logicScore: number
     tokenUsage: number
     lessons: string[]
+    healthReport?: any
   }> {
     await this.store.load()
+    await this.archive.load()
+    await this.characterUniverse.load()
     let episodes = await this.loadEpisodes()
     if (episodes.length === 0) {
       await this.cleanupOldEpisodes()
@@ -74,7 +96,8 @@ export class VimaxBrain {
         visualScore: 0,
         logicScore: 0,
         tokenUsage: 0,
-        lessons: []
+        lessons: [],
+        healthReport: null
       }
     }
 
@@ -140,15 +163,37 @@ export class VimaxBrain {
       }
     }
 
+    // 0.75. PHASE DE DÉTECTION D'ANOMALIES (Amygdale)
+    const recentEpisodes = episodes.slice(-20) // 20 derniers épisodes
+    const anomalyReport = await this.amygdala.detectAnomalies(recentEpisodes)
+    if (anomalyReport.isCompromised) {
+      console.error(`[VimaxBrain] 🚨 AMYGDALE : Anomalie détectée ! ${anomalyReport.rationale}`)
+      // En prod, on pourrait émettre un signal pour stopper le pipeline ou alerter le dashboard
+    }
+
     // 1. PHASE DE RENFORCEMENT DARWINISTE (Succès)
     const successes = episodes.filter(
       (ep) => (ep.status === 'success' || (ep.evaluation?.score || 0) > 80) && !ep.learningApplied
     )
     if (successes.length > 0) {
-      console.log(`[VimaxBrain] Renforcement Darwiniste sur les succès (${successes.length} épisodes)...`)
+      console.log(`[VimaxBrain] Renforcement Darwiniste V4 sur les succès (${successes.length} épisodes)...`)
       for (const success of successes) {
         if (success.appliedLessonIds && success.appliedLessonIds.length > 0) {
-          await this.store.recordSuccess(success.appliedLessonIds)
+          // [V4] Calcul du Delta Score
+          const baseExpectation = 60
+          const delta = Math.max(0, (success.evaluation?.score || 100) - baseExpectation)
+
+          await this.store.recordSuccess(success.appliedLessonIds, delta)
+
+          // [V48] Feed Working Memory (Momentum)
+          if (success.seriesId) {
+            for (const lid of success.appliedLessonIds) {
+              this.store.recordWorkingSuccess(success.seriesId, lid)
+            }
+          }
+
+          // [V48] ARCHIVE EXCEPTIONNELLE (Score >= 90)
+          await this.archive.archiveIfExceptional(success)
         }
         success.learningApplied = true
         await this.saveEpisode(success)
@@ -234,7 +279,19 @@ export class VimaxBrain {
     // Nettoyage après apprentissage
     await this.cleanupOldEpisodes()
 
+    // [V4.2] AUTO-CONSOLIDATION : Si l'Hippocampe sature, on consolide automatiquement
+    const learningDirectives = await this.store.getLearningLessons()
+    if (learningDirectives.length > 20) {
+      console.log(
+        `[VimaxBrain] Auto-Consolidation : Hippocampe sature (${learningDirectives.length} leçons). Lancement de la distillation...`
+      )
+      await this.consolidateLessons()
+    }
+
+    // [V48] PHASE MÉTA-COGNITIVE (Cortex Préfrontal)
     const stats = await this.getPerformanceStats()
+    const healthReport = await this.prefrontal.generateLearningPlan(stats)
+    console.log(`[VimaxBrain] 🧠 MÉTA-COGNITION : Focus prioritaire -> ${healthReport.nextLearningFocus}`)
 
     return {
       newLessonsCount: totalNewLessons,
@@ -243,7 +300,8 @@ export class VimaxBrain {
       visualScore: stats.aspects.Visual?.avg || 0,
       logicScore: stats.aspects.Cinematic?.avg || 0,
       tokenUsage: this.refinery.getMetrics().estimatedTokens,
-      lessons: [] // To be populated with actual IDs if needed
+      lessons: [],
+      healthReport // Retours méta-cognitifs pour le dashboard
     }
   }
 
@@ -258,6 +316,7 @@ export class VimaxBrain {
 
   /**
    * Traitement de masse pour 50+ feedbacks.
+   * Amélioration : Groupement par agent pour éviter la soupe d'intelligence.
    */
   private async massThematicLearning(failures: LearningEpisode[]): Promise<{
     newLessonsCount: number
@@ -270,19 +329,27 @@ export class VimaxBrain {
   }> {
     console.log(`[VimaxBrain] MODE SCALING : Traitement thématique de ${failures.length} épisodes...`)
 
-    // On convertit temporairement en "leçons candidates" pour le clustering
-    const candidates: Lesson[] = failures.map((f, i) => ({
-      id: `fail-${i}`,
-      agentName: f.agentName,
-      directive: f.evaluation?.critique || f.evaluation?.issues?.join(', ') || 'Unknown failure',
-      category: 'logic',
-      confidence: f.evaluation?.source === 'human' ? 1 : 0.5,
-      successCount: 0,
-      failCount: 1,
-      lastUpdated: Date.now()
-    }))
+    const agents = [...new Set(failures.map((f) => f.agentName))]
+    const trendLessons: Lesson[] = []
 
-    const trendLessons = await this.refinery.thematicConsolidate(candidates)
+    for (const agentName of agents) {
+      const agentFailures = failures.filter((f) => f.agentName === agentName)
+      const candidates: Lesson[] = agentFailures.map((f, i) => ({
+        id: `fail-${agentName}-${i}`,
+        agentName: f.agentName,
+        directive: f.evaluation?.critique || f.evaluation?.issues?.join(', ') || 'Unknown failure',
+        category: 'logic',
+        confidence: f.evaluation?.source === 'human' ? 1 : 0.5,
+        successCount: 0,
+        failCount: 1,
+        lastUpdated: Date.now()
+      }))
+
+      if (candidates.length > 0) {
+        const trends = await this.refinery.thematicConsolidate(candidates, agentName)
+        trendLessons.push(...trends)
+      }
+    }
 
     for (const trend of trendLessons) {
       await this.store.addLesson(trend)
@@ -311,7 +378,7 @@ export class VimaxBrain {
       const success = relevantFailure ? await this.refinery.shadowTest(relevantFailure, partial.directive || '') : true
 
       if (success) {
-        await this.store.addLesson({
+        const newLesson = {
           id: `lesson-${Date.now()}-${count}`,
           agentName: partial.agentName || 'Global',
           directive: partial.directive || '',
@@ -320,9 +387,36 @@ export class VimaxBrain {
           successCount: 1,
           failCount: 0,
           tags: partial.tags || [],
-          lastUpdated: Date.now()
-        })
-        count++
+          lastUpdated: Date.now(),
+          seriesId: relevantFailure?.seriesId,
+          sourceEpisodeId: relevantFailure?.id,
+          causalContext: relevantFailure?.evaluation?.critique || 'Raffinement automatique'
+        }
+
+        // [V48] Brain Trust : Détection de contradiction sémantique
+        const existing = this.store.getAllLessons()
+        const conflict = await this.scanner.scanForConflicts(newLesson as Lesson, existing)
+
+        if (conflict.isConflicting) {
+          console.warn(
+            `[VimaxBrain] ⚠️ Contradiction détectée pour ${newLesson.id} (vs ${conflict.idOfConflictingLesson}) : ${conflict.reason}`
+          )
+
+          if (conflict.resolutionHint === 'replace_old' && conflict.idOfConflictingLesson) {
+            await this.store.deleteLesson(conflict.idOfConflictingLesson)
+            await this.store.addLesson(newLesson as Lesson)
+            count++
+          } else if (conflict.resolutionHint === 'discard_new') {
+            console.info(`[VimaxBrain] -> Nouvelle leçon ignorée au profit de la bible existante.`)
+          } else {
+            // Par défaut ou merge (merge non implémenté proprement ici encore, donc add simple)
+            await this.store.addLesson(newLesson as Lesson)
+            count++
+          }
+        } else {
+          await this.store.addLesson(newLesson as Lesson)
+          count++
+        }
       }
       // Marathon Hardening : On marque l'épisode comme traité quoi qu'il arrive (success ou shadow fail)
       if (relevantFailure) {
@@ -500,7 +594,8 @@ export class VimaxBrain {
             successCount: 1,
             failCount: 0,
             tags: lessonPartial.tags || [],
-            lastUpdated: Date.now()
+            lastUpdated: Date.now(),
+            seriesId: episode.seriesId // [V47] Scoped Memory
           } as any)
           return true
         }
@@ -549,7 +644,8 @@ export class VimaxBrain {
           successCount: 1,
           failCount: 0,
           tags: [...(lessonPartial.tags || []), 'narrative'],
-          lastUpdated: Date.now()
+          lastUpdated: Date.now(),
+          seriesId // [V47] Scoped Memory
         } as any)
 
         console.log(`[VimaxBrain] Nouvelle leçon narrative ajoutée.`)
@@ -559,6 +655,45 @@ export class VimaxBrain {
       console.error(`[VimaxBrain] Erreur lors du processing feedback narratif:`, error)
     }
     return false
+  }
+
+  /**
+   * [V48] Rétroaction Structurée par Scène.
+   * Permet un apprentissage chirurgical à partir d'un JSON de correction.
+   */
+  public async processStructuredSceneFeedback(
+    seriesId: string,
+    sceneNumber: number,
+    feedback: {
+      score: number
+      critique: string
+      correction?: string
+      aspect: 'narrative' | 'visual' | 'cinematic' | 'logic'
+    }
+  ): Promise<void> {
+    console.log(`[VimaxBrain] 🎯 Feedback structuré reçu pour S${sceneNumber} (${feedback.aspect})`)
+
+    // On cherche l'épisode correspondant
+    const episodes = await this.loadEpisodes()
+    const target = episodes.find((e) => e.seriesId === seriesId && e.userPrompt.includes(`SCÈNE ${sceneNumber}`))
+
+    if (target) {
+      target.evaluation = {
+        score: feedback.score,
+        isValid: feedback.score >= 80,
+        issues: [feedback.critique],
+        critique: feedback.correction || feedback.critique,
+        source: 'human'
+      }
+      target.status = feedback.score >= 80 ? 'success' : 'failure'
+      await this.saveEpisode(target)
+
+      // On déclenche un cycle d'apprentissage thématique immédiat si échec
+      if (feedback.score < 80) {
+        console.log(`[VimaxBrain]   -> Échec détecté. Apprentissage ciblé...`)
+        await this.autonomousLearning({ seriesId })
+      }
+    }
   }
 
   /**
@@ -618,7 +753,8 @@ export class VimaxBrain {
           successCount: 1,
           failCount: 0,
           tags: [...(lessonPartial.tags || []), `scene-${sceneNumber}`, `ep-${episodeNumber}`],
-          lastUpdated: Date.now()
+          lastUpdated: Date.now(),
+          seriesId // [V47] Scoped Memory
         } as any)
         return true
       }
@@ -769,33 +905,43 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
     const backupPath = await this.store.createSnapshot('pre-consolidate')
     console.log(`[VimaxBrain] Snapshot de sécurité créé : ${path.basename(backupPath)}`)
 
-    // 1. Groupement par agent pour éviter la fuite d'identité
-    const agents = [...new Set(allLessons.map((l) => l.agentName))]
+    // 1. Groupement par Saga (Scoped memory) puis par agent
+    const seriesIds = [...new Set(allLessons.map((l) => l.seriesId))]
     const consolidatedSet: Lesson[] = []
+    const sacredLessons = allLessons.filter((l) => l.verified)
 
-    console.log(`[VimaxBrain] Consolidation multi-agents (${agents.length} agents détectés)...`)
+    console.log(`[VimaxBrain] Consolidation multi-saga (${seriesIds.length} contextes détectés)...`)
 
-    for (const agentName of agents) {
-      const agentLessons = allLessons.filter((l) => l.agentName === agentName)
-      if (agentLessons.length > 0) {
-        console.log(`[VimaxBrain]   -> Distillation pour ${agentName} (${agentLessons.length} leçons)...`)
-        const result = await this.refinery.thematicConsolidate(agentLessons, agentName)
-        consolidatedSet.push(...result)
+    for (const sId of seriesIds) {
+      const sagaLessons = allLessons.filter((l) => l.seriesId === sId)
+      const agents = [...new Set(sagaLessons.map((l) => l.agentName))]
+      const label = sId || 'Global'
+
+      console.log(`[VimaxBrain] 📦 Distillation pour le contexte [${label}] (${sagaLessons.length} leçons)...`)
+
+      for (const agentName of agents) {
+        // [V47] On ne donne au LLM que les leçons NON-VÉRIFIÉES pour éviter la reformulation du sacré
+        const candidateLessons = sagaLessons.filter((l) => l.agentName === agentName && !l.verified)
+
+        if (candidateLessons.length > 0) {
+          console.log(`[VimaxBrain]   -> ${agentName} (${candidateLessons.length} candidats)...`)
+          const result = await this.refinery.thematicConsolidate(candidateLessons, agentName)
+          consolidatedSet.push(...result)
+        }
       }
     }
 
     console.log(
-      `[VimaxBrain] Consolidation terminée : ${allLessons.length} -> ${consolidatedSet.length} leçons distillées.`
+      `[VimaxBrain] Consolidation terminée : ${allLessons.length} -> ${consolidatedSet.length + sacredLessons.length} leçons (Distillées + Sacrées).`
     )
 
-    // On préserve les leçons validées manuellement (Sacrées)
-    const verified = allLessons.filter((l) => l.verified)
-
     // On prépare le nouveau set pour le Cortex
-    const newStableSet = [...verified]
+    // Priorité absolue aux Sacred (Validation Humaine)
+    const newStableSet = [...sacredLessons]
+
     for (const l of consolidatedSet) {
-      // On évite les doublons avec les verified
-      if (!newStableSet.some((v) => v.directive === l.directive)) {
+      // Déduplication par directive pour les nouvelles leçons consolidées
+      if (!newStableSet.some((v) => v.directive.trim().toLowerCase() === l.directive.trim().toLowerCase())) {
         newStableSet.push(l)
       }
     }
@@ -876,21 +1022,59 @@ Réponds UNIQUEMENT avec la nouvelle directive reformulée.
 
   /**
    * Nettoyage et fusion du store pour éviter le surpoids.
+   * [V47] Désormais pointe vers la version durcie consolidateLessons()
    */
   async consolidate(): Promise<void> {
+    return this.consolidateLessons()
+  }
+
+  /**
+   * CYCLE DE SOMMEIL (Consolidation Offline)
+   * Digère l'ensemble des connaissances du système lors des périodes d'inactivité.
+   */
+  async sleep(): Promise<void> {
+    console.log('[VimaxBrain] 🌙 Début du cycle de sommeil (Consolidation Offline)...')
     await this.store.load()
-    const all = this.store.getLessonsFor('Global') // On pourrait boucler sur tous les agents
+    await this.archive.load()
 
-    if (all.length > 20) {
-      console.log(`[VimaxBrain] Consolidation requise : ${all.length} leçons détectées.`)
-      const consolidated = await this.refinery.consolidate(all)
+    // 1. Audit profond des épisodes non traités
+    const allEpisodes = await this.loadEpisodes()
+    const pending = allEpisodes.filter((e) => !e.evaluation || e.evaluation.score === undefined)
 
-      // On vide et on remplace (implémentation simplifiée)
-      // En prod, on ferait un merge intelligent
-      for (const lesson of consolidated) {
-        await this.store.addLesson(lesson)
+    if (pending.length > 0) {
+      console.log(`[VimaxBrain]   -> Audit de ${pending.length} épisodes en attente...`)
+      for (const ep of pending) {
+        const result = await this.visionAuditor.scoreEpisode(ep)
+        ep.evaluation = {
+          score: result.score,
+          isValid: result.score >= 80,
+          issues: result.issues,
+          critique: result.rationale,
+          source: 'vision_sleep'
+        }
+        ep.status = result.score >= 80 ? 'success' : 'failure'
+        await this.saveEpisode(ep)
+
+        // Archivage si exceptionnel
+        await this.archive.archiveIfExceptional(ep)
       }
     }
+
+    // 2. Consolidation massive
+    console.log('[VimaxBrain]   -> Distillation et stabilisation du Cortex...')
+    await this.consolidateLessons()
+
+    // 3. Méta-cognition finale
+    const stats = await this.getPerformanceStats()
+    const health = await this.prefrontal.generateLearningPlan(stats)
+    console.log(`[VimaxBrain] ✨ Réveil : Cerveau stabilisé. Prochain focus : ${health.nextLearningFocus}`)
+  }
+
+  /**
+   * Analyse les lacunes du cerveau pour un intent donné.
+   */
+  async analyzeKnowledgeGaps(intent: SagaIntent) {
+    return this.gapDetector.detectGaps(intent)
   }
 
   public async loadEpisodes(): Promise<LearningEpisode[]> {

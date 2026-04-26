@@ -1,5 +1,6 @@
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
 import type { LLMService } from '../core/llm.interface'
+import type { NarrativeBlueprint, SeriesContext } from '../types'
 
 export interface SagaAuditReport {
   isConsistent: boolean
@@ -17,6 +18,11 @@ export class VimaxSagaSentinel extends VimaxBaseAgent {
   public id = 'saga-sentinel'
   constructor(llm: LLMService) {
     super(llm)
+    this.setPersonality({
+      temperature: 0.3,
+      rolePersona:
+        'Tu es un gardien de la continuité impitoyable et déterministe. Ton rôle est la rigueur absolue. Ne laisse passer aucune incohérence, aucun changement de fait, aucune contradiction logique.'
+    })
   }
 
   /**
@@ -25,10 +31,19 @@ export class VimaxSagaSentinel extends VimaxBaseAgent {
   async auditSagaContinuity(
     currentEpisode: { narration: string; screenplay: any },
     history: string[],
-    bible?: string
+    context: SeriesContext = {}
   ): Promise<SagaAuditReport> {
+    const bible = typeof context.seriesBible === 'string' ? context.seriesBible : JSON.stringify(context.seriesBible)
     const historyBlock =
       history.length > 0 ? history.join('\n\n--- ÉPISODE SUIVANT ---\n\n') : 'Aucun historique (Épisode 1)'
+
+    const globalScriptBlock = context.globalScript
+      ? `\n[SCRIPT GLOBAL DE LA SAGA]\n${context.globalScript.slice(0, 2000)}${context.globalScript.length > 2000 ? '...' : ''}`
+      : ''
+
+    const episodePlanBlock = context.plannedEpisodeContext
+      ? `\n[PLAN DE L'ÉPISODE PRÉVU]\n- TITRE : ${context.plannedEpisodeContext.title}\n- HOOK : ${context.plannedEpisodeContext.hook}`
+      : ''
 
     const prompt = `
 [MISSION : GARDIEN DE LA CONTINUITÉ DE SAGA]
@@ -37,6 +52,10 @@ Ton but est de détecter toute "rupture de continuité" entre le nouvel épisode
 
 [BIBLE DE LA SÉRIE]
 ${bible || 'Non spécifiée.'}
+
+${globalScriptBlock}
+
+${episodePlanBlock}
 
 [HISTORIQUE DES ÉPISODES PRÉCÉDENTS]
 ${historyBlock}
@@ -70,35 +89,44 @@ ${historyBlock}
   }
 
   /**
-   * Audit la continuité structurelle d'un plan d'épisodes (Events).
+   * Audit la continuité structurelle d'un plan d'épisodes (Events) par rapport au Blueprint v7.0.
    */
-  async auditEventPlan(events: any[], bible?: string): Promise<SagaAuditReport> {
+  async auditEventPlan(events: any[], bible?: string, blueprint?: NarrativeBlueprint): Promise<SagaAuditReport> {
     const planBlock = events
-      .map((e, idx) => `ÉPISODE ${idx + 1} : ${e.description} (${e.duration}s${e.isClimax ? ', CLIMAX' : ''})`)
+      .map(
+        (e, idx) =>
+          `ÉPISODE ${idx + 1} : ${e.description} (Fonction: ${e.dramaticFunction || 'N/A'}, Acte: ${e.actPosition?.act || 'N/A'})`
+      )
       .join('\n')
 
+    const blueprintBlock = blueprint
+      ? `\n[ARCHITECTURAL BLUEPRINT V7.0]\n${JSON.stringify(blueprint, null, 2)}`
+      : 'Aucun blueprint structurel fourni.'
+
     const prompt = `
-[MISSION : AUDIT DU PLAN DE SAGA]
-Tu es un superviseur de narration. Analyse la structure de cette saga avant que l'écriture détaillée ne commence.
+[MISSION : AUDIT DU PLAN DE SAGA - ARCHITECTE SENIOR]
+Tu es un superviseur de narration. Analyse la structure de cette saga par rapport à l'intention architecturale initiale.
 
 [BIBLE DE LA SÉRIE]
 ${bible || 'Non spécifiée.'}
 
-[PLAN PROPOSÉ (EVENTS)]
+${blueprintBlock}
+
+[PLAN PROPOSÉ (EVENTS EXTRAITS)]
 ${planBlock}
 
-[CRITÈRES DE VALIDATION]
-1. Continuité Logique : L'enchaînement des événements est-il possible ? (ex: pas de téléportation impossible)
-2. État du Monde : Si un événement change radicalement le monde, les suivants en tiennent-ils compte ?
-3. Respect de la Bible : Le ton et les lois de l'univers sont-ils respectés à travers les épisodes ?
-4. Rythme : Le climax est-il bien positionné et cohérent avec la montée en tension ?
+[CRITÈRES DE VALIDATION V7.0]
+1. Conformité Fonctionnelle : Chaque événement extrait remplit-il sa fonction dramatique prévue par le Blueprint (ex: l'événement à 50% remplit-il le rôle de 'midpoint') ?
+2. Trajectoire de Tension : La tension target du Blueprint est-elle respectée par les événements ?
+3. Arcs de Personnages : Les changements d'état émotionnels décrits dans les événements correspondent-ils aux milestones du Blueprint ?
+4. Dettes Narratives : Les promesses (debts) ouvertes dans les événements sont-elles bien listées ?
 
 [FORMAT DE RÉPONSE JSON]
 {
   "isConsistent": boolean,
-  "violations": ["Description de l'incohérence structurelle"],
-  "reasoning": "Analyse globale",
-  "suggestions": ["Comment ré-agencer les événements pour corriger"]
+  "violations": ["Description de l'incohérence par rapport au Blueprint"],
+  "reasoning": "Analyse globale de l'écart entre architecture et exécution",
+  "suggestions": ["Modifications du plan d'événements pour s'aligner sur le Blueprint"]
 }
 `.trim()
 

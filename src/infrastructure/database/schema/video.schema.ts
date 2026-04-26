@@ -104,6 +104,11 @@ export const videoScenes = pgTable('video_scenes', {
   scenePurpose: jsonb('scene_purpose').$type<any>(),
   tensionState: jsonb('tension_state').$type<any>(),
 
+  // V7.0 Narrative Architecture (Scene Level)
+  dramaticFunction: text('dramatic_function'), // opening, catalyst, midpoint, etc.
+  actPosition: jsonb('act_position').$type<any>(), // { act: 1|2|3, percentage: number }
+  characterImpacts: jsonb('character_impacts').$type<any[]>(), // CharacterArcShift[]
+
   metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()

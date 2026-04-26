@@ -176,6 +176,30 @@
       "successCount": 1,
       "failCount": 0,
       "lastUpdated": 1777027660007
+    },
+    {
+      "id": "style-foundational-vocabulary",
+      "agentName": "VimaxNarrationAgent",
+      "directive": "vocabulaire sensoriel : grincement, sueur, métallique, pouls, ombre, craquement, poussière, souffle, battement, froid, acide, rugueux, étincelle, sifflement",
+      "category": "style",
+      "tags": ["style:vocabulary"],
+      "confidence": 1,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1777027660008,
+      "verified": true
+    },
+    {
+      "id": "style-foundational-forbidden",
+      "agentName": "VimaxNarrationAgent",
+      "directive": "clichés ou mots génériques : soudainement, il semble que, il commence à, il décide de, en conclusion, l'important est, magnifique, incroyable, petit à petit",
+      "category": "style",
+      "tags": ["style:forbidden"],
+      "confidence": 1,
+      "successCount": 100,
+      "failCount": 0,
+      "lastUpdated": 1777027660009,
+      "verified": true
     }
   ],
   "globalDirectives": [

@@ -15,6 +15,9 @@ export class LessonStore {
   private data: ILessonStore = { version: '1.0.0', lessons: [], globalDirectives: [] }
   private learningData: ILessonStore = { version: '1.0.0', lessons: [], globalDirectives: [] }
 
+  // [V48] Working Memory (Transient momentum per saga)
+  private workingMemory: Record<string, Record<string, { successCount: number; lastModified: number }>> = {}
+
   private static readonly LEGACY_MAPPING: Record<string, string> = {
     screenwriter: 'VimaxScreenwriter',
     'saga-planner': 'VimaxSagaPlanner',
@@ -128,14 +131,18 @@ export class LessonStore {
     const backupDir = path.join(path.dirname(this.storePath), 'backups')
     try {
       const files = await fs.readdir(backupDir)
-      const snapshots = files
-        .filter((f) => f.startsWith('vimax-brain.'))
-        .sort()
-        .reverse()
+      const snapshots = []
+      for (const f of files.filter((f) => f.startsWith('vimax-brain.'))) {
+        const stats = await fs.stat(path.join(backupDir, f))
+        snapshots.push({ name: f, mtime: stats.mtimeMs })
+      }
 
       if (snapshots.length === 0) return false
 
-      const lastSnapshot = path.join(backupDir, snapshots[0])
+      // Sort by more recent first
+      snapshots.sort((a, b) => b.mtime - a.mtime)
+
+      const lastSnapshot = path.join(backupDir, snapshots[0].name)
       const raw = await fs.readFile(lastSnapshot, 'utf8')
       const bundle = JSON.parse(raw)
 
@@ -151,32 +158,99 @@ export class LessonStore {
 
   /**
    * Récupère les leçons pour un agent spécifique.
-   * @param mode 'stable' (Cortex uniquement) ou 'all' (Cortex + Hippocampe)
+   * [V48] Dopamine & Working Memory: Priorisation par momentum et impact.
    */
-  getLessonsFor(agentName: string, tags: string[] = [], mode: 'stable' | 'all' = 'all'): Lesson[] {
+  /**
+   * Récupère les leçons pour un agent spécifique avec filtrage contextuel.
+   * [V48] Architecte Narratif : Filtrage par moment, genre et conditions.
+   */
+  getLessonsFor(
+    agentName: string,
+    tags: string[] = [],
+    mode: 'stable' | 'all' = 'all',
+    seriesId?: string,
+    context?: {
+      moment?: 'opening' | 'midpoint' | 'climax' | 'resolution' | 'any'
+      genres?: string[]
+      isAction?: boolean
+      isDialogue?: boolean
+      tension?: number
+    }
+  ): Lesson[] {
     const legacyName = LessonStore.LEGACY_MAPPING[agentName]
-    const prodLessons = (this.data.lessons || []).filter(
-      (l) => l.agentName === agentName || l.agentName === 'Global' || (legacyName && l.agentName === legacyName)
+
+    // 1. Chargement du pool global/agent/saga
+    const allAvailable =
+      mode === 'all'
+        ? [...(this.data.lessons || []), ...(this.learningData.lessons || [])]
+        : [...(this.data.lessons || [])]
+
+    const filteredPool = allAvailable.filter(
+      (l) =>
+        (l.agentName === agentName || l.agentName === 'Global' || (legacyName && l.agentName === legacyName)) &&
+        (!l.seriesId || l.seriesId === seriesId)
     )
 
-    let lessons = [...prodLessons]
+    // 2. Filtrage Contextuel Chirurgical
+    const contextualLessons = filteredPool.filter((l) => {
+      // Filtrage par Genre
+      if (context?.genres && l.genreScope && !l.genreScope.includes('any')) {
+        const hasGenreMatch = context.genres.some((g) => l.genreScope?.includes(g))
+        if (!hasGenreMatch) return false
+      }
 
-    if (mode === 'all') {
-      const learningLessons = (this.learningData.lessons || []).filter(
-        (l) => l.agentName === agentName || l.agentName === 'Global' || (legacyName && l.agentName === legacyName)
-      )
-      lessons = [...lessons, ...learningLessons]
+      // Filtrage par Moment (applicableAt)
+      if (context?.moment && l.applicableAt && l.applicableAt !== 'any' && l.applicableAt !== context.moment)
+        return false
+
+      // Filtrage par Force/Condition (strength)
+      if (l.strength === 'if_action_scene' && !context?.isAction) return false
+      if (l.strength === 'if_dialogue_scene' && !context?.isDialogue) return false
+      if (l.strength === 'if_tension_high' && (context?.tension || 0) < 70) return false
+
+      return true
+    })
+
+    // 3. DOPAMINE SIGNAL : Calcul du score de priorité final
+    const getPriorityScore = (l: Lesson) => {
+      const impact = l.impactRatio || 0
+      const confidence = l.confidence || 0.5
+      let momentum = 0
+      if (seriesId && this.workingMemory[seriesId]?.[l.id]) {
+        momentum = this.workingMemory[seriesId][l.id].successCount * 20
+      }
+      return impact * confidence + momentum
     }
 
-    if (tags.length > 0) {
-      const taggedLessons = lessons.filter((l) => l.tags?.some((t) => tags.includes(t)))
-      const generalLessons = lessons.filter((l) => !l.tags || l.tags.length === 0)
-
-      // On retourne les deux : leçons spécifiques + leçons générales
-      return [...new Set([...taggedLessons, ...generalLessons])]
+    // 4. Tri Final
+    if (tags && tags.length > 0) {
+      const tagged = contextualLessons.filter((l) => l.tags?.some((t) => tags.includes(t)))
+      const general = contextualLessons.filter((l) => !l.tags || l.tags.length === 0)
+      return [...new Set([...tagged, ...general])].sort((a, b) => getPriorityScore(b) - getPriorityScore(a))
     }
 
-    return lessons
+    return contextualLessons.sort((a, b) => getPriorityScore(b) - getPriorityScore(a))
+  }
+
+  /**
+   * Enregistre un succès immédiat dans la mémoire de travail (Momentum).
+   */
+  recordWorkingSuccess(seriesId: string, lessonId: string): void {
+    if (!this.workingMemory[seriesId]) {
+      this.workingMemory[seriesId] = {}
+    }
+    if (!this.workingMemory[seriesId][lessonId]) {
+      this.workingMemory[seriesId][lessonId] = { successCount: 0, lastModified: Date.now() }
+    }
+    this.workingMemory[seriesId][lessonId].successCount++
+    this.workingMemory[seriesId][lessonId].lastModified = Date.now()
+  }
+
+  /**
+   * Efface la mémoire de travail à la fin d'une saga.
+   */
+  clearWorkingMemory(seriesId: string): void {
+    delete this.workingMemory[seriesId]
   }
 
   /**
@@ -225,16 +299,33 @@ export class LessonStore {
    * Ajoute une leçon dans l'HIPPOCAMPE (Buffer d'apprentissage actif).
    */
   async addLesson(lesson: Lesson): Promise<void> {
-    const existingIndex = this.learningData.lessons.findIndex((l) => {
+    const isDuplicate = (l: Lesson) => {
       if (l.id === lesson.id) return true
       return (
         l.agentName === lesson.agentName && l.directive.toLowerCase().trim() === lesson.directive.toLowerCase().trim()
       )
-    })
+    }
 
-    if (existingIndex >= 0) {
-      const existing = this.learningData.lessons[existingIndex]
-      this.learningData.lessons[existingIndex] = {
+    // 1. Check CORTEX first
+    const cortexIndex = this.data.lessons.findIndex(isDuplicate)
+    if (cortexIndex >= 0) {
+      const existing = this.data.lessons[cortexIndex]
+      this.data.lessons[cortexIndex] = {
+        ...existing,
+        ...lesson,
+        successCount: (existing.successCount || 0) + (lesson.successCount || 0),
+        failCount: (existing.failCount || 0) + (lesson.failCount || 0),
+        lastUpdated: Date.now()
+      }
+      await this.save()
+      return
+    }
+
+    // 2. Check HIPPOCAMPUS
+    const learningIndex = this.learningData.lessons.findIndex(isDuplicate)
+    if (learningIndex >= 0) {
+      const existing = this.learningData.lessons[learningIndex]
+      this.learningData.lessons[learningIndex] = {
         ...existing,
         ...lesson,
         successCount: (existing.successCount || 0) + (lesson.successCount || 0),
@@ -272,19 +363,57 @@ export class LessonStore {
 
   /**
    * Enregistre un succès pour une liste de leçons.
+   * V4 : Darwinisme d'Impact - Suit l'amélioration du score.
    */
-  async recordSuccess(lessonIds: string[]): Promise<void> {
+  async recordSuccess(lessonIds: string[], scoreDelta = 0): Promise<void> {
     if (!lessonIds || lessonIds.length === 0) return
     let changed = false
 
-    const all = [...this.data.lessons, ...this.learningData.lessons]
-    all.forEach((l) => {
-      if (lessonIds.includes(l.id)) {
-        l.successCount = (l.successCount || 0) + 1
-        l.lastUpdated = Date.now()
-        changed = true
+    // V47: Separate buffer processing to avoid phantom mutations
+    const processBuffer = (buffer: Lesson[], isCurrentlyLearning: boolean) => {
+      const alpha = 0.3
+      const snapshotsToMove: number[] = []
+
+      for (const [i, l] of buffer.entries()) {
+        if (lessonIds.includes(l.id)) {
+          l.successCount = (l.successCount || 0) + 1
+          l.deltaScore = (l.deltaScore || 0) + scoreDelta
+
+          // EMA (Exponential Moving Average)
+          const currentImpact = scoreDelta
+          l.impactRatio =
+            l.impactRatio === undefined ? currentImpact : (1 - alpha) * l.impactRatio + alpha * currentImpact
+
+          l.lastUpdated = Date.now()
+          changed = true
+
+          // STABILISATION AUTONOME : Promotion vers le Cortex
+          // On marque pour déplacement différé si proofs made (5 succès, impact, no fail)
+          if (isCurrentlyLearning && l.successCount >= 5 && (l.impactRatio || 0) > 20 && (l.failCount || 0) === 0) {
+            snapshotsToMove.push(i)
+          }
+        }
       }
-    })
+      return snapshotsToMove
+    }
+
+    // 1. Process Cortex (Safe update)
+    processBuffer(this.data.lessons, false)
+
+    // 2. Process Hippocampus (With potential promotion)
+    const toMoveIndices = processBuffer(this.learningData.lessons, true)
+
+    if (toMoveIndices.length > 0) {
+      // Move in reverse to keep indices valid during splice
+      for (const idx of toMoveIndices.reverse()) {
+        const [lesson] = this.learningData.lessons.splice(idx, 1)
+        lesson.verified = true
+        console.log(
+          `[LessonStore] 💎 Stabilisation Autonome : Leçon ${lesson.id} promue (Impact: ${lesson.impactRatio?.toFixed(1)})`
+        )
+        this.data.lessons.push(lesson)
+      }
+    }
 
     if (changed) await this.save()
   }
@@ -296,14 +425,18 @@ export class LessonStore {
     if (!lessonIds || lessonIds.length === 0) return
     let changed = false
 
-    const all = [...this.data.lessons, ...this.learningData.lessons]
-    all.forEach((l) => {
-      if (lessonIds.includes(l.id)) {
-        l.failCount = (l.failCount || 0) + 1
-        l.lastUpdated = Date.now()
-        changed = true
-      }
-    })
+    const updateBuffer = (buffer: Lesson[]) => {
+      buffer.forEach((l) => {
+        if (lessonIds.includes(l.id)) {
+          l.failCount = (l.failCount || 0) + 1
+          l.lastUpdated = Date.now()
+          changed = true
+        }
+      })
+    }
+
+    updateBuffer(this.data.lessons)
+    updateBuffer(this.learningData.lessons)
 
     if (changed) await this.save()
   }
@@ -369,14 +502,76 @@ export class LessonStore {
   /**
    * Formate les leçons en directives pour un prompt système.
    */
-  formatDirectives(agentName: string, tags: string[] = [], mode: 'stable' | 'all' = 'all'): string {
-    const lessons = this.getLessonsFor(agentName, tags, mode)
+  formatDirectives(
+    agentName: string,
+    tags: string[] = [],
+    mode: 'stable' | 'all' = 'all',
+    seriesId?: string,
+    context?: any
+  ): string {
+    const lessons = this.getLessonsFor(agentName, tags, mode, seriesId, context)
     if (lessons.length === 0) return ''
 
-    return `
-[LEÇONS APPRISES & RÈGLES DE RIGUEUR]
-Les exécutions précédentes ont révélé des points d'amélioration. Respecte ABSOLUMENT ces nouvelles directives :
-${lessons.map((l) => `- [${(l.category || 'general').toUpperCase()}] ${l.directive}`).join('\n')}
-`.trim()
+    // On sépare les leçons de style (vocabulaire/clichés) des directives logiques
+    const logicLessons = lessons.filter((l) => !l.tags?.some((t) => t.startsWith('style:')))
+    const styleLessons = lessons.filter((l) => l.tags?.some((t) => t.startsWith('style:')))
+
+    let output = `\n[DIRECTIVES DE RIGUEUR - PROGRESSIVE CORRECTIVE]\n`
+    output += logicLessons
+      .map((l) => {
+        const impact = l.impactRatio || 0
+        let prefix = '[CONSIGNE]'
+        if (impact > 30) prefix = '[RÈGLE DE FER]'
+        else if (impact > 15) prefix = '[DIRECTIVE]'
+        else prefix = '[SUGGESTION]'
+
+        return `- ${prefix} ${l.directive}`
+      })
+      .join('\n')
+
+    if (styleLessons.length > 0) {
+      output += `\n\n[ADN STYLISTIQUE & VOCABULAIRE]\n`
+      output += styleLessons.map((l) => `- ${l.directive}`).join('\n')
+    }
+
+    return output.trim()
+  }
+
+  /**
+   * Récupère spécifiquement les éléments d'ADN stylistique pour un agent.
+   */
+  getStylisticDNA(
+    agentName: string,
+    mode: 'stable' | 'all' = 'all',
+    context?: any
+  ): { vocabulary: string[]; forbidden: string[] } {
+    const lessons = this.getLessonsFor(agentName, [], mode, undefined, context)
+    const vocabulary: string[] = []
+    const forbidden: string[] = []
+
+    lessons.forEach((l) => {
+      if (l.tags?.includes('style:vocabulary')) {
+        // On essaie d'extraire les mots si le format est respecté
+        const match = l.directive.match(/vocabulaire sensoriel : (.*)/)
+        if (match?.[1]) {
+          vocabulary.push(...match[1].split(',').map((s) => s.trim()))
+        } else {
+          vocabulary.push(l.directive)
+        }
+      }
+      if (l.tags?.includes('style:forbidden')) {
+        const match = l.directive.match(/clichés ou mots génériques : (.*)/)
+        if (match?.[1]) {
+          forbidden.push(...match[1].split(',').map((s) => s.trim()))
+        } else {
+          forbidden.push(l.directive)
+        }
+      }
+    })
+
+    return {
+      vocabulary: [...new Set(vocabulary)],
+      forbidden: [...new Set(forbidden)]
+    }
   }
 }

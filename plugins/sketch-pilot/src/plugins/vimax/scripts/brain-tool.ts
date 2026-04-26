@@ -33,7 +33,60 @@ async function main() {
     llm = new VimaxLLMAdapter(globalLLM)
     console.log("✅ LLM Connecté pour le cycle d'apprentissage.")
   } else {
-    console.warn('⚠️ OPENAI_API_KEY manquante, utilisation du stub (apprentissage limité).')
+    console.warn('⚠️ OPENAI_API_KEY manquante, utilisation du Smart Stub Vimax (v7.0 Ready).')
+    llm = {
+      generate: async (prompt: string, system: string) => {
+        // Détection intelligente pour renvoyer du JSON valide v7.0
+        if (system.includes('MISSION : ARCHITECTE NARRATIF')) {
+          return JSON.stringify({
+            title: "CHRONOVILLE : L'ARCHITECTE DE L'OUBLI",
+            planned_script: 'Une ville où le temps est une monnaie physique...',
+            blueprint: {
+              sagaArc: { theme: 'Identité vs Temps', peak: 85 },
+              beatSheet: [
+                {
+                  beatId: 'B1',
+                  dramaticFunction: 'opening',
+                  act: 1,
+                  percentage: 0,
+                  description: '@Elian se réveille sans ombre.'
+                },
+                {
+                  beatId: 'B2',
+                  dramaticFunction: 'midpoint',
+                  act: 2,
+                  percentage: 50,
+                  description: 'La rencontre avec @Lia.'
+                }
+              ]
+            },
+            episodes: [{ episodeNumber: 1, title: "L'Ombre Perdue", summary: 'Elian cherche son identité.' }],
+            finalCliffhanger: 'Lia disparaît.',
+            unresolved_threads: []
+          })
+        }
+        if (system.includes('VimaxEventExtractor')) {
+          return JSON.stringify({
+            events: [
+              {
+                description: '@Elian se réveille dans un café noir et blanc. Son ombre a disparu.',
+                dramaticFunction: 'opening',
+                actPosition: { act: 1, percentageInAct: 0 },
+                tensionTarget: 2,
+                characterImpacts: [
+                  { identifier: '@Elian', arcBefore: 'Normal', arcAfter: 'Perdu', emotionalShift: 'Confusion' }
+                ]
+              }
+            ]
+          })
+        }
+        return JSON.stringify({ narration: "Le temps s'étire comme une pâte à modeler usée." })
+      },
+      generateStructured: async (prompt: string, system: string) => {
+        const raw = await llm.generate(prompt, system)
+        return { data: JSON.parse(raw) }
+      }
+    }
   }
 
   const brain = new VimaxBrain(llm)
@@ -42,7 +95,31 @@ async function main() {
 
   const { VimaxAgent } = await import('../pipeline/vimax.agent')
   const agent = new VimaxAgent(llm)
-  const repo = new SeriesRepository()
+
+  // Patch Repository to avoid DB errors if DATABASE_URL is missing
+  let repo: any
+  try {
+    if (process.env.DATABASE_URL) {
+      repo = new SeriesRepository()
+    } else {
+      console.warn('⚠️ DATABASE_URL manquante. Mode persistance FICHIER activé.')
+      repo = {
+        getSeriesContext: async (id: string) => {
+          const sagaDir = path.join(process.cwd(), 'vimax-logs', 'sagas', id)
+          try {
+            const plan = JSON.parse(await fs.readFile(path.join(sagaDir, 'plan.json'), 'utf8'))
+            return plan.seriesContext || { title: plan.basicIdea, id }
+          } catch {
+            return null
+          }
+        },
+        saveSeriesContext: async () => {}
+      }
+    }
+  } catch {
+    console.warn("⚠️ Échec de l'instanciation du Repository. Mode dégradé.")
+    repo = { getSeriesContext: async () => null, saveSeriesContext: async () => {} }
+  }
 
   switch (command) {
     case 'stats': {

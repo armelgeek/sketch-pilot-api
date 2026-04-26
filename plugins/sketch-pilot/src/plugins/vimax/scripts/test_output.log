@@ -1,0 +1,53 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎬 TEST NARRATIVE DNA : Voix Interne & Staccato
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🕵️ Planning de la saga...
+[REFERENCE IMAGE] { targetDuration: 30, maxScenes: 2 }
+(node:30098) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[VimaxSagaPlanner] 🚦 Routage de l'intention pour: "Dans une ville où l'ombre règne, @DetectiveSmith, ..."
+[VimaxSagaPlanner] 🎯 Intention identifiée (v5.0): cynical
+[VimaxSagaPlanner] ✍️ Expansion du script global...
+[VimaxSagaPlanner] 🔍 Orchestration des extractions...
+[VimaxSagaPlanner] 🎭 Extraction des personnages...
+[VimaxSagaPlanner] 📍 Extraction des lieux...
+[VimaxSagaPlanner] 📦 Extraction des assets...
+[VimaxSagaPlanner] 🌫️ Extraction de l'atmosphère...
+[VimaxSagaPlanner] 📖 Extraction de la narration...
+[VimaxSagaPlanner] ✅ Planification de saga terminée.
+📍 Narrative Intent détecté :
+{
+  "voice": {
+    "type": "limited",
+    "focalCharacter": "@DetectiveSmith",
+    "tone": "Rauque et chargé d'épuisement",
+    "distance": "close"
+  },
+  "rhythm": {
+    "style": "cinematic",
+    "sentenceVariety": true,
+    "useNominalPhrases": true,
+    "elevenLabsTags": true
+  },
+  "grammar": {
+    "dominantTense": "present",
+    "tenseSwitching": true
+  },
+  "density": "balanced"
+}
+
+🚀 Génération de l'épisode...
+
+🔍 ANALYSE DE LA NARRATION :
+--- Scène 1 ---
+POV: @Detectivesmith
+Narration: Un craquement sec sous son pied éclate comme un secret révélé. Les papiers, eux, chuchotent entre eux, conjurant des souvenirs oubliés alors que des volutes de poussière dansent paresseusement dans le faisceau de lumière filtrée par l'ancienne fenêtre. L'air est lourd de l'odeur âcre de vieilles histoires, comme si le passé refusait de s'éteindre. Smith, les épaules raides comme de la tôle, tend une main hésitante vers une lettre maculée de taches. Une alarme silencieuse teintée de rouge, vibrant d'une menace sourde. Son souffle suspendu, chaque battement de cœur résonne comme un glas.
+Presence de tags ElevenLabs: ❌ NON
+Nombre de phrases: 6 | Moyenne mots/phrase: 15.5
+--- Scène 2 ---
+POV: @Detectivesmith
+Narration: Smith serre la lettre, ses phalanges blanchissant, une carte muette qui crie l'indicible. <break time="0.3s" /> Son souffle en pointillé, un métronome brisé. <break time="0.3s" /> Une ombre, celle du passé, s'allonge pour happer son regard comme un spectre inassouvi. Il pousse la porte, hésitation palpable. <break time="1.2s" /> L'air a une froideur métallique, une réminiscence de quelque chose d'inachevé, qui s'accroche à ses sens, comme une toile d'araignée humide, prête à révéler un secret oublié.
+Presence de tags ElevenLabs: ✅ OUI
+Nombre de phrases: 8 | Moyenne mots/phrase: 9.9
+
+✨ Terminé !

@@ -223,7 +223,8 @@ async function handleSceneGenerated(
   script: any,
   index: number,
   progress: number,
-  effectiveProjectId: string
+  effectiveProjectId: string,
+  stepName: string = 'composing_scene'
 ) {
   console.info(`[VideoWorker] Scene ${index} generated. Processing assets for video ${videoId}...`)
   const absoluteOutputPath = path.join(OUTPUT_DIR, effectiveProjectId)
@@ -404,7 +405,8 @@ async function handleSceneGenerated(
 
     // 5. Report progress second (triggers SSE so UI fetches the now-updated DB)
     const globalProgress = Math.max(0, Math.min(100, progress))
-    await reportProgress(job, videoId, 'composing_scene', globalProgress, `step.composing_scene:${index}`, {
+    const progressLabel = stepName === 'assembling' ? `step.assembling:${index}` : `step.composing_scene:${index}`
+    await reportProgress(job, videoId, stepName, globalProgress, progressLabel, {
       currentSceneIndex: index - 1,
       scene: updatedScene
     })
@@ -978,7 +980,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
       }
       const skipScript = checkpointService.canSkipPhase(checkpoint, CHECKPOINT_PHASES.SCRIPT_GENERATION)
       if (!skipScript) {
-        await reportProgress(job, videoId, 'rendering', 70, 'step.assembly_init')
+        // Single unified step 'assembling': progress goes 0→100% regardless of internal sub-actions
+        await reportProgress(job, videoId, 'assembling', 0, 'step.assembly_init')
         pkg = await videoGenerationService.renderVideoFromScript({
           videoId,
           topic,
@@ -986,7 +989,7 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
           script: { ...((videoRecord.script as any) || {}), narrationUrl: videoRecord.narrationUrl },
           options: genOptions,
           projectId: effectiveProjectId,
-          onProgress: async (p, m, meta) => await reportProgress(job, videoId, 'rendering', Math.round(p), m, meta),
+          onProgress: async (p, m, meta) => await reportProgress(job, videoId, 'assembling', Math.round(p), m, meta),
           onTimingSync: async (syncedScript) => {
             console.info(`[VideoWorker] Transcription sync complete. Updating DB with accurate timings.`)
             const scriptToSave = JSON.parse(JSON.stringify(syncedScript))
@@ -996,6 +999,8 @@ async function processVideoJob(job: Job<VideoJobData>): Promise<void> {
             })
           },
           onSceneGenerated: async (scene, script, index, progress) => {
+            // Scene generation is its own autonomous step — keep 'composing_scene' (default)
+            // Only VideoAssembler work (via onProgress above) reports under 'assembling'
             await handleSceneGenerated(job, videoId, scene, script, index, progress, effectiveProjectId)
           }
         })

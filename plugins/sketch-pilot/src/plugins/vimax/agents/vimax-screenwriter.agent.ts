@@ -27,12 +27,71 @@ interface RawScreenplayMeta {
 
 export class VimaxScreenwriter extends VimaxBaseAgent {
   public id = 'screenwriter'
-  private getSceneSystem(): string {
+  private getAudienceBlock(context: SeriesContext): string {
+    const intent = context.intent
+    if (!intent || typeof intent === 'string' || !intent.audience) return ''
+    const aud = intent.audience
+    return `
+[AUDIENCE CIBLE]
+- Public : ${aud.ageRange}
+- Plateforme : ${aud.platform}
+- Attention : ${aud.attentionSpan}s
+- Rythme attendu : ${aud.expectedPace}
+`.trim()
+  }
+
+  private getSceneSystem(context: SeriesContext): string {
+    const audienceBlock = this.getAudienceBlock(context)
+    const intent = context.intent
+    const platform = intent && typeof intent !== 'string' ? intent.audience?.platform : 'unknown'
+
     return `
 [RÔLE : Expert Cinématographique]
 Génère les métadonnées cinématiques (camera, tension, stroboscopie, patch) pour cette scène.
 
+${audienceBlock}
+
+[DIRECTIONS DE RYTHME]
+${platform === 'tiktok' ? '- TIKTOK MODE : Cuts rapides, gros plans fréquents, énergie maximum dès la seconde 0.' : ''}
+${platform === 'cinema' ? '- CINEMA MODE : Compositions soignées, plans larges, dilatation temporelle autorisée.' : ''}
+
+${this.getGlobalScriptBlock(context)}
+
+${this.getBlueprintBlock(context)}
+
+${this.getEpisodePlanBlock(context)}
+
 Renvoie UNIQUEMENT du JSON valide correspondant au schéma.
+`.trim()
+  }
+
+  private getGlobalScriptBlock(context: SeriesContext): string {
+    if (!context.globalScript) return ''
+    const truncated = context.globalScript.slice(0, 2000)
+    return `
+[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE]
+${truncated}${context.globalScript.length > 2000 ? '\n[...]' : ''}
+`.trim()
+  }
+
+  private getBlueprintBlock(context: SeriesContext): string {
+    const b = context.blueprint
+    if (!b || !b.premise) return ''
+    return `
+[BLUEPRINT NARRATIF]
+- THÈME : ${b.theme}
+- PRÉMISSE : ${b.premise}
+`.trim()
+  }
+
+  private getEpisodePlanBlock(context: SeriesContext): string {
+    const plan = context.plannedEpisodeContext
+    if (!plan) return ''
+    return `
+[PLAN DE L'ÉPISODE PRÉVU]
+- TITRE : ${plan.title || 'Inconnu'}
+- HOOK : ${plan.hook || 'Inconnu'}
+- FONCTION : ${plan.dramaticFunction || 'Inconnue'}
 `.trim()
   }
 
@@ -100,10 +159,6 @@ ${eventDescription}
 
 <NUMÉRO_SCÈNE>${sceneNumber}</NUMÉRO_SCÈNE>
 
-<CONTEXTE_SÉRIE>
-${JSON.stringify(context, null, 2)}
-</CONTEXTE_SÉRIE>
-
 Génère les métadonnées cinématiques. 
 VARIÉTÉ DE PLANS : Alterne CLOSEUP (visage/émotion), OVERSHOULDER (dialogue) et WIDE (chaos).
 
@@ -134,24 +189,54 @@ Renvoie du JSON :
 }
 `.trim()
 
-    const result = await this.generateStructured<RawSceneMeta>(prompt, this.getSceneSystem(), {
-      scenePurpose: 'reveal',
-      sceneDelta: '',
-      charactersInScene: [],
-      locationId: 'unknown',
-      pacing: 5,
-      cameraAction: [{ type: 'none', intensity: 'low' }],
-      composition: {
-        shotType: 'MEDIUM',
-        lightingMood: 'neutral',
-        layout: 'SINGLE',
-        foreground: '',
-        midground: '',
-        background: ''
+    // [V48] Calcul du contexte narratif chirurgical
+    const isOpening = sceneNumber === 1
+    const isResolution = sceneNumber === totalScenes
+    const isMidpoint = Math.abs(sceneNumber - totalScenes / 2) < 1
+    const isClimax = forceClimax || sceneNumber / totalScenes > 0.8
+    const genre = context.intent && typeof context.intent !== 'string' ? context.intent.genre || 'any' : 'any'
+
+    const narrativeContext = {
+      moment: isOpening
+        ? 'opening'
+        : isResolution
+          ? 'resolution'
+          : isClimax
+            ? 'climax'
+            : isMidpoint
+              ? 'midpoint'
+              : 'any',
+      genres: [genre],
+      tension: isClimax ? 80 : 40,
+      isAction: cameraRule.includes('shake') || cameraRule.includes('impact'),
+      isDialogue: imagePrompt.toLowerCase().includes('dialogue') || imagePrompt.toLowerCase().includes('parle')
+    }
+
+    const result = await this.generateStructured<RawSceneMeta>(
+      prompt,
+      this.getSceneSystem(context),
+      {
+        scenePurpose: 'reveal',
+        sceneDelta: '',
+        charactersInScene: [],
+        locationId: 'unknown',
+        pacing: 5,
+        cameraAction: [{ type: 'none', intensity: 'low' }],
+        composition: {
+          shotType: 'MEDIUM',
+          lightingMood: 'neutral',
+          layout: 'SINGLE',
+          foreground: '',
+          midground: '',
+          background: ''
+        },
+        tensionState: { level: 5, type: 'sustain', label: 'sustain' },
+        simulationPatch: { worldPatch: {}, charactersPatch: {} }
       },
-      tensionState: { level: 5, type: 'sustain', label: 'sustain' },
-      simulationPatch: { worldPatch: {}, charactersPatch: {} }
-    })
+      undefined,
+      2,
+      narrativeContext
+    )
 
     const parsed = result.data
 
@@ -185,9 +270,9 @@ Renvoie du JSON :
 ${scenesSummary}
 </SCÈNES>
 
-<CONTEXTE_SÉRIE>
-${JSON.stringify(context, null, 2)}
-</CONTEXTE_SÉRIE>
+${this.getGlobalScriptBlock(context)}
+
+${this.getEpisodePlanBlock(context)}
 
 Génère les métadonnées de l'épisode.
 `.trim()

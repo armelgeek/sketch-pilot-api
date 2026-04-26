@@ -9,6 +9,7 @@ import { VimaxDialogueAgent } from '../agents/vimax-dialogue.agent'
 import { VimaxEventExtractor } from '../agents/vimax-event-extractor.agent'
 import { VimaxInputSanitizerAgent } from '../agents/vimax-input-sanitizer.agent'
 import { VimaxLocationExtractor } from '../agents/vimax-location-extractor.agent'
+import { VimaxMaturationAgent } from '../agents/vimax-maturation.agent'
 import { VimaxNarrationAgent } from '../agents/vimax-narration.agent'
 import { VimaxNarrativeExtractor } from '../agents/vimax-narrative-extractor.agent'
 import { VimaxOutputFormatterAgent } from '../agents/vimax-output-formatter.agent'
@@ -17,6 +18,7 @@ import { VimaxSagaPlanner } from '../agents/vimax-saga-planner.agent'
 import { VimaxSagaSentinel } from '../agents/vimax-saga-sentinel.agent'
 import { VimaxScreenwriter } from '../agents/vimax-screenwriter.agent'
 import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
+import { VimaxSpectatorAgent } from '../agents/vimax-spectator.agent'
 import { VimaxStyleExtractor } from '../agents/vimax-style-extractor.agent'
 import { VimaxUniversalCriticAgent } from '../agents/vimax-universal-critic.agent'
 import { VimaxBrain } from '../core/vimax-brain'
@@ -26,6 +28,7 @@ import type { LLMService } from '../core/llm.interface'
 import type { VimaxPlugin } from '../core/vimax-plugin.interface'
 import type {
   CharacterProfile,
+  DramaticFunction,
   ReviewGate,
   SceneMemory,
   SeriesContext,
@@ -62,6 +65,8 @@ export class VimaxAgent {
   public inputSanitizer: VimaxInputSanitizerAgent
   public outputFormatter: VimaxOutputFormatterAgent
   public critic: VimaxUniversalCriticAgent
+  public spectator: VimaxSpectatorAgent
+  public maturation: VimaxMaturationAgent
   public brain: VimaxBrain
   public styleExtractor: VimaxStyleExtractor
   public registry: VimaxPluginRegistry
@@ -103,6 +108,8 @@ export class VimaxAgent {
     this.inputSanitizer = this.registry.getPlugin<VimaxInputSanitizerAgent>('input-sanitizer')!
     this.outputFormatter = this.registry.getPlugin<VimaxOutputFormatterAgent>('output-formatter')!
     this.critic = this.registry.getPlugin<VimaxUniversalCriticAgent>('universal-critic')!
+    this.maturation = this.registry.getPlugin<VimaxMaturationAgent>('maturation')!
+    this.spectator = this.registry.getPlugin<VimaxSpectatorAgent>('spectator')!
 
     // Lifecycle initialization
     this.registry.getPlugins().forEach((p) => {
@@ -129,6 +136,8 @@ export class VimaxAgent {
     this.registry.register(new VimaxInputSanitizerAgent(llm))
     this.registry.register(new VimaxOutputFormatterAgent(llm))
     this.registry.register(new VimaxUniversalCriticAgent(llm))
+    this.registry.register(new VimaxMaturationAgent(llm))
+    this.registry.register(new VimaxSpectatorAgent(llm))
   }
 
   public registerPlugin(plugin: VimaxPlugin) {
@@ -191,24 +200,28 @@ export class VimaxAgent {
     }
 
     const plan = await this.planner.planSaga(analysis.enrichedIdea, options)
+
+    // [V7.0] Éviter la ré-interprétation LLM en injectant le blueprint dans l'extraction
     let episodeEvents = await this.eventExtractor.extractEvents(
       plan.script,
       'series',
       options.targetDuration,
       options.maxScenes,
-      options.targetEpisodeCount
+      options.targetEpisodeCount,
+      `BASE TOI SUR LE BLUEPRINT SUIVANT :\n${JSON.stringify(plan.blueprint, null, 2)}`
     )
 
-    // Audit structurel 3.0
+    // Audit structurel 3.0 avec Blueprint V7.0
     const planAudit = await this.sagaSentinel.auditEventPlan(
       episodeEvents,
       typeof options.seriesContext?.seriesBible === 'string'
         ? options.seriesContext.seriesBible
-        : JSON.stringify(options.seriesContext?.seriesBible)
+        : JSON.stringify(options.seriesContext?.seriesBible),
+      plan.blueprint // Pass the blueprint for rich auditing
     )
 
     if (!planAudit.isConsistent) {
-      const correctionHint = `RESTRUCTURE LE PLAN DE SAGA EN RÉSOLVANT CES INCOHÉRENCES :\n${planAudit.violations.map((v) => `- ${v}`).join('\n')}`
+      const correctionHint = `RESTRUCTURE LE PLAN DE SAGA EN RÉSOLVANT CES INCOHÉRENCES PAR RAPPORT AU BLUEPRINT :\n${planAudit.violations.map((v) => `- ${v}`).join('\n')}`
       episodeEvents = await this.eventExtractor.extractEvents(
         plan.script,
         'series',
@@ -220,12 +233,10 @@ export class VimaxAgent {
     }
 
     const sagaPlan = {
+      ...plan, // V7.0: Contains blueprint, characterRegistry, etc.
       seriesId,
-      title: plan.title,
-      finalCliffhanger: plan.finalCliffhanger,
       basicIdea,
       options,
-      plan,
       episodeEvents
     }
 
@@ -352,9 +363,17 @@ export class VimaxAgent {
         return numA - numB
       })
 
+    const summaries: string[] = []
     for (const file of filteredFiles) {
       const epData = JSON.parse(await fs.readFile(path.join(sagaDir, file), 'utf8'))
-      seriesContext.previousEpisodes?.push({ narration: epData.narration, summary: epData.summary })
+      summaries.push(`[EP ${epData.episodeNumber}] ${epData.summary || epData.narration.slice(0, 300)}`)
+    }
+
+    // [V3] Context Compression Logic
+    if (summaries.length > 0) {
+      console.info(`[VimaxAgent] 🗜️ Analyse de la fenêtre de contexte (${summaries.length} épisodes)...`)
+      const compressedHistory = await this.compressor.compressSeriesHistory(summaries, 3)
+      seriesContext.previousEpisodes = [{ narration: compressedHistory, summary: compressedHistory }]
     }
 
     if (filteredFiles.length > 0) {
@@ -364,6 +383,9 @@ export class VimaxAgent {
       // [V48] Restore last technical metadata for Sequel Bridge (image + scene context)
       seriesContext.lastEpisodeFinalImage = lastEpData.scenes?.at(-1)?.imageUrl
       seriesContext.lastEpisodeFinalScene = lastEpData.scenes?.at(-1)
+
+      // On garde la narration complète du TOUT DERNIER épisode pour une continuité "fraîche"
+      seriesContext.previousEpisodes?.push({ narration: lastEpData.narration, summary: lastEpData.summary })
     }
 
     const episode = await this.runEpisode(event, episodeIndex - 1, seriesContext, sagaPlan.options, sagaPlan)
@@ -580,7 +602,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       const sagaAudit = await this.sagaSentinel.auditSagaContinuity(
         { narration: fullNarration, screenplay: {} },
         history,
-        typeof context.seriesBible === 'string' ? context.seriesBible : JSON.stringify(context.seriesBible)
+        context
       )
 
       if (!sagaAudit.isConsistent) {
@@ -598,12 +620,45 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
 
     const enhancedScript = await this.enhancer.enhance(fullNarration)
     const profiles = await this.characterExtractor.extractCharacters(enhancedScript)
-    const sceneEvents = await this.eventExtractor.extractEvents(
-      enhancedScript,
-      'episode',
-      options.targetDuration,
-      options.maxScenes
-    )
+
+    // [V8.0] Pre-planned Scenes Logic
+    // If the event already contains scenes (from roadmap), we use them directly
+    let sceneEvents: VimaxEvent[]
+    if (event.scenes && event.scenes.length > 0) {
+      console.info(`[VimaxAgent] 🛠️ Using ${event.scenes.length} pre-planned scenes for ${prefix}`)
+      sceneEvents = event.scenes.map((s) => ({
+        index: s.sceneNumber - 1,
+        description: s.objective, // objective serves as description for high-level event
+        duration: 5,
+        isClimax: false,
+        tensionTarget: s.tensionTarget,
+        locationId: s.locationId,
+        impactedCharacters: s.characters,
+        // [V8.0] Directives injection
+        dramaticFunction: s.function as DramaticFunction,
+        actPosition: event.actPosition,
+        // Store rich metadata as custom fields for the next pass
+        metadata: {
+          objective: s.objective,
+          characterState: s.characterState,
+          openPromises: s.openPromises,
+          resolvedPromises: s.resolvedPromises,
+          obligatory: s.obligatory,
+          prepares: s.prepares,
+          paceTarget: s.paceTarget,
+          cliffhanger: s.cliffhanger
+        }
+      }))
+      // Mark last scene as true
+      if (sceneEvents.length > 0) sceneEvents.at(-1).isLast = true
+    } else {
+      sceneEvents = await this.eventExtractor.extractEvents(
+        enhancedScript,
+        'episode',
+        options.targetDuration,
+        options.maxScenes
+      )
+    }
 
     const continuity = new VimaxContinuityEngine()
     if (context.lastEpisodeBridge) continuity.setBridge(context.lastEpisodeBridge)
@@ -714,16 +769,35 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
 
     for (let i = 0; i < sceneEvents.length; i++) {
       const event = sceneEvents[i]
-
       await this.registry.triggerHook('onBeforeScene', this, event, i + 1, options)
+
+      // [V48] Modélisation Spectateur (Breathing & Pacing)
+      let respirationDirective = ''
+      let paceWeight = 1
+      let isElliptical = false
+      let impact: any = null
+
+      if (i > 0) {
+        impact = await this.spectator.analyzeSpectatorImpact(
+          sceneMemories,
+          context.intent && typeof context.intent !== 'string' ? context.intent.audience : undefined,
+          context.intent // [V50] Pass the full intent for deep structural analysis
+        )
+        respirationDirective = `\n[DIRECTIVE RESPIRATION NARRATIVE]\n- État Saturation: ${impact.state.saturationLevel}%\n- Direction: ${impact.directive.tensionTarget}\n- Conseil: ${impact.directive.rationale}\n${impact.directive.ellipticalHint ? `- Ellipse: ${impact.directive.ellipticalHint}` : ''}`
+
+        if (impact.directive.paceAdjustment === 'decelerate') paceWeight = 1.4
+        if (impact.directive.paceAdjustment === 'accelerate') paceWeight = 0.7
+        if (impact.directive.ellipticalHint) isElliptical = true
+      }
 
       // 1. Narration de scène (Pass 1.5)
       const durationFactor = (options.targetDuration || 60) / sceneEvents.length
       const wordsPerSecond = 140 / 60 // Base 140 WPM
-      const maxWords = Math.floor(durationFactor * wordsPerSecond)
-      const targetWordCount = `${Math.max(5, maxWords - 5)}-${maxWords} mots`
+      const maxWords = Math.max(5, Math.floor(durationFactor * wordsPerSecond))
+      const minWords = Math.max(3, Math.floor(maxWords * 0.7))
+      const targetWordCount = `${minWords}-${maxWords} mots`
 
-      const sceneResult = await this.narration.generateSceneNarration(
+      const sceneResult = await this.narration.generatePolishedNarration(
         event,
         context,
         targetWordCount,
@@ -733,31 +807,100 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         i + 1,
         sceneEvents.length,
         continuity.formatFullContinuityBlock(),
-        continuity.tension.formatForPrompt(i + 1, sceneEvents.length, tensionCurve)
+        continuity.tension.formatForPrompt(i + 1, sceneEvents.length, tensionCurve) + respirationDirective
       )
-      sceneMemories.push(sceneResult.memory)
 
-      // 2. Visuels (Pass 2.0 - Motion)
-      const visual = await this.planner.generateImagePrompt(
-        sceneResult.narration,
-        characterContext,
-        lastVisualAnchor,
-        i === sceneEvents.length - 1
-      )
+      // [V5.5] Maturation Cycle (Production Mode)
+      if (options.brainMode === 'all' && this.maturation) {
+        console.info(`[VimaxAgent] 🕰️ Cycle de maturation pour la scène ${i + 1}...`)
+        const maturation = await this.maturation.reviewForMaturation(
+          sceneResult.narration,
+          `Event: ${event.description}`,
+          sceneResult.memory.maturationCycle
+        )
+
+        if (maturation.delta > 20) {
+          console.info(`[VimaxAgent] ✨ Ré-écriture de maturation (+${maturation.delta} delta)`)
+          const matured = await this.narration.generatePolishedNarration(
+            event,
+            context,
+            targetWordCount,
+            options.maxScenes,
+            i === sceneEvents.length - 1,
+            sceneMemories,
+            i + 1,
+            sceneEvents.length,
+            continuity.formatFullContinuityBlock(),
+            `FEEDBACK DE MATURATION : ${maturation.feedback}\nSUGGESTION : ${maturation.suggestion}`
+          )
+          sceneResult.narration = matured.narration
+          sceneResult.memory = {
+            ...matured.memory,
+            maturationCycle: {
+              passCount: (sceneResult.memory.maturationCycle?.passCount || 1) + 1,
+              revisions: [
+                ...(sceneResult.memory.maturationCycle?.revisions || []),
+                { timestamp: Date.now(), feedback: maturation.feedback, improvementDelta: maturation.delta }
+              ],
+              restingStatus: 'matured'
+            }
+          }
+        }
+      }
+      sceneMemories.push({
+        ...sceneResult.memory,
+        spectatorCognition: impact?.cognition // [V50] Persist cognitive context
+      })
+
+      // 2. Parallel Assets Generation (Pass 2.x) - [v6.0]
+      console.info(`[VimaxAgent] ⚡ Génération parallèle des assets pour la scène ${i + 1}...`)
+      const [visual, sceneMeta, animMeta] = await Promise.all([
+        // Pass 2.0 - Visuals & Audits
+        (async () => {
+          const v = await this.planner.generateImagePrompt(
+            sceneResult.narration,
+            characterContext,
+            lastVisualAnchor,
+            i === sceneEvents.length - 1,
+            undefined,
+            context
+          )
+
+          // [V3] Vision-Narrative Fidelity Audit
+          const visualAudit = await this.critic.auditVisual(
+            'image',
+            v.imagePrompt,
+            `Narration: ${sceneResult.narration}`
+          )
+          if (!visualAudit.globallyCoherent && visualAudit.score < 60) {
+            console.warn(`[VimaxAgent] ⚠️ Drift visuel détecté en scène ${i + 1} (Pass 2.0)`)
+            const correctionFeedback = visualAudit.feedbacks.map((f) => `${f.issue}: ${f.correction}`).join('\n')
+            const corrected = await this.planner.generateImagePrompt(
+              sceneResult.narration,
+              characterContext,
+              lastVisualAnchor,
+              i === sceneEvents.length - 1,
+              `CORRECTION VISUELLE REQUISE :\n${correctionFeedback}`,
+              context
+            )
+            return corrected
+          }
+          return v
+        })(),
+        // Pass 2.1 - Cinematographic Metadata
+        this.screenwriter.generateSceneMeta(
+          sceneResult.narration,
+          event.description,
+          '', // Image prompt will be synced later
+          i + 1,
+          sceneEvents.length,
+          context
+        ),
+        // Pass 2.2 - Animation Logic
+        this.animation.generateAnimation(sceneResult.narration, event.description, [], context)
+      ])
+
       lastVisualAnchor = visual.visualAnchor
-
-      // 3. Métadonnées Cinématiques (Pass 2.1)
-      const sceneMeta = await this.screenwriter.generateSceneMeta(
-        sceneResult.narration,
-        event.description,
-        visual.imagePrompt,
-        i + 1,
-        sceneEvents.length,
-        context
-      )
-
-      // 4. Animation (Pass 2.2)
-      const animMeta = await this.animation.generateAnimation(sceneResult.narration, event.description, [], context)
 
       intermediateScenes.push({
         ...sceneMeta,
@@ -765,20 +908,49 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         narration: sceneResult.narration,
         imagePrompt: visual.imagePrompt,
         animationPrompt: animMeta.animationPrompt,
-        acting: animMeta.acting
+        acting: animMeta.acting,
+        paceWeight, // [V48]
+        isElliptical // [V48]
       })
 
       const lastScene = intermediateScenes.at(-1)
+
+      // [V4] Multimodal Post-Generation Audit (Optional / High-Fidelity Mode)
+      if (options.brainMode === 'all' && lastScene.imageUrl) {
+        console.info(`[VimaxAgent] 👁️ Audit Visuel V4 (Multimodal) pour la scène ${i + 1}...`)
+        const report = await this.brain.visionAuditor.auditImage(
+          lastScene.imageUrl,
+          lastScene.narration,
+          profiles.map((p) => p.identifier),
+          this.planner.getStyleLock() || undefined
+        )
+        if (!report.isValid) {
+          console.warn(`[VimaxAgent] 🚨 Défaut Visuel Majeur détecté post-rendu : ${report.issues.join(', ')}`)
+          // En V4, on enregistre cet échec dans le cerveau multimodal pour apprentissage immédiat
+          await this.brain.autonomousLearning({ seriesId: this.planner.getSeriesId() })
+        }
+      }
+
       await this.registry.triggerHook('onAfterScene', this, lastScene)
     }
 
-    const durationFactor = (options.targetDuration || 60) / intermediateScenes.length
-    return intermediateScenes.map((s, idx) => ({
-      ...s,
-      id: `scene-${idx + 1}`,
-      duration: durationFactor,
-      startTime: idx * durationFactor
-    })) as VimaxScene[]
+    // [V48] Calcul des durées pondérées (Dynamic Pacing Model)
+    const totalWeight = intermediateScenes.reduce((acc, s) => acc + (s.paceWeight || 1), 0)
+    const targetTotal = options.targetDuration || 60
+    const timePerWeight = targetTotal / totalWeight
+
+    let currentStartTime = 0
+    return intermediateScenes.map((s, idx) => {
+      const duration = (s.paceWeight || 1) * timePerWeight
+      const scene = {
+        ...s,
+        id: `scene-${idx + 1}`,
+        duration,
+        startTime: currentStartTime
+      }
+      currentStartTime += duration
+      return scene
+    }) as VimaxScene[]
   }
 
   private async saveIntermediate(name: string, data: any): Promise<void> {

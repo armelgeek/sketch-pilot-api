@@ -1,5 +1,146 @@
 {
   "version": "1.0.0",
-  "lessons": [],
+  "lessons": [
+    {
+      "directive": "Justifie chaque personnage secondaire dans le décor par une action cruciale ou retire-les.",
+      "category": "continuity",
+      "agentName": "VimaxScreenwriter",
+      "explanation": "La présence de personnages non justifiés perturbe la scène et dilue l'attention. Tout personnage doit avoir une action significative qui sert la scène.",
+      "tags": ["personnage secondaire", "décor", "action", "scene-1", "ep-1"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777058845286,
+      "id": "lesson-scene-1777058845286"
+    },
+    {
+      "directive": "Incorpore chaque accessoire clé des personnages dans la scène visuelle. Si le personnage tient un objet essentiel, comme des lunettes de soleil, fais-en un point focal dans l'image.",
+      "category": "style",
+      "agentName": "VimaxScreenwriter",
+      "explanation": "Les accessoires jouent un rôle crucial dans la définition des personnages et ajoutent une profondeur visuelle. Ne pas les inclure peut réduire l'impact et la compréhension du spectateur.",
+      "tags": [
+        "accessoire",
+        "protagoniste",
+        "personnage secondaire",
+        "feu crépitant",
+        "lumière rouge",
+        "scene-3",
+        "ep-1"
+      ],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777058871702,
+      "id": "lesson-scene-1777058871702"
+    },
+    {
+      "directive": "Insère des détails visuels sur la position et les expressions des personnages secondaires pour augmenter la tension.",
+      "category": "continuity",
+      "agentName": "VimaxScreenwriter",
+      "explanation": "La scène manque de clarté sur la posture et l'expression des personnages secondaires, ce qui diminue l'impact visuel et émotionnel de la tension.",
+      "tags": ["protagoniste", "équipe", "campement", "tension", "scene-2", "ep-1"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777058878737,
+      "id": "lesson-scene-1777058878737"
+    },
+    {
+      "directive": "Intègre des personnages supplémentaires et des éléments dynamiques tels que des moteurs dans les visuels pour refléter la narration. Assure-toi que les actions décrites, comme le rugissement des moteurs, soient visibles et perceptibles dans l'image.",
+      "category": "continuity",
+      "agentName": "VimaxScreenwriter",
+      "explanation": "La scène visuelle manque de fidélité à la narration décrite, qui inclut des moteurs rugissants et potentiellement d'autres personnages. Cela crée une déconnexion entre ce qui est décrit et ce qui est montré, affaiblissant l'impact visuel.",
+      "tags": ["protagoniste", "antagoniste", "lieu extérieur", "action", "moteurs", "scene-4", "ep-1"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777058901991,
+      "id": "lesson-scene-1777058901991"
+    },
+    {
+      "directive": "Fais parler les personnages avec leurs mains, pas leur bouche. Laisse l'histoire se dévoiler dans leurs actions.",
+      "category": "style",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Les expositions directes tuent le rythme et l'émotion. Les actions révèlent le passé sans que ça paraisse forcé.",
+      "tags": ["interaction", "action", "histoire personnelle", "rythme", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059448565,
+      "id": "lesson-narrative-1777059448565"
+    },
+    {
+      "directive": "Fais monter la pression en plantant des graines de conflit entre les personnages. Ajoute des obstacles comme un casse-tête implacable.",
+      "category": "continuity",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Sans tension, l'histoire perd son mordant. Injecte du drame pour garder le lecteur agrippé.",
+      "tags": ["conflict", "drama", "tension", "narrative", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059458906,
+      "id": "lesson-narrative-1777059458906"
+    },
+    {
+      "directive": "Chaque personnage doit traverser au moins une crise morale ou un dilemme qui fait éclater son évolution. Ne permets aucun personnage de rester figé.",
+      "category": "logic",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Un arc émotionnel sans transformation est comme un film sans climax. Les personnages doivent vibrer, évoluer, se briser pour captiver.",
+      "tags": ["émotion", "évolution", "personnage", "drame", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059466172,
+      "id": "lesson-narrative-1777059466172"
+    },
+    {
+      "directive": "Coupe sans pitié les longueurs. Focalise sur l'action et l'urgence.",
+      "category": "style",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Les longueurs tuent le rythme et étouffent la tension. Chaque mot doit servir l'action.",
+      "tags": ["rythme", "action", "urgence", "efficacité", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059509698,
+      "id": "lesson-narrative-1777059509698"
+    },
+    {
+      "directive": "Fais toujours que le protagoniste possède un trait ou une faiblesse qui dynamite le cliché.",
+      "category": "style",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Évite le déjà-vu en ajoutant des caractéristiques inattendues au protagoniste, rendant l'histoire plus engageante.",
+      "tags": ["cliché", "archéologue", "protagoniste", "innovation", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059574155,
+      "id": "lesson-narrative-1777059574155"
+    },
+    {
+      "directive": "Élimine les clichés. Donne à chaque membre de l'équipe un secret ou une facette inattendue qui les rend uniques.",
+      "category": "style",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Les personnages stéréotypés tuent l'intérêt. Injecte du mystère ou de la surprise pour garder le lecteur accroché.",
+      "tags": ["équipe", "caractères", "profondeur", "originalité", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059646810,
+      "id": "lesson-narrative-1777059646810"
+    },
+    {
+      "directive": "Crée des arcs de tension qui montent en crescendo. Laisse le protagoniste vaciller entre loyauté et trahison. Chaque résolution doit être une bataille, pas un coup de chance.",
+      "category": "continuity",
+      "agentName": "VimaxSagaPlanner",
+      "explanation": "Pour éviter une tension dramatique inégale, il est crucial de maintenir une montée en puissance progressive et de ne pas précipiter les résolutions.",
+      "tags": ["tension", "drame", "équipe", "antagoniste", "progression", "narrative"],
+      "confidence": 1,
+      "successCount": 1,
+      "failCount": 0,
+      "lastUpdated": 1777059652944,
+      "id": "lesson-narrative-1777059652944"
+    }
+  ],
   "globalDirectives": []
 }

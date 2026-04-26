@@ -56,7 +56,16 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
         plannedEpisodes: draft.episodes.map((ep: any, index: number) => ({
           number: index + 1,
           title: ep.title,
-          hook: ep.summary
+          hook: ep.summary,
+          dramaticFunction: ep.dramaticFunction,
+          actPosition: ep.actPosition,
+          keyRevelation: ep.keyRevelation,
+          tensionTarget: ep.tensionTarget,
+          paceTarget: ep.paceTarget,
+          impactedCharacters: ep.impactedCharacters,
+          isDailyLife: ep.isDailyLife,
+          isChoral: ep.isChoral,
+          scenes: ep.scenes
         })),
         language: params.language || 'fr',
         totalEpisodes: String(draft.episodes.length),
@@ -85,7 +94,16 @@ export class PrepareSagaDraftUseCase extends IUseCase<PrepareSagaDraftParams, an
         episodes: draft.episodes.map((ep: any, index: number) => ({
           number: index + 1,
           title: ep.title,
-          hook: ep.summary
+          hook: ep.summary,
+          dramaticFunction: ep.dramaticFunction,
+          actPosition: ep.actPosition,
+          keyRevelation: ep.keyRevelation,
+          tensionTarget: ep.tensionTarget,
+          paceTarget: ep.paceTarget,
+          impactedCharacters: ep.impactedCharacters,
+          isDailyLife: ep.isDailyLife,
+          isChoral: ep.isChoral,
+          scenes: ep.scenes
         }))
       }
     } catch (error) {

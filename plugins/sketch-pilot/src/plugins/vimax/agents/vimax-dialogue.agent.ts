@@ -1,5 +1,5 @@
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
-import type { CharacterVoiceHistory, DialogueLine, SeriesContext } from '../types'
+import type { CharacterVoiceHistory, SeriesContext } from '../types'
 
 /**
  * VimaxDialogueAgent (Pass 2.5)
@@ -7,6 +7,16 @@ import type { CharacterVoiceHistory, DialogueLine, SeriesContext } from '../type
  */
 export class VimaxDialogueAgent extends VimaxBaseAgent {
   public id = 'dialogue'
+
+  constructor(llm: any) {
+    super(llm)
+    this.setPersonality({
+      temperature: 0.9,
+      rolePersona:
+        "Tu es un expert en dialogues vivants, spontanés et imprévisibles. Évite les clichés et les phrases trop formelles. Cherche le sous-texte et l'émotion brute."
+    })
+  }
+
   private getSystem(context: SeriesContext, voiceHistories: CharacterVoiceHistory[] = []): string {
     const voiceBlock =
       voiceHistories.length > 0
@@ -24,8 +34,9 @@ Chaque personnage DOIT conserver sa voix unique et son état émotionnel. Les no
 Tu es un expert en dialogues cinématographiques percutants.
 Ta mission est d'extraire ou de générer des lignes de dialogue pour une scène.
 
-[CONTEXTE]
-${JSON.stringify(context, null, 2)}
+${this.getGlobalScriptBlock(context)}
+
+${this.getEpisodePlanBlock(context)}
 
 ${voiceBlock}
 
@@ -45,6 +56,25 @@ Renvoie UNIQUEMENT un objet JSON valide :
 `.trim()
   }
 
+  private getGlobalScriptBlock(context: SeriesContext): string {
+    if (!context.globalScript) return ''
+    const truncated = context.globalScript.slice(0, 1500)
+    return `
+[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE DIALOGUES]
+${truncated}${context.globalScript.length > 1500 ? '\n[...]' : ''}
+`.trim()
+  }
+
+  private getEpisodePlanBlock(context: SeriesContext): string {
+    const plan = context.plannedEpisodeContext
+    if (!plan) return ''
+    return `
+[PLAN DE L'ÉPISODE PRÉVU]
+- TITRE : ${plan.title || 'Inconnu'}
+- HOOK : ${plan.hook || 'Inconnu'}
+`.trim()
+  }
+
   /**
    * Génère le dialogue pour une scène.
    */
@@ -53,7 +83,7 @@ Renvoie UNIQUEMENT un objet JSON valide :
     eventDescription: string,
     context: SeriesContext = {},
     voiceHistories: CharacterVoiceHistory[] = [] // Hardening 2.0
-  ): Promise<DialogueLine[]> {
+  ): Promise<any[]> {
     const prompt = `
 <NARRATION_DE_LA_SCÈNE>
 ${sceneNarration}
@@ -68,7 +98,7 @@ CONTRÔLE TIMING : Assure-toi que relativeStart + duration <= 1.0.
 `.trim()
 
     const raw = await this.generate(prompt, this.getSystem(context, voiceHistories), 'application/json')
-    const parsed = this.parseJSONSafe<{ dialogue: DialogueLine[] }>(raw, { dialogue: [] })
+    const parsed = this.parseJSONSafe<{ dialogue: any[] }>(raw, { dialogue: [] })
 
     // Normalisation post-génération pour la cohérence et la sécurité
     return parsed.dialogue.map((line) => {

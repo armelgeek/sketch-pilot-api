@@ -75,6 +75,11 @@ export const series = pgTable('series', {
   narrationLayer: jsonb('narration_layer').$type<any>(),
   referenceStyleImage: text('reference_style_image'),
   visualStyleLock: jsonb('visual_style_lock').$type<any>(),
+
+  // V7.0 Narrative Architecture
+  blueprint: jsonb('blueprint').$type<any>(), // NarrativeBlueprint
+  authorialSignature: jsonb('authorial_signature').$type<any>(), // AuthorialSignature
+
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })

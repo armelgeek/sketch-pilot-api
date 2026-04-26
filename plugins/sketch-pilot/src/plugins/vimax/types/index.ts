@@ -26,6 +26,7 @@ export interface GenerationResult<T> {
   confidence: 'high' | 'low' | 'fallback'
   retryCount: number
   images?: { data: string; mimeType: string }[]
+  fallbackReached?: boolean // [V48] Signal pour l'Amygdale
 }
 
 export interface ContinuityReport {
@@ -120,6 +121,14 @@ export interface ReviewGate {
   humanFeedback?: string
 }
 
+export interface AudienceProfile {
+  ageRange: 'kids' | 'teen' | 'adult' | 'all'
+  platform: 'tiktok' | 'youtube' | 'cinema' | 'podcast'
+  attentionSpan: number // secondes avant drop-off
+  culturalContext: string // 'FR' | 'US' | 'JP'...
+  expectedPace: 'fast' | 'medium' | 'slow'
+}
+
 export interface SagaIntent {
   title: string
   globalTone: string
@@ -127,9 +136,74 @@ export interface SagaIntent {
   climaxAction: string
   resolutionGoal: string
   genre?: string
+  subGenre?: string
   tone?: string
   visualStyle?: string
   universeLaws?: string[]
+  audience?: AudienceProfile // [V48] Dramaturge
+  narrativeIntent?: NarrativeIntent // [V50] ADN Narrative
+  authorialSignature?: AuthorialSignature // [V50] Vision d'auteur
+  archetypeBlueprint?: ArchetypeBlueprint // [V50] Structure profonde
+  transmediaMap?: TransmediaMap // [V55] Multi-couches
+  creativeConstraints?: CreativeConstraint[] // [V55] Oulipo engine
+}
+
+export interface TransmediaMap {
+  layers: Array<{
+    type: 'video' | 'podcast' | 'document' | 'social_post' | 'audio_log'
+    purpose: string // Ce que cette couche révèle de plus
+    targetAudience?: string
+  }>
+  branchingPoints: Array<{
+    atScene: number
+    choices: string[]
+    consequences: string
+  }>
+}
+
+export interface CreativeConstraint {
+  type: 'forbidden_word' | 'fixed_length' | 'pov_shift' | 'tonal_opposite' | 'lipogram'
+  value: string
+  mandatory: boolean
+}
+
+export interface AuthorialSignature {
+  worldview: 'cynical' | 'optimistic' | 'paranoid' | 'melancholic' | 'absurdist' | 'stoic'
+  themes: string[]
+  stylisticSignature: string // Signature de mise en scène (ex: "Kubrickian symmetry")
+}
+
+export interface ArchetypeBlueprint {
+  structure: 'hero_journey' | 'tragedy' | 'comedy' | 'rebirth' | 'overcoming_monster' | 'quest' | 'voyage_return'
+  protagonistArchetype: 'hero' | 'anti-hero' | 'orphan' | 'wanderer' | 'rebel' | 'ruler' | 'magician' | 'innocent'
+  antagonistArchetype: 'shadow' | 'threshold_guardian' | 'shapeshifter' | 'trickster' | 'mentor_corrupted'
+  keyBeatsPruned: string[] // Beats obligatoires du genre/structure
+}
+
+export interface NarrativeVoice {
+  type: 'omniscient' | 'limited' | 'unreliable' | 'first_person' | 'observer'
+  focalCharacter?: string // @Nom
+  tone: string
+  distance: 'close' | 'far'
+}
+
+export interface PhrasticRhythm {
+  style: 'staccato' | 'cinematic' | 'melancholic' | 'action' | 'suspended'
+  sentenceVariety: boolean
+  useNominalPhrases: boolean
+  elevenLabsTags?: boolean
+}
+
+export interface NarrativeGrammar {
+  dominantTense: 'present' | 'past_simple' | 'imperfect'
+  tenseSwitching: boolean
+}
+
+export interface NarrativeIntent {
+  voice: NarrativeVoice
+  rhythm: PhrasticRhythm
+  grammar: NarrativeGrammar
+  density: 'sparse' | 'balanced' | 'dense'
 }
 
 export interface AssetProfile {
@@ -155,16 +229,115 @@ export interface VisualAtmosphere {
   symbolicMotifs?: string[]
 }
 
+// ─────────────────────────────────────────────
+// V7.0 : Narrative Blueprint & Structured Story
+// ─────────────────────────────────────────────
+
+/**
+ * Fonctions dramatiques strictes (Save the Cat style).
+ */
+export type DramaticFunction =
+  | 'opening_image'
+  | 'theme_stated'
+  | 'setup'
+  | 'catalyst'
+  | 'debate'
+  | 'break_into_two'
+  | 'b_story'
+  | 'fun_and_games'
+  | 'midpoint'
+  | 'bad_guys_close_in'
+  | 'all_is_lost'
+  | 'dark_night'
+  | 'break_into_three'
+  | 'finale'
+  | 'final_image'
+  | 'stinger'
+
+export interface CharacterArcStep {
+  atSceneIndex: number
+  psychologicalState: string
+  motivationShift: string
+  internalConflictStatus: string
+}
+
+export interface CharacterArcPlan {
+  identifier: string // @Nom
+  primaryTrauma?: string
+  initialState: string
+  targetTransformation: string
+  milestones: CharacterArcStep[]
+}
+
+export interface NarrativeDebt {
+  id: string
+  promise: string
+  magnitude: number
+  originSceneIndex: number
+  targetResolutionEpisode?: number
+  isResolved: boolean
+  type?: 'revelation' | 'action' | 'consequence' | 'mystery'
+  status?: 'active' | 'partially_paid' | 'resolved'
+  weight?: 'low' | 'medium' | 'high'
+  linkedToCharacter?: string
+}
+
+export interface NarrativeBeat {
+  index: number
+  title: string
+  summary: string
+  function: DramaticFunction
+  act: 1 | 2 | 3
+  percentageInSaga: number
+  keyRevelation?: string
+  tensionTarget: number
+  paceTarget: 'slow' | 'medium' | 'fast' | 'staccato'
+  impactedCharacters: string[]
+  unlockedDebts?: string[]
+  resolvedDebts?: string[]
+}
+
+export interface NarrativeBlueprint {
+  version: '7.0'
+  theme: string
+  premise: string
+  audienceContract: string
+  characterArcs: CharacterArcPlan[]
+  beatSheet: NarrativeBeat[]
+}
+
 export interface SagaPlan {
+  seriesId?: string
   title: string
   intent: SagaIntent | string
   script: string
+  basicIdea?: string
+  options?: any
+  blueprint?: NarrativeBlueprint
   episodes: Array<{
     episodeNumber: number
     summary: string
     eventIndex: number
     eventDescription: string
     hook?: string
+    isDailyLife?: boolean
+    isChoral?: boolean
+    absentProtagonists?: string[]
+    scenes?: Array<{
+      sceneNumber: number
+      function: string
+      objective: string
+      characterState: Record<string, string>
+      openPromises?: string[]
+      resolvedPromises?: string[]
+      tensionTarget: number
+      paceTarget: string
+      obligatory: string
+      prepares: string
+      cliffhanger?: string
+      locationId?: string
+      characters?: string[]
+    }>
   }>
   finalCliffhanger?: string
   characterRegistry: CharacterProfile[]
@@ -175,16 +348,7 @@ export interface SagaPlan {
   atmosphere: VisualAtmosphere
   visualEvolution: Record<string, string>
   relationshipMap: Record<string, Record<string, string>>
-}
-
-export interface SeriesBible {
-  genre: string
-  tone: string
-  visualStyle: string
-  language?: string
-  universeLaws?: string[]
-  static_features?: string
-  dynamic_features?: string
+  episodeEvents: VimaxEvent[]
 }
 
 export interface SeriesContext {
@@ -206,6 +370,21 @@ export interface SeriesContext {
   symbolicMotifs?: string[]
   visualStyle?: string
   visualStyleLock?: StyleLock
+  /** Le script global LLM de la saga (series.globalContext en DB) */
+  globalScript?: string
+  /** Le plan de l'épisode courant (depuis plannedEpisodes en DB) */
+  plannedEpisodeContext?: {
+    title?: string
+    hook?: string
+    dramaticFunction?: string
+    actPosition?: string
+    keyRevelation?: string
+    tensionTarget?: number
+    paceTarget?: string
+    impactedCharacters?: string[]
+  }
+  /** Le blueprint narratif complet (V7.0) */
+  blueprint?: any
 }
 
 export interface VimaxSeries {
@@ -259,10 +438,12 @@ export interface VimaxScene {
   scenePurpose?: string
   sceneDelta?: string
   pacing?: number
+  paceWeight?: number
+  isElliptical?: boolean
 }
 
 export interface CharacterProfile {
-  identifier: string // @Nom
+  identifier: string
   index?: number
   physicalDescription: string
   personalityTraits: string[]
@@ -272,6 +453,16 @@ export interface CharacterProfile {
   dynamic_features?: string
   portrait_prompt?: string
   thumbnailUrl?: string
+  traces?: CharacterTrace[]
+}
+
+export interface CharacterTrace {
+  id: string
+  type: 'scar' | 'wrinkle' | 'prosthetic' | 'behavioral' | 'emotional_scar'
+  description: string
+  acquiredAtScene: number
+  permanent: boolean
+  visualImpact: string
 }
 
 export interface CharacterVoiceHistory {
@@ -285,14 +476,6 @@ export interface CharacterVoiceHistory {
   acting?: string
 }
 
-export interface DialogueLine {
-  character: string
-  text: string
-  acting?: string
-  relativeStart?: number
-  duration?: number
-}
-
 export interface LocationState {
   id: string
   name: string
@@ -300,14 +483,55 @@ export interface LocationState {
   atmosphere: string
   evolution: string
   currentState?: string
-  modifications: string[] // Non-optional for map
+  modifications: string[]
   locationId?: string
 }
 
 export interface VimaxEvent {
+  index: number
   description: string
   duration: number
   isClimax: boolean
+  dramaticFunction?: DramaticFunction
+  actPosition?: { act: 1 | 2 | 3; percentageInAct: number }
+  characterImpacts?: Array<{
+    identifier: string
+    arcBefore: string
+    arcAfter: string
+    emotionalShift: string
+  }>
+  worldImpacts?: Array<{
+    locationId: string
+    change: string
+    permanent: boolean
+  }>
+  narrativeDebts?: {
+    creates: string[]
+    resolves: string[]
+  }
+  prerequisites?: string[]
+  unlocks?: string[]
+  tensionTarget?: number
+  paceTarget?: 'slow' | 'medium' | 'fast' | 'staccato'
+  isDailyLife?: boolean
+  isChoral?: boolean
+  absentProtagonists?: string[]
+  scenes?: Array<{
+    sceneNumber: number
+    function: string
+    objective: string
+    characterState: Record<string, string>
+    openPromises?: string[]
+    resolvedPromises?: string[]
+    tensionTarget: number
+    paceTarget: string
+    obligatory: string
+    prepares: string
+    cliffhanger?: string
+    locationId?: string
+    characters?: string[]
+  }>
+  isLast?: boolean
 }
 
 export interface VimaxRunOptions {
@@ -323,22 +547,9 @@ export interface VimaxRunOptions {
   seriesId?: string
   userId?: string
   reviewGates?: ReviewGate['stage'][]
-
   brainMode?: 'stable' | 'all'
-  referenceStyleImage?: string // URL ou Base64 de l'image de référence globale
-  referencePortraits?: Record<string, string> // Map @Nom -> URL/Base64 portrait
-}
-
-export interface SceneRoleRegistry {
-  lockedRoles: Record<number, string>
-}
-
-export interface CharacterStateTracker {
-  states: Record<string, any>
-}
-
-export interface LocationTracker {
-  states: Record<string, any>
+  referenceStyleImage?: string
+  referencePortraits?: Record<string, string>
 }
 
 export interface PlotContract {
@@ -349,20 +560,53 @@ export interface PlotContract {
     introducedAtScene: number
     mustResolveBy: number
   }>
-  closedPromises: string[] // Non-optional
+  closedPromises: string[]
+  debts: NarrativeDebt[]
+}
+
+export interface SpectatorCognition {
+  inferredKnowledge: string[]
+  anticipations: string[]
+  surpriseOpportunities: string[]
 }
 
 export interface SceneMemory {
   sceneNumber: number
   summary: string
   lastAction: string
+  keyAction?: string
   tensionLevel: number
   role?: string
+  lastDialogueBy?: string
+  narrativePulse?: string
+  resolutionStatus?: 'resolved' | 'escalated' | 'dangling'
+  sceneContext?: string
+  charactersPresent: string[]
+  locationId?: string
+  location?: string
   plotContract?: PlotContract
   locationStates?: LocationState[]
   characterStates?: CharacterState[]
-  charactersPresent?: string[]
-  location?: string
+  povCharacter?: string
+  informationDensity?: 'sparse' | 'balanced' | 'dense'
+  narrativeRhythm?: string
+  spectatorCognition?: SpectatorCognition
+  emotionalComposite?: string
+  moralWeight?: number
+  maturationCycle?: MaturationCycle
+  isDailyLife?: boolean
+  isChoral?: boolean
+  absentProtagonists?: string[]
+}
+
+export interface MaturationCycle {
+  passCount: number
+  revisions: Array<{
+    timestamp: number
+    feedback: string
+    improvementDelta: number
+  }>
+  restingStatus: 'fresh' | 'matured' | 'over-processed'
 }
 
 export interface VimaxScreenplay {
@@ -372,19 +616,6 @@ export interface VimaxScreenplay {
   tensionCurve: number[]
   seriesMetadata?: any
 }
-
-// Legacy exports
-export type SagaPlanInterface = SagaPlan
-export type EpisodeBridge = {
-  unresolvedCliffhanger: string
-  missingCharacters: string[]
-  activeObjects: string[]
-  worldState: Record<string, string>
-}
-
-// ─────────────────────────────────────────────
-// Prompt Learning System Types
-// ─────────────────────────────────────────────
 
 export interface LearningEpisode {
   id: string
@@ -404,11 +635,11 @@ export interface LearningEpisode {
 }
 
 export interface EvaluationReport {
-  score: number // 0-100
+  score: number
   isValid: boolean
   issues: string[]
   critique?: string
-  source: 'auditor' | 'human' | 'system' | 'vision' | 'saga-sentinel'
+  source: 'auditor' | 'human' | 'system' | 'vision' | 'saga-sentinel' | 'vision_sleep'
 }
 
 export interface Lesson {
@@ -425,6 +656,16 @@ export interface Lesson {
   parentLessonId?: string
   version?: string
   examples?: { input: string; output: string }[]
+  seriesId?: string
+  isSpecific?: boolean
+  applicableAt?: 'opening' | 'midpoint' | 'climax' | 'resolution' | 'any'
+  strength?: 'always' | 'if_tension_high' | 'if_dialogue_scene' | 'if_action_scene'
+  genreScope?: string[]
+  deltaScore?: number
+  impactRatio?: number
+  isUniversal?: boolean
+  causalContext?: string
+  sourceEpisodeId?: string
 }
 
 export interface LessonStore {
@@ -432,10 +673,6 @@ export interface LessonStore {
   lessons: Lesson[]
   globalDirectives: string[]
 }
-
-// ─────────────────────────────────────────────
-// Narrative Audit Types
-// ─────────────────────────────────────────────
 
 export interface NarrativeFeedbackItem {
   issue: string
@@ -449,8 +686,26 @@ export interface NarrativeFeedbackItem {
 export interface NarrativeAuditReport {
   seriesId: string
   globallyCoherent: boolean
-  score: number // 0-100
+  score: number
   feedbacks: NarrativeFeedbackItem[]
   themesAnalyzed: string[]
   characterArcsAnalysis: string
+}
+
+// Legacy exports
+export type SagaPlanInterface = SagaPlan
+export interface EpisodeBridge {
+  unresolvedCliffhanger: string
+  missingCharacters: string[]
+  activeObjects: string[]
+  worldState: Record<string, string>
+}
+export interface SeriesBible {
+  genre: string
+  tone: string
+  visualStyle: string
+  language?: string
+  universeLaws?: string[]
+  static_features?: string
+  dynamic_features?: string
 }

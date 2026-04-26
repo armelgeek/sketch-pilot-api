@@ -212,6 +212,9 @@ export class VideoRepository {
         sceneDelta: scene.sceneDelta,
         scenePurpose: scene.scenePurpose,
         tensionState: scene.tensionState,
+        dramaticFunction: scene.dramaticFunction,
+        actPosition: scene.actPosition,
+        characterImpacts: scene.characterImpacts,
         metadata: { ...scene },
         createdAt: new Date(),
         updatedAt: new Date()
@@ -261,6 +264,9 @@ export class VideoRepository {
       sceneDelta: scene.sceneDelta,
       scenePurpose: scene.scenePurpose,
       tensionState: scene.tensionState,
+      dramaticFunction: scene.dramaticFunction,
+      actPosition: scene.actPosition,
+      characterImpacts: scene.characterImpacts,
       metadata: { ...scene },
       updatedAt: new Date()
     }

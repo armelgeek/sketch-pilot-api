@@ -49,7 +49,8 @@ Focus : Richesse sensorielle, imagerie, rythme des phrases, évitement de la red
   private getBaseGuidelines(): string {
     return `
 [DIRECTIVES GÉNÉRALES]
-- Sois exigeant et constructif.
+- Sois IMPITOYABLE et CINÉMATOGRAPHIQUE. 
+- Évite le jargon creux ("optimiser", "vecteur", "synergie").
 - Pour chaque problème, propose une "Idée concrète" ou un "Exemple fort".
 - Utilise @PascalCase pour les personnages.
 

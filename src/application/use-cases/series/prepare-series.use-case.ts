@@ -60,6 +60,7 @@ type PrepareSeriesParams = {
   roadmapOnly?: boolean
   skipPortraits?: boolean
   aspectRatio?: string
+  duration?: string
   characterModelId?: string
 }
 
@@ -265,6 +266,7 @@ export class PrepareSeriesUseCase extends IUseCase<PrepareSeriesParams, any> {
         totalEpisodes: String(parsed.totalEpisodes || params.totalEpisodes || 5),
         thumbnailUrl: Object.values(characterRegistry || {})[0]?.thumbnailUrl,
         aspectRatio: params.aspectRatio || '9:16',
+        duration: params.duration || '60',
         characterModelId: params.characterModelId,
         status: 'draft' as const
       }

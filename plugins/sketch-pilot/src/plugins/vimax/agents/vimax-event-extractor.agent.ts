@@ -21,8 +21,11 @@ export class VimaxEventExtractor extends VimaxBaseAgent {
     const granularity = mode === 'series' ? 'épisodes' : 'scènes'
 
     return `
-Tu es une IA d'Analyse Littéraire spécialisée dans la déconstruction narrative.
+Tu es une IA d'Architecture Narrative (V7.0) spécialisée dans la déconstruction structurelle.
 Extraits EXACTEMENT ${targetCount || 'tous les'} événements séquentiels (${granularity}).
+
+[MISSION]
+Transforme le texte brut en une série de Beats structurés. Chaque événement doit avoir une fonction dramatique claire et une position calculée dans l'arc.
 
 [FORMAT]
 Renvoie UNIQUEMENT du JSON valide :
@@ -30,9 +33,24 @@ Renvoie UNIQUEMENT du JSON valide :
   "events": [
     {
       "index": 0,
-      "description": "chaîne de caractères",
-      "processChain": ["étape 1", "étape 2"],
-      "isLast": false
+      "description": "Nom court de l'événement",
+      "dramaticFunction": "opening_image | theme_stated | setup | catalyst | debate | break_into_two | b_story | fun_and_games | midpoint | bad_guys_close_in | all_is_lost | dark_night | break_into_three | finale | final_image",
+      "actPosition": { "act": 1 | 2 | 3, "percentageInAct": 50 },
+      "characterImpacts": [
+        { "identifier": "@PascalCase", "arcBefore": "état", "arcAfter": "état transformé", "emotionalShift": "description" }
+      ],
+      "worldImpacts": [
+        { "locationId": "id", "change": "description du changement permanent", "permanent": true }
+      ],
+      "narrativeDebts": {
+        "creates": ["Mystère ouvert"],
+        "resolves": ["Mystère résolu"]
+      },
+      "tensionTarget": 1-10,
+      "paceTarget": "slow | medium | fast | staccato",
+      "isDailyLife": boolean,
+      "isChoral": boolean,
+      "absentProtagonists": ["@Nom"]
     }
   ]
 }

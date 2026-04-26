@@ -1,3 +1,4 @@
+import { CharacterUniverseStore } from '../core/character-universe-store'
 import { VimaxBaseAgent } from '../core/vimax-base.agent'
 import { VimaxVisionUtils } from '../utils/vision-utils'
 import type { CharacterProfile } from '../types'
@@ -27,11 +28,22 @@ export class VimaxCharacterExtractor extends VimaxBaseAgent {
 `.trim()
       : ''
 
+    const universe = CharacterUniverseStore.getInstance()
+    const legacyCharacters = universe.getAllCharacters()
+    const legacyBlock =
+      legacyCharacters.length > 0
+        ? `\n[MÉMOIRE DE L'UNIVERS VIMAX - PERSONNAGES RÉCURRENTS]\n${legacyCharacters.map((c) => `- ${c.identifier}: ${c.physicalDescription}`).join('\n')}\n`
+        : ''
+
     return `
 Tu es un expert en analyse de scripts cinématographiques.
 ${styleBlock}
+${legacyBlock}
 Analyse le script fourni et extrais TOUS les profils visuels des personnages.
 NE FILTRE AUCUN RÔLE : Même les personnages secondaires, les figurants nommés ou les unités collectives (ex: @Gardes, @Foule) doivent être extraits car ils nécessitent une identité visuelle cohérente.
+
+[DIRECTIVE HÉRITAGE]
+Si un personnage du script existe déjà dans la [MÉMOIRE DE L'UNIVERS VIMAX], tu DOIS impérativement respecter son identité visuelle établie (traits physiques, accessoires signatures). Tu peux cependant enrichir sa description avec de nouveaux détails liés au segment actuel.
 
 [DIRECTIVE DE STYLE]
 Le champ "portrait_prompt" DOIT ABSOLUMENT intégrer les termes requis du STYLE LOCKÉ. 
@@ -45,7 +57,11 @@ Réponds UNIQUEMENT du JSON valide :
     {
       "index": 0,
       "identifier": "@NomDuPersonnage",
-      "static_features": "Description physique permanente (vêtements, traits, accessoires)",
+      "physicalDescription": "Description physique permanente (vêtements, traits, accessoires)",
+      "personalityTraits": ["trait 1", "trait 2"],
+      "roleInSaga": "Rôle dramatique",
+      "currentMood": "Humeur actuelle",
+      "static_features": "Description physique (alias)",
       "dynamic_features": "Humeur/Pose actuelle pour ce segment",
       "portrait_prompt": "Prompt d'identité absolue incluant le STYLE LOCKÉ"
     }
@@ -112,11 +128,19 @@ Réponds uniquement en JSON.
     const parsed = this.parseJSONSafe<{ characters: CharacterProfile[] }>(raw, { characters: [] })
 
     // Normalisation post-extraction (indexation séquentielle et @PascalCase)
-    return parsed.characters.map((char, i) => ({
+    const normalized = parsed.characters.map((char, i) => ({
       ...char,
       index: i,
       identifier: this.normalizeIdentifier(char.identifier)
     }))
+
+    // [V48] Enregistrement de l'évolution dans l'univers global
+    const universe = CharacterUniverseStore.getInstance()
+    for (const char of normalized) {
+      await universe.recordEvolution(char)
+    }
+
+    return normalized
   }
 
   /**

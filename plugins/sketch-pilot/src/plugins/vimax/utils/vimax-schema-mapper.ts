@@ -75,9 +75,16 @@ export class VimaxSchemaMapper {
       plannedEpisodes: (plan.episodes || []).map((ep: any) => ({
         number: ep.episodeNumber,
         title: ep.title,
-        hook: ep.summary
+        hook: ep.summary,
+        dramaticFunction: ep.dramaticFunction,
+        actPosition: ep.actPosition,
+        keyRevelation: ep.keyRevelation,
+        tensionTarget: ep.tensionTarget,
+        paceTarget: ep.paceTarget,
+        impactedCharacters: ep.impactedCharacters,
+        scenes: ep.scenes // [V8.0] Pre-planned scenes persistence
       })),
-      unresolvedThreads: plan.unresolvedThreads || [],
+      unresolved_threads: plan.unresolvedThreads || [],
       roadmap: plan.roadmap || {},
       relationshipMap: plan.relationshipMap || {},
       weatherState: plan.atmosphere?.weatherState || '',
@@ -85,7 +92,9 @@ export class VimaxSchemaMapper {
       colorPalette: plan.atmosphere?.colorPalette || '',
       cameraStyle: plan.atmosphere?.cameraStyle || '',
       symbolicMotifs: plan.atmosphere?.symbolicMotifs || [],
-      visualEvolution: plan.visualEvolution || {}
+      visualEvolution: plan.visualEvolution || {},
+      blueprint: plan.blueprint || {},
+      authorialSignature: plan.intent && typeof plan.intent !== 'string' ? (plan.intent as any).authorialSignature : {}
     }
   }
 
@@ -99,9 +108,11 @@ export class VimaxSchemaMapper {
         globalTone: db.videoGenre || '',
         centralConflict: '',
         climaxAction: '',
-        resolutionGoal: ''
+        resolutionGoal: '',
+        authorialSignature: db.authorialSignature || {}
       },
       script: db.globalContext || '',
+      blueprint: db.blueprint || {},
       characterRegistry: Object.values(db.characterRegistry || {}),
       locationRegistry: Object.values(db.locationRegistry || {}),
       assetRegistry: Object.values(db.assetRegistry || {}),
@@ -109,7 +120,14 @@ export class VimaxSchemaMapper {
         episodeNumber: ep.number,
         title: ep.title,
         summary: ep.hook,
-        eventDescription: ep.hook
+        eventDescription: ep.hook,
+        dramaticFunction: ep.dramaticFunction,
+        actPosition: ep.actPosition,
+        keyRevelation: ep.keyRevelation,
+        tensionTarget: ep.tensionTarget,
+        paceTarget: ep.paceTarget,
+        impactedCharacters: ep.impactedCharacters,
+        scenes: ep.scenes // [V8.0] Pre-planned scenes restoration
       })),
       unresolvedThreads: db.unresolvedThreads || [],
       roadmap: db.roadmap || {},
@@ -131,8 +149,14 @@ export class VimaxSchemaMapper {
   public static mapDbToEpisodeEvents(db: any): any[] {
     return (db.plannedEpisodes || []).map((ep: any) => ({
       description: ep.hook || ep.title || 'Pas de description',
-      duration: 60, // Fallback
-      isClimax: false // Fallback
+      duration: 60,
+      dramaticFunction: ep.dramaticFunction,
+      actPosition: ep.actPosition,
+      keyRevelation: ep.keyRevelation,
+      tensionTarget: ep.tensionTarget,
+      paceTarget: ep.paceTarget,
+      impactedCharacters: ep.impactedCharacters,
+      scenes: ep.scenes // [V8.0] Carry over pre-planned scenes to Vimax events
     }))
   }
 

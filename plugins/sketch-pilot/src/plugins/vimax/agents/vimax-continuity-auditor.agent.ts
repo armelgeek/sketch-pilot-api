@@ -8,32 +8,56 @@ import type {
   PlotContract,
   SceneMemory,
   SceneValidation,
+  SeriesContext,
   VimaxScene
 } from '../types'
 
-/**
- * ContinuityAuditor (Script Supervisor)
- * Relit l'ensemble des scènes d'un épisode pour détecter les contradictions.
- */
 export class VimaxContinuityAuditor extends VimaxBaseAgent {
   public id = 'continuity-auditor'
-  private getSystem(): string {
+
+  private getGlobalScriptBlock(context: SeriesContext): string {
+    if (!context.globalScript) return ''
+    const truncated = context.globalScript.slice(0, 2000)
+    return `
+[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE ABSOLUE]
+${truncated}${context.globalScript.length > 2000 ? '\n[...]' : ''}
+`.trim()
+  }
+
+  private getEpisodePlanBlock(context: SeriesContext): string {
+    const plan = context.plannedEpisodeContext
+    if (!plan) return ''
+    return `
+[PLAN DE L'ÉPISODE PRÉVU]
+- TITRE : ${plan.title || 'Inconnu'}
+- HOOK : ${plan.hook || 'Inconnu'}
+- FONCTION : ${plan.dramaticFunction || 'Inconnue'}
+`.trim()
+  }
+
+  private getSystem(context: SeriesContext = {}): string {
     return `
 Tu es un Auditor de Continuité (Script Supervisor) pour une série d'animation.
 Ta mission est de détecter toute faille de cohérence narrative ou visuelle.
+
+${this.getGlobalScriptBlock(context)}
+
+${this.getEpisodePlanBlock(context)}
 
 [FORMAT DE RÉPONSE]
 Renvoie UNIQUEMENT du JSON valide :
 {
   "contradictions": ["description..."],
   "missingResolutions": ["description..."],
+  "unpaidNarrativeDebts": ["liste des dettes narratives non résolues (V5.0)"],
+  "archetypalViolations": ["écarts par rapport au blueprint archetypal (V5.0)"],
   "toneBreaks": ["description..."],
   "approved": boolean
 }
 `.trim()
   }
 
-  async audit(scenes: VimaxScene[]): Promise<ContinuityReport> {
+  async audit(scenes: VimaxScene[], context: SeriesContext = {}): Promise<ContinuityReport> {
     const scenesSummary = scenes
       .map((s) => `[SCÈNE ${s.sceneNumber}]\nNarration: ${s.narration}\nVisual: ${s.imagePrompt}`)
       .join('\n\n')
@@ -43,10 +67,10 @@ Voici les scènes de l'épisode :
 
 ${scenesSummary}
 
-Réalise un audit complet de continuité.
+Réalise un audit complet de continuité par rapport aux scènes fournies ET au Script Global de la Saga.
 `.trim()
 
-    const result = await this.generateStructured<ContinuityReport>(prompt, this.getSystem(), {
+    const result = await this.generateStructured<ContinuityReport>(prompt, this.getSystem(context), {
       contradictions: [],
       missingResolutions: [],
       toneBreaks: [],
@@ -65,7 +89,8 @@ Réalise un audit complet de continuité.
   async validateAndCorrect(
     narration: string,
     sceneMemories: SceneMemory[],
-    characterStates: CharacterState[]
+    characterStates: CharacterState[],
+    context: SeriesContext = {}
   ): Promise<SceneValidation> {
     const memory =
       sceneMemories.length > 0
@@ -100,7 +125,7 @@ Si invalide, propose une "correctedNarration" qui résout le problème tout en g
 Renvoie du JSON : { "isValid": boolean, "issues": string[], "correctedNarration": string | null }
 `.trim()
 
-    const result = await this.generateStructured<SceneValidation>(prompt, this.getSystem(), {
+    const result = await this.generateStructured<SceneValidation>(prompt, this.getSystem(context), {
       isValid: true,
       issues: []
     })
@@ -114,7 +139,8 @@ Renvoie du JSON : { "isValid": boolean, "issues": string[], "correctedNarration"
   async midpointAudit(
     scenesGenerated: VimaxScene[],
     tensionCurve: number[],
-    plotContracts: PlotContract[]
+    plotContracts: PlotContract[],
+    context: SeriesContext = {}
   ): Promise<MidpointAuditResult> {
     const summary = scenesGenerated.map((s) => `Scène ${s.sceneNumber} : ${s.narration}`).join('\n')
     const prompt = `
@@ -134,7 +160,7 @@ CONSIGNE :
 Renvoie du JSON : { "scenesToRegenerate": number[], "globalIssues": string[] }
 `.trim()
 
-    const result = await this.generateStructured<MidpointAuditResult>(prompt, this.getSystem(), {
+    const result = await this.generateStructured<MidpointAuditResult>(prompt, this.getSystem(context), {
       scenesToRegenerate: [],
       globalIssues: []
     })
@@ -145,7 +171,7 @@ Renvoie du JSON : { "scenesToRegenerate": number[], "globalIssues": string[] }
   /**
    * Point 3 : Audit final avec système de Patch ciblé.
    */
-  async finalAuditEnhanced(scenes: VimaxScene[]): Promise<FinalAuditResult> {
+  async finalAuditEnhanced(scenes: VimaxScene[], context: SeriesContext = {}): Promise<FinalAuditResult> {
     const summary = scenes.map((s) => `[SCÈNE ${s.sceneNumber}]\n${s.narration}`).join('\n')
     const prompt = `
 AUDIT FINAL & PATCHING. Relis tout l'épisode.
@@ -158,11 +184,13 @@ L'objectif est d'avoir un "approved": true. Si tu proposes des patchs, explique 
 Renvoie du JSON : { 
   "approved": boolean, 
   "contradictions": string[], 
+  "missingResolutions": string[],
+  "narrativeDebts": [{ "id": "uuid", "description": "...", "status": "active|resolved", "weight": "low|high" }],
   "scenesToPatch": [{ "sceneIndex": number, "patch": { "narration": "nouvelle narration corrigée" } }] 
 }
 `.trim()
 
-    const result = await this.generateStructured<FinalAuditResult>(prompt, this.getSystem(), {
+    const result = await this.generateStructured<FinalAuditResult>(prompt, this.getSystem(context), {
       approved: true,
       contradictions: [],
       scenesToPatch: [],
