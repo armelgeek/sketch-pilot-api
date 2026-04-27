@@ -63,6 +63,22 @@ export class VimaxBrain {
     this.amygdala.setSeriesId(id)
   }
 
+  /**
+   * [V52] EXECUTIVE AMYGDALA : Analyse les épisodes pour détecter une compromission du système.
+   */
+  public async getAnomalies(episodes: LearningEpisode[]) {
+    return await this.amygdala.detectAnomalies(episodes)
+  }
+
+  /**
+   * [V53] TEMPORAL FIDELITY : Expose le chargement ordonné des épisodes.
+   */
+  public async getRecentHistory(seriesId?: string, limit: number = 20): Promise<LearningEpisode[]> {
+    const raw = await this.loadEpisodes()
+    const filtered = seriesId ? raw.filter((e) => e.seriesId === seriesId) : raw
+    return filtered.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit)
+  }
+
   public setBrainMode(mode: 'stable' | 'all') {
     this.refinery.setBrainMode(mode)
     this.visionAuditor.setBrainMode(mode)
@@ -106,27 +122,34 @@ export class VimaxBrain {
       console.log(`[VimaxBrain] Filtrage par contexte : ${options.seriesId} (${episodes.length} épisodes trouvés).`)
     }
 
-    // 0. PHASE D'AUTO-AUDIT QUALITATIF (Audit 2.0)
-    // On audit les épisodes "pending" ou sans évaluation
+    // 0. PHASE D'AUTO-AUDIT QUALITATIF (Audit 2.0 - Multimodal)
     const toAudit = episodes.filter((ep) => !ep.evaluation || ep.evaluation.score === undefined)
     if (toAudit.length > 0) {
       console.log(`[VimaxBrain] Audit 2.0 : Évaluation qualitative de ${toAudit.length} épisodes...`)
       for (const ep of toAudit) {
-        const result = await this.visionAuditor.scoreEpisode(ep)
-        ep.evaluation = {
-          score: result.score,
-          isValid: result.score >= 80,
-          issues: result.issues,
-          critique: result.rationale,
-          source: 'vision'
+        // [V43] PRIORITÉ VISUELLE : Si on a des images, on audit l'image, pas le texte
+        const renderedImages = (ep as any).renderedImages || []
+        if (renderedImages.length > 0) {
+          await this.performVisionAudit(ep, renderedImages)
+        } else {
+          // Fallback textuel classique
+          const result = await this.visionAuditor.scoreEpisode(ep)
+          ep.evaluation = {
+            score: result.score,
+            isValid: result.score >= 80,
+            issues: result.issues,
+            critique: result.rationale,
+            source: 'vision'
+          }
+          ep.status = result.score >= 80 ? 'success' : 'failure'
         }
-        ep.status = result.score >= 80 ? 'success' : 'failure'
         await this.saveEpisode(ep)
       }
     }
 
     // 0.5. PHASE DE SENTINEL DE SAGA (Continuité Long-Terme)
     if (options?.seriesId) {
+      // [V53] TEMPORAL FIDELITY : Toujours trier par timestamp
       const sagaEpisodes = episodes
         .filter((e) => e.seriesId === options.seriesId)
         .sort((a, b) => a.timestamp - b.timestamp)
@@ -223,8 +246,10 @@ export class VimaxBrain {
 
     console.log(`[VimaxBrain] Apprentissage multi-facettes (${failures.length} échecs)...`)
 
-    // NOUVEAU V2 : Audit Visuel pour les épisodes qui ont des images
-    for (const ep of episodes.filter((e) => e.status === 'success' && (e as any).renderedImages)) {
+    // [V43] Audit Visuel Continu pour les épisodes déjà taggués 'success' (Double Check)
+    for (const ep of episodes.filter(
+      (e) => e.status === 'success' && (e as any).renderedImages && !e.learningApplied
+    )) {
       await this.performVisionAudit(ep, (ep as any).renderedImages)
     }
 
@@ -519,26 +544,56 @@ export class VimaxBrain {
     }
   }
 
-  /**
-   * Audit visuel d'un épisode si des images sont disponibles.
-   */
   async performVisionAudit(episode: LearningEpisode, images: string[]): Promise<boolean> {
     console.log(`[VimaxBrain] Audit visuel multimodal pour l'épisode ${episode.id}...`)
 
+    let totalScore = 0
+    const allIssues: string[] = []
+    const allCritiques: string[] = []
+
     for (const imgUrl of images) {
-      const report = await this.visionAuditor.auditImage(imgUrl, episode.userPrompt, [])
+      const report = await this.visionAuditor.auditImage(
+        imgUrl,
+        episode.narration || '',
+        [], // TODO: Extract from response if possible
+        (episode as any).styleLock
+      )
+
+      totalScore += report.score
       if (!report.isValid) {
-        console.warn(`[VimaxBrain] Défaut visuel détecté : ${report.issues.join(', ')}`)
-        // On traite cela comme un échec pour le raffinage
-        episode.status = 'failure'
-        episode.evaluation = {
-          isValid: false,
-          issues: report.issues,
-          score: 0.5,
-          source: 'vision'
+        allIssues.push(...report.issues)
+        allCritiques.push(
+          `${report.details?.root_cause_analysis || ''} | RECETTE : ${report.suggestedCorrection || ''}`
+        )
+        if (report.learnableDirective) {
+          allCritiques.push(`DIRECTIVE CONSEILLÉE : ${report.learnableDirective}`)
         }
-        return false
       }
+    }
+
+    const avgScore = totalScore / (images.length || 1)
+    const isActuallyValid = avgScore >= 80 && allIssues.length === 0
+
+    if (!isActuallyValid) {
+      console.warn(`[VimaxBrain] 🚨 Défaut visuel détecté : ${allIssues.join(', ')}`)
+      episode.status = 'failure'
+      episode.evaluation = {
+        isValid: false,
+        issues: allIssues,
+        score: avgScore,
+        critique: allCritiques.join('\n'),
+        source: 'vision-multimodal'
+      }
+      return false
+    }
+
+    // Si tout va bien, on confirme le succès
+    episode.evaluation = {
+      isValid: true,
+      issues: [],
+      score: avgScore,
+      critique: 'Validé par audit visuel multimodal.',
+      source: 'vision-multimodal'
     }
     return true
   }

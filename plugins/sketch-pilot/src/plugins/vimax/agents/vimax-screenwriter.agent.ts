@@ -13,6 +13,7 @@ interface RawSceneMeta {
   sceneDelta: string
   charactersInScene: string[]
   locationId: string
+  locationContext?: string
   pacing: number
   cameraAction: VimaxScene['cameraAction']
   composition: VimaxScene['composition']
@@ -27,6 +28,7 @@ interface RawScreenplayMeta {
 
 export class VimaxScreenwriter extends VimaxBaseAgent {
   public id = 'screenwriter'
+
   private getAudienceBlock(context: SeriesContext): string {
     const intent = context.intent
     if (!intent || typeof intent === 'string' || !intent.audience) return ''
@@ -58,8 +60,10 @@ ${platform === 'cinema' ? '- CINEMA MODE : Compositions soignées, plans larges,
 [TRAILER STYLE : LE CHOC VISUEL]
 - CHAQUE SCÈNE DOIT ÊTRE UNE CLAQUE : Privilégie les angles extrêmes (Plongée totale, Contre-plongée, Angle Hollandais).
 - LUMIÈRE : Utilise des ambiances tranchées (Stroboscopie, clair-obscur, néons saturés).
-- ZERO ABSTRACTION : Interdiction d'utiliser "tension", "mystère", "ambiance" dans les champs textuels. Décris des FAITS PHYSIQUES.
-- [LOI DE LA FRACTURE] : Les champs "scenePurpose" et "sceneDelta" doivent décrire un changement d'état PHYSIQUE ou RELATIONNEL irréversible.
+- ZERO ABSTRACTION : Interdiction d'utiliser "tension", "mystère", "ambiance". Décris des FAITS PHYSIQUES.
+- [LOI DE LA FRACTURE] : "scenePurpose" et "sceneDelta" doivent décrire des changements d'état irréversibles.
+- [LOCK TEMPOREL] : Précise toujours le 'temporalContext' (ex: Manchester 1885, Futuristic City, Vision Dream).
+- [LOI DE L'EXTENSION SPATIALE] : Utilise "locationContext" pour décrire le sous-lieu ou l'espace de transition spécifique (ex: "Un ascenseur vers @Lobby").
 
 ${this.getGlobalScriptBlock(context)}
 
@@ -67,37 +71,9 @@ ${this.getBlueprintBlock(context)}
 
 ${this.getEpisodePlanBlock(context)}
 
+${this.getScenePlanBlock(context)}
+
 Renvoie UNIQUEMENT du JSON valide correspondant au schéma.
-`.trim()
-  }
-
-  private getGlobalScriptBlock(context: SeriesContext): string {
-    if (!context.globalScript) return ''
-    const truncated = context.globalScript.slice(0, 2000)
-    return `
-[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE]
-${truncated}${context.globalScript.length > 2000 ? '\n[...]' : ''}
-`.trim()
-  }
-
-  private getBlueprintBlock(context: SeriesContext): string {
-    const b = context.blueprint
-    if (!b || !b.premise) return ''
-    return `
-[BLUEPRINT NARRATIF]
-- THÈME : ${b.theme}
-- PRÉMISSE : ${b.premise}
-`.trim()
-  }
-
-  private getEpisodePlanBlock(context: SeriesContext): string {
-    const plan = context.plannedEpisodeContext
-    if (!plan) return ''
-    return `
-[PLAN DE L'ÉPISODE PRÉVU]
-- TITRE : ${plan.title || 'Inconnu'}
-- HOOK : ${plan.hook || 'Inconnu'}
-- FONCTION : ${plan.dramaticFunction || 'Inconnue'}
 `.trim()
   }
 
@@ -122,10 +98,6 @@ Renvoie UNIQUEMENT du JSON valide :
 
   // ─── Public API ────────────────────────────
 
-  /**
-   * Génère les métadonnées cinématiques d'une scène.
-   * La narration est passée telle quelle — pas réécrite.
-   */
   async generateSceneMeta(
     narration: string,
     eventDescription: string,
@@ -133,7 +105,8 @@ Renvoie UNIQUEMENT du JSON valide :
     sceneNumber: number,
     totalScenes: number,
     context: SeriesContext = {},
-    forceClimax = false
+    forceClimax = false,
+    cameraIntent?: any
   ): Promise<Omit<VimaxScene, 'id' | 'sceneNumber' | 'narration' | 'imagePrompt' | 'duration' | 'startTime'>> {
     let cameraRule = ''
 
@@ -142,7 +115,6 @@ Renvoie UNIQUEMENT du JSON valide :
     } else if (sceneNumber === 1) {
       cameraRule = `SCÈNE 1 (INTRO) : handheld (low intensity). Établit la géographie.`
     } else {
-      // Distribution dynamique des mouvements pour les scènes intermédiaires
       const intermediateMoves = ['push-in', 'slow-zoom', 'shake', 'breathing', 'pan-right', 'pan-left']
       const move = intermediateMoves[(sceneNumber - 1) % intermediateMoves.length]
       const intensity = sceneNumber > totalScenes / 2 ? 'medium' : 'low'
@@ -150,7 +122,6 @@ Renvoie UNIQUEMENT du JSON valide :
     }
 
     const prompt = `
-
 <NARRATION>
 ${narration}
 </NARRATION>
@@ -165,6 +136,8 @@ ${eventDescription}
 
 <NUMÉRO_SCÈNE>${sceneNumber}</NUMÉRO_SCÈNE>
 
+${cameraIntent ? `[INTENTION VISUELLE OBLIGATOIRE V41.0]\n- TYPE : ${cameraIntent.shotType}\n- AXE : ${cameraIntent.axisChange}\n- FOCUS : ${cameraIntent.focusSubject}\n` : ''}
+
 Génère les métadonnées cinématiques. 
 VARIÉTÉ DE PLANS : Alterne CLOSEUP (visage/émotion), OVERSHOULDER (dialogue) et WIDE (chaos).
 
@@ -177,83 +150,50 @@ Foreground DOIT avoir un détail physique (mâchoire, main, sueur, regard).
 Renvoie du JSON :
 {
   "scenePurpose": "reveal | escalate | misdirect | stabilize | collapse",
+  "temporalContext": "Victorian | Modern | Vision | Futuristic | Medieval",
   "sceneDelta": "Explication courte du changement",
   "charactersInScene": ["@PascalCase"],
   "locationId": "ID de lieu",
+  "locationContext": "description du sous-lieu improvisé",
   "pacing": 5,
   "cameraAction": [{ "type": "handheld | push-in | snap-zoom | shake | slow-motion...", "intensity": "low | medium | high" }],
   "composition": { 
     "shotType": "CLOSEUP | MEDIUM | WIDE...", 
     "lightingMood": "stroboscopique | rouge intermittent | flash...", 
     "layout": "SINGLE",
-    "foreground": "Ce qui est au premier plan (sujet/objet)",
-    "midground": "Ce qui est au second plan (groupe/décor)",
-    "background": "Ce qui est en arrière-plan (géographie/atmosphère)"
+    "foreground": "",
+    "midground": "",
+    "background": ""
   },
   "tensionState": { "level": 5, "type": "build | sustain | spike | release" },
   "simulationPatch": { "worldPatch": {}, "charactersPatch": {} }
 }
 `.trim()
 
-    // [V48] Calcul du contexte narratif chirurgical
-    const isOpening = sceneNumber === 1
-    const isResolution = sceneNumber === totalScenes
-    const isMidpoint = Math.abs(sceneNumber - totalScenes / 2) < 1
-    const isClimax = forceClimax || sceneNumber / totalScenes > 0.8
-    const genre = context.intent && typeof context.intent !== 'string' ? context.intent.genre || 'any' : 'any'
-
-    const narrativeContext = {
-      moment: isOpening
-        ? 'opening'
-        : isResolution
-          ? 'resolution'
-          : isClimax
-            ? 'climax'
-            : isMidpoint
-              ? 'midpoint'
-              : 'any',
-      genres: [genre],
-      tension: isClimax ? 80 : 40,
-      isAction: cameraRule.includes('shake') || cameraRule.includes('impact'),
-      isDialogue: imagePrompt.toLowerCase().includes('dialogue') || imagePrompt.toLowerCase().includes('parle')
-    }
-
-    const result = await this.generateStructured<RawSceneMeta>(
-      prompt,
-      this.getSceneSystem(context),
-      {
-        scenePurpose: 'reveal',
-        sceneDelta: '',
-        charactersInScene: [],
-        locationId: 'unknown',
-        pacing: 5,
-        cameraAction: [{ type: 'none', intensity: 'low' }],
-        composition: {
-          shotType: 'MEDIUM',
-          lightingMood: 'neutral',
-          layout: 'SINGLE',
-          foreground: '',
-          midground: '',
-          background: ''
-        },
-        tensionState: { level: 5, type: 'sustain', label: 'sustain' },
-        simulationPatch: { worldPatch: {}, charactersPatch: {} }
+    const result = await this.generateStructured<RawSceneMeta>(prompt, this.getSceneSystem(context), {
+      scenePurpose: 'reveal',
+      sceneDelta: '',
+      charactersInScene: [],
+      locationId: 'unknown',
+      locationContext: '',
+      pacing: 5,
+      cameraAction: [{ type: 'none', intensity: 'low' }],
+      composition: {
+        shotType: 'MEDIUM',
+        lightingMood: 'neutral',
+        layout: 'SINGLE',
+        foreground: '',
+        midground: '',
+        background: ''
       },
-      undefined,
-      2,
-      narrativeContext
-    )
+      tensionState: { level: 5, type: 'sustain', label: 'sustain' },
+      simulationPatch: { worldPatch: {}, charactersPatch: {} }
+    })
 
     const parsed = result.data
 
-    // PacingDirector : Corrélation forcée entre tension et pacing
-    // T2 -> P2, T5 -> P5, T10 -> P9
     const tension = parsed.tensionState?.level ?? 5
-    if (tension >= 9) {
-      parsed.pacing = 9
-    } else {
-      parsed.pacing = tension
-    }
+    parsed.pacing = tension >= 9 ? 9 : tension
 
     return {
       ...parsed,
@@ -261,10 +201,6 @@ Renvoie du JSON :
     }
   }
 
-  /**
-   * Génère les métadonnées épisode (summary, cliffhanger, titles, continuité)
-   * depuis toutes les scènes assemblées.
-   */
   async generateEpisodeMeta(
     scenes: VimaxScene[],
     context: SeriesContext = {}
@@ -293,20 +229,6 @@ Génère les métadonnées de l'épisode.
       titles: []
     })
 
-    const parsed = result.data
-
-    // Normalisation des clés du dictionnaire characterContinuity
-    const cleanCharacterContinuity: Record<string, any> = {}
-    for (const [id, data] of Object.entries(parsed.seriesMetadata.characterContinuity)) {
-      cleanCharacterContinuity[this.normalizeIdentifier(id)] = data
-    }
-
-    return {
-      ...parsed,
-      seriesMetadata: {
-        ...parsed.seriesMetadata,
-        characterContinuity: cleanCharacterContinuity
-      }
-    }
+    return result.data
   }
 }

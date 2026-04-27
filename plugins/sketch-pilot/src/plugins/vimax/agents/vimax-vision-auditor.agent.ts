@@ -4,6 +4,7 @@ import type { LLMService } from '../core/llm.interface'
 
 export interface VisionAuditReport {
   isValid: boolean
+  score: number // Score 0-100 pour le Brain
   issues: string[]
   visualDNA: {
     lighting: string
@@ -14,7 +15,9 @@ export interface VisionAuditReport {
     expectation_vs_reality: string
     identity_check: string
     style_consistency: string
+    root_cause_analysis: string // Spécifique pour le Brain
   }
+  learnableDirective?: string // Proposition formelle de leçon (V43)
   suggestedCorrection?: string
 }
 
@@ -67,18 +70,21 @@ ${expectedCharacters.join(', ')}
 [FORMAT DE RÉPONSE JSON OBLIGATOIRE]
 {
   "isValid": boolean,
+  "score": number (0-100),
   "issues": ["liste des problèmes précis détectés"],
   "visualDNA": {
-    "lighting": "description courte (ex: Cinématique sombre, Naturel)",
-    "composition": "description courte (ex: Gros plan, Plan américain, Contre-plongée)",
-    "styleAdherence": number (score 0-100)
+    "lighting": "description courte",
+    "composition": "description courte",
+    "styleAdherence": 0-100
   },
   "details": {
-    "expectation_vs_reality": "Analyse détaillée des différences entre la narration et l'image",
-    "identity_check": "Vérification précise des personnages",
-    "style_consistency": "Analyse de l'adhérence stylistique"
+    "expectation_vs_reality": "Analyse détaillée",
+    "identity_check": "Vérification personnages",
+    "style_consistency": "Analyse du drift",
+    "root_cause_analysis": "Pourquoi l'IA s'est trompée ? (ex: termes de prompt contradictoires)"
   },
-  "suggestedCorrection": "Action concrète pour corriger le drift (ex: Ajouter une directive de style dans le profil du personnage)"
+  "learnableDirective": "Directive universelle pour éviter l'échec (ex: Toujours préciser 'noir et blanc' même si le style l'implique)",
+  "suggestedCorrection": "Action corrective immédiate"
 }
 `.trim()
 
@@ -95,9 +101,10 @@ ${expectedCharacters.join(', ')}
       this.getSystemPrompt(),
       {
         isValid: false,
+        score: 50,
         issues: [],
         visualDNA: { lighting: '', composition: '', styleAdherence: 0 },
-        details: { expectation_vs_reality: '', identity_check: '', style_consistency: '' },
+        details: { expectation_vs_reality: '', identity_check: '', style_consistency: '', root_cause_analysis: '' },
         suggestedCorrection: ''
       },
       images

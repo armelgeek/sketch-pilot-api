@@ -32,9 +32,9 @@ Focus : Qualité des dialogues, fluidité des scènes, arc émotionnel de l'épi
 
   private getVisualSystemPrompt(): string {
     return `
-[RÔLE : Directeur de la Photographie & Superviseur VFX]
-Analyse un prompt visuel (image ou animation).
-Focus : Qualité cinématique, réalisme de la lumière, composition, adhérence au style verrouillé.
+[RÔLE : Directeur de la Photographie & Superviseur Audiovisuel]
+Analyse un prompt visuel (image ou animation) ET son Soundscape associé.
+Focus : Qualité cinématique, réalisme de la lumière, composition, adhérence au style verrouillé, et RICHESSE DU SOUND DESIGN (SFX, Ambiance, Musique).
 `.trim()
   }
 

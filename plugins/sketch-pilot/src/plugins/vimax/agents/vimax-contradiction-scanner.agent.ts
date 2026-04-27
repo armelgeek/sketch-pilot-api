@@ -40,10 +40,7 @@ NOUVELLE LEÇON :
 - Directive : ${newLesson.directive}
 
 LEÇONS EXISTANTES (extraits pertinents) :
-${existingLessons
-  .filter((l) => l.category === newLesson.category)
-  .map((l) => `- [ID:${l.id}] : ${l.directive}`)
-  .join('\n')}
+${existingLessons.map((l) => `- [ID:${l.id} | CAT:${l.category}] : ${l.directive}`).join('\n')}
 
 [CRITÈRES DE CONTRADICTION]
 - Deux directives qui demandent des choses opposées (ex: "Faire court" vs "Détailler tout").

@@ -70,6 +70,55 @@ export class VimaxSagaPlanner extends VimaxBaseAgent {
 
   // ─── Intent Router ─────────────────────────
 
+  // ─── Recursive Recalibration ────────────────
+
+  /**
+   * Recalibre le blueprint global en fonction des épisodes réellement générés.
+   * Empêche la déviance entre le plan rigide et la réalité stochastique.
+   */
+  async recalibrateBlueprint(originalPlan: SagaPlan, renderedEpisodes: any[]): Promise<SagaPlan> {
+    console.info(`[VimaxSagaPlanner] 🔄 Recalibration du Blueprint (N=${renderedEpisodes.length})...`)
+
+    const prompt = `
+[MISSION : RECALIBRATION DU BLUEPRINT VIVANT]
+Tu es l'Architecte de Saga. Analyse le blueprint original et les épisodes réellement produits pour synchroniser la trajectoire future.
+
+[DÉVIANCE DÉTECTÉE]
+Certains milestones ou arcs de personnages ont pu dévier. Ton but est de mettre à jour le blueprint pour que l'épisode suivant reparte d'une base factuelle exacte.
+
+[BLUEPRINT ORIGINAL]
+${JSON.stringify(originalPlan.blueprint)}
+
+[ÉPISODES RÉELS (HISTORIQUE)]
+${renderedEpisodes.map((ep, i) => `ÉPISODE ${i + 1} : ${ep.summary || ep.narration.slice(0, 200)}`).join('\n')}
+
+[RÈGLES DE RECALIBRATION]
+1. MILESTONES : Si un événement prévu n'a pas eu lieu ou a changé, déplace ou reformule les milestones restants.
+2. ÉVOLUTION PERSONNAGES : Mets à jour l'état psychologique des personnages (@Nom) en fonction de l'épisode précédent.
+3. TENSION : Réajuste la courbe globale si l'impact spectateur a été plus/moins fort que prévu.
+
+[FORMAT RÉPONSE JSON]
+Renvoie le blueprint COMPLET mis à jour.
+`.trim()
+
+    const raw = await this.generate(
+      prompt,
+      "Tu es le gardien de la cohérence macrométrique d'une saga cinématographique.",
+      'application/json'
+    )
+    const updatedBlueprint = this.parseJSONSafe<any>(raw, originalPlan.blueprint)
+
+    return {
+      ...originalPlan,
+      blueprint: updatedBlueprint,
+      lastRecalibration: Date.now()
+    }
+  }
+
+  protected getSystemPrompt(): string {
+    return 'Tu es le Cœur Stratégique de Vimax. Ton but est de transformer une idée en une saga épique, cohérente et rythmée.'
+  }
+
   private getRouterSystem(): string {
     return `
 Tu es un routeur d'intention narratif. Ton rôle est de classifier l'idée de l'utilisateur avec une précision chirurgicale.
@@ -226,8 +275,6 @@ ${bibleContext}
     `.trim()
   }
 
-  // ─── Public API ────────────────────────────
-
   /**
    * Étape 1 : Route l'intent et amplifie l'idée en script développé avec architecture Blueprint V7.0.
    */
@@ -329,7 +376,7 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
       title: expanded.data.title,
       script: expanded.data.planned_script,
       blueprint: expanded.data.blueprint,
-      episodes: [], // Sera rempli par Pass 2
+      episodes: [],
       finalCliffhanger: expanded.data.finalCliffhanger,
       unresolvedThreads: (expanded.data.unresolved_threads || []).map((t: any) => ({ ...t, status: 'active' as const }))
     }
@@ -340,8 +387,6 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
    */
   async enrichSaga(script: string, options: VimaxRunOptions = {}): Promise<Partial<SagaPlan>> {
     console.info(`[VimaxSagaPlanner] 🔍 Orchestration des extractions...`)
-
-    const narrativeExtractor = this.narrativeExtractor
 
     if (this.styleLock) {
       this.characterExtractor?.setStyleLock(this.styleLock)
@@ -397,17 +442,9 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
     }
   }
 
-  /**
-   * Orchestration Séquentielle 3-Pass (V8.0)
-   * 1. Bible & Blueprint (Draft)
-   * 2. Roadmap Extraction (Event Decomposition)
-   * 3. Scene Detailing (Per-episode loop)
-   */
   async planSaga(basicIdea: string, options: VimaxRunOptions = {}): Promise<SagaPlan> {
-    // PASS 1 : Bible & Blueprint
     const draft = await this.draftSaga(basicIdea, options)
 
-    // PASS 2 : Décomposition en Épisodes (Roadmap)
     console.info(
       `[VimaxSagaPlanner] 🛣️ Stage 2: Extraction de la roadmap (${options.targetEpisodeCount || 'auto'} épisodes)...`
     )
@@ -425,7 +462,6 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
       `BASE TOI SUR CE BLUEPRINT :\n${JSON.stringify(draft.blueprint, null, 2)}`
     )
 
-    // PASS 3 : Planification des Scènes par Épisode (Deep Planning)
     console.info(`[VimaxSagaPlanner] 🎬 Stage 3: Detailing scenes for ${episodeEvents.length} episodes...`)
 
     const episodes = []
@@ -449,10 +485,6 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
         absentProtagonists: event.absentProtagonists,
         scenes
       })
-      for (const scene of scenes) {
-        console.info(`     > Scène ${scene.sceneNumber}: ${scene.objective}`)
-      }
-      // Update event with detailed scenes for later use
       event.scenes = scenes
     }
 
@@ -469,19 +501,9 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
       options
     } as any
 
-    // Alias legacy
-    ;(plan as any).plan = {
-      ...draft,
-      episodes: plan.episodes
-    }
-
     return plan
   }
 
-  /**
-   * Stage 3 : Planifie les scènes détaillées pour un épisode spécifique.
-   * Isole l'épisode pour éviter la saturation du LLM.
-   */
   async planEpisodeScenes(
     episodeEvent: VimaxEvent,
     globalScript: string,
@@ -490,6 +512,9 @@ Crée un TITRE CINÉMATIQUE et accrocheur pour la saga globale. [LOI DU CLIFFHAN
     const system = `
 Tu es le Scénariste de Détail de Vimax Architecture (v21.0).
 Ta mission est de découper un ÉPISODE de saga en EXACTEMENT 6 scènes ultra-détaillées (10s par scène).
+Assure une PROGRESSION DRAMATIQUE : la Scène 1 DOIT être un "Setup" (Normalité, Enjeux). Pas d'action brutale dès le début.
+L'action monte crescendo vers le Climax en Scène 5.
+[BANNISSEMENT DU MICRO-DÉTAIL - V30.0] : Chaque scène doit faire AVANCER l'histoire de façon massive. Interdiction de scènes statiques (juste regarder, réfléchir, ou un geste mineur).
 
 [CONTEXTE GLOBAL DE LA SAGA]
 ${globalScript.slice(0, 2000)}
@@ -511,12 +536,41 @@ Pour chaque scène, fournis :
 8. focusSubject : Le sujet central précis de la scène (ex: "Le couteau sur la table", "Le regard de @Nom", "La porte qui s'entrouvre").
 9. tensionTarget : 1-10.
 10. obligatory : Contrainte visuelle ou narrative.
+11. transitionType : continuation | transition | rupture.
 
-[LOI DU STORYTELLING ÉVOCATEUR - V22.0]
-- CLARTÉ NARRATIVE : Chaque scène doit être un maillon INTELLIGIBLE d'une histoire.
-- IMAGERIE PHYSIQUE : L'objective doit utiliser une imagerie forte (ex: "La flamme danse dans le vent", "Lucas déchire sa chemise pour bander sa plaie").
-- BANNIS : "présenter", "découvrir", "réfléchir", "tension", "ambiance".
-- LOI DU CHANGEMENT D'ÉTAT : Un personnage doit radicalement changer d'état entre la Scène 1 et la Scène 6. Planifie une trajectoire de FRACTURE.
+[LOI DE LA CONTINUITÉ - V45.0]
+- continuation : Même moment, même lieu, mêmes personnages. L'action suit directement la résolution de la scène précédente sans saut.
+- transition : Changement de lieu ou de personnage principal (POV).
+- rupture : Saut temporel ou émotionnel majeur (Ellipse).
+
+[LOI DE L'EXTENSION SPATIALE - V31.0]
+- ANCRAGE FLUIDE : Le 'locationId' est une ancre. Tu as le DROIT d'improviser des sous-lieux ou des lieux de transition (ex: "Un couloir vers @RegistryItem", "Une ruelle près de @RegistryItem").
+- VARIÉTÉ VISUELLE : Ne reste pas dans le même cadrage si l'action avance. Change d'angle ou de pièce.
+- BANNIS DANS L'OBJECTIVE : "regarde", "pense". Focus sur le MOUVEMENT entre les espaces.
+
+[LOI DU DÉPLACEMENT MACROSCOPIQUE - V30.0]
+- VITESSE NARRATIVE : Chaque 10s doit couvrir une action MAJEURE. Pas de surplace.
+- CONSÉQUENCE : La scène N doit se terminer par un changement irréversible pour le personnage (lieu atteint, objet perdu, blessure reçue, vérité découverte).
+- BANNIS DANS L'OBJECTIVE : "regarde", "pense", "ajuste", "soupire". Focus sur le RÉSULTAT et le DÉPLACEMENT physique.
+
+[LOI DE L'OUVERTURE PROGRESSIVE - V26.0]
+- SCÈNE 1 (SETUP) : Tension 1-3. Focus sur l'équilibre, le quotidien ou la mise en place. Interdiction de combat ou de fracture irréversible ici.
+- SCÈNE 2 (INCIDENT) : Tension 4-5. L'élément déclencheur qui rompt le Setup.
+- SCÈNE 5 (CLIMAX) : Tension 9-10. Le pic de l'épisode. Fracture totale.
+- SCÈNE 6 (HOOK) : Tension 4-6. Lendemain, conséquence ou nouvelle menace.
+
+[LOI DU RYTHME FLUIDE - V25.0]
+- CLARTÉ NARRATIVE : Chaque scène doit être un maillon INTELLIGIBLE d'une histoire continue.
+- MOUVEMENT N-1 vers N : L'objective doit décrire comment on arrive dans la scène.
+- BANNIS DANS L'OBJECTIVE : "cheveux", "vêtements", "yeux". Focus sur le DÉPLACEMENT et le CHANGEMENT.
+
+[LOI DE LA CONSTANCE SECONDAIRE - V24.1]
+- Si un personnage secondaire (@Nom) est introduit, il doit être LISTÉ dans le champ "characters" de chaque scène où il est physiquement présent.
+- [VERROUILLAGE DES FIGURANTS] : Interdiction d'ajouter des personnages génériques non identifiés dans les scènes. Utilise uniquement le registre extrait.
+- CONSÉQUENCE : Si la narration mentionne une interaction avec une "foule" ou un "passant", cet acteur doit être identifié (@Foule, @Passant) pour garantir la continuité du rendu IA.
+
+[LOI DU VÉROUILLAGE TEMPOREL - V24.0]
+- Interdiction absolue de sauter d'une époque (ex: 1885) à une autre (Moderne) sans un saut narratif de type 'VISION' ou 'TRANSITION' explicite. La Foule doit porter des vêtements de l'époque active.
 
 [LOI DU ZÉRO DOUBLON] : Interdiction absolue de répéter le même verbe d'action ou le même objet focal sur plus d'une scène par épisode.
 
@@ -536,9 +590,11 @@ Tu travailles sur 6 scènes (10s chacune). Chaque bloc doit marquer un saut temp
       "characters": ["@Nom"],
       "characterState": { "@Nom": "..." },
       "locationId": "@Lieu",
+      "locationContext": "description du sous-lieu improvisé (ex: @House - Dans le grenier)",
       "tensionTarget": 5,
       "paceTarget": "medium",
       "obligatory": "...",
+      "transitionType": "continuation | transition | rupture",
       "prepares": "ce qui suit"
     }
   ]
@@ -559,9 +615,6 @@ Tu travailles sur 6 scènes (10s chacune). Chaque bloc doit marquer un saut temp
     }))
   }
 
-  /**
-   * Étend une saga existante avec de nouveaux épisodes.
-   */
   async extendSaga(existingPlan: SagaPlan, additionalCount: number, options: VimaxRunOptions = {}): Promise<SagaPlan> {
     const previousScript =
       typeof existingPlan.intent === 'string' ? existingPlan.script : (existingPlan as any).script || ''
@@ -607,7 +660,6 @@ Tu travailles sur 6 scènes (10s chacune). Chaque bloc doit marquer un saut temp
     const script = expanded.data.planned_script
     const episodes = expanded.data.episodes
 
-    // Extraction complète pour le nouvel Arc
     const characterRegistry = this.characterExtractor ? await this.characterExtractor.extractCharacters(script) : []
     const locationRegistry = this.locationExtractor ? await this.locationExtractor.extractLocations(script) : []
     const assetRegistry = this.assetExtractor ? await this.assetExtractor.extractAssets(script) : []
@@ -623,44 +675,74 @@ Tu travailles sur 6 scènes (10s chacune). Chaque bloc doit marquer un saut temp
       title: expanded.data.title,
       script,
       episodes,
-      finalCliffhanger: expanded.data.finalCliffhanger,
+      episodeEvents: episodes.map((ep) => ({
+        index: ep.episodeNumber - 1,
+        description: ep.eventDescription,
+        tensionTarget: ep.tensionTarget,
+        paceTarget: ep.paceTarget,
+        dramaticFunction: ep.dramaticFunction
+      })) as any,
       characterRegistry,
       locationRegistry,
       assetRegistry,
-      unresolvedThreads: [
-        ...existingPlan.unresolvedThreads.filter((t) => t.status === 'resolved'),
-        ...expanded.data.unresolved_threads.map((t) => ({ ...t, status: 'active' as const }))
-      ],
-      roadmap: narrativeData.roadmap,
-      atmosphere: atmosphereData.atmosphere,
-      visualEvolution: atmosphereData.visualEvolution,
-      relationshipMap: narrativeData.relationshipMap,
-      episodeEvents: []
-    } as SagaPlan
+      unresolvedThreads: (narrativeData as any).unresolvedThreads,
+      roadmap: (narrativeData as any).roadmap,
+      atmosphere: (atmosphereData as any).atmosphere,
+      visualEvolution: (atmosphereData as any).visualEvolution,
+      relationshipMap: (narrativeData as any).relationshipMap
+    }
   }
 
-  /**
-   * Génère un imagePrompt cinématique à partir d'un segment de narration.
-   * Utilise un 'anchor' (état visuel de la scène précédente) pour garantir la continuité spatiale et lumineuse.
-   */
   async generateImagePrompt(
     narrationSegment: string,
     characterContext = '',
     previousAnchor: VisualAnchorState | string | null = null,
     isClimax = false,
     correctionHint?: string,
-    context: SeriesContext = {}
-  ): Promise<{ imagePrompt: string; visualAnchor: VisualAnchorState }> {
-    const anchorData = typeof previousAnchor === 'string' ? previousAnchor : JSON.stringify(previousAnchor, null, 2)
+    context: SeriesContext = {},
+    previousVisualBeat?: string,
+    transitionType?: string,
+    cinematicIntent?: { lightingMood?: string; shotType?: string; framing?: string }, // [V8.6] Cinematic coherence
+    dialogue?: string // [V8.9] Acting & Expression alignment
+  ): Promise<{ imagePrompt: string; visualAnchor: VisualAnchorState; visualBeat: string }> {
+    // [V32.0] Récupération du décor pur depuis le registre (Découplage visuel)
+    const locationId =
+      context.plannedSceneContext?.locationId ||
+      (typeof previousAnchor === 'object' && previousAnchor?.worldState?.locationId)
+    const locationState = locationId && context.locationRegistry ? context.locationRegistry[locationId] : null
+
+    const dynamicWorldState =
+      typeof previousAnchor === 'object' && previousAnchor?.worldState
+        ? Object.entries(previousAnchor.worldState)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(', ')
+        : ''
+    const locationDecorSection = locationState
+      ? `\n\n[DÉCOR DE BASE DU LIEU - SANS PERSONNAGES]\n${locationState.baseVisualPrompt}\n${locationState.modifications && locationState.modifications.length > 0 ? `Modifications permanentes : ${locationState.modifications.join(', ')}` : ''}${dynamicWorldState ? `\nÉtat dynamique actuel : ${dynamicWorldState}` : ''}`
+      : ''
 
     const anchorSection = previousAnchor
-      ? `\n\n[RÉFÉRENCE VISUELLE PRÉCÉDENTE]\n${anchorData}\n\n[DIRECTIVE] Utilise cet état pour maintenir la cohérence de l'AXE CAMÉRA et de la POSITION des personnages. 
-${context.locationChanged ? "[RUPTURE VISUELLE OBLIGATOIRE] : Le lieu a changé. IGNORE la lumière de la scène précédente. Crée un contraste de lumière et d'atmosphère RADICAL par rapport à l'anchor précédente." : 'Assure-toi que la nouvelle scène est spatialement et lumineusement cohérente avec la précédente.'}`
+      ? `\n\n[MÉMOIRE VISUELLE (CONTINUITÉ SCÈNE PRÉCÉDENTE)]\n${typeof previousAnchor === 'string' ? previousAnchor : JSON.stringify(previousAnchor, null, 2)}`
       : ''
 
     const climaxDirective = isClimax
       ? "\n- IMPACT VISUEL : Ajoute systématiquement un impact physique violent (projection, onde de choc, étincelles, fumée épaisse) car c'est le point culminant."
       : ''
+
+    const lastLocationIdFromAnchor =
+      typeof previousAnchor === 'object' && previousAnchor?.worldState?.locationId
+        ? previousAnchor.worldState.locationId
+        : null
+
+    const continuityDirective =
+      previousVisualBeat && locationId === lastLocationIdFromAnchor
+        ? `\n\n[CONTINUITÉ DÉCOR - MÊME LIEU]\nL'instant précédent était : "${previousVisualBeat}".\nAssure-toi que les éléments du décor (objets déplacés, lumière, débris) sont COHÉRENTS avec cet instant précédent.`
+        : ''
+
+    const transitionDirective =
+      transitionType === 'continuation'
+        ? `\n\n[LOI DE LA VARIATION DOUCE - CONTINUATION DIRECTE]\nCette scène est la SUITE DIRECTE de l'instant précédent sans ellipse.\nL'image doit être une variation légère (même angle, même focale, mouvement d'acteur continu).`
+        : ''
 
     const styleBlock = this.styleLock
       ? `
@@ -673,81 +755,53 @@ ${context.locationChanged ? "[RUPTURE VISUELLE OBLIGATOIRE] : Le lieu a changé.
       : ''
 
     const vs = this.styleLock?.visualStyle.toLowerCase() || ''
-    const isWhiteboard =
-      vs.includes('whiteboard') ||
-      vs.includes('bâton') ||
-      vs.includes('stick figure') ||
-      vs.includes('croquis') ||
-      vs.includes('dessin') ||
-      vs.includes('illustration') ||
-      vs.includes('comics') ||
-      vs.includes('manga') ||
-      vs.includes('animation 2d')
-
-    const role = isWhiteboard
-      ? "Tu es le Directeur de l'Illustration et Concept Artist."
-      : 'Tu es le Directeur de la Photographie et Superviseur VFX.'
+    const isWhiteboard = vs.includes('whiteboard') || vs.includes('croquis') || vs.includes('illustration')
+    const role = isWhiteboard ? "Directeur de l'Illustration" : 'Directeur de la Photographie'
 
     const compositionDirective = isWhiteboard
-      ? "- COMPOSITION : Dessine le sujet @Nom au premier plan. Si l'action est centrée sur un détail ou un geste, focalise le dessin sur ce point précis (gros plan). Sinon, montre le sujet en entier."
-      : "- COMPOSITION : Adapte la distance focale à la narration. Le sujet @Nom doit être l'élément central. Si la narration décrit une action précise (ex: toucher un objet), utilise un GROS PLAN. S'il s'agit d'une action globale ou d'une découverte de lieu, utilise un PLAN LARGE incluant l'environnement et l'éclairage."
+      ? '- COMPOSITION : Dessine le sujet @Nom au premier plan.'
+      : "- COMPOSITION : Le sujet @Nom doit être l'élément central."
 
     const lightDirective = isWhiteboard
-      ? "- STYLE : Pas d'ombrage complexe. Fond blanc pur. Traits noirs."
-      : '- GRAMMAIRE DE LA LUMIÈRE : Interdiction de l\'expression "éclairage vif". Utilise : "lumière stroboscopique d\'alarme", "lumière rouge intermittente", "ombres dures projetées par le bas", "flash blanc aveuglant".'
+      ? "- STYLE : Pas d'ombrage complexe. Fond blanc pur."
+      : '- GRAMMAIRE DE LA LUMIÈRE : Nomme impérativement une SOURCE et une COULEUR.'
 
     const system = `
 ${role}
 ${styleBlock}
-- IDENTIFIANTS : Utilise UNIQUEMENT l'identifiant @Nom (ex: @Banane, @Alexandre). Fais correspondre exactement leur profil visuel. [OBLIGATION] PROTECT THE IDENTITY : Ne simplifie jamais les traits physiques fournis ; ils sont la clé de la cohérence visuelle.
-- STRICT PRESENCE : Ne dessine JAMAIS de personnage qui n'est pas explicitement mentionné dans la narration. L'ajout d'un personnage non mentionné est une erreur grave.
+- IDENTIFIANTS : Utilise UNIQUEMENT @Nom.
+- STRICT PRESENCE : Ne dessine JAMAIS de personnage non mentionné.
 ${compositionDirective}
 ${lightDirective}
-- CAMÉRA TECHNIQUE : Utilise impérativement le cadrage [FRAMING], l'angle [CAMERA_ANGLE] et le sujet focal [FOCUS_SUBJECT] demandés.
-- FOCUS VISUEL : Met en avant le [FOCUS_SUBJECT] au premier plan.
-- CAMÉRA NARRATIVE : Adapte le cadrage aux détails de la narration. Si un détail est accentué, passe en GROS PLAN si le [FRAMING] global le permet.
-- [LOI DES 3 PLANS] : Décris EXPLICITEMENT : 1. Premier Plan (Sujet focal @Nom) | 2. Plan Moyen (Action/Interaction) | 3. Arrière-Plan (Profondeur/Décor).
-- [BANNISSEMENT DES ADJECTIFS] : Interdiction absolue d'utiliser : "sombre", "mystérieux", "épique", "angoissant", "magnifique". 
-- OBLIGATION DE PREUVE PHYSIQUE : Remplace l'adjectif par un fait (ex: au lieu de "sombre", dis "murs de béton brut noirs, une seule ampoule nue").
-- GRAMMAIRE DE LA LUMIÈRE : Nomme impérativement une SOURCE et une COULEUR (ex: "néon bleu glacial", "lueurs d'incendie orange", "faisceau de lampe torche blanc").
-- CAUSALITÉ VISUELLE : Décris les ACTIONS concrètes (ex: une barre de fer tombe, une étincelle jaillit).
-- [LOI DE L'INNOVATION VISUELLE] : INTERDICTION ABSOLUE de répéter les mêmes sources de lumière (ex: néon, bougie), les mêmes couleurs dominantes ou les mêmes objets de décor que la scène précédente si le lieu a changé. Chaque prompt doit être une découverte visuelle.
-- PAS de métaphores. Description visuelle pure.
-- [CONTINUITÉ LUMINEUSE] Assure la cohérence avec le reste de la série.
-- [ISOLATION] IGNORE TOUT ce qui est entre crochets [Action / Émotion].
-- INTERDICTION d'utiliser des crochets ou des tags rigides.
+- [LOI DE L'ISOLATION DU DÉCOR - V32.0] : Tu travailles sur un décor nu. IGNORE les personnages passés qui n'apparaissent pas dans la narration actuelle.
+- [LOI DE L'ÉPHÉMÉRITÉ DES ACTANTS - V34.0] : Tout objet (prop) ou position est LOCAL à la scène. N'inclus JAMAIS dans 'activeProps' ou 'characterPositions' un élément qui n'est pas vu dans la narration actuelle.
+- [COHÉRENCE SPATIALE] : Utilise les éléments du bloc [DÉCOR DE BASE] pour garantir que le lieu est le même, mais traite chaque scène comme une image NEUVE pour les acteurs et les objets. Fais abstraction de toute image de référence passée.
+- [LOI DU MOMENT DÉCISIF - V36.0] : La narration peut décrire plusieurs actions successives. Tu dois IDENTIFIER l'instant T de tension maximale (le "frozen moment") et ne dessiner QUE cet instant. Interdiction de faire une moyenne visuelle du début et de la fin de l'action narrative.
+- [LOI DES 3 PLANS] : Décris 1. Premier Plan (@Nom) | 2. Plan Moyen | 3. Arrière-Plan (Décor du lieu).
+- [LOI DE L'INTÉGRATION DU DÉCOR] : Tu DOIS impérativement utiliser les éléments physiques décrits dans le bloc [DÉCOR DE BASE DU LIEU] (ex: murs, météo, objets fixes) pour construire ton 'imagePrompt'.
+- [SYNTHÈSE VISUELLE : L'IMAGE-CLEF] : La narration contient souvent plusieurs micro-actions. Tu DOIS synthétiser le segment en UNE SEULE IMAGE FIXE qui représente le point de bascule ou l'instant le plus iconique.
+- [FIDÉLITÉ NARRATIVE] : Ton prompt doit être le MIROIR VISUEL exact de la narration. Si la narration dit "elle tend une allumette", le visuel ne peut pas la montrer en train de marcher.
+- [LOI DE L'ACTING ET DU DIALOGUE - V8.9] : Utilise le texte du 'dialogue' fourni pour décrire précisément l'expression faciale et la posture du personnage (ex: bouche ouverte s'il crie, regard fuyant s'il ment).
+- [LOI DE L'ÉVOLUTION DU DÉCOR - V8.4] : Si une action narrative modifie l'environnement (ex: explosion, objet brisé, porte ouverte), tu DOIS le noter dans le champ 'worldState' pour que les scènes suivantes en héritent.
+- PAS de métaphores. Description visuelle pure et synthétique.
 
 ${this.getGlobalScriptBlock(context)}
-
 ${this.getEpisodePlanBlock(context)}
+${this.getScenePlanBlock(context)}
 
-[EXEMPLE GOLDEN 1 - VUE LARGE / DÉTAIL DÉCOR]
-dimly lit ancient city street, winter storm, thick uneven snow, stone buildings, gas lamp orange glow, wet cobblestones, Wide shot, eye level, @Little Girl, cylindrical brown body, large blue eyes, bundle of matches, standing center, trembling, faces toward right, @Passersby walking away in background, backs turned, 3D animation render, Pixar style, 8K, sharp focus, cold blue dominant light, warm orange accent from lamp, long eerie shadows, 16:9 cinematic ratio, no text, no watermark.
-
-[EXEMPLE GOLDEN 2 - GROS PLAN / VFX MIRAGE]
-dark alleyway at night, deep shadows, floating embers, translucent outline of an ornate black iron stove, shimmering table with golden plates superimposed, Close-up, @Little Girl, thin wooden fingers, holding single burning matchstick between fingers and camera, face bathed in flickering golden light, match flame foreground, glowing mirage of black Victorian iron stove in soft-focus background, 3D animation render, 8K, depth of field, cinematic lighting, warm flickering golden light from match flame, cool dark blue shadows, 16:9 cinematic ratio, no text, no watermark.
+${cinematicIntent?.lightingMood ? `\n[CINEMATIC LIGHTING OBLIGATOIRE]\n- AMBIANCE : ${cinematicIntent.lightingMood}\n- DIRECTIVE : Ton imagePrompt doit impérativement retranscrire cette ambiance lumineuse précise.` : ''}
+${cinematicIntent?.shotType ? `\n[CINEMATIC FRAMING OBLIGATOIRE]\n- TYPE DE PLAN : ${cinematicIntent.shotType}\n- DIRECTIVE : Respecte strictement ce cadrage dans ta description visuelle.` : ''}
 `.trim()
 
     const characterSection = characterContext
       ? `\n\n[LISTE DES PERSONNAGES]\n${characterContext}\n[/LISTE DES PERSONNAGES]`
       : ''
+    const visualStyleTag = this.styleLock?.visualStyle || '3D animation render, Pixar style, 8K'
 
-    const visualStyleTag = this.styleLock?.visualStyle || '3D animation render, Pixar style, 8K, unreal engine 5 style'
-
-    // TEMPLATE FINAL V18.1
-    const styleDirective = `[LOI DU LANGAGE MACHINE - V18.1]
-Tu dois générer un prompt technique UNIFIÉ, sans en-tête ni crochet.
-STRUCTURE INTERNE OBLIGATOIRE (tags séparés par des virgules) :
-1. DÉCOR (climat, heure, architecture).
-2. VUE (cadrage, angle).
-3. PERSONNAGE (Id, physique, action brusque).
-4. RELATION (position relative).
-5. QUALITÉ (${visualStyleTag}, 8K, cinematic).
-6. LUMIÈRE (Source + couleur).
-7. FORMAT (16:9).
-8. NÉGATIFS.
-
-INTERDICTION de mettre des labels comme "[DECOR] :". Génère juste la suite de tags.`
+    const styleDirective = `[LOI DU LANGAGE CINÉMATOGRAPHIQUE - V40.1]
+Génère une SYNTHÈSE visuelle narrative et fluide en ANGLAIS (Cohesive Descriptive Paragraph).
+N'utilise PAS de listes numérotées, PAS de labels, et PAS de pipes (|).
+Combine le décor, l'éclairage, la position de @Nom et l'action précise dans un paragraphe RICHE et TECHNIQUE optimisé pour un générateur d'images HD.`
 
     const framingDirective = context.plannedSceneContext?.framing
       ? `\n[FRAMING] : ${context.plannedSceneContext.framing}`
@@ -759,52 +813,39 @@ INTERDICTION de mettre des labels comme "[DECOR] :". Génère juste la suite de 
       ? `\n[FOCUS_SUBJECT] : ${context.plannedSceneContext.focusSubject}`
       : ''
 
-    const result = await this.generateStructured<{ imagePrompt: string; visualAnchor: VisualAnchorState }>(
-      `${anchorSection}\n\n<NARRATION>\n${narrationSegment}\n</NARRATION>${framingDirective}${angleDirective}${focusDirective}${characterSection}\n\n${styleDirective}${correctionHint ? `\n\n[CONSIGNE DE CORRECTION PRIORITAIRE] :\n${correctionHint}` : ''}
-\nGénère le prompt technique final unifié (tags sans labels).
-[IMPORTANT] : Traduis la description finale en ANGLAIS TECHNIQUE pour la machine.
-\n[FORMAT RÉPONSE JSON]
+    const result = await this.generateStructured<{
+      visualBeat: string
+      imagePrompt: string
+      visualAnchor: VisualAnchorState
+    }>(
+      `\n<NARRATION>\n${narrationSegment}\n</NARRATION>${locationDecorSection}${anchorSection}${continuityDirective}${transitionDirective}${framingDirective}${angleDirective}${focusDirective}${dialogue ? `\n\n[DIALOGUE POUR L'ACTING]\n${dialogue}` : ''}${characterSection}\n\n${styleDirective}${climaxDirective}${correctionHint ? `\n\n[CORRECTION] : ${correctionHint}` : ''}
+\nGénère le prompt technique en ANGLAIS sous forme de paragraphe narratif.
 { 
-  "imagePrompt": "...", 
-  "visualAnchor": {
-    "dominantLight": "...",
-    "cameraAxis": "...",
-    "characterPositions": { "@Nom": "@Lieu, position..." },
-    "activeProps": ["prop1"]
-  }
+  "visualBeat": "Description d'une phrase de l'instant T choisi (ex: @Lucas renverse la table)",
+  "imagePrompt": "A detailed descriptive paragraph capturing the scene...", 
+  "visualAnchor": { 
+    "dominantLight": "...", 
+    "cameraAxis": "...", 
+    "activeProps": [],
+    "characterStates": { "@Nom": "Current physical/emotional state (e.g. bleeding arm, soaking wet)" },
+    "worldState": { "environment_change": "Description of persistent change (e.g. table broken, glass on floor)", "locationId": "..." }
+  } 
 }
-\nRéponds UNIQUEMENT with du JSON.`,
+`,
       system,
       {
+        visualBeat: '',
         imagePrompt: '',
         visualAnchor: {
           dominantLight: 'neutral',
           cameraAxis: 'standard',
-          characterPositions: {},
-          activeProps: []
+          activeProps: [],
+          characterStates: {},
+          worldState: { locationId: locationId || 'unknown' }
         }
       }
     )
 
     return result.data
-  }
-
-  private getGlobalScriptBlock(context: SeriesContext): string {
-    if (!context.globalScript) return ''
-    const truncated = context.globalScript.slice(0, 1500)
-    return `
-[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE VISUELLE]
-${truncated}${context.globalScript.length > 1500 ? '\n[...]' : ''}
-`.trim()
-  }
-
-  private getEpisodePlanBlock(context: SeriesContext): string {
-    const plan = context.plannedEpisodeContext
-    if (!plan) return ''
-    return `
-[PLAN DE L'ÉPISODE PRÉVU]
-- TITRE : ${plan.title || 'Inconnu'}
-- HOOK : ${plan.hook || 'Inconnu'}
-`.trim()
   }
 }

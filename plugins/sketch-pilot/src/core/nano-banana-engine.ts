@@ -225,32 +225,19 @@ export class NanoBananaEngine {
       if (typeof img === 'object' && img.name) {
         // Character images from registry are named '@id'
         if (activeCharacters.includes(img.name.toLowerCase())) return true
-        // Keep if it's a location anchor or base anchor (handled separately usually but good to be safe)
-        if (img.name.startsWith('LOCATION') || img.name.startsWith('base-')) return true
-        // If it has no specific name mapping but is in the list, we might want to keep it
-        // but for characters we must be strict.
+        // [V33.1] LOCATION anchors are now textual only. STOP including them as image references to avoid ghosts.
+        if (img.name.startsWith('base-')) return true
         return false
       }
-      return true // Keep generic images (unlikely to be character models if no name)
+      return true
     })
     console.log('[FILTERED BASE IMAGES]', filteredBaseImages)
 
     const characterImages = refs || []
     const allBaseImages = await this.downloadAndEncodeImages([...filteredBaseImages, ...characterImages])
 
-    //console.log('[FILTERED BASE IMAGES]', allBaseImages)
-    // 2. Inject Bridge into references if it exists
-    const sequelBridgeUrl = (this.promptManager as any).seriesContext?.lastEpisodeFinalImage
-    if (sequelBridgeUrl) {
-      console.info(`[NanoBanana] 🎬 PROJECT SEQUEL: Bridging with last episode final frame...`)
-      const encodedBridge = await this.downloadAndEncodeImages([
-        {
-          name: 'Sequel Bridge',
-          data: sequelBridgeUrl
-        }
-      ])
-      allBaseImages.push(...encodedBridge)
-    }
+    // [V33.1] SEQUEL BRIDGE DISABLED: Sequential image reference pollution is banned.
+    // Continuity must come from textual DNA.
 
     const hasReferenceImages = allBaseImages.length > 0
 
@@ -292,7 +279,7 @@ export class NanoBananaEngine {
     const visualStyleLock = (this.promptManager as any).seriesContext?.visualStyleLock
 
     let systemInstruction = await this.promptManager.buildImageSystemInstruction(
-      hasReferenceImages || !!sequelBridgeUrl
+      hasReferenceImages // [V33.1] Sequel bridge reference removed
     )
 
     // [V48] Style Enforcement Logic: If a StyleLock is present, enforce it at the model level
@@ -506,11 +493,8 @@ ${forbidden}
       console.info(`[NanoBanana] 🧬 DNA: ${dnaInstruction}`)
     }
 
-    // [V4] Legacy Continuity Support (Previous Frame Chaining)
-    if (scene.continueFromPrevious && lastSceneB64) {
-      console.info(`[NanoBanana] 🔗 CONTINUITY: Adding previous scene as reference anchor.`)
-      effectiveRefs.push({ name: 'PREVIOUS_SCENE_FRAME', data: lastSceneB64 })
-    }
+    // [V33.1] PREVIOUS FRAME CHAINING DISABLED: To eliminate ghost characters.
+    // Continuity is now registry-based (baseVisualPrompt).
 
     // --- OPTIMIZATION: Physical Reuse or Polyptych existing asset ---
     if (fs.existsSync(imagePath) && !isReprompt) {

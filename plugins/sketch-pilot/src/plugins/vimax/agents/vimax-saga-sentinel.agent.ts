@@ -37,13 +37,9 @@ export class VimaxSagaSentinel extends VimaxBaseAgent {
     const historyBlock =
       history.length > 0 ? history.join('\n\n--- ÉPISODE SUIVANT ---\n\n') : 'Aucun historique (Épisode 1)'
 
-    const globalScriptBlock = context.globalScript
-      ? `\n[SCRIPT GLOBAL DE LA SAGA]\n${context.globalScript.slice(0, 2000)}${context.globalScript.length > 2000 ? '...' : ''}`
-      : ''
-
-    const episodePlanBlock = context.plannedEpisodeContext
-      ? `\n[PLAN DE L'ÉPISODE PRÉVU]\n- TITRE : ${context.plannedEpisodeContext.title}\n- HOOK : ${context.plannedEpisodeContext.hook}`
-      : ''
+    const globalScriptBlock = this.getGlobalScriptBlock(context)
+    const episodePlanBlock = this.getEpisodePlanBlock(context)
+    const blueprintBlock = this.getBlueprintBlock(context)
 
     const prompt = `
 [MISSION : GARDIEN DE LA CONTINUITÉ DE SAGA]
@@ -52,6 +48,8 @@ Ton but est de détecter toute "rupture de continuité" entre le nouvel épisode
 
 [BIBLE DE LA SÉRIE]
 ${bible || 'Non spécifiée.'}
+
+${blueprintBlock}
 
 ${globalScriptBlock}
 
@@ -99,9 +97,7 @@ ${historyBlock}
       )
       .join('\n')
 
-    const blueprintBlock = blueprint
-      ? `\n[ARCHITECTURAL BLUEPRINT V7.0]\n${JSON.stringify(blueprint, null, 2)}`
-      : 'Aucun blueprint structurel fourni.'
+    const blueprintBlock = this.getBlueprintBlock({ blueprint } as any)
 
     const prompt = `
 [MISSION : AUDIT DU PLAN DE SAGA - ARCHITECTE SENIOR]

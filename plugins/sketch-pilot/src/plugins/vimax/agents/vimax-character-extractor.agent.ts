@@ -39,11 +39,12 @@ export class VimaxCharacterExtractor extends VimaxBaseAgent {
 Tu es un expert en analyse de scripts cinématographiques.
 ${styleBlock}
 ${legacyBlock}
-Analyse le script fourni et extrais TOUS les profils visuels des personnages.
-NE FILTRE AUCUN RÔLE : Même les personnages secondaires, les figurants nommés ou les unités collectives (ex: @Gardes, @Foule) doivent être extraits car ils nécessitent une identité visuelle cohérente.
-
-[DIRECTIVE HÉRITAGE]
-Si un personnage du script existe déjà dans la [MÉMOIRE DE L'UNIVERS VIMAX], tu DOIS impérativement respecter son identité visuelle établie (traits physiques, accessoires signatures). Tu peux cependant enrichir sa description avec de nouveaux détails liés au segment actuel.
+[DIRECTIVE D'IDENTIFICATION : LOI DE L'IDENTITÉ TOTALE]
+- RÉCURRENCE : Tout personnage qui agit sur plus d'un beat doit avoir un identifiant @Nom (ex: @VieilHomme, @FigureCapuche).
+- [OBLIGATION] PERSONNAGES SECONDAIRES : Tu DOIS extraire et nommer (@PascalCase) TOUS les personnages secondaires, même s'ils n'ont qu'une seule action ou ligne de dialogue.
+- GROUPES DÉTAILLÉS : Si un groupe (ex: @Gardes) effectue des actions distinctes, crée des identifiants séparés (ex: @GardeChef, @GardeSentinelle).
+- NE FILTRE AUCUN RÔLE : Interdiction de laisser des "personnages inconnus". Chaque présence humaine doit être rattachée à un profil visuel stable.
+- REGISTRE PRIORITAIRE : Si un personnage existe déjà dans la [MÉMOIRE DE l'UNIVERS VIMAX], respecte strictement son identité.
 
 [DIRECTIVE DE STYLE]
 Le champ "portrait_prompt" DOIT ABSOLUMENT intégrer les termes requis du STYLE LOCKÉ. 
@@ -63,7 +64,10 @@ Réponds UNIQUEMENT du JSON valide :
       "currentMood": "Humeur actuelle",
       "static_features": "Description physique (alias)",
       "dynamic_features": "Humeur/Pose actuelle pour ce segment",
-      "portrait_prompt": "Prompt d'identité absolue incluant le STYLE LOCKÉ"
+      "portrait_prompt": "Prompt d'identité absolue incluant le STYLE LOCKÉ",
+      "arc_plan": "Trajectoire narrative (3-5 mots, ex: 'Rédemption par le sacrifice')",
+      "narrative_memory": ["Fait marquant 1", "Fait marquant 2"],
+      "off_screen_state": "Ce qu'il fait quand il n'est pas filmé (ex: 'monte la garde à l'entrée')"
     }
   ]
 }
@@ -145,14 +149,37 @@ Réponds uniquement en JSON.
 
   /**
    * Formate les profils en string injectable dans un imagePrompt.
-   * Ex: "@Alexandre: mâchoire carrée, cheveux noirs courts | costume anthracite, montre en argent"
+   * Inclut l'Héritage Physique (Traces) pour garantir la continuité des blessures/états.
    */
   formatForPrompt(profiles: CharacterProfile[]): string {
     return profiles
-      .filter((p) => p.static_features?.trim() || p.dynamic_features?.trim() || p.portrait_prompt?.trim())
+      .filter(
+        (p) =>
+          p.static_features?.trim() ||
+          p.dynamic_features?.trim() ||
+          p.portrait_prompt?.trim() ||
+          (p.traces && p.traces.length > 0)
+      )
       .map((p) => {
-        const parts = [p.portrait_prompt, p.static_features, p.dynamic_features].filter((f) => f?.trim())
-        return `${p.identifier}: ${parts.join(' | ')}`
+        const traceBlock =
+          p.traces && p.traces.length > 0 ? `[TRACES PHYSIQUES : ${p.traces.map((t) => t.description).join(', ')}]` : ''
+
+        const memoryBlock =
+          p.narrative_memory && p.narrative_memory.length > 0
+            ? `[MÉMOIRE NARRATIVE : ${p.narrative_memory.slice(-3).join('. ')}]`
+            : ''
+
+        const arcBlock = p.arc_plan ? `[OBJECTIF ARC : ${p.arc_plan}]` : ''
+
+        const parts = [
+          p.portrait_prompt,
+          p.static_features,
+          p.dynamic_features,
+          traceBlock,
+          arcBlock,
+          memoryBlock
+        ].filter((f) => f?.trim())
+        return `${p.identifier}: ${parts.join(', ')}`
       })
       .join('\n')
   }

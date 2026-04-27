@@ -38,7 +38,15 @@ ${this.getGlobalScriptBlock(context)}
 
 ${this.getEpisodePlanBlock(context)}
 
+${this.getScenePlanBlock(context)}
+
 ${voiceBlock}
+
+[LOI DE L'ESPACE SONORE - V42.0]
+- La scène dure 10 secondes (1.0 en relatif).
+- La voix off (VO) occupe les premières secondes.
+- INTERDICTION de parler pendant la VO. Ton dialogue doit commencer APRÈS le temps indiqué dans <VO_DURATION>.
+- Si VO_DURATION est 0.4, ton 'relativeStart' doit être >= 0.45 pour laisser un souffle.
 
 [FORMAT]
 Renvoie UNIQUEMENT un objet JSON valide :
@@ -56,22 +64,14 @@ Renvoie UNIQUEMENT un objet JSON valide :
 `.trim()
   }
 
-  private getGlobalScriptBlock(context: SeriesContext): string {
-    if (!context.globalScript) return ''
-    const truncated = context.globalScript.slice(0, 1500)
+  private getEmotionalSituationBlock(characterStates?: Record<string, string>): string {
+    if (!characterStates || Object.keys(characterStates).length === 0) return ''
+    const states = Object.entries(characterStates)
+      .map(([id, state]) => `- ${id} : ${state}`)
+      .join('\n')
     return `
-[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE DIALOGUES]
-${truncated}${context.globalScript.length > 1500 ? '\n[...]' : ''}
-`.trim()
-  }
-
-  private getEpisodePlanBlock(context: SeriesContext): string {
-    const plan = context.plannedEpisodeContext
-    if (!plan) return ''
-    return `
-[PLAN DE L'ÉPISODE PRÉVU]
-- TITRE : ${plan.title || 'Inconnu'}
-- HOOK : ${plan.hook || 'Inconnu'}
+[SITUATION ÉMOTIONNELLE DES ACTEURS - V8.1]
+${states}
 `.trim()
   }
 
@@ -82,12 +82,19 @@ ${truncated}${context.globalScript.length > 1500 ? '\n[...]' : ''}
     sceneNarration: string,
     eventDescription: string,
     context: SeriesContext = {},
-    voiceHistories: CharacterVoiceHistory[] = [] // Hardening 2.0
+    voiceHistories: CharacterVoiceHistory[] = [],
+    voDuration = 0, // [V42.0] Duration in relative (0.0 to 1.0)
+    characterStates?: Record<string, string> // [V8.1] Dynamic Emotional States
   ): Promise<any[]> {
+    const emotionalBlock = this.getEmotionalSituationBlock(characterStates)
     const prompt = `
 <NARRATION_DE_LA_SCÈNE>
 ${sceneNarration}
 </NARRATION_DE_LA_SCÈNE>
+
+${emotionalBlock}
+
+<VO_DURATION>${voDuration.toFixed(2)}</VO_DURATION>
 
 <PLAN_ORIGINAL_DU_SEGMENT>
 ${eventDescription}

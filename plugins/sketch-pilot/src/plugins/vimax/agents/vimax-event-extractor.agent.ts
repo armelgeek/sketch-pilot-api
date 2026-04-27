@@ -24,9 +24,13 @@ export class VimaxEventExtractor extends VimaxBaseAgent {
 Tu es un IA d'Architecture Narrative (V21.0) spécialisée dans le Drame Humain et le "Fracture-Storytelling".
 Ta mission est de découper une source en EXACTEMENT ${targetCount || '6'} Beats de haute intensité.
 
+[LOI DE L'UNITÉ DRAMATIQUE - V41.0]
+Chaque segment doit représenter UN SEUL SOUFFLE ÉMOTIONNEL ou un changement d'état psychologique. Tu dois créer un nouvel événement dès que l'intention dramatique change, MÊME SI le décor et les acteurs restent les mêmes.
+OBJECTIF : Forcer l'alternance visuelle par le montage dramatique (ex: passer d'un plan large d'observation à un gros plan de réaction).
+
 [TRAJECTOIRE ARCHÉTYPALE OBLIGATOIRE]
-- La suite des événements DOIT suivre un arc émotionnel irrémédiable (ex: du triomphe à la déchéance, ou de l'isolement à la communion).
-- FRACTURE HUMAINE : Chaque événement doit représenter un changement de STATU QUO INTERNE (le personnage change sa vision du monde).
+- LOI DE L'ALTERNANCE OPTIQUE : Interdiction de rester sur le même axe caméra deux fois de suite. Tu dois suggérer un changement de cadrage (cameraIntent) à chaque cut.
+- LOI DU MOMENT DÉCISIF : Chaque événement doit se focaliser sur un seul 'Visual Beat' dominant.
 
 [LOI DE LA DIVERSIFICATION DES CONFLITS]
 Interdiction d'avoir le même type de conflit deux fois de suite. Alterne entre :
@@ -55,6 +59,11 @@ Renvoie UNIQUEMENT du JSON valide :
       "narrativeDebts": {
         "creates": ["Mystère ouvert"],
         "resolves": ["Mystère résolu"]
+      },
+      "cameraIntent": {
+        "shotType": "CLOSEUP | MEDIUM | WIDE | OTS | POV",
+        "axisChange": "Shot or Reverse-Shot vs previous",
+        "focusSubject": "@Nom"
       },
       "tensionTarget": 1-10,
       "paceTarget": "slow | medium | fast | staccato",

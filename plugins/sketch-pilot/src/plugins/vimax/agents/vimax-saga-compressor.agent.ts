@@ -73,17 +73,24 @@ Compresse ce texte en suivant les directives.
   /**
    * Extrait le pont narratif entre deux épisodes.
    */
-  async extractEpisodeBridge(lastEpisodeNarration: string): Promise<any> {
+  async extractEpisodeBridge(lastEpisodeNarration: string, lastCharacterStates?: Record<string, string>): Promise<any> {
     const system = `
 Tu es un analyste narratif expert. Analyse cet épisode et extrais le pont de continuité (EpisodeBridge) en JSON.
 `.trim()
 
     const raw = await this.generate(`<ÉPISODE>\n${lastEpisodeNarration}\n</ÉPISODE>`, system, 'application/json')
-    return this.parseJSONSafe(raw, {
+    const bridge = this.parseJSONSafe(raw, {
       unresolvedCliffhanger: '',
       missingCharacters: [],
       activeObjects: [],
       worldState: {}
     })
+
+    // [V8.3] Inject visual character states into the bridge
+    if (lastCharacterStates) {
+      bridge.characterStates = { ...(bridge.characterStates || {}), ...lastCharacterStates }
+    }
+
+    return bridge
   }
 }

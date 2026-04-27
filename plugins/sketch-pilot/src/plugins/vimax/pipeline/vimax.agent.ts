@@ -21,6 +21,7 @@ import { VimaxScriptEnhancer } from '../agents/vimax-script-enhancer.agent'
 import { VimaxSpectatorAgent } from '../agents/vimax-spectator.agent'
 import { VimaxStyleExtractor } from '../agents/vimax-style-extractor.agent'
 import { VimaxUniversalCriticAgent } from '../agents/vimax-universal-critic.agent'
+import { LessonStore } from '../core/lesson-store'
 import { VimaxBrain } from '../core/vimax-brain'
 import { VimaxContinuityEngine } from '../core/vimax-continuity.engine'
 import { VimaxPluginRegistry } from '../core/vimax-plugin-registry'
@@ -334,15 +335,32 @@ export class VimaxAgent {
 
     // 🎨 Hydratation du StyleLock depuis le contexte persistant
     const persistence = sagaPlan.options?.seriesContext
+    let seriesContext: SeriesContext = { ...sagaPlan.options?.seriesContext }
+
     if (persistence?.visualStyleLock) {
       console.info(`[VimaxAgent] 🎨 Restauration du StyleLock : ${persistence.visualStyleLock.visualStyle}`)
-      this.planner.setStyleLock(persistence.visualStyleLock)
-    }
+      // 1. Démarrage de l'épisode
+      console.info(`[VimaxAgent] 🚀 Démarrage de l'ÉPISODE ${episodeIndex}/${sagaPlan.episodeEvents.length}...`)
 
-    const seriesContext: SeriesContext = {
-      ...sagaPlan.options.seriesContext,
-      intent: sagaPlan.plan.intent,
-      previousEpisodes: []
+      // [V55] IMMUTABLE INTELLIGENCE SNAPSHOT : On charge les leçons UNE SEULE FOIS pour l'épisode entier
+      // Cela évite les race conditions et les lectures disque inutiles dans chaque agent.
+      const store = LessonStore.getInstance()
+      await store.load()
+      const lessonSnapshot = store.getAllLessons(sagaPlan.options.brainMode || 'all')
+
+      seriesContext = {
+        ...seriesContext,
+        intent: sagaPlan.plan.intent,
+        seriesBible: sagaPlan.roadmap?.scriptSummary,
+        globalScript: sagaPlan.script,
+        previousEpisodes: [],
+        characterRegistry: Object.fromEntries(sagaPlan.characterRegistry.map((p: any) => [p.identifier, p])),
+        locationRegistry: Object.fromEntries(sagaPlan.locationRegistry.map((l: any) => [l.locationId || 'unknown', l])),
+        // [V55] Injection des leçons immuables dans le contexte
+        // @ts-ignore
+        lessonSnapshot
+      }
+      this.planner.setStyleLock(persistence.visualStyleLock)
     }
 
     const episodeFiles = await fs.readdir(sagaDir).catch(() => [])
@@ -560,7 +578,29 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     const episodes: VimaxEpisode[] = []
     for (let i = 1; i <= sagaPlan.episodeEvents.length; i++) {
       console.log(`[VimaxAgent] Génération de l'épisode ${i}/${sagaPlan.episodeEvents.length}...`)
-      episodes.push(await this.runSingleEpisode(seriesId, i))
+
+      // [V52] EXECUTIVE AMYGDALA : On vérifie si le système est sain avant de continuer
+      if (i > 1 && options.brainMode === 'all') {
+        const logs = await this.brain.getRecentHistory(seriesId, 10)
+        const report = await this.brain.getAnomalies(logs)
+        if (report.isCompromised) {
+          console.error(
+            `[VimaxAgent] 🚨 ARRÊT D'URGENCE : L'Amygdale a détecté une anomalie critique ! ${report.rationale}`
+          )
+          throw new Error(`Cinematic Singularity Compromised: ${report.rationale}`)
+        }
+      }
+
+      const episode = await this.runSingleEpisode(seriesId, i)
+      episodes.push(episode)
+
+      // [V48] RE-CALIBRATION RÉCURSIVE DU BLUEPRINT
+      console.info(`[VimaxAgent] 🔄 Synchronisation du Blueprint vivant post-épisode ${i}...`)
+      const updatedPlan = await this.planner.recalibrateBlueprint(sagaPlan, episodes)
+
+      // Persistance de la recalibration
+      await fs.writeFile(path.join(sagaDir, 'plan.json'), JSON.stringify(updatedPlan, null, 2))
+      sagaPlan.blueprint = updatedPlan.blueprint
     }
 
     return {
@@ -582,6 +622,17 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
   ): Promise<VimaxEpisode> {
     const prefix = `episode-${index + 1}`
 
+    // [V8.0] Injection du contexte de l'épisode depuis la roadmap
+    context.plannedEpisodeContext = {
+      title: event.description,
+      hook: event.description,
+      dramaticFunction: event.dramaticFunction,
+      actPosition: `${event.actPosition?.act || 1}`,
+      tensionTarget: event.tensionTarget,
+      paceTarget: event.paceTarget,
+      impactedCharacters: (event.characterImpacts || []).map((i) => i.identifier)
+    }
+
     // 1. Narration complète
     let fullNarration = await this.narration.generateEpisodeNarration(event, context)
     await this.saveIntermediate(`${prefix}-pass1-narration`, fullNarration)
@@ -595,6 +646,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
         history,
         context
       )
+      await this.savePromptSnapshot(this.sagaSentinel, `${prefix}-continuity-audit`)
 
       if (!sagaAudit.isConsistent) {
         const correctionHint = `CORRECTION DE CONTINUITÉ REQUISE :\n${sagaAudit.violations.map((v) => `- ${v}`).join('\n')}\n\nREFAIS LA NARRATION.`
@@ -638,7 +690,8 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
           prepares: s.prepares,
           paceTarget: s.paceTarget,
           cliffhanger: s.cliffhanger
-        }
+        },
+        transitionType: (s as any).transitionType
       }))
       // Mark last scene as true
       if (sceneEvents.length > 0) {
@@ -675,13 +728,22 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     })
 
     const charContext = this.characterExtractor.formatForPrompt(mergedProfiles)
-    const scenes = await this.buildScenes(sceneEvents, context, charContext, mergedProfiles, continuity, options)
+    const { scenes, lastAnchor } = await this.buildScenes(
+      sceneEvents,
+      context,
+      charContext,
+      mergedProfiles,
+      continuity,
+      options,
+      fullNarration // [V47] Pass full narration for style loop
+    )
 
     // Bridge pour l'épisode suivant
     let bridge: any
     if (scenes.length > 0) {
       const lastNarration = scenes.at(-1)!.narration
-      bridge = await this.compressor.extractEpisodeBridge(lastNarration)
+      // [V8.3] Le pont hérite désormais de l'état physique final de l'épisode
+      bridge = await this.compressor.extractEpisodeBridge(lastNarration, lastAnchor?.characterStates)
     }
 
     return {
@@ -708,13 +770,15 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     characterContext: string,
     profiles: CharacterProfile[],
     continuity: VimaxContinuityEngine,
-    options: VimaxRunOptions
-  ): Promise<VimaxScene[]> {
-    if (sceneEvents.length === 0) return []
+    options: VimaxRunOptions,
+    fullNarration: string // [V47] Ghost Script
+  ): Promise<{ scenes: VimaxScene[]; lastAnchor: VisualAnchorState | null }> {
+    if (sceneEvents.length === 0) return { scenes: [], lastAnchor: null }
     const intermediateScenes: any[] = []
     const sceneMemories: SceneMemory[] = []
     const tensionCurve = continuity.tension.buildCurve(sceneEvents.length, context.intent || 'narrative')
     let lastVisualAnchor: VisualAnchorState | null = null
+    let lastVisualBeat: string | undefined = undefined
 
     // 0. Style Lock Logic (Vision-Driven)
     const existingLock = this.planner.getStyleLock()
@@ -774,10 +838,13 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       let impact: any = null
 
       if (i > 0) {
+        // [V49] SAGA-SCALE SPECTATOR MEMORY : On passe l'historique de la saga
+        const previousEpSummaries = context.previousEpisodes?.map((e) => e.summary || '') || []
         impact = await this.spectator.analyzeSpectatorImpact(
           sceneMemories,
           context.intent && typeof context.intent !== 'string' ? context.intent.audience : undefined,
-          context.intent // [V50] Pass the full intent for deep structural analysis
+          context.intent,
+          previousEpSummaries
         )
         respirationDirective = `\n[DIRECTIVE RESPIRATION NARRATIVE]\n- État Saturation: ${impact.state.saturationLevel}%\n- Direction: ${impact.directive.tensionTarget}\n- Conseil: ${impact.directive.rationale}\n${impact.directive.ellipticalHint ? `- Ellipse: ${impact.directive.ellipticalHint}` : ''}`
 
@@ -796,24 +863,35 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       // [V12.0] Location Continuity & Break Detection
       context.locationChanged = lastLocationId !== null && event.locationId !== lastLocationId
       lastLocationId = event.locationId || null
-      if (context.plannedSceneContext) {
-        context.plannedSceneContext.locationId = event.locationId
+      const transitionType = event.transitionType || 'transition'
+
+      // [V8.0] Injection chirurgicale du contexte de scène (Objective & Directives)
+      context.plannedSceneContext = {
+        sceneNumber: i + 1,
+        function: event.dramaticFunction,
+        objective: event.metadata?.objective || event.description,
+        characterState: event.metadata?.characterState,
+        obligatory: event.metadata?.obligatory,
+        locationId: event.locationId
       }
 
       // 1. Narration de scène (Pass 1.5) - [V12.0] Trailer Concision
-      const targetWordCount = '10-15 mots'
+      const targetWordCount = '20'
 
       const sceneResult = await this.narration.generatePolishedNarration(
         event,
         context,
         targetWordCount,
-        options.maxScenes,
+        sceneEvents.length,
         i === sceneEvents.length - 1,
-        sceneMemories,
+        sceneMemories.slice(-3),
         i + 1,
         sceneEvents.length,
-        continuity.formatFullContinuityBlock(),
-        continuity.tension.formatForPrompt(i + 1, sceneEvents.length, tensionCurve) + respirationDirective
+        continuity.formatFullContinuityBlock(), // [V45] Live Continuity Feeding
+        continuity.tension.formatForPrompt(i + 1, sceneEvents.length, tensionCurve) + respirationDirective,
+        '', // intentReminder
+        fullNarration, // [V47] Ghost Script Style Inheritance
+        transitionType
       )
 
       // [V5.5] Maturation Cycle (Production Mode)
@@ -853,71 +931,188 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
           }
         }
       }
-      sceneMemories.push({
-        ...sceneResult.memory,
-        spectatorCognition: impact?.cognition // [V50] Persist cognitive context
-      })
+
+      // [V8.1 & V8.2] DYNAMIC CHARACTER CONTEXT : Fusion de l'identité visuelle, de l'état prévu et de l'héritage visuel
+      const currentSceneCharacterContext = this.characterExtractor.formatForPrompt(
+        profiles.map((p) => {
+          const sceneState = event.metadata?.characterState?.[p.identifier]
+          const anchorState = lastVisualAnchor?.characterStates?.[p.identifier]
+          const mergedState = [anchorState, sceneState].filter(Boolean).join('. ')
+          return mergedState ? { ...p, dynamic_features: mergedState } : p
+        })
+      )
+
+      // [V42.0] SONIC ORCHESTRATION : Calcul de l'encombrement de la voix off
+      const narrationWordCount = sceneResult.narration.split(/\s+/).length
+      const estimatedVoDurationSec = narrationWordCount / 2.5 // 150 wpm
+      const relativeVoDuration = Math.min(0.8, estimatedVoDurationSec / 10) // Cap à 80% de la scène
+
+      // [V42.1] Dialogue Generation (Sequential Pass 1.6)
+      const sceneDialogue = await this.dialogue.generateDialogue(
+        sceneResult.narration,
+        event.description,
+        context,
+        [],
+        relativeVoDuration,
+        event.metadata?.characterState // [V8.1] Injection des états émotionnels
+      )
 
       // 2. Parallel Assets Generation (Pass 2.x) - [v6.0]
-      console.info(`[VimaxAgent] ⚡ Génération parallèle des assets pour la scène ${i + 1}...`)
-      const [visual, sceneMeta, animMeta] = await Promise.all([
-        // Pass 2.0 - Visuals & Audits
+      console.info(`[VimaxAgent] ⚡ Génération chirurgicale des assets pour la scène ${i + 1}...`)
+
+      // [V51] CINEMATIC TRIANGLE ALIGNMENT : On casse le parallélisme pour l'alignement Tension-Acting
+      // Étape 1 : Le Screenwriter définit la tension et le cadrage
+      const sceneMeta = await this.screenwriter.generateSceneMeta(
+        sceneResult.narration,
+        event.description,
+        '', // imagePrompt (not yet generated)
+        i + 1, // sceneNumber
+        sceneEvents.length, // totalScenes
+        context,
+        false, // forceClimax
+        impact?.directive // cameraIntent
+      )
+
+      const framing = sceneMeta.composition?.shotType || 'MEDIUM'
+
+      // Étape 2 : Le Visuel et l'Animation 'écoutent' les métadonnées pour s'aligner
+      const [visual, animMeta] = await Promise.all([
         (async () => {
+          let currentAnchor = lastVisualAnchor
+          if (currentAnchor) {
+            const narration = sceneResult.narration.toLowerCase()
+            currentAnchor = {
+              ...currentAnchor,
+              // [V8.7] On ne filtre plus agressivement les props (ils doivent persister)
+              // On ne les met à jour que si nécessaire, mais on garde l'héritage
+              activeProps: currentAnchor.activeProps || [],
+              characterPositions: Object.fromEntries(
+                Object.entries(currentAnchor.characterPositions || {}).filter(([id]) =>
+                  narration.includes(id.toLowerCase())
+                )
+              )
+            }
+          }
+
           const v = await this.planner.generateImagePrompt(
             sceneResult.narration,
-            characterContext,
-            lastVisualAnchor,
+            currentSceneCharacterContext, // [V8.1] Contexte dynamique
+            currentAnchor,
             i === sceneEvents.length - 1,
-            undefined,
-            context
+            '', // correctionFeedback
+            context,
+            lastVisualBeat,
+            transitionType,
+            {
+              lightingMood: sceneMeta.composition?.lightingMood,
+              shotType: sceneMeta.composition?.shotType,
+              framing: sceneMeta.composition?.shotType // Alias for compatibility
+            },
+            sceneDialogue // [V8.9] Acting alignment
           )
-
-          // [V3] Vision-Narrative Fidelity Audit
-          const visualAudit = await this.critic.auditVisual(
-            'image',
-            v.imagePrompt,
-            `Narration: ${sceneResult.narration}`
-          )
-          if (!visualAudit.globallyCoherent && visualAudit.score < 60) {
-            console.warn(`[VimaxAgent] ⚠️ Drift visuel détecté en scène ${i + 1} (Pass 2.0)`)
-            const correctionFeedback = visualAudit.feedbacks.map((f) => `${f.issue}: ${f.correction}`).join('\n')
-            const corrected = await this.planner.generateImagePrompt(
-              sceneResult.narration,
-              characterContext,
-              lastVisualAnchor,
-              i === sceneEvents.length - 1,
-              `CORRECTION VISUELLE REQUISE :\n${correctionFeedback}`,
-              context
-            )
-            return corrected
-          }
           return v
         })(),
-        // Pass 2.1 - Cinematographic Metadata
-        this.screenwriter.generateSceneMeta(
+        this.animation.generateAnimation(
           sceneResult.narration,
           event.description,
-          '', // Image prompt will be synced later
-          i + 1,
-          sceneEvents.length,
-          context
-        ),
-        // Pass 2.2 - Animation Logic
-        this.animation.generateAnimation(sceneResult.narration, event.description, [], context)
+          sceneDialogue,
+          context,
+          {
+            visualBeat: undefined, // Sera fusionné par le mixeur final
+            imagePrompt: undefined,
+            framing
+          },
+          sceneMeta.tensionState?.level || 5, // [V51] Alignement Tension
+          sceneMeta.pacing || 5 // [V51] Alignement Pacing
+        )
       ])
 
       lastVisualAnchor = visual.visualAnchor
+      lastVisualBeat = visual.visualBeat
 
       intermediateScenes.push({
         ...sceneMeta,
         sceneNumber: i + 1,
         narration: sceneResult.narration,
         imagePrompt: visual.imagePrompt,
+        visualBeat: visual.visualBeat, // [V38.0] Persist the decisive moment
+        transitionType,
         animationPrompt: animMeta.animationPrompt,
+        soundscape: animMeta.soundscape, // [V9.0] Cinematic Sound Design
+        dialogue: sceneDialogue, // [V42.0] Include orchestrated dialogue
         acting: animMeta.acting,
         paceWeight, // [V48]
         isElliptical // [V48]
       })
+
+      // [V8.5] PROMPT LOGGING : Capture des prompts pour audit et planning
+      const stepPrefix = `scene-${i + 1}`
+      await Promise.all([
+        this.savePromptSnapshot(this.dialogue, `${stepPrefix}-dialogue`),
+        this.savePromptSnapshot(this.screenwriter, `${stepPrefix}-screenwriter`),
+        this.savePromptSnapshot(this.planner, `${stepPrefix}-planner`),
+        this.savePromptSnapshot(this.animation, `${stepPrefix}-animation`)
+      ])
+
+      // [V39.0] VISUAL-TO-NARRATIVE BRIDGE : On mémorise les faits visuels pour la suite
+      sceneMemories.push({
+        ...sceneResult.memory,
+        visualBeat: visual.visualBeat,
+        imagePrompt: visual.imagePrompt,
+        framing,
+        spectatorCognition: impact?.cognition
+      })
+
+      // [V3.0] SECONDARY INTELLIGENCE : Mise à jour de la mémoire narrative
+      for (const profile of profiles) {
+        const isPresentInScene = sceneMeta.charactersInScene?.includes(profile.identifier)
+        if (isPresentInScene) {
+          if (!profile.narrative_memory) profile.narrative_memory = []
+          profile.narrative_memory.push(`Scène ${i + 1} : ${sceneResult.narration}`)
+          profile.off_screen_state = 'Actif dans la scène'
+        }
+      }
+
+      // [V44] ACCUMULATION DES TRACES PHYSIQUES : On transfère les patchs dans les profils
+      if (sceneMeta.simulationPatch?.charactersPatch) {
+        for (const [id, patch] of Object.entries(sceneMeta.simulationPatch.charactersPatch)) {
+          const profile = profiles.find((p) => p.identifier === id)
+          if (profile && typeof patch === 'string' && patch.trim()) {
+            if (!profile.traces) profile.traces = []
+            // On ajoute une trace permanente pour cet épisode
+            profile.traces.push({
+              id: `trace-${i + 1}-${id}`,
+              type: 'scar', // Défaut, sera raffiné par le Brain si besoin
+              description: patch,
+              acquiredAtScene: i + 1,
+              permanent: true,
+              visualImpact: 'High'
+            })
+          }
+        }
+      }
+
+      // [V45] SEQUENTIAL MEMORY FEEDING : On commite les faits physiques dans le trackers de continuité
+      if (sceneMeta.simulationPatch) {
+        // Personnages
+        if (sceneMeta.simulationPatch.charactersPatch) {
+          const charStates = Object.entries(sceneMeta.simulationPatch.charactersPatch).map(([id, p]) => ({
+            identifier: id,
+            physicalState: typeof p === 'string' ? p : p.state || 'nominal',
+            emotionalState: typeof p === 'string' ? 'stable' : p.emotion || 'stable'
+          }))
+          continuity.characters.update(charStates as any)
+        }
+        // Monde
+        if (sceneMeta.simulationPatch.worldPatch) {
+          const worldStates = Object.entries(sceneMeta.simulationPatch.worldPatch).map(([id, p]) => ({
+            locationId: id,
+            currentState: p,
+            modifications: [] // TODO: Extract more detail if available
+          }))
+          continuity.locations.update(worldStates as any)
+        }
+      }
 
       const lastScene = intermediateScenes.at(-1)
 
@@ -946,7 +1141,7 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
     const timePerWeight = targetTotal / totalWeight
 
     let currentStartTime = 0
-    return intermediateScenes.map((s, idx) => {
+    const finalScenes = intermediateScenes.map((s, idx) => {
       const duration = (s.paceWeight || 1) * timePerWeight
       const scene = {
         ...s,
@@ -957,6 +1152,8 @@ Respecte la structure JSON d'origine et conserve les identifiants @PascalCase.
       currentStartTime += duration
       return scene
     }) as VimaxScene[]
+
+    return { scenes: finalScenes, lastAnchor: lastVisualAnchor }
   }
 
   private async saveIntermediate(name: string, data: any): Promise<void> {

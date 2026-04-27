@@ -75,13 +75,24 @@ export class OpenAILLMService implements LLMService {
   ): Promise<string> {
     return withRetry(
       async () => {
-        const messages: any[] = []
+        let finalPrompt = prompt
+        let finalSystem = systemInstruction
 
-        if (systemInstruction) {
-          messages.push({ role: 'system', content: systemInstruction })
+        if (responseMimeType === 'application/json') {
+          const contentToSearch = (finalPrompt + (finalSystem || '')).toLowerCase()
+          if (!contentToSearch.includes('json')) {
+            if (finalSystem) finalSystem += '\n\nImportant: your response must be a valid JSON object.'
+            else finalPrompt += '\n\nImportant: your response must be a valid JSON object.'
+          }
         }
 
-        const userContent: any[] = [{ type: 'text', text: prompt }]
+        const messages: any[] = []
+
+        if (finalSystem) {
+          messages.push({ role: 'system', content: finalSystem })
+        }
+
+        const userContent: any[] = [{ type: 'text', text: finalPrompt }]
 
         if (images && images.length > 0) {
           for (const img of images) {

@@ -70,6 +70,19 @@ export class LessonStore {
       try {
         const raw = await fs.readFile(this.storePath, 'utf8')
         this.data = JSON.parse(raw)
+
+        // [MIGRATION & SÉCURITÉ] : Si lessons manque mais laws existe (legacy)
+        if (!this.data.lessons && (this.data as any).laws) {
+          this.data.lessons = (this.data as any).laws.map((l: any) => ({
+            id: l.id,
+            directive: l.directive,
+            agentName: 'Global',
+            category: 'law',
+            tags: []
+          }))
+        }
+        if (!this.data.lessons) this.data.lessons = []
+        if (!this.data.globalDirectives) this.data.globalDirectives = []
       } catch {
         this.data = { version: '1.0.0', lessons: [], globalDirectives: [] }
       }
@@ -78,6 +91,7 @@ export class LessonStore {
       try {
         const rawL = await fs.readFile(this.learningPath, 'utf8')
         this.learningData = JSON.parse(rawL)
+        if (!this.learningData.lessons) this.learningData.lessons = []
       } catch {
         this.learningData = { version: '1.0.0', lessons: [], globalDirectives: [] }
       }
@@ -185,14 +199,37 @@ export class LessonStore {
         ? [...(this.data.lessons || []), ...(this.learningData.lessons || [])]
         : [...(this.data.lessons || [])]
 
-    const filteredPool = allAvailable.filter(
-      (l) =>
-        (l.agentName === agentName || l.agentName === 'Global' || (legacyName && l.agentName === legacyName)) &&
-        (!l.seriesId || l.seriesId === seriesId)
-    )
+    // [V50] SHARDING GLOBAL : On ne prend les leçons Global que si elles sont pertinentes pour le domaine de l'agent
+    const agentDomains = {
+      narration: ['VimaxNarrationAgent', 'VimaxSagaPlanner', 'VimaxEventExtractor'],
+      visual: ['VimaxScreenwriter', 'VimaxCharacterExtractor', 'VimaxLocationExtractor', 'VimaxAtmosphereExtractor'],
+      logic: ['VimaxAgent', 'VimaxSagaPlanner'],
+      cinematic: ['VimaxScreenwriter', 'VimaxDialogueAgent', 'VimaxAnimationAgent']
+    }
+
+    const filteredPool = allAvailable.filter((l) => {
+      // Cas 1 : Leçon spécifique à l'agent
+      if (l.agentName === agentName || (legacyName && l.agentName === legacyName)) {
+        return !l.seriesId || l.seriesId === seriesId
+      }
+
+      // Cas 2 : Leçon Global - On vérifie le domaine
+      if (l.agentName === 'Global') {
+        const category = l.category || 'logic'
+        const domain = (agentDomains as any)[category] || []
+        const isTargeted = domain.includes(agentName) || (legacyName && domain.includes(legacyName))
+
+        // Si la leçon est Global mais n'a pas de catégorie matchant l'agent, on l'ignore (Pollution Shield)
+        if (!isTargeted && category !== 'logic') return false // La catégorie 'logic' reste universelle par défaut
+        return !l.seriesId || l.seriesId === seriesId
+      }
+
+      return false
+    })
 
     // 2. Filtrage Contextuel Chirurgical
     const contextualLessons = filteredPool.filter((l) => {
+      // ... same as before
       // Filtrage par Genre
       if (context?.genres && l.genreScope && !l.genreScope.includes('any')) {
         const hasGenreMatch = context.genres.some((g) => l.genreScope?.includes(g))
@@ -222,14 +259,20 @@ export class LessonStore {
       return impact * confidence + momentum
     }
 
-    // 4. Tri Final
+    // 4. Tri et Troncature Top-K (V46)
+    const MAX_LESSONS_PER_CALL = 7
+    let finalSorted: Lesson[] = []
+
     if (tags && tags.length > 0) {
       const tagged = contextualLessons.filter((l) => l.tags?.some((t) => tags.includes(t)))
       const general = contextualLessons.filter((l) => !l.tags || l.tags.length === 0)
-      return [...new Set([...tagged, ...general])].sort((a, b) => getPriorityScore(b) - getPriorityScore(a))
+      finalSorted = [...new Set([...tagged, ...general])].sort((a, b) => getPriorityScore(b) - getPriorityScore(a))
+    } else {
+      finalSorted = contextualLessons.sort((a, b) => getPriorityScore(b) - getPriorityScore(a))
     }
 
-    return contextualLessons.sort((a, b) => getPriorityScore(b) - getPriorityScore(a))
+    // [V46] TOP-K SHIELD : On ne garde que les 7 meilleures leçons pour éviter les contradictions et la soupe d'intelligence
+    return finalSorted.slice(0, MAX_LESSONS_PER_CALL)
   }
 
   /**
@@ -277,15 +320,17 @@ export class LessonStore {
    * Récupère toutes les leçons.
    */
   getAllLessons(mode: 'stable' | 'all' = 'all'): Lesson[] {
-    if (mode === 'stable') return [...this.data.lessons]
-    return [...this.data.lessons, ...this.learningData.lessons]
+    const stable = this.data.lessons || []
+    const learning = this.learningData.lessons || []
+    if (mode === 'stable') return [...stable]
+    return [...stable, ...learning]
   }
 
   /**
    * Récupère les leçons du Cortex uniquement (Stable)
    */
   getStableLessons(): Lesson[] {
-    return [...this.data.lessons]
+    return [...(this.data.lessons || [])]
   }
 
   /**

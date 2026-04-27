@@ -37,7 +37,8 @@ export class VimaxSpectatorAgent extends VimaxBaseAgent {
   async analyzeSpectatorImpact(
     sceneMemories: SceneMemory[],
     audience?: AudienceProfile,
-    intent?: SagaIntent | string
+    intent?: SagaIntent | string,
+    previousEpisodesHistory: string[] = [] // [V49] Saga-Scale Memory
   ): Promise<{ state: SpectatorState; directive: RespirationDirective; cognition: SpectatorCognition }> {
     const genre = typeof intent !== 'string' ? intent?.genre || 'any' : 'any'
 
@@ -51,8 +52,11 @@ ${JSON.stringify(audience || {}, null, 2)}
 [CONTRAT DE GENRE]
 Genre dominant: ${genre}
 
-[SÉQUENCE DE SCÈNES (MÉMOIRE)]
+[SÉQUENCE DE SCÈNES (MÉMOIRE ÉPISODE)]
 ${sceneMemories.map((m, i) => `S${i + 1}: Tension ${m.tensionLevel}/10 | Res: ${m.resolutionStatus} | Context: ${m.sceneContext} | POV: ${m.povCharacter}`).join('\n')}
+
+[HISTORIQUE SAGA (MÉMOIRE LONG-TERME)]
+${previousEpisodesHistory.length > 0 ? previousEpisodesHistory.map((h, i) => `EP${i + 1}: ${h}`).join('\n') : 'Début de Saga.'}
 
 [OBJECTIF : THÉORIE DU LECTEUR]
 1. Évalue la SATURATION et la FATIGUE NARRATIVE.

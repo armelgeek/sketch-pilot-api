@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import type { GenerationResult, LearningEpisode } from '../types'
+import type { GenerationResult, LearningEpisode, SeriesContext } from '../types'
 import { LessonStore } from './lesson-store'
 import type { LLMService } from './llm.interface'
 import type { VimaxPlugin } from './vimax-plugin.interface'
@@ -111,22 +111,29 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     const startTime = Date.now()
     const prunedPrompt = this.enforceTokenBudget(prompt)
 
-    // Injection dynamique des leçons (Semantic Diffusion)
+    // [V55] IMMUTABLE INTELLIGENCE CONSUMPTION : On utilise le snapshot de l'épisode si disponible
     const store = LessonStore.getInstance()
-    await store.load()
-
     const promptTags = this.extractContextTags(prunedPrompt)
-    const learnedDirectives = store.formatDirectives(
-      this.id,
-      promptTags,
-      this.brainMode,
-      this.seriesId,
-      narrativeContext
-    )
+    let learnedDirectives = ''
+    let appliedLessonIds: string[] = []
 
-    // Pour l'analyse post-saga, on récupère les IDs des leçons appliquées
-    const contextRelevant = store.getLessonsFor(this.id, promptTags, this.brainMode, this.seriesId, narrativeContext)
-    const appliedLessonIds = contextRelevant.map((l) => l.id)
+    if (narrativeContext?.lessonSnapshot) {
+      // Injection rapide depuis la mémoire (Zero-Disc)
+      const snap = narrativeContext.lessonSnapshot as any[]
+
+      // Filtrage manuel du snapshot pour simuler formatDirectives sans lecture disque
+      const relevant = snap.filter(
+        (l) => (l.agentName === this.id || l.agentName === 'Global') && (!l.seriesId || l.seriesId === this.seriesId)
+      )
+      learnedDirectives = store.formatDirectives(this.id, promptTags, this.brainMode, this.seriesId, narrativeContext)
+      appliedLessonIds = relevant.map((l) => l.id)
+    } else {
+      // Fallback classique (avec lecture disque)
+      await store.load()
+      learnedDirectives = store.formatDirectives(this.id, promptTags, this.brainMode, this.seriesId, narrativeContext)
+      const contextRelevant = store.getLessonsFor(this.id, promptTags, this.brainMode, this.seriesId, narrativeContext)
+      appliedLessonIds = contextRelevant.map((l) => l.id)
+    }
 
     // Fusion des systèmes prompts : Base + Leçons + Plugins
     let finalSystem = system
@@ -180,9 +187,13 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
     }
 
     // [V48] Injection du Persona si défini
-    const systemInstruction = this.personality.rolePersona
+    let systemInstruction = this.personality.rolePersona
       ? `${finalSystem}\n\n[PERSONNALITÉ DE L'AGENT]\n${this.personality.rolePersona}`
       : finalSystem
+
+    if (mime === 'application/json' && !systemInstruction.toLowerCase().includes('json')) {
+      systemInstruction += '\n\n[FORMAT] : Your response must be a valid JSON object.'
+    }
 
     const raw = await this.llm.generateContent(prunedPrompt, systemInstruction, mime, images, {
       temperature: this.personality.temperature,
@@ -359,5 +370,67 @@ export abstract class VimaxBaseAgent implements VimaxPlugin {
       })
     }
     return tags
+  }
+
+  // ─── Shared Context Blocks ──────────────────
+
+  protected getGlobalScriptBlock(context: SeriesContext): string {
+    if (!context.globalScript) return ''
+    const truncated = context.globalScript.slice(0, 2000)
+    return `
+[SCRIPT GLOBAL DE LA SAGA — RÉFÉRENCE]
+${truncated}${context.globalScript.length > 2000 ? '\n[...]' : ''}
+`.trim()
+  }
+
+  protected getBlueprintBlock(context: SeriesContext): string {
+    const b = context.blueprint
+    if (!b || !b.premise) return ''
+    return `
+[BLUEPRINT NARRATIF V7.0]
+- THÈME : ${b.theme}
+- PRÉMISSE : ${b.premise}
+- CONTRAT AUDIENCE : ${b.audienceContract}
+`.trim()
+  }
+
+  protected getEpisodePlanBlock(context: SeriesContext): string {
+    const plan = context.plannedEpisodeContext
+    if (!plan) return ''
+    return `
+[PLAN ÉPISODE]
+- TITRE : ${plan.title || 'Inconnu'}
+- HOOK : ${plan.hook || 'Inconnu'}
+- FONCTION DRAMATIQUE : ${plan.dramaticFunction || 'N/A'}
+- ACTE : ${plan.actPosition || '1'}
+- TENSION CIBLE : ${plan.tensionTarget || 5}/10
+- RYTHME : ${plan.paceTarget || 'medium'}
+`.trim()
+  }
+
+  protected getScenePlanBlock(context: SeriesContext): string {
+    const plan = context.plannedSceneContext
+    if (!plan) return ''
+
+    let block = `\n[CHECKLIST VISUELLE DE LA SCÈNE ${plan.sceneNumber || '?'}]`
+    block += `\n- [ ] OBJECTIF MAJEUR : ${plan.objective || 'N/A'}`
+
+    if (plan.characterState) {
+      Object.entries(plan.characterState).forEach(([id, state]) => {
+        block += `\n- [ ] ÉTAT DE ${id} : ${state}`
+      })
+    }
+
+    if (plan.obligatory) {
+      block += `\n- [!] CONTRAINTE OBLIGATOIRE : ${plan.obligatory}`
+    }
+
+    if (plan.prepares) {
+      block += `\n- [ ] PRÉPARATION VISUELLE : ${plan.prepares}`
+    }
+
+    block += `\n\n[DIRECTIVE] Ton imagePrompt doit impérativement valider TOUS les points cochés [ ] ci-dessus.`
+
+    return block.trim()
   }
 }

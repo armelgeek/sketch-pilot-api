@@ -6,11 +6,12 @@ export interface VisualAnchorState {
   lastNarration?: string
   lastImagePrompt?: string
   pacing?: number
-  characterPositions?: Record<string, string>
+  characterPositions?: Record<string, string> // [DEPRECATED] Use characterRegistry/context instead
   worldState?: Record<string, string>
   dominantLight?: string
   cameraAxis?: any
   activeProps?: string[]
+  characterStates?: Record<string, string> // [V8.2] Physical and emotional state carry-over
 }
 
 export interface CharacterState {
@@ -254,6 +255,8 @@ export type DramaticFunction =
   | 'final_image'
   | 'stinger'
 
+export type SceneTransitionType = 'continuation' | 'transition' | 'rupture'
+
 export interface CharacterArcStep {
   atSceneIndex: number
   psychologicalState: string
@@ -312,7 +315,7 @@ export interface SagaPlan {
   intent: SagaIntent | string
   script: string
   basicIdea?: string
-  options?: any
+  options?: VimaxRunOptions
   blueprint?: NarrativeBlueprint
   episodes: Array<{
     episodeNumber: number
@@ -336,6 +339,7 @@ export interface SagaPlan {
       prepares: string
       cliffhanger?: string
       locationId?: string
+      locationContext?: string
       characters?: string[]
     }>
   }>
@@ -349,6 +353,7 @@ export interface SagaPlan {
   visualEvolution: Record<string, string>
   relationshipMap: Record<string, Record<string, string>>
   episodeEvents: VimaxEvent[]
+  lastRecalibration?: number // [V48]
 }
 
 export interface SeriesContext {
@@ -431,11 +436,13 @@ export interface VimaxScene {
   sceneNumber: number
   narration: string
   imagePrompt: string
+  visualBeat?: string
   duration: number
   startTime: number
   dialogue?: any[]
   animationPrompt?: string
   acting?: string
+  soundscape?: string // [V9.0] Cinematic Sound Design & SFX
   tensionState: {
     level: number
     label: string
@@ -444,6 +451,7 @@ export interface VimaxScene {
   cameraAction: any
   composition?: any
   locationId: string
+  locationContext?: string
   charactersInScene: string[]
   simulationPatch: {
     charactersPatch: Record<string, any>
@@ -454,6 +462,7 @@ export interface VimaxScene {
   pacing?: number
   paceWeight?: number
   isElliptical?: boolean
+  transitionType?: SceneTransitionType
 }
 
 export interface CharacterProfile {
@@ -468,6 +477,9 @@ export interface CharacterProfile {
   portrait_prompt?: string
   thumbnailUrl?: string
   traces?: CharacterTrace[]
+  arc_plan?: string // [V3.0] Trajectoire narrative simplifiée
+  narrative_memory?: string[] // [V3.0] Historique des faits vécus/vus
+  off_screen_state?: string // [V3.0] État pendant les ellipses
 }
 
 export interface CharacterTrace {
@@ -493,7 +505,8 @@ export interface CharacterVoiceHistory {
 export interface LocationState {
   id: string
   name: string
-  lastImagePrompt: string
+  baseVisualPrompt: string // [V32.0] Décor pur sans personnages
+  lastImagePrompt: string // [DEPRECATED] Ne pas utiliser comme référence
   atmosphere: string
   evolution: string
   currentState?: string
@@ -545,8 +558,11 @@ export interface VimaxEvent {
     cliffhanger?: string
     locationId?: string
     characters?: string[]
+    transitionType?: SceneTransitionType
   }>
+  transitionType?: SceneTransitionType
   isLast?: boolean
+  metadata?: any
 }
 
 export interface VimaxRunOptions {
@@ -589,16 +605,16 @@ export interface SceneMemory {
   sceneNumber: number
   summary: string
   lastAction: string
-  keyAction?: string
   tensionLevel: number
-  role?: string
-  lastDialogueBy?: string
+  charactersPresent: string[]
+  location: string
+  visualBeat?: string
+  imagePrompt?: string
+  framing?: string
   narrativePulse?: string
   resolutionStatus?: 'resolved' | 'escalated' | 'dangling'
   sceneContext?: string
-  charactersPresent: string[]
   locationId?: string
-  location?: string
   plotContract?: PlotContract
   locationStates?: LocationState[]
   characterStates?: CharacterState[]
@@ -654,7 +670,7 @@ export interface EvaluationReport {
   isValid: boolean
   issues: string[]
   critique?: string
-  source: 'auditor' | 'human' | 'system' | 'vision' | 'saga-sentinel' | 'vision_sleep'
+  source: 'auditor' | 'human' | 'system' | 'vision' | 'vision-multimodal' | 'saga-sentinel' | 'vision_sleep'
 }
 
 export interface Lesson {
@@ -714,6 +730,7 @@ export interface EpisodeBridge {
   missingCharacters: string[]
   activeObjects: string[]
   worldState: Record<string, string>
+  characterStates?: Record<string, string> // [V8.3] Persistent physical/emotional states across episodes
 }
 export interface SeriesBible {
   genre: string

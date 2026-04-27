@@ -33,7 +33,8 @@ Analyse le script fourni et extrais tous les lieux (locations) distincts.
 [DIRECTIVES]
 - Identifie chaque lieu par un nom concis et unique.
 - Pour chaque lieu, fournis une description atmosphérique et visuelle riche RESPECTANT LE STYLE LOCKÉ.
-- lastImagePrompt : Génère une description visuelle de base qui servira de référence pour ce lieu. Applique strictement le style (ex: si whiteboard, décris comme "dessin au tableau blanc").
+- baseVisualPrompt : [OBLIGATION] Décris uniquement le DÉCOR PUR (murs, lumière, objets fixes, climat). INTERDICTION de mentionner des personnages ou des actions mobiles ici.
+- lastImagePrompt : [DEPRECATED] Copie le baseVisualPrompt ici pour la compatibilité legacy.
 - Précise l'état actuel du lieu tel que décrit dans le script.
 
 [FORMAT]
@@ -44,7 +45,8 @@ Réponds UNIQUEMENT du JSON valide :
       "id": "nom-du-lieu-kebab-case",
       "name": "Nom du Lieu",
       "atmosphere": "...",
-      "lastImagePrompt": "...",
+      "baseVisualPrompt": "décor pur sans personnages sous forme de paragraphe descriptif...",
+      "lastImagePrompt": "IDEM que baseVisualPrompt...",
       "evolution": "...",
       "modifications": []
     }
